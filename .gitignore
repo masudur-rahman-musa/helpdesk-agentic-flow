@@ -16,8 +16,8 @@ node_modules/
 dist/
 build/
 
-# private — the candid docs never ship
-hidden.md
+# local working files
+notes.md
 REQUIREMENTS.md
 his.md
 pl/
