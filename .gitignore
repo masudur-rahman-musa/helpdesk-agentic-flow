@@ -1,0 +1,24 @@
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+node_modules/
+.next/
+dist/
+build/
+
+# private — the candid docs never ship
+hidden.md
+REQUIREMENTS.md
+his.md
+pl/
+plans/
