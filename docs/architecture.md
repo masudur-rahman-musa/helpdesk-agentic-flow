@@ -1,0 +1,3 @@
+# Architecture
+
+A Next.js front door where employees ask for access in plain language; a FastAPI agent service that extracts intent, retrieves the governing policy from Qdrant, and runs the turn as a LangGraph graph that pauses at approval gates; an MCP tool server that is the only path to any mutation, enforcing RBAC, idempotency and the audit chain; a deterministic policy engine (pure Python) that decides risk class and auto/approval/blocked; a scheduler for expiries, reviews and leaver sweeps; Postgres, Redis and Qdrant underneath. Every model call goes through the companion gateway (ai-operations-console). A diagram lands at the first milestone; the request lifecycle and grant state machine go in docs/diagrams/.
