@@ -1,0 +1,25 @@
+[project]
+name = "agent-api"
+version = "0.1.0"
+description = "Helpdesk agent API service"
+requires-python = ">=3.12"
+dependencies = [
+    "helpdesk",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "redis>=5.2",
+    "qdrant-client>=1.12",
+]
+
+[build-system]
+requires = ["uv_build>=0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "agent_api"
+module-root = ""
+
+[tool.uv.sources]
+helpdesk = { workspace = true }

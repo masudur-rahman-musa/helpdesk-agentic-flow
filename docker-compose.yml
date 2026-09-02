@@ -1,17 +1,41 @@
-# One command brings up the whole local stack: `docker compose up -d`.
-# ADAPT services to the stack. Never real secrets here; read from .env.
+# Local infrastructure only: `docker compose up -d`.
+# App services run via uv on the host until they ship containers.
+# Credentials come from .env (compose reads it for ${...} substitution).
 services:
-  app:
-    build: .
-    env_file: .env
-    ports: ["8000:8000"]
-    depends_on: [db]
-  db:
-    image: postgres:16   # ADAPT
+  postgres:
+    image: postgres:16.6-alpine
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: app
-    volumes: ["dbdata:/var/lib/postgresql/data"]
+      POSTGRES_USER: ${POSTGRES_USER:?copy .env.example to .env first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env first}
+      POSTGRES_DB: ${POSTGRES_DB:?copy .env.example to .env first}
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports: ["6333:6333"]
+    volumes: ["qdrantdata:/qdrant/storage"]
+    healthcheck:
+      # The qdrant image ships no curl/wget; probe the TCP port via bash.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
-  dbdata:
+  pgdata:
+  qdrantdata:

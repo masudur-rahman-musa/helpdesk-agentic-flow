@@ -1,0 +1,36 @@
+"""Agent API service. Only health endpoints until row 19."""
+
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from agent_api import readiness
+
+app = FastAPI(title="agent-api")
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    checks: dict[str, bool]
+
+
+@app.get("/healthz")
+async def healthz() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+@app.get("/readyz", response_model=ReadinessResponse)
+async def readyz() -> JSONResponse:
+    # Called via the module attribute so tests can fake individual checks.
+    checks = {
+        "postgres": await readiness.check_postgres(),
+        "redis": await readiness.check_redis(),
+        "qdrant": await readiness.check_qdrant(),
+    }
+    ready = all(checks.values())
+    body = ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)
+    return JSONResponse(status_code=200 if ready else 503, content=body.model_dump())

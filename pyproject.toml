@@ -3,7 +3,14 @@ name = "ai-help-desk-governed-access"
 version = "0.1.0"
 description = "AI helpdesk with governed access"
 requires-python = ">=3.12"
-dependencies = ["helpdesk"]
+dependencies = [
+    "helpdesk",
+    "agent-api",
+    "mcp-server",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+]
 
 [dependency-groups]
 dev = [
@@ -12,13 +19,16 @@ dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
     "pre-commit>=4.0",
+    "httpx>=0.28",
 ]
 
 [tool.uv.workspace]
-members = ["packages/helpdesk"]
+members = ["packages/helpdesk", "services/agent-api", "services/mcp-server"]
 
 [tool.uv.sources]
 helpdesk = { workspace = true }
+agent-api = { workspace = true }
+mcp-server = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"
@@ -30,14 +40,24 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 strict = true
-files = ["packages"]
+files = ["packages", "services"]
+
+# Settings(_env_file=None) is valid at runtime; mypy's synthesized pydantic
+# __init__ rejects it. Scoped to the settings tests only.
+[[tool.mypy.overrides]]
+module = "test_settings"
+disable_error_code = ["call-arg"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/helpdesk/tests"]
+testpaths = [
+    "packages/helpdesk/tests",
+    "services/agent-api/tests",
+    "services/mcp-server/tests",
+]
 addopts = "-q"
 
 [tool.coverage.run]
-source = ["helpdesk"]
+source = ["helpdesk", "agent_api", "mcp_server"]
 
 [tool.coverage.report]
 show_missing = true

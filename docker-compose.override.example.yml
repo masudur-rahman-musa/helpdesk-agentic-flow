@@ -1,0 +1,7 @@
+# Copy to docker-compose.override.yml for local tweaks; compose merges it
+# automatically. Example: remap host ports that clash with something local.
+services:
+  postgres:
+    ports: ["55432:5432"]
+  qdrant:
+    ports: ["16333:6333"]
