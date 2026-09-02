@@ -2,6 +2,7 @@ import asyncio
 from logging.config import fileConfig
 
 from helpdesk.core.settings import load_settings
+from helpdesk.models import Base
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -13,8 +14,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Model metadata arrives at row 03; until then migrations are hand-written.
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

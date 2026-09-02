@@ -5,7 +5,7 @@ setup:      ## Install dependencies and pre-commit hooks
 	uv sync && uv run pre-commit install
 run:        ## Run the project locally
 	docker compose up -d && uv run uvicorn agent_api.main:app --reload
-test:       ## Run tests with the coverage gate
+test:       ## Run tests with the coverage gate (needs the compose Postgres: docker compose up -d)
 	uv run pytest -q --cov=helpdesk --cov=agent_api --cov=mcp_server --cov-fail-under=80
 lint:       ## Lint
 	uv run ruff check .
