@@ -1,0 +1,43 @@
+[project]
+name = "ai-help-desk-governed-access"
+version = "0.1.0"
+description = "AI helpdesk with governed access"
+requires-python = ">=3.12"
+dependencies = ["helpdesk"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12",
+    "mypy>=1.14",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pre-commit>=4.0",
+]
+
+[tool.uv.workspace]
+members = ["packages/helpdesk"]
+
+[tool.uv.sources]
+helpdesk = { workspace = true }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+files = ["packages"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/helpdesk/tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["helpdesk"]
+
+[tool.coverage.report]
+show_missing = true
