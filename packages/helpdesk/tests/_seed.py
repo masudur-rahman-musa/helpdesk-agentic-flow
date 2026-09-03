@@ -52,6 +52,7 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "sod_rules",
     "grants",
     "tickets",
+    "audit_events",  # an earlier change
 )
 ALL_TABLES: tuple[str, ...] = ("tenants", *TENANT_SCOPED_TABLES)
 

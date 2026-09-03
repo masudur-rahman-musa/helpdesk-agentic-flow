@@ -42,6 +42,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from agent_api import auth_routes
 from agent_api.main import app
 from helpdesk.auth.jwt import TokenClaims, verify_token
 from helpdesk.auth.passwords import hash_password
@@ -403,3 +404,155 @@ def test_every_documented_demo_account_can_log_in(login_env: SeededLogin) -> Non
         assert claims.tenant_id == tenant_id
         assert slug == account.tenant_slug
         assert account.principal in claims.principals
+
+
+# --- an earlier change: login writes audit events ---------------------------------------
+#
+# Expected implementation surface: `agent_api.auth_routes` appends one
+# `auth.login` event on success and one `auth.failed` event on a refusal whose
+# tenant slug resolved, both through `helpdesk.audit.writer.append_event`
+# imported into the route module as `append_event` (so it can be faked below).
+# An unknown tenant slug has no chain to append to and writes nothing (an earlier change
+# decision E). A failing audit write fails the login with a typed 500 (decision
+# F): the log is a guarantee, not telemetry.
+
+
+@dataclass(frozen=True)
+class AuditRow:
+    seq: int
+    event_type: str
+    actor_ref: str | None
+    payload: str
+
+
+def _audit_rows(database_url: str, tenant_slug: str) -> list[AuditRow]:
+    """That tenant's audit events in seq order, read with raw SQL (no ORM guard)."""
+
+    async def _run() -> list[AuditRow]:
+        engine = create_engine(database_url)
+        try:
+            async with engine.connect() as conn:
+                rows = await conn.execute(
+                    text(
+                        "SELECT ae.seq, ae.event_type, ae.actor_ref, ae.payload::text "
+                        "FROM audit_events ae JOIN tenants t ON t.id = ae.tenant_id "
+                        "WHERE t.slug = :slug ORDER BY ae.seq"
+                    ),
+                    {"slug": tenant_slug},
+                )
+                return [
+                    AuditRow(
+                        seq=int(row[0]),
+                        event_type=str(row[1]),
+                        actor_ref=None if row[2] is None else str(row[2]),
+                        payload=str(row[3]),
+                    )
+                    for row in rows
+                ]
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_run())
+
+
+def _audit_count_all(database_url: str) -> int:
+    async def _run() -> int:
+        engine = create_engine(database_url)
+        try:
+            async with engine.connect() as conn:
+                return int(
+                    (await conn.execute(text("SELECT count(*) FROM audit_events"))).scalar_one()
+                )
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_run())
+
+
+def test_successful_login_writes_one_auth_login_event(login_env: SeededLogin) -> None:
+    account = _demo_account("nordlicht", "employee")
+    user_id, _tenant_id, _dept, _principals, _slug = _seeded_user(
+        login_env.database_url, account.email
+    )
+    before = _audit_rows(login_env.database_url, account.tenant_slug)
+
+    response = _post_login(account.tenant_slug, account.email, account.password)
+    assert response.status_code == 200, response.text
+
+    after = _audit_rows(login_env.database_url, account.tenant_slug)
+    assert len(after) == len(before) + 1, "exactly one event per login"
+    event = after[-1]
+    assert event.event_type == "auth.login"
+    assert event.actor_ref == user_id
+
+
+def test_failed_login_with_a_known_tenant_writes_auth_failed(login_env: SeededLogin) -> None:
+    account = _demo_account("nordlicht", "employee")
+    before = _audit_rows(login_env.database_url, account.tenant_slug)
+
+    response = _post_login(account.tenant_slug, account.email, "Wrong-Password-2026!")
+    assert response.status_code == 401
+
+    after = _audit_rows(login_env.database_url, account.tenant_slug)
+    assert len(after) == len(before) + 1
+    assert after[-1].event_type == "auth.failed"
+
+
+def test_failed_login_event_leaks_no_credentials_in_its_payload(login_env: SeededLogin) -> None:
+    account = _demo_account("nordlicht", "employee")
+    attempted_password = "Another-Wrong-Password-2026!"
+
+    response = _post_login(account.tenant_slug, account.email, attempted_password)
+    assert response.status_code == 401
+
+    payload = _audit_rows(login_env.database_url, account.tenant_slug)[-1].payload.lower()
+    assert attempted_password.lower() not in payload, "the attempted password must never be stored"
+    assert "password" not in payload
+    assert account.email.lower() not in payload, "no identity beyond the row schema's fields"
+
+
+def test_unknown_tenant_slug_writes_no_event_anywhere(login_env: SeededLogin) -> None:
+    """No tenant, no chain to append to: the attempt is unauditable by design."""
+    before = _audit_count_all(login_env.database_url)
+
+    response = _post_login("no-such-tenant", "nobody.here@nordlicht.example", "Any-Password-1!")
+    assert response.status_code == 401
+
+    assert _audit_count_all(login_env.database_url) == before
+
+
+def test_logins_keep_the_tenant_chain_verifiable(login_env: SeededLogin) -> None:
+    account = _demo_account("cuan", "employee")
+
+    for _ in range(3):
+        assert _post_login(account.tenant_slug, account.email, account.password).status_code == 200
+    assert (
+        _post_login(account.tenant_slug, account.email, "Wrong-Password-2026!").status_code == 401
+    )
+
+    rows = _audit_rows(login_env.database_url, account.tenant_slug)
+    seqs = [row.seq for row in rows]
+    assert seqs == sorted(seqs)
+    assert rows[-1].event_type == "auth.failed"
+    assert [row.event_type for row in rows[-4:-1]] == ["auth.login"] * 3
+
+
+def test_audit_write_failure_fails_the_login_with_500(
+    login_env: SeededLogin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A login must never succeed unaudited."""
+    account = _demo_account("nordlicht", "it_admin")
+    before = _audit_count_all(login_env.database_url)
+
+    async def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("audit insert failed")
+
+    monkeypatch.setattr(auth_routes, "append_event", boom)
+
+    response = _post_login(account.tenant_slug, account.email, account.password)
+
+    assert response.status_code == 500, response.text
+    body = response.json()
+    assert body == {"code": "INTERNAL"}
+    assert "access_token" not in body
+    assert _audit_count_all(login_env.database_url) == before

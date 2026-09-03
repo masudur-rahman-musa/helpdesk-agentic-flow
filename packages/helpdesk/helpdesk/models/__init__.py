@@ -1,5 +1,6 @@
-"""Directory-core ORM models."""
+"""ORM models: directory core and the audit chain."""
 
+from helpdesk.models.audit import AuditEvent
 from helpdesk.models.base import Base, TenantScoped
 from helpdesk.models.directory import (
     Department,
@@ -14,6 +15,7 @@ from helpdesk.models.directory import (
 )
 
 __all__ = [
+    "AuditEvent",
     "Base",
     "Department",
     "Grant",

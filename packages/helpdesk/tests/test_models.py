@@ -1,7 +1,8 @@
 """An earlier change acceptance: model metadata shape, schema round-trip, migration parity.
 
 Covers:
-- exactly the nine directory-core tables exist (scope decision A: core only)
+- exactly the declared tables exist: the nine directory-core ones (scope
+  decision A: core only) plus ``audit_events`` from an earlier change
 - every table: single UUID pk ``id``, ``created_at``, ``updated_at`` (server-set)
 - every tenant-scoped table: ``tenant_id`` FK to tenants + composite index led by it
 - create_all schema round-trips one row per table through tenant-bound sessions
@@ -39,7 +40,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_metadata_contains_exactly_the_nine_core_tables() -> None:
+def test_metadata_contains_exactly_the_declared_tables() -> None:
     assert set(Base.metadata.tables) == set(ALL_TABLES)
 
 

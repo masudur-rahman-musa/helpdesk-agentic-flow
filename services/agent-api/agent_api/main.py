@@ -1,14 +1,16 @@
-"""Agent API service. Health endpoints and login; sessions land at row 19."""
+"""Agent API service. Health, login, audit verify; sessions land at row 19."""
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from agent_api import readiness
+from agent_api.admin_routes import router as admin_router
 from agent_api.auth_routes import router as auth_router
 
 app = FastAPI(title="agent-api")
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 
 class HealthResponse(BaseModel):
