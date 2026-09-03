@@ -17,8 +17,8 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from helpdesk.auth.jwt import issue_token
 from helpdesk.auth.passwords import hash_password, verify_password
-from helpdesk.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.core.repository import Repository, find_tenant_by_slug
+from helpdesk.core.db import create_session_factory, shared_engine, tenant_session
+from helpdesk.core.repository import find_tenant_by_slug, find_user_by_email
 from helpdesk.core.settings import load_settings
 from helpdesk.models import User
 from pydantic import BaseModel
@@ -49,20 +49,13 @@ def _refuse() -> JSONResponse:
 
 
 async def _find_user(database_url: str, tenant_slug: str, email: str) -> User | None:
-    engine = create_engine(database_url)
-    try:
-        factory = create_session_factory(engine)
-        async with factory() as session:
-            tenant = await find_tenant_by_slug(session, tenant_slug)
-        if tenant is None:
-            return None
-        async with tenant_session(factory, tenant.id) as session:
-            # Seeded tenants are small; a find-by-email repository helper can
-            # land with the RBAC row if this ever shows up in a profile.
-            users = await Repository(session, User).list()
-        return next((user for user in users if user.email == email), None)
-    finally:
-        await engine.dispose()
+    factory = create_session_factory(shared_engine(database_url))
+    async with factory() as session:
+        tenant = await find_tenant_by_slug(session, tenant_slug)
+    if tenant is None:
+        return None
+    async with tenant_session(factory, tenant.id) as session:
+        return await find_user_by_email(session, email)
 
 
 @router.post("/auth/login", response_model=LoginResponse)

@@ -12,9 +12,11 @@ writes stay tenant-correct by convention: services only touch the DB
 through the repository helpers, which stamp the bound tenant themselves.
 """
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from weakref import WeakKeyDictionary
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
@@ -40,6 +42,29 @@ def create_engine(database_url: str) -> AsyncEngine:
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+_SHARED_ENGINES: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, AsyncEngine]] = (
+    WeakKeyDictionary()
+)
+
+
+def shared_engine(database_url: str) -> AsyncEngine:
+    """A process-shared engine for the running event loop.
+
+    Keyed by (event loop, URL) because asyncpg's pooled connections bind to
+    the loop that created them: under a server that is one engine per
+    process, while a test that drives each request through its own
+    `asyncio.run` gets a per-loop engine instead of a poisoned pool. Entries
+    drop with their loop (WeakKeyDictionary); nothing needs disposing by hand.
+    """
+    loop = asyncio.get_running_loop()
+    engines = _SHARED_ENGINES.setdefault(loop, {})
+    engine = engines.get(database_url)
+    if engine is None:
+        engine = create_engine(database_url)
+        engines[database_url] = engine
+    return engine
 
 
 @asynccontextmanager

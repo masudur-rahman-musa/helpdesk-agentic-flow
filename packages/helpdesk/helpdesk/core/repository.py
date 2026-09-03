@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.core.db import bound_tenant_id
-from helpdesk.models import Tenant, TenantScoped
+from helpdesk.models import Tenant, TenantScoped, User
 
 
 async def find_tenant_by_slug(session: AsyncSession, slug: str) -> Tenant | None:
@@ -26,6 +26,17 @@ async def find_tenant_by_slug(session: AsyncSession, slug: str) -> Tenant | None
     their own queries (login resolves the slug before any tenant is bound).
     """
     result = await session.execute(select(Tenant).where(Tenant.slug == slug))
+    return result.scalars().one_or_none()
+
+
+async def find_user_by_email(session: AsyncSession, email: str) -> User | None:
+    """The bound tenant's user with this email, or None.
+
+    Takes a `tenant_session`: the session guard injects the tenant filter,
+    so a matching email in another tenant behaves as not-found. Lives here
+    so login (and later rows) never build their own query.
+    """
+    result = await session.execute(select(User).where(User.email == email))
     return result.scalars().one_or_none()
 
 
