@@ -10,6 +10,9 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
     "alembic>=1.14",
+    # Pinned exactly: seeded Faker output must not drift between versions
+    #.
+    "faker==40.38.0",
 ]
 
 [dependency-groups]
@@ -40,7 +43,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 strict = true
-files = ["packages", "services"]
+files = ["packages", "services", "scripts"]
 
 # Settings(_env_file=None) is valid at runtime; mypy's synthesized pydantic
 # __init__ rejects it. Scoped to the settings tests only.

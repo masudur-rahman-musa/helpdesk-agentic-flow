@@ -20,8 +20,10 @@ inside that one loop.
 """
 
 import asyncio
+import sys
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from helpdesk.core.settings import load_settings
@@ -29,6 +31,12 @@ from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
+
+# An earlier change: make `scripts/` at the repo root importable (`from scripts.seed import ...`).
+# Conftest runs before any test module import, so this is safe here.
+_REPO_ROOT = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 _UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
