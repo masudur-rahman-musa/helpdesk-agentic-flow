@@ -40,6 +40,10 @@ extend-exclude = [".claude"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# Report unused imports but never auto-delete them: the format hook runs after
+# every edit, and autofix kept stripping imports added one edit before their
+# first usage (the project notes 2026-09-03 and 2026-09-04).
+unfixable = ["F401"]
 
 [tool.mypy]
 strict = true
