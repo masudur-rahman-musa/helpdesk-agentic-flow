@@ -15,7 +15,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.core.db import bound_tenant_id
-from helpdesk.models import TenantScoped
+from helpdesk.models import Tenant, TenantScoped
+
+
+async def find_tenant_by_slug(session: AsyncSession, slug: str) -> Tenant | None:
+    """Resolve a tenant by its slug, or None.
+
+    Tenants are the scoping root, not tenant-scoped rows, so `Repository`
+    cannot fetch them; this helper exists so services still never build
+    their own queries (login resolves the slug before any tenant is bound).
+    """
+    result = await session.execute(select(Tenant).where(Tenant.slug == slug))
+    return result.scalars().one_or_none()
+
 
 # Set by the session/mixin, never by callers: accepting them in **fields
 # would let an update move a row across tenants behind the query guard.

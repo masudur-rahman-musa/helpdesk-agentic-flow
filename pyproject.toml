@@ -61,6 +61,9 @@ addopts = "-q"
 
 [tool.coverage.run]
 source = ["helpdesk", "agent_api", "mcp_server"]
+# SQLAlchemy async drives queries through greenlets; without this, coverage
+# loses the trace in any coroutine after its first awaited DB call.
+concurrency = ["greenlet"]
 
 [tool.coverage.report]
 show_missing = true

@@ -1,10 +1,7 @@
-"""Argon2id password hashing (SPEC-locked algorithm choice).
-
-Verification lands with the login flow in a later row; only hashing is
-needed to seed accounts.
-"""
+"""Argon2id password hashing and verification."""
 
 from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
 from argon2.low_level import Type, hash_secret
 
 _hasher = PasswordHasher()
@@ -29,3 +26,15 @@ def hash_password(password: str, *, salt: bytes | None = None) -> str:
         hash_len=_hasher.hash_len,
         type=Type.ID,
     ).decode()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """True iff `password` matches `password_hash`.
+
+    Returns False (never raises) on a mismatch or a malformed/foreign hash,
+    so the login path has exactly one failure shape.
+    """
+    try:
+        return _hasher.verify(password_hash, password)
+    except (VerificationError, InvalidHashError):
+        return False
