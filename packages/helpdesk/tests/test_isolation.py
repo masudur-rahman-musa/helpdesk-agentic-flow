@@ -149,3 +149,27 @@ def test_unbound_query_on_non_scoped_model_is_allowed(temp_db_url: str) -> None:
                 assert seeded.tenant_id in {row.id for row in rows}
 
     asyncio.run(scenario())
+
+
+def test_the_engine_carries_the_pinned_connect_timeout() -> None:
+    """Every engine in the project comes from `create_engine`, so a blackholed
+    Postgres has exactly one place it can be stopped from hanging a request.
+
+    Asserted on the engine that is actually built, at the exact value: a
+    timeout that is merely "set" says nothing about whether it is 10 seconds
+    or 10 minutes.
+    """
+    from helpdesk.core import db
+
+    captured: dict[str, Any] = {}
+
+    def fake_create_async_engine(url: str, **kwargs: Any) -> object:
+        captured.update(kwargs)
+        return object()
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(db, "create_async_engine", fake_create_async_engine)
+        db.create_engine("postgresql+asyncpg://u:p@127.0.0.1:9/db")
+
+    assert db.CONNECT_TIMEOUT_SECONDS == 10
+    assert captured["connect_args"] == {"timeout": 10}

@@ -12,11 +12,12 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, Delete, delete, select
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import CursorResult, Delete, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.core.db import bound_tenant_id
-from helpdesk.models import IdempotencyKey, Tenant, TenantScoped, User
+from helpdesk.models import Grant, IdempotencyKey, Role, System, Tenant, TenantScoped, User
 
 
 async def find_tenant_by_slug(session: AsyncSession, slug: str) -> Tenant | None:
@@ -39,6 +40,91 @@ async def find_user_by_email(session: AsyncSession, email: str) -> User | None:
     """
     result = await session.execute(select(User).where(User.email == email))
     return result.scalars().one_or_none()
+
+
+async def find_user_by_id(session: AsyncSession, user_id: uuid.UUID) -> User | None:
+    """The bound tenant's user with this id, or None.
+
+    A user id belonging to another tenant reads as not-found, because the
+    session guard adds the tenant filter: the id is not a capability. Pinned
+    by `test_mcp_read_tools.py::test_a_tenant_b_token_cannot_read_a_tenant_a_user`.
+    """
+    result = await session.execute(select(User).where(User.id == user_id))
+    return result.scalars().one_or_none()
+
+
+ACTIVE_GRANT_STATUS = "active"
+"""The one `grants.status` value that can still be a live grant."""
+
+
+class ActiveGrant(BaseModel):
+    """One live grant, with the role and system named rather than referenced.
+
+    A Pydantic model rather than a row tuple because this crosses a layer
+    boundary (the MCP `list_my_access` tool renders it straight out), and
+    ids alone would force every caller to re-read the directory.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    grant_id: uuid.UUID
+    role_slug: str
+    role_name: str
+    privilege: str
+    system_slug: str
+    system_name: str
+    granted_at: datetime
+    expires_at: datetime | None
+
+
+async def list_active_grants_for_user(
+    session: AsyncSession, user_id: uuid.UUID, now: datetime
+) -> Sequence[ActiveGrant]:
+    """The bound tenant's live grants for one user, by system then role slug.
+
+    The order is alphabetical, not chronological: a stable order a reader can
+    scan, pinned by
+    `test_mcp_read_tools.py::test_active_grants_come_back_in_system_then_role_order`.
+    Nothing here promises "most recent first"; a caller that wants that sorts
+    on `granted_at` itself.
+
+    "Live" is three conjuncts, all of them here rather than in the caller:
+    the status is `active`, nothing revoked it, and either it never expires
+    or `expires_at` is still ahead. `expires_at` names the first instant the
+    grant is gone, so the comparison is strict `>`; the microsecond pair in
+    `test_mcp_read_tools.py::test_the_expiry_boundary_is_exclusive_at_expires_at`
+    pins that, and one hidden fixture row per conjunct means dropping any one
+    of the three fails a named case.
+
+    Whole entities are selected, not columns: the tenant guard in
+    `helpdesk.core.db` injects its filter per mapped entity, so every one of
+    the three tables is scoped by the session rather than by this `where`.
+    """
+    result = await session.execute(
+        select(Grant, Role, System)
+        .join(Role, Role.id == Grant.role_id)
+        .join(System, System.id == Role.system_id)
+        .where(
+            Grant.user_id == user_id,
+            Grant.status == ACTIVE_GRANT_STATUS,
+            Grant.revoked_at.is_(None),
+            or_(Grant.expires_at.is_(None), Grant.expires_at > now),
+        )
+        .order_by(System.slug, Role.slug)
+    )
+    return [
+        ActiveGrant(
+            grant_id=grant.id,
+            role_slug=role.slug,
+            role_name=role.name,
+            privilege=role.privilege,
+            system_slug=system.slug,
+            system_name=system.name,
+            granted_at=grant.granted_at,
+            expires_at=grant.expires_at,
+        )
+        for grant, role, system in result.all()
+    ]
 
 
 # Set by the session/mixin, never by callers: accepting them in **fields

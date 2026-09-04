@@ -29,6 +29,7 @@ from helpdesk.auth.rbac import RbacDenied, UnknownToolError
 from helpdesk.errors import (
     ErrorCode,
     IdempotencyConflictError,
+    NotFoundError,
     ToolDisabledError,
     ToolError,
 )
@@ -66,6 +67,9 @@ TYPED_ERRORS: tuple[tuple[type[ToolError], str], ...] = (
     (SwitchUnavailableError, "INTERNAL"),
     # An earlier change: a scope, tool name, reason or actor this module cannot store.
     (InvalidSwitchTargetError, "VALIDATION"),
+    # An earlier change: the row is not in the caller's tenant. One answer for "another
+    # tenant owns it" and "nobody owns it", so not-found is not an oracle.
+    (NotFoundError, "NOT_FOUND"),
 )
 
 

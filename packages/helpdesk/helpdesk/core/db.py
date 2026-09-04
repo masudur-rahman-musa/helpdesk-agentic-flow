@@ -36,8 +36,20 @@ class UnboundTenantQueryError(RuntimeError):
     """An ORM query touched a tenant-scoped model with no tenant bound."""
 
 
+CONNECT_TIMEOUT_SECONDS = 10
+"""How long a new connection may take to establish.
+
+Every engine in the project comes from here, so this is the one place a
+blackholed Postgres (packets dropped rather than refused) can be stopped
+from hanging a request forever. Only the connect half is set: a statement
+timeout here would also cut legitimate long reads, such as the audit
+verifier walking a whole tenant chain, so the read half is named as owed in
+STATUS rather than guessed at. Pinned by
+`test_isolation.py::test_the_engine_carries_the_pinned_connect_timeout`."""
+
+
 def create_engine(database_url: str) -> AsyncEngine:
-    return create_async_engine(database_url)
+    return create_async_engine(database_url, connect_args={"timeout": CONNECT_TIMEOUT_SECONDS})
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
@@ -56,7 +68,9 @@ def shared_engine(database_url: str) -> AsyncEngine:
     the loop that created them: under a server that is one engine per
     process, while a test that drives each request through its own
     `asyncio.run` gets a per-loop engine instead of a poisoned pool. Entries
-    drop with their loop (WeakKeyDictionary); nothing needs disposing by hand.
+    drop with their loop (WeakKeyDictionary), but dropping an engine does not
+    close the connections it pooled: a process that retires event loops must
+    call `dispose_shared_engines` from inside each one before it ends.
     """
     loop = asyncio.get_running_loop()
     engines = _SHARED_ENGINES.setdefault(loop, {})
@@ -65,6 +79,20 @@ def shared_engine(database_url: str) -> AsyncEngine:
         engine = create_engine(database_url)
         engines[database_url] = engine
     return engine
+
+
+async def dispose_shared_engines() -> None:
+    """Dispose and forget the running loop's shared engines.
+
+    A server has one loop for the life of the process and never needs this.
+    A test that drives each call through its own `asyncio.run` does: the
+    engine's pooled connections belong to a loop that is about to die, and
+    nothing else will ever close them, so a long suite walks Postgres into
+    `TooManyConnectionsError` and every later test reads as a tool failure.
+    """
+    loop = asyncio.get_running_loop()
+    for engine in _SHARED_ENGINES.pop(loop, {}).values():
+        await engine.dispose()
 
 
 @asynccontextmanager

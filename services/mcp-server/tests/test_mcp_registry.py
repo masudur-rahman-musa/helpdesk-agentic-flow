@@ -1,0 +1,227 @@
+"""An earlier change, section 1 criterion 8, section 6: the registry's own bounds.
+
+Surface under test (written before it exists):
+
+``mcp_server.registry``
+    ``ToolSpec[I: BaseModel, O: BaseModel]`` — frozen dataclass carrying
+    ``name`` (the wire name), ``tool: rbac.Tool``, ``description``,
+    ``input_model``, ``output_model``, ``event_type``, ``mutating`` and
+    ``handler``.
+    ``REGISTRY: Mapping[str, ToolSpec[Any, Any]]`` keyed by wire name.
+    ``lookup(name) -> ToolSpec[Any, Any]``, raising ``rbac.UnknownToolError``
+    (code ``INTERNAL``) for a name that is not registered.
+    ``DENIED_EVENT_TYPE``, ``DISABLED_EVENT_TYPE``, ``FAILED_EVENT_TYPE`` —
+    the event types the pipeline writes for the non-success cases.
+
+a project rule: a client-supplied string that lands in a store gets a typed
+pre-check against the store's own constant, and a test asserts the INCLUSIVE
+boundary. Two stores here:
+
+* Redis, which has no length limit at all, so ``TOOL_NAME_MAX_LENGTH`` in
+  ``helpdesk/killswitch/switch.py`` is the only backstop. A registered name
+  it would refuse is a tool nobody can stop.
+* ``audit_events.event_type``, a sized column. A declared event type it would
+  truncate is a call nobody can log. The width is read off the column, never
+  retyped as a literal, so widening one without the other fails here.
+
+No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
+"""
+
+import asyncio
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+import pytest
+from helpdesk.audit.writer import AuditEventInput, append_event
+from helpdesk.auth import rbac
+from helpdesk.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.errors import ErrorCode
+from helpdesk.killswitch import (
+    GLOBAL,
+    GLOBAL_SEGMENT,
+    KEY_PREFIX,
+    TOOL_NAME_MAX_LENGTH,
+    TOOL_NAME_PATTERN,
+    InvalidSwitchTargetError,
+    key_for,
+)
+from helpdesk.models import AuditEvent
+from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+    SeededMcp,
+    bearer,
+    call_tool,
+    error_code,
+    mcp_env,
+    mcp_pg,
+    mcp_redis_base_url,
+    mcp_redis_url,
+    seeded_mcp_db,
+    token_for,
+)
+from mcp_server import registry
+from mcp_server.registry import REGISTRY, lookup
+from redis.asyncio import Redis
+from sqlalchemy import String
+from sqlalchemy.exc import DBAPIError
+
+# Read off the column, not retyped: the check and the storage must be the same
+# number by construction.
+_EVENT_TYPE_TYPE = AuditEvent.__table__.c.event_type.type
+assert isinstance(_EVENT_TYPE_TYPE, String), _EVENT_TYPE_TYPE
+assert _EVENT_TYPE_TYPE.length is not None, "audit_events.event_type must be a sized column"
+AUDIT_EVENT_TYPE_LENGTH: int = _EVENT_TYPE_TYPE.length
+
+# Every event type the pipeline can write, success and non-success alike.
+ALL_EVENT_TYPES: tuple[str, ...] = (
+    *sorted({spec.event_type for spec in REGISTRY.values()}),
+    registry.DENIED_EVENT_TYPE,
+    registry.DISABLED_EVENT_TYPE,
+    registry.FAILED_EVENT_TYPE,
+)
+
+UNREGISTERED_NAME = "no_such_tool_registered_here"
+
+
+def test_the_audit_event_type_column_is_exactly_64_characters_wide() -> None:
+    """Pinned exactly: the boundary pair below is only
+    meaningful if the width it is derived from is itself pinned."""
+    assert AUDIT_EVENT_TYPE_LENGTH == 64
+    assert TOOL_NAME_MAX_LENGTH == 64
+
+
+# --- every registered name is a valid kill-switch target ----------------------
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY))
+def test_every_registered_name_is_a_valid_killswitch_target(name: str) -> None:
+    """A name `key_for` refuses is a tool an operator cannot stop."""
+    assert len(name) <= TOOL_NAME_MAX_LENGTH
+    assert TOOL_NAME_PATTERN.fullmatch(name) is not None
+    assert key_for(GLOBAL, name) == f"{KEY_PREFIX}:{GLOBAL_SEGMENT}:{name}"
+
+
+def test_the_tool_name_length_boundary_is_inclusive_at_64() -> None:
+    """The pass/fail pair: 64 is accepted, 65 is refused. A one-sided
+    assertion cannot tell an inclusive bound from an exclusive one."""
+    at_limit = "a" * TOOL_NAME_MAX_LENGTH
+    over_limit = "a" * (TOOL_NAME_MAX_LENGTH + 1)
+    assert len(at_limit) == 64
+    assert len(over_limit) == 65
+
+    assert key_for(GLOBAL, at_limit) == f"{KEY_PREFIX}:{GLOBAL_SEGMENT}:{at_limit}"
+    with pytest.raises(InvalidSwitchTargetError):
+        key_for(GLOBAL, over_limit)
+
+
+# --- every declared event type fits the column it is stored in ----------------
+
+
+@pytest.mark.parametrize("event_type", ALL_EVENT_TYPES)
+def test_every_declared_event_type_fits_the_audit_column(event_type: str) -> None:
+    assert len(event_type) <= AUDIT_EVENT_TYPE_LENGTH, event_type
+
+
+def test_the_registry_declares_the_non_success_event_types_exactly() -> None:
+    assert registry.DENIED_EVENT_TYPE == "tool.denied"
+    assert registry.DISABLED_EVENT_TYPE == "tool.disabled"
+    assert registry.FAILED_EVENT_TYPE == "tool.failed"
+    assert {spec.event_type for spec in REGISTRY.values()} == {"tool.succeeded"}
+
+
+def _append(database_url: str, tenant_id: uuid.UUID, event_type: str) -> None:
+    async def scenario() -> None:
+        engine = create_engine(database_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, tenant_id) as session:
+                await append_event(
+                    session,
+                    tenant_id,
+                    AuditEventInput(
+                        occurred_at=datetime.now(UTC),
+                        actor_kind="system",
+                        actor_ref=None,
+                        event_type=event_type,
+                        subject_type="tool",
+                        subject_id=None,
+                    ),
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_the_event_type_column_boundary_is_inclusive_at_64(
+    seeded_mcp_db: SeededMcp,  # noqa: F811
+) -> None:
+    """Asserted against the store itself, not against a constant restated in
+    the test: a 64-character event type is stored, a 65-character one is
+    refused by Postgres. That is what makes the length check above a
+    guarantee rather than a hope."""
+    tenant = seeded_mcp_db.tenant_b.tenant_id
+    at_limit = "e" * AUDIT_EVENT_TYPE_LENGTH
+    over_limit = "e" * (AUDIT_EVENT_TYPE_LENGTH + 1)
+    assert len(at_limit) == 64
+    assert len(over_limit) == 65
+
+    _append(seeded_mcp_db.database_url, tenant, at_limit)
+    with pytest.raises(DBAPIError):
+        _append(seeded_mcp_db.database_url, tenant, over_limit)
+
+
+# --- the specs themselves ------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY))
+def test_each_spec_names_a_real_matrix_tool_and_agrees_with_its_key(name: str) -> None:
+    spec = REGISTRY[name]
+    assert isinstance(spec.tool, rbac.Tool)
+    assert spec.tool in set(rbac.Tool)
+    assert spec.name == spec.tool.value
+    assert spec.name == name
+    assert spec.mutating is False, "plan 10a registers read tools only"
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY))
+def test_lookup_returns_the_registered_spec(name: str) -> None:
+    assert lookup(name) is REGISTRY[name]
+
+
+def test_lookup_refuses_an_unregistered_name_with_internal() -> None:
+    """`INTERNAL`, not `FORBIDDEN`: a name outside the registry means the
+    caller is wrong, not the user, and reading it as a permission decision
+    would hide a wiring bug behind a legitimate-looking denial."""
+    with pytest.raises(rbac.UnknownToolError) as refusal:
+        lookup(UNREGISTERED_NAME)
+
+    assert refusal.value.code == ErrorCode.INTERNAL
+
+
+def _redis_keys(redis_url: str, pattern: str) -> list[str]:
+    async def scenario() -> list[str]:
+        client: Redis = Redis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2)
+        try:
+            keys: list[Any] = [key async for key in client.scan_iter(match=pattern)]
+            return [key.decode() if isinstance(key, bytes) else str(key) for key in keys]
+        finally:
+            await client.aclose()
+
+    return asyncio.run(scenario())
+
+
+def test_an_unregistered_wire_name_touches_no_redis_key(
+    mcp_env: SeededMcp,  # noqa: F811
+    mcp_redis_url: str,  # noqa: F811
+) -> None:
+    """Criterion 8: the wire name is validated before it can become a Redis
+    key. Redis has no length or shape limit, so an unchecked name would write
+    a key nothing reads."""
+    assert _redis_keys(mcp_redis_url, f"{KEY_PREFIX}:*") == []
+
+    result = call_tool(bearer(token_for(mcp_env.tenant_a)), UNREGISTERED_NAME, {})
+
+    assert error_code(result) == "INTERNAL"
+    assert _redis_keys(mcp_redis_url, f"{KEY_PREFIX}:*") == []
+    assert _redis_keys(mcp_redis_url, f"*{UNREGISTERED_NAME}*") == []

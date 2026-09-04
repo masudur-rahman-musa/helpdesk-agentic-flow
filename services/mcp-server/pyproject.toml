@@ -7,7 +7,11 @@ dependencies = [
     "helpdesk",
     "fastapi>=0.115",
     "uvicorn>=0.32",
+    "mcp>=2.1",
 ]
+
+[project.scripts]
+helpdesk-mcp-stdio = "mcp_server.main:run_stdio"
 
 [build-system]
 requires = ["uv_build>=0.12"]

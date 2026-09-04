@@ -36,6 +36,18 @@ class ToolError(Exception):
     code: ErrorCode = ErrorCode.INTERNAL
 
 
+class NotFoundError(ToolError):
+    """The thing asked for is not in the caller's tenant.
+
+    Deliberately the same answer whether the row belongs to another tenant
+    or does not exist at all: telling those apart would turn a not-found
+    into a cross-tenant existence oracle. Pinned by
+    `test_mcp_read_tools.py::test_a_tenant_b_token_cannot_read_a_tenant_a_user`.
+    """
+
+    code = ErrorCode.NOT_FOUND
+
+
 class IdempotencyConflictError(ToolError):
     """The same key was reused for a different request (the design)."""
 
