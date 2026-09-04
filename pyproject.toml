@@ -23,6 +23,11 @@ dev = [
     "pytest-cov>=6.0",
     "pre-commit>=4.0",
     "httpx>=0.28",
+    # The mcp SDK's client speaks httpx2, not httpx, so the mcp-server tests
+    # that drive a real MCP session need it declared rather than borrowed
+    # from whatever `mcp` happens to vendor. Floor is the version the tests
+    # were written and verified against.
+    "httpx2>=2.12",
 ]
 
 [tool.uv.workspace]
