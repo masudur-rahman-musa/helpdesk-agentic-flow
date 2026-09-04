@@ -1,4 +1,5 @@
-"""ORM models: directory core and the audit chain."""
+"""ORM models: directory core, the audit chain and the
+idempotency keys."""
 
 from helpdesk.models.audit import AuditEvent
 from helpdesk.models.base import Base, TenantScoped
@@ -13,12 +14,14 @@ from helpdesk.models.directory import (
     Ticket,
     User,
 )
+from helpdesk.models.idempotency import IdempotencyKey
 
 __all__ = [
     "AuditEvent",
     "Base",
     "Department",
     "Grant",
+    "IdempotencyKey",
     "Role",
     "RoleTemplate",
     "SodRule",

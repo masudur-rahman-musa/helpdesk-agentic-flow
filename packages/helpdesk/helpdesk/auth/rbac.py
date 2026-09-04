@@ -24,6 +24,7 @@ from types import MappingProxyType
 from pydantic import BaseModel, ConfigDict
 
 from helpdesk.auth.jwt import TokenClaims
+from helpdesk.errors import ErrorCode, ToolError
 
 
 class Tool(StrEnum):
@@ -86,14 +87,21 @@ _SCOPE_WIDTH: Mapping[Scope, int] = MappingProxyType(
 )
 
 
-class RbacDenied(Exception):
+class RbacDenied(ToolError):
     """No principal on the token allows the tool. the design typed code only."""
 
-    code: str = "FORBIDDEN"
+    code = ErrorCode.FORBIDDEN
 
 
-class UnknownToolError(Exception):
-    """The tool name is not in the matrix: refuse loudly, never silently allow."""
+class UnknownToolError(ToolError):
+    """The tool name is not in the matrix: refuse loudly, never silently allow.
+
+    Not a user-facing condition: a name outside the matrix means the caller
+    is wrong, not the user, so it carries `INTERNAL` rather than `FORBIDDEN`
+    (which would read as a legitimate permission decision).
+    """
+
+    code = ErrorCode.INTERNAL
 
 
 class Authorization(BaseModel):

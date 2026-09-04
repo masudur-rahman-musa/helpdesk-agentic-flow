@@ -11,8 +11,8 @@ Expected implementation surface (the implementer must provide exactly this):
         it_admin, auditor, platform_admin.
     ``class Scope(StrEnum)`` -- any, own_department, own_systems, self_only,
         system_only.
-    ``class RbacDenied(Exception)`` with attribute ``code == "FORBIDDEN"``.
-    ``class UnknownToolError(Exception)`` for a tool name not in the matrix.
+    ``class RbacDenied(ToolError)`` with attribute ``code == "FORBIDDEN"``.
+    ``class UnknownToolError(ToolError)`` for a tool name not in the matrix.
     ``def authorize(claims, tool) -> Authorization`` -- frozen model carrying
         at least ``tool: Tool`` and ``scope: Scope``. Raises ``RbacDenied``
         when no principal allows, ``UnknownToolError`` for an unknown tool.
