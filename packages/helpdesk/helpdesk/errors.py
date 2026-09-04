@@ -40,3 +40,15 @@ class IdempotencyConflictError(ToolError):
     """The same key was reused for a different request (the design)."""
 
     code = ErrorCode.IDEMPOTENCY_CONFLICT
+
+
+class ToolDisabledError(ToolError):
+    """An admin tripped this tool's kill switch (the design).
+
+    Deliberately not `FORBIDDEN`: that answers "may this principal do it",
+    this answers "is the tool on at all". Collapsing the two would tell a
+    user they lack permission during a platform-wide stop, and would make
+    the audit trail unable to tell an outage from a denial.
+    """
+
+    code = ErrorCode.TOOL_DISABLED

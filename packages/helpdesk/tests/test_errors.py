@@ -26,8 +26,14 @@ imports from models or services):
 
 import pytest
 from helpdesk.auth.rbac import RbacDenied, UnknownToolError
-from helpdesk.errors import ErrorCode, IdempotencyConflictError, ToolError
+from helpdesk.errors import (
+    ErrorCode,
+    IdempotencyConflictError,
+    ToolDisabledError,
+    ToolError,
+)
 from helpdesk.idempotency import InvalidIdempotencyKeyError, UnstorableResponseError
+from helpdesk.killswitch import InvalidSwitchTargetError, SwitchUnavailableError
 
 # the design, written out literally so the test cannot drift with the enum.
 SPEC_CODES: tuple[str, ...] = (
@@ -51,6 +57,15 @@ TYPED_ERRORS: tuple[tuple[type[ToolError], str], ...] = (
     (UnknownToolError, "INTERNAL"),
     (InvalidIdempotencyKeyError, "VALIDATION"),
     (UnstorableResponseError, "INTERNAL"),
+    # An earlier change: an admin tripped the tool's kill switch. Distinct from
+    # FORBIDDEN, which is about who is asking, not whether the tool is on.
+    (ToolDisabledError, "TOOL_DISABLED"),
+    # An earlier change: Redis was unreachable, so the switch state is unknown. The
+    # call is still denied, but the tool is not known to be off, so this is
+    # not TOOL_DISABLED — an outage must not read as an admin decision.
+    (SwitchUnavailableError, "INTERNAL"),
+    # An earlier change: a scope, tool name, reason or actor this module cannot store.
+    (InvalidSwitchTargetError, "VALIDATION"),
 )
 
 
