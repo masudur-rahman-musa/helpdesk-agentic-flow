@@ -1,4 +1,4 @@
-.PHONY: help setup run test test-policy select-tests lint typecheck format verify eval infra-check
+.PHONY: help setup run test test-policy select-tests test-adjacent lint typecheck format verify eval infra-check
 help:       ## Show all targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 setup:      ## Install dependencies and pre-commit hooks
@@ -10,6 +10,8 @@ test:       ## Run tests with the coverage gate (needs the compose Postgres: doc
 	  --cov-context=test --cov-fail-under=80
 select-tests: ## Print the tests whose recorded coverage touches this change
 	@uv run python scripts/select_tests.py --explain
+test-adjacent: ## Run only the tests whose coverage touches this change
+	@uv run python scripts/select_tests.py | tr ' ' '\n' | xargs uv run pytest -q
 test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
 	uv run pytest -q \
 	  packages/helpdesk/tests/test_policy_risk.py \
