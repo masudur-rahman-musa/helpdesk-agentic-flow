@@ -51,21 +51,107 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BASELINE = REPO_ROOT / ".coverage-baseline"
 """Where the full run leaves its per-test context database (gitignored)."""
 
-TEST_ROOTS = (
-    "packages/helpdesk/tests",
-    "services/agent-api/tests",
-    "services/mcp-server/tests",
-)
 
-# A source change anywhere in one of these packages can only be reached by
-# tests under the matching roots. Used only for the no-history fallback,
-# where the honest answer is "everything that could possibly reach it".
-PACKAGE_TEST_ROOTS: dict[str, tuple[str, ...]] = {
-    "packages/helpdesk/": TEST_ROOTS,  # the shared lib; every service uses it
-    "services/agent-api/": ("services/agent-api/tests",),
-    "services/mcp-server/": ("services/mcp-server/tests",),
-    "scripts/": TEST_ROOTS,  # the seed is imported by fixtures everywhere
-}
+def _pyproject() -> dict[str, object]:
+    import tomllib
+
+    path = REPO_ROOT / "pyproject.toml"
+    try:
+        return tomllib.loads(path.read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def _table(data: object, *keys: str) -> object:
+    for key in keys:
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+    return data
+
+
+_CONFIG = _pyproject()
+
+
+def _string_list(value: object) -> tuple[str, ...]:
+    """A TOML array of strings, or empty for anything else.
+
+    The config is data from a file, so it is validated rather than trusted:
+    a malformed `testpaths` must not crash the gate, it must fall through to
+    the empty tuple and let the caller widen.
+    """
+    if not isinstance(value, list):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
+
+
+TEST_ROOTS: tuple[str, ...] = _string_list(
+    _table(_CONFIG, "tool", "pytest", "ini_options", "testpaths")
+)
+"""Where the tests live, read from `[tool.pytest.ini_options] testpaths`.
+
+Read from config rather than hardcoded so this script is portable: dropping
+it into a repo with a different layout needs no edit, and a layout that
+changes cannot leave a stale copy here silently selecting the wrong roots.
+"""
+
+
+def _resolve_source(source: str) -> list[str]:
+    """One `[tool.coverage.run] source` entry as repo-relative directories.
+
+    An entry is either a path (`packages/x/x`) or an importable package NAME
+    (`helpdesk`), and coverage accepts both. A name has to be resolved to the
+    directory it actually lives in, because everything downstream compares
+    repo-relative paths: treating `helpdesk` as a path matches nothing, every
+    measured file then looks unmeasured, and the selector quietly falls back
+    to the import check and under-selects. That is the one failure direction
+    this script must not have, so names are resolved rather than tolerated.
+    """
+    direct = REPO_ROOT / source
+    if direct.is_dir():
+        return [f"{source.rstrip('/')}/"]
+    found = [
+        str(path.parent.relative_to(REPO_ROOT)) + "/"
+        for path in REPO_ROOT.glob(f"**/{source}/__init__.py")
+        if ".venv" not in path.parts and "node_modules" not in path.parts
+    ]
+    return sorted(set(found))
+
+
+MEASURED_PACKAGES: tuple[str, ...] = tuple(
+    resolved
+    for source in _string_list(_table(_CONFIG, "tool", "coverage", "run", "source"))
+    for resolved in _resolve_source(source)
+)
+"""What `[tool.coverage.run] source` actually measures.
+
+A file outside these has no coverage history for a reason that says nothing
+about risk: coverage was never watching it. Widening to the whole suite for
+every such file would make the selector useless the moment anyone edits a
+script, so those are decided by import instead (see `_importers`).
+
+Sources may be package NAMES (`helpdesk`) rather than paths; a name that is
+not a real directory simply never prefix-matches, and those files fall to
+the import check, which is the safe direction.
+"""
+
+
+def _fallback_roots(path: str) -> list[str]:
+    """The widest honest answer for a file with no usable coverage history.
+
+    A test root only rules itself out when the changed file lives under a
+    DIFFERENT service, because a service's tests cannot reach another
+    service's private code. Shared packages and anything unrecognised keep
+    every root, which is the safe direction.
+    """
+    parts = Path(path).parts
+    if len(parts) >= 2 and parts[0] == "services":
+        service = f"{parts[0]}/{parts[1]}/"
+        own = [root for root in TEST_ROOTS if root.startswith(service)]
+        if own:
+            return own
+    return list(TEST_ROOTS)
+
 
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
@@ -146,27 +232,6 @@ def _relative(path: str) -> str:
         return path
 
 
-MEASURED_PACKAGES = (
-    "packages/helpdesk/helpdesk/",
-    "services/agent-api/agent_api/",
-    "services/mcp-server/mcp_server/",
-)
-"""What `[tool.coverage.run] source` actually measures.
-
-A file outside these has no coverage history for a reason that says nothing
-about risk: coverage was never watching it. Widening to the whole suite for
-every such file would make the selector useless the moment anyone edits a
-script, so those are decided by import instead (see `_importers`).
-"""
-
-
-def _fallback_roots(path: str) -> list[str]:
-    for prefix, roots in PACKAGE_TEST_ROOTS.items():
-        if path.startswith(prefix):
-            return list(roots)
-    return list(TEST_ROOTS)
-
-
 def _importers(path: str) -> list[str]:
     """Does anything under test actually import this unmeasured module?
 
@@ -217,7 +282,7 @@ def select(base: str | None) -> tuple[list[str], dict[str, list[str]], list[str]
     if not BASELINE.exists():
         warnings.append(
             f"no coverage baseline at {BASELINE.name}: selecting every test root. "
-            "Run `make verify-baseline` (or one `make verify`) to build it."
+            "One `make verify` builds it."
         )
         for root in TEST_ROOTS:
             selection.add(root)
