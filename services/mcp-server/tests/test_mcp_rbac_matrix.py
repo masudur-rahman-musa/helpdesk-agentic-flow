@@ -79,7 +79,47 @@ MATRIX: dict[str, dict[str, bool]] = {
     "classify_access_request": dict.fromkeys(PRINCIPALS, True),
     "list_my_requests": dict.fromkeys(PRINCIPALS, True),
     "create_access_request": dict.fromkeys(PRINCIPALS, True),
+    # An earlier change. The first rows on this axis that are not "everyone": the design
+    # gives the approval row four cells and leaves `employee`, `hr` and
+    # `auditor` without one. `hr` being denied here is the recorded the design /
+    # §9.3 conflict, not an oversight.
+    "list_pending_approvals": {
+        "employee": False,
+        "manager": True,
+        "system_owner": True,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
+    "approve_request": {
+        "employee": False,
+        "manager": True,
+        "system_owner": True,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
+    "reject_request": {
+        "employee": False,
+        "manager": True,
+        "system_owner": True,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
 }
+
+# Tools whose PERMITTED call cannot succeed on arguments alone: both deciding
+# tools need a real pending request the caller holds a seat on, and building
+# one per (tool, principal) cell would make this file a second approvals
+# suite. A random request id answers NOT_FOUND, which is the assertion that
+# matters here — the matrix let the caller through and a LATER stage refused
+# them, so a permitted cell can never be satisfied by a FORBIDDEN.
+# `test_mcp_approvals.py` owns what happens after that stage.
+ALLOW_ANSWERS_NOT_FOUND = frozenset({"approve_request", "reject_request"})
 
 
 @cache
@@ -116,6 +156,17 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             # self path only; the on-behalf permission is never reached.
             arguments["justification"] = f"fake matrix request {uuid.uuid4().hex}"
             arguments["idempotency_key"] = f"fake-key-{uuid.uuid4().hex}"
+        return arguments
+    if tool_name in ALLOW_ANSWERS_NOT_FOUND:
+        # Valid arguments naming a request that does not exist: a permitted
+        # caller must get past RBAC and be refused NOT_FOUND by the lookup,
+        # never FORBIDDEN by the matrix.
+        arguments = {
+            "request_id": str(uuid.uuid4()),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+        if tool_name == "reject_request":
+            arguments["reason"] = f"fake matrix rejection {uuid.uuid4().hex}"
         return arguments
     return {}
 
@@ -154,7 +205,12 @@ def test_matrix_expectation_holds_through_the_transport(
 
     result = call_tool(bearer(token), tool_name, _arguments_for(tool_name, mcp_env))
 
-    if MATRIX[tool_name][principal]:
+    if MATRIX[tool_name][principal] and tool_name in ALLOW_ANSWERS_NOT_FOUND:
+        assert error_code(result) == "NOT_FOUND", (
+            f"{principal} is permitted to call {tool_name} by SPEC §7, so the refusal "
+            f"must come from the lookup, not the matrix: {result.content!r}"
+        )
+    elif MATRIX[tool_name][principal]:
         assert result.is_error is False, (
             f"{principal} is permitted to call {tool_name} by SPEC §7, "
             f"but the transport refused: {result.content!r}"

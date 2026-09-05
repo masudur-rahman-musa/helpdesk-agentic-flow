@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
-from mcp_server.tools import access, helpdesk, read
+from mcp_server.tools import access, approvals, helpdesk, read
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
 """What a read tool writes when it worked. Per-tool rather than global (plan
@@ -144,6 +144,38 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=access.REQUEST_CREATED_EVENT_TYPE,
         mutating=True,
         handler=access.create_access_request,
+    ),
+    ToolSpec(
+        name=rbac.Tool.LIST_PENDING_APPROVALS.value,
+        tool=rbac.Tool.LIST_PENDING_APPROVALS,
+        description="List the access requests waiting on the calling user's approval.",
+        input_model=approvals.ListPendingApprovalsInput,
+        output_model=approvals.ListPendingApprovalsOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=approvals.list_pending_approvals,
+    ),
+    ToolSpec(
+        name=rbac.Tool.APPROVE_REQUEST.value,
+        tool=rbac.Tool.APPROVE_REQUEST,
+        description=(
+            "Approve one slot of an access request's chain; grants when it was the last one."
+        ),
+        input_model=approvals.ApproveRequestInput,
+        output_model=approvals.ApproveRequestOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=approvals.approve_request,
+    ),
+    ToolSpec(
+        name=rbac.Tool.REJECT_REQUEST.value,
+        tool=rbac.Tool.REJECT_REQUEST,
+        description="Reject an access request; ends the approval chain and grants nothing.",
+        input_model=approvals.RejectRequestInput,
+        output_model=approvals.RejectRequestOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=approvals.reject_request,
     ),
     ToolSpec(
         name=rbac.Tool.RESET_OWN_PASSWORD.value,

@@ -34,6 +34,7 @@ from helpdesk.auth.rbac import (
     Tool,
     UnknownToolError,
     authorize,
+    principals_of,
 )
 
 PRINCIPALS: tuple[str, ...] = (
@@ -338,3 +339,121 @@ def test_authorization_result_is_frozen() -> None:
     result: Authorization = authorize(_claims(["employee"]), "get_me")
     with pytest.raises(Exception):  # noqa: B017 - frozen models raise a validation error
         setattr(result, "scope", Scope("any"))  # noqa: B010 - static assignment is rejected
+
+
+# --- 7. `scopes`: every allowing principal's scope, not just the widest ------
+#
+# An earlier change decision B. `scope` keeps its meaning (the widest, still what the
+# pipeline records on the audit payload) and `scopes` is added beside it, so
+# the one enforcement that needs the full set — the approval queue, whose
+# manager+system_owner caller must see the UNION of two incomparable reaches —
+# can stop collapsing it. Every case below is additive: nothing above changes.
+
+
+@pytest.mark.parametrize(("tool", "principal", "expected"), ALL_CASES)
+def test_matrix_single_principal_scopes(tool: str, principal: str, expected: str | None) -> None:
+    """Catches `scopes` left empty, or built from the whole matrix row rather
+    than from the principals the TOKEN carries.
+
+    Walks the same exhaustive (tool, principal) table as the `scope` case
+    above, so a tool whose row is right for `scope` and wrong for `scopes`
+    cannot hide behind a sampled case. One allowing principal means exactly
+    one scope in the set — a set that also contains the scopes of principals
+    the token does not hold would widen every single-principal caller.
+    """
+    claims = _claims([principal])
+    if expected is None:
+        with pytest.raises(RbacDenied) as excinfo:
+            authorize(claims, tool)
+        assert excinfo.value.code == "FORBIDDEN"
+    else:
+        result = authorize(claims, tool)
+        assert result.scopes == frozenset({Scope(expected)})
+        assert result.scope in result.scopes
+
+
+@pytest.mark.parametrize(
+    ("principals", "tool", "expected_scope", "expected_scopes"),
+    [
+        # The case an earlier change exists for: two incomparable reaches, one caller.
+        # `scope` collapses them; `scopes` must not.
+        (
+            ["manager", "system_owner"],
+            "approve_request",
+            "own_department",
+            {"own_department", "own_systems"},
+        ),
+        (
+            ["manager", "system_owner"],
+            "list_pending_approvals",
+            "own_department",
+            {"own_department", "own_systems"},
+        ),
+        # A non-allowing principal contributes nothing to the set.
+        (["employee", "manager"], "approve_request", "own_department", {"own_department"}),
+        # The widest is in the set beside the narrow one, never instead of it.
+        (["manager", "it_admin"], "approve_request", "any", {"own_department", "any"}),
+        (
+            ["manager", "system_owner", "it_admin", "platform_admin"],
+            "list_pending_approvals",
+            "any",
+            {"own_department", "own_systems", "any"},
+        ),
+        # Three allowing principals, one scope: a set, not a per-principal
+        # list, so a caller cannot be counted three times.
+        (["hr", "it_admin", "platform_admin"], "search_audit", "any", {"any"}),
+        (["employee", "auditor", "hr"], "onboard_user", "any", {"any"}),
+        (["employee", "manager"], "get_me", "self_only", {"self_only"}),
+    ],
+)
+def test_multi_principal_scopes_carry_every_allowing_scope(
+    principals: list[str],
+    tool: str,
+    expected_scope: str,
+    expected_scopes: set[str],
+) -> None:
+    """Catches `scopes` built as `{scope}` — the widest wrapped in a set,
+    which reads like the union and is the exact narrowing this plan removes:
+    a manager who also owns a system would keep seeing only their department's
+    queue. Also catches the reverse regression, `scope` widened or narrowed to
+    match the set, which would change what every existing caller records."""
+    result = authorize(_claims(principals), tool)
+
+    assert result.scope == Scope(expected_scope)
+    assert result.scopes == {Scope(value) for value in expected_scopes}
+
+
+def test_unknown_principal_strings_never_appear_in_scopes() -> None:
+    """Catches an implementation that maps principal strings to scopes before
+    filtering them through the enum: a token carrying `root` beside a real
+    principal must contribute exactly one scope, not two."""
+    result = authorize(_claims(["root", "employee"]), "get_me")
+
+    assert result.scopes == frozenset({Scope.SELF_ONLY})
+
+
+def test_scopes_is_an_immutable_set() -> None:
+    """Catches `scopes` typed as a mutable set on a frozen model: a caller
+    holding the `Authorization` could add `Scope.ANY` to it and widen a queue
+    that was already authorized, with the frozen model none the wiser."""
+    result = authorize(_claims(["manager", "system_owner"]), "approve_request")
+
+    assert isinstance(result.scopes, frozenset)
+
+
+def test_principals_of_keeps_the_matrix_members_and_drops_the_rest() -> None:
+    """`principals_of` alone decides who may fill a the design group approver
+    seat (`helpdesk.access.approvals.may_fill` takes its output), so it needs
+    its own pin rather than riding on `authorize`'s.
+
+    Catches the two ways it can go wrong: raising on a principal string
+    outside the enum, which would turn a token carrying a stale principal
+    into an `INTERNAL` on every approval, and passing raw strings through,
+    which would let a token claiming `it_admin ` or `hr-team` fill a group
+    seat the matrix never granted. The known principals are asserted present
+    in the same call, so "return an empty set" cannot pass it.
+    """
+    result = principals_of(_claims(["it_admin", "root", "hr-team", "manager", ""]))
+
+    assert result == frozenset({Principal.IT_ADMIN, Principal.MANAGER})
+    assert isinstance(result, frozenset)

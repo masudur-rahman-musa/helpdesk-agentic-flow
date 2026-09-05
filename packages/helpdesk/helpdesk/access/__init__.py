@@ -4,9 +4,28 @@
 11a, `apply_grant` from 11b). `snapshot.py` turns repository state into plan
 08's `RequestSnapshot`. `requests.py` holds the access-request reads and
 writes the tools consume. `execute.py` is the one place a grant is written,
-with the design's re-check in front of it.
+with the design's re-check in front of it. `approvals.py` is the
+approval slot state machine — who may fill which seat, when a chain is
+finished — and the scoped queue of what is waiting for one approver.
 """
 
+from helpdesk.access.approvals import (
+    GROUP_SLOTS,
+    NotAnApproverError,
+    RequestNotPendingError,
+    SlotDecision,
+    SlotState,
+    chain_is_complete,
+    decide_slot,
+    dump_slots,
+    first_fillable_index,
+    is_rejected,
+    list_pending_for_approver,
+    lock_request,
+    may_fill,
+    parse_slots,
+    request_in_scope,
+)
 from helpdesk.access.directory import DirectoryProvider, SimulatedDirectory
 from helpdesk.access.execute import (
     GRANT_EXECUTED_EVENT_TYPE,
@@ -19,19 +38,36 @@ from helpdesk.access.requests import (
     create_access_request,
     list_requests_for_requester,
     resolved_approver_ids,
+    set_request_status,
 )
 from helpdesk.access.snapshot import build_request_snapshot
 
 __all__ = [
     "GRANT_EXECUTED_EVENT_TYPE",
+    "GROUP_SLOTS",
     "DirectoryProvider",
+    "NotAnApproverError",
     "PolicyBlockedAtExecutionError",
+    "RequestNotPendingError",
     "SimulatedDirectory",
+    "SlotDecision",
+    "SlotState",
     "SodConflictAtExecutionError",
     "approval_slots",
     "build_request_snapshot",
+    "chain_is_complete",
     "create_access_request",
+    "decide_slot",
+    "dump_slots",
     "execute_grant",
+    "first_fillable_index",
+    "is_rejected",
+    "list_pending_for_approver",
     "list_requests_for_requester",
+    "lock_request",
+    "may_fill",
+    "parse_slots",
+    "request_in_scope",
     "resolved_approver_ids",
+    "set_request_status",
 ]

@@ -63,6 +63,10 @@ EXPECTED_TOOL_NAMES = {
     "classify_access_request",
     "list_my_requests",
     "create_access_request",
+    # An earlier change: the approval queue and the two deciding tools.
+    "list_pending_approvals",
+    "approve_request",
+    "reject_request",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")

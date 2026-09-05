@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.core.repository import Repository
+from helpdesk.errors import NotFoundError
 from helpdesk.models import AccessRequest, RequestStatus
 from helpdesk.policy.types import Classification, RequiredApprover
 
@@ -85,6 +86,36 @@ async def create_access_request(
         trace_id=trace_id,
         idempotency_key=idempotency_key,
     )
+
+
+async def set_request_status(
+    session: AsyncSession,
+    request_id: uuid.UUID,
+    *,
+    status: RequestStatus,
+    approvals: list[dict[str, Any]] | None = None,
+) -> AccessRequest:
+    """Move one request to its next lifecycle status. Flushed, not committed.
+
+    The caller's transaction owns the write, which is what lets an earlier change's
+    approve path put the status, the decided chain and the grant in ONE
+    transaction: a self-committing write here would leave a request marked
+    `approved` whose grant had rolled back — access granted on paper and
+    never in the directory. Pinned by
+    `test_access_approvals.py::test_the_status_write_is_flushed_not_committed`.
+
+    `approvals=None` means "leave the chain exactly as it is", not "empty
+    it": the reject and fail paths write a status without touching the seats,
+    and an empty list there would erase the only record of who decided what
+    (pinned by `test_the_status_write_leaves_the_chain_alone_when_none_is_given`).
+    """
+    fields: dict[str, Any] = {"status": status.value}
+    if approvals is not None:
+        fields["approvals"] = approvals
+    updated = await Repository(session, AccessRequest).update(request_id, **fields)
+    if updated is None:
+        raise NotFoundError("no such access request in this tenant")
+    return updated
 
 
 async def list_requests_for_requester(

@@ -54,15 +54,29 @@ _THIRD_APPROVER: dict[SystemCategory, ApproverSlot | None] = {
 _FALLBACK_SLOTS = (ApproverSlot.SYSTEM_OWNER, ApproverSlot.IT_ADMIN)
 
 _ROLE_WIDE_SLOTS = frozenset({ApproverSlot.IT_ADMIN, ApproverSlot.HR})
-"""Slots that stand for a group, not a person, so they are always fillable.
+"""Slots that stand for a group, not a person, so the ENGINE never resolves
+one and never substitutes one for being unfilled.
+
+Whether anybody may actually fill such a seat is a the design question, one
+layer up and outside this pure module. An earlier change records the answer for `hr`:
+§7's approval row has no `hr` cell, so a `critical` HRIS chain's `hr` seat is
+fillable by nobody today. That is a conflict between two spec sections, not
+something this module can decide.
 
 They are NOT verified against the requester. Whether the requester belongs to
 the group is not in the snapshot and the engine could not act on it anyway:
 one member being a party does not disqualify the rest, and the engine cannot
 see how many members there are. So the self-approval guard stops at the group
 boundary, and the caller resolving the seat must exclude the requester and the
-target from it. Recorded in an earlier change §5 as owed to row 11; do not read the
-absence of a substitution here as a statement that the seat is safe."""
+target from it. Do not read the absence of a substitution here as a statement
+that the seat is safe.
+
+RESOLVED by an earlier change: `helpdesk.access.approvals.may_fill` is the resolver,
+and it refuses the requester and the target on EVERY seat, group seats
+included, pinned by
+`test_access_approvals.py::test_a_party_to_the_request_fills_no_seat_of_any_kind`
+(every slot kind crossed with both parties) and end to end by
+`test_mcp_approvals.py::test_a_party_to_the_request_is_refused_even_holding_the_seats_principal`."""
 
 
 def escalate_self_admin(snapshot: RequestSnapshot, risk_class: RiskClass) -> RiskClass:

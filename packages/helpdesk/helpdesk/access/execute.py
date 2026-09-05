@@ -2,8 +2,9 @@
 
 Never a wire tool. the design makes it system-only and
 the design says it is invoked internally: `create_access_request` calls it on
-the `auto` branch, and row 11c's `approve_request` will call it once a chain
-is complete. Registering it would put a transport, a kill switch and an RBAC
+the `auto` branch, and `mcp_server.tools.approvals.approve_request` (plan
+11c) calls it once every seat of a chain is approved. Registering it would
+put a transport, a kill switch and an RBAC
 check in front of something no caller may ever reach; it stays in the matrix
 as an empty entry so an unknown-tool error cannot mask it.
 
@@ -29,14 +30,15 @@ Everything here runs in the caller's transaction. The grant and its
 afterwards takes both with it (pinned by
 `test_access_execute.py::test_the_grant_and_its_event_roll_back_together`).
 
-UNRESOLVED, owed to row 11c. Nothing here makes a grant
+UNRESOLVED, owed to row 11d. Nothing here makes a grant
 unique per (user, role): two requests for the same role under two different
 idempotency keys both classify, both execute, and leave two live `grants`
 rows for one role. The engine deliberately does not block it — it sees the
 target's `active_grant_role_ids` and chooses not to, because re-granting is
 how a renewal has to work — so refusing here would contradict the
-classification the user was shown. The consequence lands on revocation: 11c
-owns `revoke_access`, and revoking "the grant" for a role must revoke every
+classification the user was shown. The consequence lands on revocation: row
+11d owns `revoke_access`, and
+revoking "the grant" for a role must revoke every
 live row for that (user, role), or access survives a revocation the audit
 log records as successful. Whoever builds that either enforces uniqueness
 at insert or revokes the set; this module does neither today.

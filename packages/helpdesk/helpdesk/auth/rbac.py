@@ -8,7 +8,11 @@ argument, so an identity-from-arguments path cannot exist.
 Scope here is declarative: the matrix records *how far* an allowing
 principal may reach (the design writes it in the table), while enforcement
 with data — which department, which systems — belongs to the tool
-implementations that hold that data. `create_access_request` appears twice
+implementations that hold that data. An `Authorization` therefore carries
+both `scope` (the widest allowing scope, one value) and `scopes` (all of
+them): a caller who is both a manager and a system owner holds two
+incomparable scopes, and enforcement that can act on both must not see only
+the wider one. `create_access_request` appears twice
 (self vs on-behalf-of-report) because the spec's table has two rows with
 different principal sets.
 
@@ -109,6 +113,22 @@ class Authorization(BaseModel):
 
     tool: Tool
     scope: Scope
+    """The WIDEST scope among the allowing principals, and what the MCP
+    pipeline records on every audit payload. Total-order collapse: a caller
+    holding two incomparable scopes reads as the wider one alone."""
+
+    scopes: frozenset[Scope]
+    """Every allowing principal's scope, un-collapsed.
+
+    `scope` is a total-order maximum, so a caller who is both a `manager`
+    (`own_department`) and a `system_owner` (`own_systems`) reads as
+    `own_department` and their owned systems disappear — the narrowing plan
+    06 recorded and an earlier change re-owed. Enforcement that has the data to act on
+    both reads THIS instead and unions the two, which is what
+    `mcp_server.tools.approvals.list_pending_approvals` does. Pinned by
+    `test_rbac.py::test_multi_principal_scopes_carry_every_allowing_scope`
+    (which fails for `scopes = {scope}`) and, end to end, by
+    `test_mcp_approvals.py::test_a_manager_and_system_owner_caller_sees_the_union_of_both_queues`."""
 
 
 def _all(scope: Scope) -> dict[Principal, Scope]:
@@ -232,7 +252,30 @@ def authorize(claims: TokenClaims, tool: Tool | str) -> Authorization:
     ]
     if not granted:
         raise RbacDenied(tool_key.value)
-    return Authorization(tool=tool_key, scope=max(granted, key=_SCOPE_WIDTH.__getitem__))
+    return Authorization(
+        tool=tool_key,
+        scope=max(granted, key=_SCOPE_WIDTH.__getitem__),
+        scopes=frozenset(granted),
+    )
+
+
+def principals_of(claims: TokenClaims) -> frozenset[Principal]:
+    """The token's principals as matrix members, unknown strings dropped.
+
+    The same read `authorize` does, exposed for the enforcement that needs to
+    know WHICH principal a caller holds rather than how far they may reach:
+    a the design group approver seat is filled by a holder of that group's
+    principal, and `Authorization` carries scopes, not principals. Dropping
+    an unknown string here rather than raising keeps it identical to
+    `authorize`'s own behaviour — a principal outside the enum is never
+    honoured and never widens anything. Pinned by
+    `test_rbac.py::test_principals_of_keeps_the_matrix_members_and_drops_the_rest`,
+    which matters because this function alone decides who may fill a SPEC
+    §9.3 group approver seat.
+    """
+    return frozenset(
+        principal for raw in claims.principals if (principal := _as_principal(raw)) is not None
+    )
 
 
 def _as_principal(raw: str) -> Principal | None:

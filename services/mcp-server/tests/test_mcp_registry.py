@@ -61,6 +61,7 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
 )
 from mcp_server import registry
 from mcp_server.registry import REGISTRY, lookup
+from mcp_server.tools import approvals
 from mcp_server.tools.base import MutatingToolInput
 from redis.asyncio import Redis
 from sqlalchemy import String
@@ -143,6 +144,75 @@ def test_the_registry_declares_the_non_success_event_types_exactly() -> None:
     }
 
 
+# --- the three approval tools ---------------------------------------
+
+
+APPROVAL_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
+    (
+        "list_pending_approvals",
+        rbac.Tool.LIST_PENDING_APPROVALS,
+        registry.SUCCESS_EVENT_TYPE,
+        False,
+    ),
+    # Both deciding tools declare the GENERIC success event and append their
+    # the design decision event themselves (decision I): the pipeline's event
+    # carries a fixed payload and the tool name as its subject, which would
+    # record that somebody called a tool and not which request they decided.
+    ("approve_request", rbac.Tool.APPROVE_REQUEST, registry.SUCCESS_EVENT_TYPE, True),
+    ("reject_request", rbac.Tool.REJECT_REQUEST, registry.SUCCESS_EVENT_TYPE, True),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "tool", "event_type", "mutating"),
+    APPROVAL_TOOL_EXPECTATIONS,
+    ids=[name for name, _, _, _ in APPROVAL_TOOL_EXPECTATIONS],
+)
+def test_each_approval_tool_is_registered_once_under_its_matrix_name(
+    name: str, tool: rbac.Tool, event_type: str, mutating: bool
+) -> None:
+    """Catches a tool registered under a wire name the matrix does not know
+    (it would need an undeclared alias, and RBAC would answer INTERNAL rather
+    than deciding), pointed at the wrong matrix member — `approve_request`
+    declared as `reject_request` would let a rejecter approve — or declaring
+    the wrong audit event, which files an approval as a rejection in the only
+    record the design keeps of the decision.
+
+    The names are written out literally rather than derived from the registry:
+    reading the value under test back out of the code under test would assert
+    nothing.
+    """
+    spec = REGISTRY[name]
+
+    assert spec.name == name == tool.value
+    assert spec.tool is tool
+    assert spec.event_type == event_type
+    assert spec.mutating is mutating
+    assert name not in registry.WIRE_NAME_ALIASES
+
+
+def test_the_two_decision_event_types_are_exactly_the_spec_strings() -> None:
+    """Pins both values exactly. the design names
+    `request.approved` and `request.rejected`, and the handlers append them
+    under exactly those names; a typo would produce an event type nothing in
+    the audit UI or the golden set knows, with every other test still green
+    because they read the same constant."""
+    assert approvals.REQUEST_APPROVED_EVENT_TYPE == "request.approved"
+    assert approvals.REQUEST_REJECTED_EVENT_TYPE == "request.rejected"
+
+
+def test_the_queue_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
+    """Decision H, pinned exactly: an unbounded list
+    is an unbounded response over the wire, and a default that drifts changes
+    what every caller who omits `limit` receives. A docstring is not a
+    record."""
+    assert approvals.LIMIT_MIN == 1
+    assert approvals.LIMIT_DEFAULT == 50
+    assert approvals.LIMIT_MAX == 200
+    assert approvals.COMMENT_MAX_LENGTH == 2000
+    assert approvals.REASON_MAX_LENGTH == 2000
+
+
 def _append(database_url: str, tenant_id: uuid.UUID, event_type: str) -> None:
     async def scenario() -> None:
         engine = create_engine(database_url)
@@ -192,7 +262,17 @@ def test_the_event_type_column_boundary_is_inclusive_at_64(
 # flag either skips the idempotency guard (a mutation retried twice) or
 # demands a key from a read, and this set is what catches it.
 MUTATING_TOOL_NAMES = frozenset(
-    {"reset_own_password", "unlock_own_account", "create_ticket", "create_access_request"}
+    {
+        "reset_own_password",
+        "unlock_own_account",
+        "create_ticket",
+        "create_access_request",
+        # An earlier change: both record a decision and one of them executes a grant,
+        # so both ride the idempotency guard. `list_pending_approvals` is a
+        # read and must stay off this list.
+        "approve_request",
+        "reject_request",
+    }
 )
 
 
