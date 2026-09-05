@@ -1,4 +1,4 @@
-.PHONY: help setup run test test-policy lint typecheck format verify eval infra-check
+.PHONY: help setup run test test-policy select-tests lint typecheck format verify eval infra-check
 help:       ## Show all targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 setup:      ## Install dependencies and pre-commit hooks
@@ -6,7 +6,10 @@ setup:      ## Install dependencies and pre-commit hooks
 run:        ## Run the project locally
 	docker compose up -d && uv run uvicorn agent_api.main:app --reload
 test:       ## Run tests with the coverage gate (needs the compose Postgres: docker compose up -d)
-	uv run pytest -q --cov=helpdesk --cov=agent_api --cov=mcp_server --cov-fail-under=80
+	COVERAGE_FILE=.coverage-baseline uv run pytest -q --cov=helpdesk --cov=agent_api --cov=mcp_server \
+	  --cov-context=test --cov-fail-under=80
+select-tests: ## Print the tests whose recorded coverage touches this change
+	@uv run python scripts/select_tests.py --explain
 test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
 	uv run pytest -q \
 	  packages/helpdesk/tests/test_policy_risk.py \
