@@ -1,17 +1,90 @@
-"""Access-request reads for the tools.
+"""Access-request reads and writes for the tools.
 
 Lives here rather than in `core/repository.py` so the access domain owns
 its own queries; the sessions come from `tenant_session`, so the guard
-scopes every read to the bound tenant.
+scopes every read to the bound tenant and `Repository.create` stamps the
+bound tenant on every write.
 """
 
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.core.repository import Repository
 from helpdesk.models import AccessRequest, RequestStatus
+from helpdesk.policy.types import Classification, RequiredApprover
+
+
+def resolved_approver_ids(approvers: Sequence[RequiredApprover]) -> list[uuid.UUID]:
+    """The approver ids the engine could actually name, in chain order.
+
+    Role-wide slots (`it_admin`, `hr`) stand for a group the pure engine
+    cannot resolve and come back with `user_id = None`; they contribute
+    nothing here, so `approver_user_ids` can be SHORTER than `approvals`.
+    That is the unresolved marker an earlier change left, owed to row 11c, which must
+    exclude the requester and the target when it fills a group seat. Both
+    columns are written from this one source, so they cannot drift.
+    """
+    return [approver.user_id for approver in approvers if approver.user_id is not None]
+
+
+def approval_slots(approvers: Sequence[RequiredApprover]) -> list[dict[str, Any]]:
+    """The engine's FULL slot list for `access_requests.approvals`.
+
+    Unresolved slots are kept with a null id rather than dropped: a chain
+    that needs an `it_admin` is not the same chain as one that does not, and
+    11c cannot fill a seat that was never recorded.
+    """
+    return [
+        {
+            "slot": approver.slot.value,
+            "user_id": None if approver.user_id is None else str(approver.user_id),
+        }
+        for approver in approvers
+    ]
+
+
+async def create_access_request(
+    session: AsyncSession,
+    *,
+    requester_user_id: uuid.UUID,
+    target_user_id: uuid.UUID,
+    role_id: uuid.UUID,
+    justification: str,
+    requested_expiry_days: int | None,
+    classification: Classification,
+    status: RequestStatus,
+    citations: list[dict[str, Any]],
+    idempotency_key: str | None,
+    session_id: uuid.UUID | None = None,
+    trace_id: str | None = None,
+) -> AccessRequest:
+    """Persist one classified request. Flushed, not committed.
+
+    The engine's verdict is stored as given — `risk_class`, `decision` and
+    the reason codes — so the row records what the user was told, and the
+    caller supplies only the lifecycle `status` its branch reached.
+    """
+    return await Repository(session, AccessRequest).create(
+        requester_user_id=requester_user_id,
+        target_user_id=target_user_id,
+        role_id=role_id,
+        justification=justification,
+        requested_expiry_days=requested_expiry_days,
+        risk_class=classification.risk_class.value,
+        decision=classification.decision.value,
+        decision_reasons=list(classification.reasons),
+        citations=citations,
+        status=status.value,
+        approver_user_ids=resolved_approver_ids(classification.required_approvers),
+        approvals=approval_slots(classification.required_approvers),
+        session_id=session_id,
+        trace_id=trace_id,
+        idempotency_key=idempotency_key,
+    )
 
 
 async def list_requests_for_requester(

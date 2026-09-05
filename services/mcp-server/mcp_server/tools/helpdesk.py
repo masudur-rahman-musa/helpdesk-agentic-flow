@@ -1,12 +1,10 @@
 """The three helpdesk mutating tools an earlier change registers (the design).
 
 All three write on behalf of the token's user and nobody else.
-Unlike the read tools, the input models FORBID extra fields rather than
-ignoring them: on a mutation, a `user_id` in the arguments is a caller who
-believes they are acting on someone else, and dropping it would run the
-effect on a different user than the one the caller named. Pinned by
-`test_mcp_helpdesk_tools.py::test_a_user_id_in_the_arguments_is_refused_with_no_effect`,
-whose caller and named user share a tenant.
+Their inputs inherit `MutatingToolInput` from `tools/base.py`, which is
+where the extra-fields contract and the idempotency key are documented; it
+moved out of this module in an earlier change so a second tool module need not import
+this one.
 
 The reset and unlock are simulated (the design): each stamps a timestamp
 column on the token's own `users` row and no real
@@ -14,10 +12,10 @@ credential or directory action exists anywhere. The reset's "one-time token"
 is a constant placeholder that announces itself as fake.
 
 Handlers never see the transport or the token: the pipeline binds the
-session and resolves identity before anything here executes. The
-idempotency key DOES ride on the input model (every input inherits it from
-`MutatingToolInput`) — it is the pipeline that extracts and spends it, and
-no handler may read, store or log it.
+session and resolves identity before anything here executes. None of these
+three handlers reads its idempotency key — they have nowhere to store one —
+but that is a fact about them, not a rule about handlers (an earlier change decision
+A corrects the claim this docstring used to make).
 """
 
 import uuid
@@ -27,11 +25,12 @@ from enum import StrEnum
 from helpdesk.core.repository import Repository
 from helpdesk.errors import NotFoundError
 from helpdesk.models import Ticket, User
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
+from mcp_server.tools.base import MutatingToolInput
 
 RESET_EVENT_TYPE = "user.password_reset"
 """Declared success event for `reset_own_password` (per-action, an earlier change
@@ -78,21 +77,6 @@ class TicketKind(StrEnum):
     UNLOCK = "unlock"
     GENERAL = "general"
     ESCALATION = "escalation"
-
-
-class MutatingToolInput(BaseModel):
-    """Base for every mutating tool's input.
-
-    Carries the idempotency key the pipeline's `run_once` branch extracts,
-    and forbids extra fields (see the module docstring for why mutating
-    inputs refuse where read inputs ignore). The key stays `str`: the design's
-    own signature says the UUID shape is the agent's promise, not a server
-    constraint; the guard length-checks it against the column.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    idempotency_key: str
 
 
 class ResetOwnPasswordInput(MutatingToolInput):

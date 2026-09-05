@@ -25,7 +25,16 @@ boundary is a bug or an outage, not a decision about the caller.
 call did not fail, and converting it would fabricate a tool failure and
 write an audit event for something that never finished.
 
-Exactly one audit event per call (the design). The success event is written
+Exactly one audit event per call FROM THE PIPELINE (the design). A tool body
+may append its own domain events inside the same transaction — an earlier change's
+`create_access_request` appends `request.auto_executed`, `grant.executed`
+and `request.queued` beside the pipeline's `request.created`, because SPEC
+§13.1 names all four as distinct recorded facts. They
+commit or roll back with the tool's own writes; what this module guarantees
+is that IT writes exactly one, pinned by the three exact event-sequence
+assertions in `test_mcp_create_access_request.py`.
+
+The success event is written
 inside the tool's own transaction, so a tool that fails after writing takes
 its event with it; the failure event is then written from a FRESH session,
 because an event that rolls back with the failure it records is not a record. A call whose token never verified writes nothing at
@@ -69,7 +78,7 @@ from mcp_server.registry import (
     REPLAYED_EVENT_TYPE,
     ToolSpec,
 )
-from mcp_server.tools.helpdesk import MutatingToolInput
+from mcp_server.tools.base import MutatingToolInput
 
 logger = logging.getLogger(__name__)
 
@@ -271,13 +280,24 @@ async def _refuse(
 def _event_type_for(stage: _Stage, code: ErrorCode) -> str:
     """Which of the four event types this call earned.
 
-    Only a stop at the kill switch is `tool.disabled` and only a refusal by
-    the matrix is `tool.denied`; everything else, including a Redis outage
-    while reading the switch, is `tool.failed`.
+    Only a stop at the kill switch is `tool.disabled`; everything else that
+    is not a permission decision, including a Redis outage while reading the
+    switch, is `tool.failed`.
+
+    A `FORBIDDEN` is `tool.denied` wherever it was raised, at the RBAC stage
+    or inside the tool body. An earlier change's on-behalf check is the second kind:
+    `create_access_request` re-authorizes against
+    `CREATE_ACCESS_REQUEST_ON_BEHALF` once it can see whose access is being
+    asked for, which is after validation by construction (RBAC runs before
+    validation so a caller who may not call a tool learns nothing about its
+    argument shape, decision B). Recording that as `tool.failed` would file a
+    permission decision as an outage. Only `FORBIDDEN` gets this treatment:
+    every other code raised in the body stays `tool.failed`. Pinned by
+    `test_mcp_create_access_request.py::test_a_manager_naming_a_target_in_another_department_is_denied`.
     """
     if stage is _Stage.KILL_SWITCH and code is ErrorCode.TOOL_DISABLED:
         return DISABLED_EVENT_TYPE
-    if stage is _Stage.RBAC and code is ErrorCode.FORBIDDEN:
+    if code is ErrorCode.FORBIDDEN and stage in {_Stage.RBAC, _Stage.BODY}:
         return DENIED_EVENT_TYPE
     return FAILED_EVENT_TYPE
 

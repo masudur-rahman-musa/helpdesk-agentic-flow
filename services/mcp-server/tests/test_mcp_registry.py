@@ -61,7 +61,7 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
 )
 from mcp_server import registry
 from mcp_server.registry import REGISTRY, lookup
-from mcp_server.tools.helpdesk import MutatingToolInput
+from mcp_server.tools.base import MutatingToolInput
 from redis.asyncio import Redis
 from sqlalchemy import String
 from sqlalchemy.exc import DBAPIError
@@ -139,6 +139,7 @@ def test_the_registry_declares_the_non_success_event_types_exactly() -> None:
         "user.account_unlocked",
         "ticket.created",
         "request.classified",
+        "request.created",
     }
 
 
@@ -190,7 +191,20 @@ def test_the_event_type_column_boundary_is_inclusive_at_64(
 # The tools that mutate, spelled out: a new tool registered with the wrong
 # flag either skips the idempotency guard (a mutation retried twice) or
 # demands a key from a read, and this set is what catches it.
-MUTATING_TOOL_NAMES = frozenset({"reset_own_password", "unlock_own_account", "create_ticket"})
+MUTATING_TOOL_NAMES = frozenset(
+    {"reset_own_password", "unlock_own_account", "create_ticket", "create_access_request"}
+)
+
+
+def test_the_wire_name_aliases_are_exactly_the_declared_pair() -> None:
+    """An earlier change decision J. The alias table is the ONLY licence a wire name
+    has to differ from its matrix member's value, so an undeclared alias
+    added later must fail here rather than quietly slipping past the pairing
+    check below. Written out literally: importing the table and comparing it
+    to itself would assert nothing."""
+    assert dict(registry.WIRE_NAME_ALIASES) == {
+        "create_access_request": rbac.Tool.CREATE_ACCESS_REQUEST_SELF
+    }
 
 
 @pytest.mark.parametrize("name", sorted(REGISTRY))
@@ -198,7 +212,13 @@ def test_each_spec_names_a_real_matrix_tool_and_agrees_with_its_key(name: str) -
     spec = REGISTRY[name]
     assert isinstance(spec.tool, rbac.Tool)
     assert spec.tool in set(rbac.Tool)
-    assert spec.name == spec.tool.value
+    if spec.name in registry.WIRE_NAME_ALIASES:
+        # the design gives `create_access_request` two matrix rows for one wire
+        # name, so identity is impossible there; the declared pairing is what
+        # replaces it (decision J).
+        assert registry.WIRE_NAME_ALIASES[spec.name] is spec.tool
+    else:
+        assert spec.name == spec.tool.value
     assert spec.name == name
     assert spec.mutating is (name in MUTATING_TOOL_NAMES)
 

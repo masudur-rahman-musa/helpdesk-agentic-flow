@@ -62,6 +62,7 @@ EXPECTED_TOOL_NAMES = {
     "create_ticket",
     "classify_access_request",
     "list_my_requests",
+    "create_access_request",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")

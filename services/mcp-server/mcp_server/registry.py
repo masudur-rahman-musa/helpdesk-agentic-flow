@@ -47,14 +47,37 @@ decision B). Distinct from the tool's declared event on purpose: a second
 that it replayed and nothing else."""
 
 
+WIRE_NAME_ALIASES: Mapping[str, rbac.Tool] = MappingProxyType(
+    {
+        "create_access_request": rbac.Tool.CREATE_ACCESS_REQUEST_SELF,
+    }
+)
+"""Wire names that deliberately differ from their matrix member's value.
+
+the design gives `create_access_request` TWO rows — one for a self-request and
+one for naming someone else — so the matrix has two members where the wire
+has one name. The invariant a wire name has to satisfy
+is therefore "equals the member's value, or is the one declared alias for
+it"; without this table it would just be absent for that tool. The
+on-behalf member is not registered at all: it is a permission the handler
+checks, never a tool a client can call.
+
+Anything here still has to be a legal kill-switch key and audit subject, and
+the parametrized cases over `REGISTRY` cover it because the alias IS the
+registered name. Pinned by
+`test_mcp_registry.py::test_the_wire_name_aliases_are_exactly_the_declared_pair`."""
+
+
 @dataclass(frozen=True)
 class ToolSpec[I: BaseModel, O: BaseModel]:
     """One tool, declared for every part of the pipeline that needs it.
 
-    `name` is the wire name and equals `tool.value`, asserted by
-    `test_mcp_registry.py::test_each_spec_names_a_real_matrix_tool_and_agrees_with_its_key`:
-    the string a client sends, the string the kill switch keys on and the
-    matrix member are then the same string by construction.
+    `name` is the wire name. It equals `tool.value` unless `WIRE_NAME_ALIASES`
+    declares otherwise, which is what
+    `test_mcp_registry.py::test_each_spec_names_a_real_matrix_tool_and_agrees_with_its_key`
+    asserts: the string a client sends, the string the kill switch keys on
+    and the matrix member are then the same string by construction, or paired
+    once and explicitly.
     """
 
     name: str
@@ -107,6 +130,20 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
         handler=access.list_my_requests,
+    ),
+    ToolSpec(
+        # The wire name is the design's, not the matrix member's: §7 splits
+        # this one tool into a self row and an on-behalf row (decision J).
+        name="create_access_request",
+        tool=rbac.Tool.CREATE_ACCESS_REQUEST_SELF,
+        description=(
+            "File an access request; classifies, then grants, queues for approval, or blocks."
+        ),
+        input_model=access.CreateAccessRequestInput,
+        output_model=access.CreateAccessRequestOutput,
+        event_type=access.REQUEST_CREATED_EVENT_TYPE,
+        mutating=True,
+        handler=access.create_access_request,
     ),
     ToolSpec(
         name=rbac.Tool.RESET_OWN_PASSWORD.value,

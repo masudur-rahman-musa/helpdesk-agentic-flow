@@ -57,11 +57,19 @@ PRINCIPALS: tuple[str, ...] = (
 )
 
 # the design, written out per tool and per principal. True = the matrix permits
-# this principal to call this tool. All seven registered tools are granted to
+# this principal to call this tool. All eight registered tools are granted to
 # every principal by the design (the reads are self-scoped, the three helpdesk
-# mutations self-only or any, and every principal may classify and list their
-# own requests); a future tool with a narrower row goes here as an explicit
-# dict, never as `dict.fromkeys(..., True)` copied by habit.
+# mutations self-only or any, and every principal may classify, list their own
+# requests, and file one for THEMSELVES); a future tool with a narrower row
+# goes here as an explicit dict, never as `dict.fromkeys(..., True)` copied by
+# habit.
+#
+# `create_access_request` is the self row of the design's pair, and the arguments
+# below name the caller as the target so that is the row this exercises. The
+# on-behalf row (`manager` own_department; `hr`, `it_admin`, `platform_admin`
+# any) is a permission checked inside the handler, not a registered tool, so
+# it is not on this axis: it is pinned by the two on-behalf cases in
+# `test_mcp_create_access_request.py`.
 MATRIX: dict[str, dict[str, bool]] = {
     "get_me": dict.fromkeys(PRINCIPALS, True),
     "list_my_access": dict.fromkeys(PRINCIPALS, True),
@@ -70,6 +78,7 @@ MATRIX: dict[str, dict[str, bool]] = {
     "create_ticket": dict.fromkeys(PRINCIPALS, True),
     "classify_access_request": dict.fromkeys(PRINCIPALS, True),
     "list_my_requests": dict.fromkeys(PRINCIPALS, True),
+    "create_access_request": dict.fromkeys(PRINCIPALS, True),
 }
 
 
@@ -95,13 +104,19 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "body": "fake body",
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
-    if tool_name == "classify_access_request":
+    if tool_name in {"classify_access_request", "create_access_request"}:
         rows = _tenant_rows(env.tenant_a.tenant_slug)
         assert rows.tenant_id == env.tenant_a.tenant_id
-        return {
+        arguments = {
             "target_user_id": str(env.tenant_a.user_id),
             "role_id": str(rows.role_ids[("wiki", "viewer")]),
         }
+        if tool_name == "create_access_request":
+            # The caller names THEMSELVES, so this row exercises the design's
+            # self path only; the on-behalf permission is never reached.
+            arguments["justification"] = f"fake matrix request {uuid.uuid4().hex}"
+            arguments["idempotency_key"] = f"fake-key-{uuid.uuid4().hex}"
+        return arguments
     return {}
 
 
