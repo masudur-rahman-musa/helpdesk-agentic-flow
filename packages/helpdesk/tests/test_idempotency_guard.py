@@ -16,7 +16,11 @@ Expected implementation surface:
 
     ``fn`` is a zero-argument async callable returning a JSON-serialisable
     mapping; it closes over the same session, so its writes join the same
-    transaction. Returns that mapping (fresh or stored).
+    transaction. Returns a frozen result whose
+    ``.response`` is that mapping (fresh or stored) and whose ``.replayed``
+    is ``False`` when ``fn`` ran and ``True`` when the stored row answered —
+    so the pipeline can write ``tool.replayed`` instead of falsely repeating
+    the declared event.
 
 An expired row is absent to the guard: the effect runs again and the row is
 replaced, leaving exactly one row per (tenant, key).
@@ -162,10 +166,11 @@ def test_first_call_runs_the_effect_and_stores_the_response(temp_db_url: str) ->
             before = datetime.now(UTC)
 
             async with tenant_session(factory, seeded.tenant_id) as session:
-                result = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
+                result: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
 
             assert effect.calls == 1
-            assert result == RESPONSE
+            assert result.response == RESPONSE
+            assert result.replayed is False
 
             row = await _stored(factory, seeded.tenant_id)
             assert row is not None
@@ -236,9 +241,10 @@ def test_a_rolled_back_transaction_leaves_neither_the_effect_nor_the_key(temp_db
 
             # The retry is a first call again, not a replay.
             async with tenant_session(factory, seeded.tenant_id) as session:
-                result = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
+                result: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
             assert effect.calls == 2
-            assert result == RESPONSE
+            assert result.response == RESPONSE
+            assert result.replayed is False
 
     asyncio.run(scenario())
 
@@ -254,12 +260,16 @@ def test_replay_returns_the_stored_response_without_running_the_effect(temp_db_u
             effect = Effect()
 
             async with tenant_session(factory, seeded.tenant_id) as session:
-                first = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
+                first: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
+            assert first.replayed is False
 
             for _ in range(3):
                 async with tenant_session(factory, seeded.tenant_id) as session:
-                    replayed = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
-                assert replayed == first
+                    replayed: Any = await run_once(
+                        session, seeded.tenant_id, KEY, TOOL, ARGS, effect
+                    )
+                assert replayed.response == first.response
+                assert replayed.replayed is True
 
             assert effect.calls == 1, "a retry must never double-revoke"
             assert len(await _all_rows(factory, seeded.tenant_id)) == 1
@@ -281,10 +291,13 @@ def test_replay_is_insensitive_to_argument_key_order(temp_db_url: str) -> None:
 
             shuffled = dict(reversed(list(ARGS.items())))
             async with tenant_session(factory, seeded.tenant_id) as session:
-                replayed = await run_once(session, seeded.tenant_id, KEY, TOOL, shuffled, effect)
+                replayed: Any = await run_once(
+                    session, seeded.tenant_id, KEY, TOOL, shuffled, effect
+                )
 
             assert effect.calls == 1
-            assert replayed == RESPONSE
+            assert replayed.response == RESPONSE
+            assert replayed.replayed is True
 
     asyncio.run(scenario())
 
@@ -305,9 +318,10 @@ def test_a_committed_call_replays_even_when_its_result_was_lost(temp_db_url: str
                 await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
 
             async with tenant_session(factory, seeded.tenant_id) as session:
-                retried = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
+                retried: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
 
-            assert retried == RESPONSE
+            assert retried.response == RESPONSE
+            assert retried.replayed is True
             assert effect.calls == 1
 
     asyncio.run(scenario())
@@ -394,7 +408,7 @@ def test_two_concurrent_calls_with_the_same_key_run_the_effect_once(temp_db_url:
             seeded = await seed_tenant(factory, "guard-race")
             effect = Effect(delay=0.05)
 
-            async def call() -> Mapping[str, Any]:
+            async def call() -> Any:
                 async with tenant_session(factory, seeded.tenant_id) as session:
                     return await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
 
@@ -402,7 +416,10 @@ def test_two_concurrent_calls_with_the_same_key_run_the_effect_once(temp_db_url:
 
             failures = [r for r in results if isinstance(r, BaseException)]
             assert not failures, f"a concurrent retry must not error: {failures!r}"
-            assert list(results) == [RESPONSE, RESPONSE]
+            outcomes = [r for r in results if not isinstance(r, BaseException)]
+            assert [outcome.response for outcome in outcomes] == [RESPONSE, RESPONSE]
+            # The winner ran the effect; the loser replayed the winner's row.
+            assert sorted(outcome.replayed for outcome in outcomes) == [False, True]
             assert effect.calls == 1, "the effect ran twice under contention"
             assert len(await _all_rows(factory, seeded.tenant_id)) == 1
 
@@ -418,7 +435,7 @@ def test_concurrent_calls_with_different_keys_both_run(temp_db_url: str) -> None
             seeded = await seed_tenant(factory, "guard-race-keys")
             effect = Effect(delay=0.05)
 
-            async def call(key: str) -> Mapping[str, Any]:
+            async def call(key: str) -> Any:
                 async with tenant_session(factory, seeded.tenant_id) as session:
                     return await run_once(session, seeded.tenant_id, key, TOOL, ARGS, effect)
 
@@ -512,8 +529,9 @@ def test_the_same_key_in_another_tenant_runs_independently(temp_db_url: str) -> 
 
             for seeded in (seeded_a, seeded_b):
                 async with tenant_session(factory, seeded.tenant_id) as session:
-                    result = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
-                assert result == RESPONSE
+                    result: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
+                assert result.response == RESPONSE
+                assert result.replayed is False
 
             assert effect.calls == 2, "another tenant's key must not suppress the effect"
             assert len(await _all_rows(factory, seeded_a.tenant_id)) == 1
@@ -543,10 +561,11 @@ def test_an_expired_key_re_runs_the_effect_and_replaces_the_row(temp_db_url: str
                 )
 
             async with tenant_session(factory, seeded.tenant_id) as session:
-                result = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
+                result: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
 
             assert effect.calls == 1, "an expired key must not replay"
-            assert result == RESPONSE
+            assert result.response == RESPONSE
+            assert result.replayed is False
 
             rows = await _all_rows(factory, seeded.tenant_id)
             assert len(rows) == 1, f"the expired row must be replaced, not duplicated: {rows}"
@@ -576,9 +595,10 @@ def test_an_expired_key_with_a_different_fingerprint_is_not_a_conflict(temp_db_u
                 )
 
             async with tenant_session(factory, seeded.tenant_id) as session:
-                result = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
+                result: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
 
             assert effect.calls == 1
-            assert result == RESPONSE
+            assert result.response == RESPONSE
+            assert result.replayed is False
 
     asyncio.run(scenario())

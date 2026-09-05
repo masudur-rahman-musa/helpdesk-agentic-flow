@@ -5,9 +5,10 @@ switch and the audit log all read the same name — a tool advertised under a
 name the matrix does not know, or one the kill switch cannot store, fails in
 `test_mcp_registry.py` rather than at the moment someone needs the stop.
 
-`mutating` is declared but unused in 10a: an earlier change's `run_once` reads it to
-decide which calls need an idempotency key, and declaring it now keeps that
-a property of the registry rather than a list kept somewhere else.
+`mutating` is what the pipeline's `run_once` branch keys on: a
+mutating tool's input carries an idempotency key and its body runs at most
+once per key, a property of the registry rather than a list kept somewhere
+else.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
@@ -20,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
-from mcp_server.tools import read
+from mcp_server.tools import helpdesk, read
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
 """What a read tool writes when it worked. Per-tool rather than global (plan
@@ -38,6 +39,12 @@ FAILED_EVENT_TYPE = "tool.failed"
 """The call reached the tool (or a check other than the two above) and did
 not complete. Written from a fresh session so it survives the rollback that
 takes the tool's own writes with it."""
+
+REPLAYED_EVENT_TYPE = "tool.replayed"
+"""A mutating call answered from its stored idempotency row (an earlier change
+decision B). Distinct from the tool's declared event on purpose: a second
+`ticket.created` for one ticket would be a false record, so a replay logs
+that it replayed and nothing else."""
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,36 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
         handler=read.list_my_access,
+    ),
+    ToolSpec(
+        name=rbac.Tool.RESET_OWN_PASSWORD.value,
+        tool=rbac.Tool.RESET_OWN_PASSWORD,
+        description="Simulated password reset for the calling user's own account.",
+        input_model=helpdesk.ResetOwnPasswordInput,
+        output_model=helpdesk.ResetOwnPasswordOutput,
+        event_type=helpdesk.RESET_EVENT_TYPE,
+        mutating=True,
+        handler=helpdesk.reset_own_password,
+    ),
+    ToolSpec(
+        name=rbac.Tool.UNLOCK_OWN_ACCOUNT.value,
+        tool=rbac.Tool.UNLOCK_OWN_ACCOUNT,
+        description="Simulated unlock of the calling user's own account.",
+        input_model=helpdesk.UnlockOwnAccountInput,
+        output_model=helpdesk.UnlockOwnAccountOutput,
+        event_type=helpdesk.UNLOCK_EVENT_TYPE,
+        mutating=True,
+        handler=helpdesk.unlock_own_account,
+    ),
+    ToolSpec(
+        name=rbac.Tool.CREATE_TICKET.value,
+        tool=rbac.Tool.CREATE_TICKET,
+        description="File a helpdesk ticket for the calling user.",
+        input_model=helpdesk.CreateTicketInput,
+        output_model=helpdesk.CreateTicketOutput,
+        event_type=helpdesk.TICKET_EVENT_TYPE,
+        mutating=True,
+        handler=helpdesk.create_ticket,
     ),
 )
 

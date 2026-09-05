@@ -10,13 +10,22 @@ The expectation is the design written out literally here, the same way
 reimplementing ``authorize`` would make the test drift together with the code
 it is supposed to hold still.
 
-Exhaustiveness is over the tools an earlier change REGISTERS. the design asks for every
-tool; the rest land as the tools land. What is
-exhaustive here is the principal axis: all seven, plus the two ways a token
-can carry no principal the matrix recognises.
+Exhaustiveness is over the tools the registry HOLDS.
+the design asks for every tool; the rest land as the tools land (an earlier change,
+scope note 2). What is exhaustive here is the principal axis: all seven,
+plus the two ways a token can carry no principal the matrix recognises.
+
+A permitted call must actually succeed for the assertion to pin RBAC rather
+than a later stage, so each mutating tool is called with minimally valid
+arguments (a fresh idempotency key per call). Denials need no arguments at
+all: RBAC runs before input validation, which is itself pinned by
+``test_mcp_pipeline.py``'s criterion-5 pair.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
+
+import uuid
+from typing import Any
 
 import pytest
 from helpdesk.auth.rbac import Principal
@@ -45,13 +54,34 @@ PRINCIPALS: tuple[str, ...] = (
 )
 
 # the design, written out per tool and per principal. True = the matrix permits
-# this principal to call this tool. Both an earlier change tools are self-scoped reads
-# that every principal may make; a future tool with a narrower row goes here as
+# this principal to call this tool. All five registered tools are granted to
+# every principal by the design (the reads are self-scoped, the three helpdesk
+# mutations self-only or any); a future tool with a narrower row goes here as
 # an explicit dict, never as `dict.fromkeys(..., True)` copied by habit.
 MATRIX: dict[str, dict[str, bool]] = {
     "get_me": dict.fromkeys(PRINCIPALS, True),
     "list_my_access": dict.fromkeys(PRINCIPALS, True),
+    "reset_own_password": dict.fromkeys(PRINCIPALS, True),
+    "unlock_own_account": dict.fromkeys(PRINCIPALS, True),
+    "create_ticket": dict.fromkeys(PRINCIPALS, True),
 }
+
+
+def _arguments_for(tool_name: str) -> dict[str, Any]:
+    """Minimally valid arguments, so a permitted call exercises RBAC, not
+    validation. Mutating tools need a fresh idempotency key per call; the
+    ticket title is unique so no case replays another's row."""
+    if tool_name in {"reset_own_password", "unlock_own_account"}:
+        return {"idempotency_key": f"fake-key-{uuid.uuid4().hex}"}
+    if tool_name == "create_ticket":
+        return {
+            "kind": "general",
+            "title": f"fake matrix ticket {uuid.uuid4().hex}",
+            "body": "fake body",
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    return {}
+
 
 # The two shapes of a token that carries nothing the matrix recognises.
 # `authorize` ignores principal strings outside the enum, so both deny.
@@ -85,7 +115,7 @@ def test_matrix_expectation_holds_through_the_transport(
     the matrix denies, and not refused when it allows."""
     token = token_for(mcp_env.tenant_a, principals=(principal,))
 
-    result = call_tool(bearer(token), tool_name, {})
+    result = call_tool(bearer(token), tool_name, _arguments_for(tool_name))
 
     if MATRIX[tool_name][principal]:
         assert result.is_error is False, (
@@ -108,9 +138,10 @@ def test_a_token_with_no_recognised_principal_is_refused(
     label: str,
     principals: tuple[str, ...],
 ) -> None:
-    """The refusal direction, through the transport. Both 10a tools allow every
-    real principal, so this is where FORBIDDEN is actually reachable — without
-    it the matrix test would assert only that nothing is ever refused."""
+    """The refusal direction, through the transport. Every registered tool
+    allows every real principal, so this is where FORBIDDEN is actually
+    reachable — without it the matrix test would assert only that nothing is
+    ever refused. No arguments on purpose: RBAC answers before validation."""
     token = token_for(mcp_env.tenant_a, principals=principals)
 
     result = call_tool(bearer(token), tool_name, {})

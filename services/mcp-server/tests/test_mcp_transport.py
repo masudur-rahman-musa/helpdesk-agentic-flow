@@ -50,9 +50,16 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
 from mcp_server import readiness
 from mcp_server.registry import REGISTRY
 
-# An earlier change registers exactly these two tools. Pinned as a literal, not derived
-# from REGISTRY, so adding a tool without deciding it belongs on the wire fails.
-EXPECTED_TOOL_NAMES = {"get_me", "list_my_access"}
+# An earlier change registered the two read tools; an earlier change adds the three helpdesk
+# mutating tools. Pinned as a literal, not derived from REGISTRY, so adding a
+# tool without deciding it belongs on the wire fails.
+EXPECTED_TOOL_NAMES = {
+    "get_me",
+    "list_my_access",
+    "reset_own_password",
+    "unlock_own_account",
+    "create_ticket",
+}
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")
 
@@ -60,7 +67,7 @@ DEPENDENCIES: tuple[str, str] = ("postgres", "redis")
 _STDIO_CODE = "from mcp_server.main import run_stdio; run_stdio()"
 
 
-def test_registry_registers_exactly_the_two_plan_10a_tools() -> None:
+def test_registry_registers_exactly_the_expected_tools() -> None:
     assert set(REGISTRY) == EXPECTED_TOOL_NAMES
 
 

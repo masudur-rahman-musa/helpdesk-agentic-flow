@@ -49,6 +49,10 @@ class User(TenantScoped):
     status: Mapped[str] = mapped_column(String(16))  # active | leaver
     start_date: Mapped[date] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)
+    # the design's simulated self-service "flags": the
+    # reset/unlock tools stamp these; no real directory action happens.
+    password_reset_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    account_unlocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class System(TenantScoped):

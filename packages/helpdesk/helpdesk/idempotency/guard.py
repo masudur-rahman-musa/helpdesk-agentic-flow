@@ -30,6 +30,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -57,6 +58,20 @@ _ADVISORY_LOCK = text("SELECT pg_advisory_xact_lock(:classid, :objid)")
 _LOCK_CLASSID = 0x1DE3
 
 _SIGNED_32_BIT_MASK = (1 << 31) - 1
+
+
+@dataclass(frozen=True, slots=True)
+class RunOnceResult:
+    """What `run_once` hands back.
+
+    `replayed` is False when `fn` ran in this call and True when a stored row
+    answered, so the caller can record the two honestly — a replay must never
+    be written to the audit log as the declared event happening again.
+    Pinned by `test_replay_returns_the_stored_response_without_running_the_effect`.
+    """
+
+    response: Mapping[str, Any]
+    replayed: bool
 
 
 class TenantMismatchError(RuntimeError):
@@ -133,7 +148,7 @@ async def run_once(
     tool_name: str,
     args: Mapping[str, Any],
     fn: Callable[[], Awaitable[Mapping[str, Any]]],
-) -> Mapping[str, Any]:
+) -> RunOnceResult:
     """Run `fn` at most once for this (tenant, key); replay it after that.
 
     `fn` takes no arguments and closes over the same session, so its writes
@@ -142,9 +157,10 @@ async def run_once(
     6): silently ignoring it would let a caller believe a key was scoped to
     a tenant it was not.
 
-    Raises `IdempotencyConflictError` when the key was already spent on a
-    different request. An expired key is treated as absent: the effect runs
-    again and its row replaces the stale one.
+    Returns a `RunOnceResult` whose `replayed` says whether the stored row
+    answered instead of `fn`. Raises `IdempotencyConflictError` when the key
+    was already spent on a different request. An expired key is treated as
+    absent: the effect runs again and its row replaces the stale one.
     """
     bound = bound_tenant_id(session)
     if bound != tenant_id:
@@ -166,7 +182,7 @@ async def run_once(
             raise IdempotencyConflictError(
                 f"idempotency key {key!r} was already used for a different request"
             )
-        return existing.response
+        return RunOnceResult(response=existing.response, replayed=True)
 
     response = _storable(await fn(), tool_name)
 
@@ -181,4 +197,4 @@ async def run_once(
         response=response,
         expires_at=now + KEY_TTL,
     )
-    return response
+    return RunOnceResult(response=response, replayed=False)

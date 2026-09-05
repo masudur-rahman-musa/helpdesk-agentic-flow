@@ -54,6 +54,7 @@ from helpdesk.core.db import (
 )
 from helpdesk.core.settings import Settings, load_settings
 from helpdesk.errors import ErrorCode, ToolError
+from helpdesk.idempotency.guard import run_once
 from helpdesk.killswitch import KillSwitch
 from pydantic import BaseModel, ValidationError
 from redis.asyncio import Redis
@@ -65,8 +66,10 @@ from mcp_server.registry import (
     DENIED_EVENT_TYPE,
     DISABLED_EVENT_TYPE,
     FAILED_EVENT_TYPE,
+    REPLAYED_EVENT_TYPE,
     ToolSpec,
 )
+from mcp_server.tools.helpdesk import MutatingToolInput
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +196,8 @@ async def _call_tool(
     """
     factory = _session_factory(settings)
     async with tenant_session(factory, identity.tenant_id) as session:
+        if spec.mutating:
+            return await _run_mutating_tool(spec, session, identity, args, scope)
         # `spec` is erased to `ToolSpec[Any, Any]` here; the handler's real
         # return type is checked against `output_model` where the spec is
         # declared, so this annotation narrows rather than assumes.
@@ -203,6 +208,50 @@ async def _call_tool(
         result = _success_result(output)
         await _append(session, identity, spec, spec.event_type, scope, None, None)
         return result
+
+
+async def _run_mutating_tool(
+    spec: ToolSpec[Any, Any],
+    session: AsyncSession,
+    identity: Identity,
+    args: BaseModel,
+    scope: str | None,
+) -> types.CallToolResult:
+    """The tool body inside `run_once`, so a retry can never repeat the effect.
+
+    Reached only after the kill switch and RBAC by construction (this runs
+    inside `_call_tool`, after both stages), so a stopped or refused call
+    burns no idempotency key — pinned by
+    `test_mcp_helpdesk_tools.py::test_a_disabled_mutating_call_burns_no_idempotency_key`.
+
+    Both the fresh and the replayed path build the response from the stored
+    mapping through `output_model`, so a replay is byte-identical to the
+    first answer by construction, not by comparison. A replay writes
+    `tool.replayed`, never the declared event again.
+    """
+    if not isinstance(args, MutatingToolInput):
+        # A spec marked mutating whose input model carries no key is a wiring
+        # bug; caught here as INTERNAL, never as the caller's mistake.
+        raise TypeError(f"mutating tool {spec.name} must take a MutatingToolInput")
+
+    async def effect() -> Mapping[str, Any]:
+        output: BaseModel = await spec.handler(session, identity, args)
+        dumped: dict[str, Any] = output.model_dump(mode="json")
+        return dumped
+
+    guarded = await run_once(
+        session,
+        identity.tenant_id,
+        args.idempotency_key,
+        spec.name,
+        args.model_dump(mode="json"),
+        effect,
+    )
+    output = spec.output_model.model_validate(guarded.response)
+    result = _success_result(output)
+    event_type = REPLAYED_EVENT_TYPE if guarded.replayed else spec.event_type
+    await _append(session, identity, spec, event_type, scope, None, None)
+    return result
 
 
 async def _refuse(

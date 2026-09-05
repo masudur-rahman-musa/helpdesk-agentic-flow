@@ -61,6 +61,7 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
 )
 from mcp_server import registry
 from mcp_server.registry import REGISTRY, lookup
+from mcp_server.tools.helpdesk import MutatingToolInput
 from redis.asyncio import Redis
 from sqlalchemy import String
 from sqlalchemy.exc import DBAPIError
@@ -72,12 +73,14 @@ assert isinstance(_EVENT_TYPE_TYPE, String), _EVENT_TYPE_TYPE
 assert _EVENT_TYPE_TYPE.length is not None, "audit_events.event_type must be a sized column"
 AUDIT_EVENT_TYPE_LENGTH: int = _EVENT_TYPE_TYPE.length
 
-# Every event type the pipeline can write, success and non-success alike.
+# Every event type the pipeline can write, success, replay and non-success
+# alike.
 ALL_EVENT_TYPES: tuple[str, ...] = (
     *sorted({spec.event_type for spec in REGISTRY.values()}),
     registry.DENIED_EVENT_TYPE,
     registry.DISABLED_EVENT_TYPE,
     registry.FAILED_EVENT_TYPE,
+    registry.REPLAYED_EVENT_TYPE,
 )
 
 UNREGISTERED_NAME = "no_such_tool_registered_here"
@@ -126,7 +129,15 @@ def test_the_registry_declares_the_non_success_event_types_exactly() -> None:
     assert registry.DENIED_EVENT_TYPE == "tool.denied"
     assert registry.DISABLED_EVENT_TYPE == "tool.disabled"
     assert registry.FAILED_EVENT_TYPE == "tool.failed"
-    assert {spec.event_type for spec in REGISTRY.values()} == {"tool.succeeded"}
+    assert registry.REPLAYED_EVENT_TYPE == "tool.replayed"
+    # The declared success events: the reads share `tool.succeeded`, each
+    # mutating tool names its action.
+    assert {spec.event_type for spec in REGISTRY.values()} == {
+        "tool.succeeded",
+        "user.password_reset",
+        "user.account_unlocked",
+        "ticket.created",
+    }
 
 
 def _append(database_url: str, tenant_id: uuid.UUID, event_type: str) -> None:
@@ -174,6 +185,12 @@ def test_the_event_type_column_boundary_is_inclusive_at_64(
 # --- the specs themselves ------------------------------------------------------
 
 
+# The tools that mutate, spelled out: a new tool registered with the wrong
+# flag either skips the idempotency guard (a mutation retried twice) or
+# demands a key from a read, and this set is what catches it.
+MUTATING_TOOL_NAMES = frozenset({"reset_own_password", "unlock_own_account", "create_ticket"})
+
+
 @pytest.mark.parametrize("name", sorted(REGISTRY))
 def test_each_spec_names_a_real_matrix_tool_and_agrees_with_its_key(name: str) -> None:
     spec = REGISTRY[name]
@@ -181,7 +198,18 @@ def test_each_spec_names_a_real_matrix_tool_and_agrees_with_its_key(name: str) -
     assert spec.tool in set(rbac.Tool)
     assert spec.name == spec.tool.value
     assert spec.name == name
-    assert spec.mutating is False, "plan 10a registers read tools only"
+    assert spec.mutating is (name in MUTATING_TOOL_NAMES)
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY))
+def test_a_mutating_spec_takes_a_keyed_input_and_a_read_spec_does_not(name: str) -> None:
+    """The flag and the input model must agree: a mutating tool whose input
+    forgets `MutatingToolInput` would answer INTERNAL on every call (the
+    pipeline's wiring-bug guard), caught here instead of at that tool's first
+    happy-path test. A read tool carrying a key would demand one for a call
+    the guard never protects."""
+    spec = REGISTRY[name]
+    assert issubclass(spec.input_model, MutatingToolInput) is spec.mutating
 
 
 @pytest.mark.parametrize("name", sorted(REGISTRY))
