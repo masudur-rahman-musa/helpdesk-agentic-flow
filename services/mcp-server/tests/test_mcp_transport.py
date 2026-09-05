@@ -51,14 +51,17 @@ from mcp_server import readiness
 from mcp_server.registry import REGISTRY
 
 # An earlier change registered the two read tools; an earlier change adds the three helpdesk
-# mutating tools. Pinned as a literal, not derived from REGISTRY, so adding a
-# tool without deciding it belongs on the wire fails.
+# mutating tools; an earlier change adds the two access read tools. Pinned as a
+# literal, not derived from REGISTRY, so adding a tool without deciding it
+# belongs on the wire fails.
 EXPECTED_TOOL_NAMES = {
     "get_me",
     "list_my_access",
     "reset_own_password",
     "unlock_own_account",
     "create_ticket",
+    "classify_access_request",
+    "list_my_requests",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")

@@ -10,7 +10,12 @@ Layers, top to bottom:
 - a writer that upserts through the tenant-scoped repository helpers, one
   transaction per tenant. Upsert here means insert-when-absent: a row whose
   deterministic id already exists is left untouched, so re-runs change
-  nothing. The two `tenants` rows are the only direct-session writes:
+  nothing — with one deliberate exception: `systems.category` is re-asserted
+  on existing rows, because rows seeded before the column existed hold the
+  migration's `other` default and the seed is the only writer that knows the
+  real values (an earlier change; pinned by
+  `test_seed.py::test_a_reseed_backfills_system_categories_and_changes_nothing_else`).
+  The two `tenants` rows are the only direct-session writes:
   `Tenant` is the scoping root, not `TenantScoped`, so the repository cannot
   address it.
 
@@ -135,7 +140,7 @@ class TenantSpec:
     email_domain: str
     departments: tuple[str, ...]
     users_per_department: tuple[int, ...]
-    systems: tuple[tuple[str, str, str], ...]  # (slug, name, sensitivity)
+    systems: tuple[tuple[str, str, str, str], ...]  # (slug, name, sensitivity, category)
     roles: tuple[RoleSpec, ...]
     templates: dict[str, tuple[tuple[str, str], ...]] = field(default_factory=dict)
     sod_rules: tuple[SodRuleSpec, ...] = ()
@@ -158,21 +163,21 @@ NORDLICHT = TenantSpec(
     departments=("Engineering", "Production", "Procurement", "Finance", "Sales", "HR", "IT"),
     users_per_department=(46, 72, 18, 16, 28, 14, 26),
     systems=(
-        ("erp", "ERP", "critical"),
-        ("plm", "Product Lifecycle / CAD Vault", "high"),
-        ("mes", "Manufacturing Execution", "high"),
-        ("finance-dash", "Finance Dashboard", "high"),
-        ("payments", "Payment Release", "critical"),
-        ("vendor-master", "Supplier Master Data", "high"),
-        ("crm", "CRM", "medium"),
-        ("hris", "HR System", "critical"),
-        ("wiki", "Internal Wiki", "low"),
-        ("vpn", "VPN", "medium"),
-        ("gitlab", "GitLab", "medium"),
-        ("prod-k8s", "Production Cluster", "critical"),
-        ("grafana", "Grafana", "low"),
-        ("m365", "Mail and Files", "medium"),
-        ("badge", "Physical Access", "high"),
+        ("erp", "ERP", "critical", "other"),
+        ("plm", "Product Lifecycle / CAD Vault", "high", "other"),
+        ("mes", "Manufacturing Execution", "high", "other"),
+        ("finance-dash", "Finance Dashboard", "high", "other"),
+        ("payments", "Payment Release", "critical", "other"),
+        ("vendor-master", "Supplier Master Data", "high", "other"),
+        ("crm", "CRM", "medium", "other"),
+        ("hris", "HR System", "critical", "hris"),
+        ("wiki", "Internal Wiki", "low", "other"),
+        ("vpn", "VPN", "medium", "other"),
+        ("gitlab", "GitLab", "medium", "other"),
+        ("prod-k8s", "Production Cluster", "critical", "prod_infra"),
+        ("grafana", "Grafana", "low", "other"),
+        ("m365", "Mail and Files", "medium", "other"),
+        ("badge", "Physical Access", "high", "other"),
     ),
     roles=(
         RoleSpec("erp", "viewer", "read"),
@@ -344,20 +349,20 @@ CUAN = TenantSpec(
     ),
     users_per_department=(40, 45, 20, 15, 32, 10, 18),
     systems=(
-        ("core-banking", "Core Banking", "critical"),
-        ("payments-gateway", "Payments Gateway", "critical"),
-        ("kyc", "KYC", "critical"),
-        ("ledger", "Ledger", "high"),
-        ("crm", "CRM", "medium"),
-        ("support-desk", "Support Desk", "medium"),
-        ("data-warehouse", "Data Warehouse", "high"),
-        ("hris", "HR System", "critical"),
-        ("vpn", "VPN", "medium"),
-        ("github", "GitHub", "medium"),
-        ("prod-aws", "Production AWS", "critical"),
-        ("datadog", "Datadog", "low"),
-        ("m365", "Mail and Files", "medium"),
-        ("wiki", "Internal Wiki", "low"),
+        ("core-banking", "Core Banking", "critical", "other"),
+        ("payments-gateway", "Payments Gateway", "critical", "other"),
+        ("kyc", "KYC", "critical", "other"),
+        ("ledger", "Ledger", "high", "other"),
+        ("crm", "CRM", "medium", "other"),
+        ("support-desk", "Support Desk", "medium", "other"),
+        ("data-warehouse", "Data Warehouse", "high", "other"),
+        ("hris", "HR System", "critical", "hris"),
+        ("vpn", "VPN", "medium", "other"),
+        ("github", "GitHub", "medium", "other"),
+        ("prod-aws", "Production AWS", "critical", "prod_infra"),
+        ("datadog", "Datadog", "low", "other"),
+        ("m365", "Mail and Files", "medium", "other"),
+        ("wiki", "Internal Wiki", "low", "other"),
     ),
     roles=(
         RoleSpec("core-banking", "viewer", "read"),
@@ -606,7 +611,7 @@ def _assign_principals(
 
     it_rows = users_by_department[spec.it_department]
     owners: dict[str, UserRow] = {}
-    for index, (system_slug, _name, _sensitivity) in enumerate(spec.systems):
+    for index, (system_slug, _name, _sensitivity, _category) in enumerate(spec.systems):
         owner = it_rows[1 + index]  # index 0 is the IT manager
         owner.principals.add("system_owner")
         owners[system_slug] = owner
@@ -687,7 +692,7 @@ def generate_tenant(spec: TenantSpec) -> TenantRows:
         department_ids={d: _uid(f"{spec.key}:department:{d}") for d in spec.departments},
         users=users,
         users_by_department=users_by_department,
-        system_ids={s: _uid(f"{spec.key}:system:{s}") for s, _, _ in spec.systems},
+        system_ids={s: _uid(f"{spec.key}:system:{s}") for s, _, _, _ in spec.systems},
         system_owners=owners,
         role_ids={
             (r.system, r.slug): _uid(f"{spec.key}:role:{r.system}.{r.slug}") for r in spec.roles
@@ -759,14 +764,21 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
             end_date=None,
         )
 
-    for slug, name, sensitivity in spec.systems:
-        await systems.upsert(
+    for slug, name, sensitivity, category in spec.systems:
+        system = await systems.upsert(
             rows.system_ids[slug],
             slug=slug,
             name=name,
             sensitivity=sensitivity,
+            category=category,
             owner_user_id=rows.system_owners[slug].id,
         )
+        # Backfill for rows seeded before the category column existed (plan
+        # 11a): the migration server-defaults `other` and must not name
+        # system slugs, so the seed is the only place real categories can
+        # come from. Idempotent — a second run finds the value equal.
+        if system.category != category:
+            system.category = category
 
     for role in spec.roles:
         await roles.upsert(

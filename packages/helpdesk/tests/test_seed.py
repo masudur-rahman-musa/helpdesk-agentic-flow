@@ -50,7 +50,7 @@ from helpdesk.models import (
     Ticket,
     User,
 )
-from sqlalchemy import Table, inspect, select
+from sqlalchemy import Table, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 import scripts.seed as seed_module
@@ -473,6 +473,46 @@ def test_midrun_failure_writes_nothing(fresh_db_url: str, monkeypatch: pytest.Mo
             await seed_all(fresh_db_url)
             snap = await _snapshot(engine)
             assert snap["users"], "re-run after a failed seed produced no users"
+
+    asyncio.run(scenario())
+
+
+def test_a_reseed_backfills_system_categories_and_changes_nothing_else(
+    fresh_db_url: str,
+) -> None:
+    """An earlier change's migration boundary: a database seeded before the category
+    column existed holds the migration's `other` server_default, and only a
+    re-seed can supply the real values. Simulated by seeding, resetting every
+    category to `other`, and re-running: the categories must come back and no
+    other row may change (the one exception to insert-when-absent, stated in
+    the seed's module docstring)."""
+
+    async def scenario() -> None:
+        async with _engine(fresh_db_url) as engine:
+            await _create_schema(engine)
+            await seed_all(fresh_db_url)
+            before = await _snapshot(engine)
+
+            async def categories(conn: AsyncConnection) -> set[str]:
+                return set((await conn.execute(select(System.category))).scalars())
+
+            async with engine.connect() as conn:
+                assert await categories(conn) == {"other", "hris", "prod_infra"}, (
+                    "fixture premise: the fresh seed writes all three categories"
+                )
+
+            async with engine.begin() as conn:
+                await conn.execute(update(System).values(category="other"))
+            async with engine.connect() as conn:
+                assert await categories(conn) == {"other"}, (
+                    "fixture premise: the reset must actually erase the categories"
+                )
+
+            await seed_all(fresh_db_url)
+            after = await _snapshot(engine)
+            assert after == before, (
+                "the re-seed must restore the real categories and change nothing else"
+            )
 
     asyncio.run(scenario())
 

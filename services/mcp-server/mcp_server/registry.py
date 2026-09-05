@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
-from mcp_server.tools import helpdesk, read
+from mcp_server.tools import access, helpdesk, read
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
 """What a read tool writes when it worked. Per-tool rather than global (plan
@@ -87,6 +87,26 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
         handler=read.list_my_access,
+    ),
+    ToolSpec(
+        name=rbac.Tool.CLASSIFY_ACCESS_REQUEST.value,
+        tool=rbac.Tool.CLASSIFY_ACCESS_REQUEST,
+        description="Classify a hypothetical access request; decides nothing, writes nothing.",
+        input_model=access.ClassifyAccessRequestInput,
+        output_model=access.ClassifyAccessRequestOutput,
+        event_type=access.CLASSIFIED_EVENT_TYPE,
+        mutating=False,
+        handler=access.classify_access_request,
+    ),
+    ToolSpec(
+        name=rbac.Tool.LIST_MY_REQUESTS.value,
+        tool=rbac.Tool.LIST_MY_REQUESTS,
+        description="List the access requests the calling user has filed.",
+        input_model=access.ListMyRequestsInput,
+        output_model=access.ListMyRequestsOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=access.list_my_requests,
     ),
     ToolSpec(
         name=rbac.Tool.RESET_OWN_PASSWORD.value,

@@ -62,6 +62,12 @@ class System(TenantScoped):
     slug: Mapped[str] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(256))
     sensitivity: Mapped[str] = mapped_column(String(16))  # low | medium | high | critical
+    # prod_infra | hris | other (policy SystemCategory, the design). The
+    # server_default means a migrated-but-not-reseeded DB reads `other`,
+    # pinned by `test_access_snapshot.py::
+    # test_a_system_created_without_a_category_reads_other`; the seed
+    # backfills real values on re-run.
+    category: Mapped[str] = mapped_column(String(16), server_default="other")
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
 
 
@@ -118,8 +124,7 @@ class Grant(TenantScoped):
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id"))
-    # FK target (access_requests) lands in a later plan row.
-    request_id: Mapped[uuid.UUID | None] = mapped_column()
+    request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("access_requests.id"))
     granted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -1,6 +1,7 @@
-"""ORM models: directory core, the audit chain and the
-idempotency keys."""
+"""ORM models: directory core, the audit chain, the
+idempotency keys and access requests."""
 
+from helpdesk.models.access import AccessRequest, RequestStatus
 from helpdesk.models.audit import AuditEvent
 from helpdesk.models.base import Base, TenantScoped
 from helpdesk.models.directory import (
@@ -17,11 +18,13 @@ from helpdesk.models.directory import (
 from helpdesk.models.idempotency import IdempotencyKey
 
 __all__ = [
+    "AccessRequest",
     "AuditEvent",
     "Base",
     "Department",
     "Grant",
     "IdempotencyKey",
+    "RequestStatus",
     "Role",
     "RoleTemplate",
     "SodRule",

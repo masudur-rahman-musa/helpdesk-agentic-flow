@@ -25,6 +25,7 @@ No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
 
 import uuid
+from functools import cache
 from typing import Any
 
 import pytest
@@ -43,6 +44,8 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
 )
 from mcp_server.registry import REGISTRY
 
+from scripts.seed import CUAN, NORDLICHT, TenantRows, generate_tenant
+
 PRINCIPALS: tuple[str, ...] = (
     "employee",
     "manager",
@@ -54,23 +57,35 @@ PRINCIPALS: tuple[str, ...] = (
 )
 
 # the design, written out per tool and per principal. True = the matrix permits
-# this principal to call this tool. All five registered tools are granted to
+# this principal to call this tool. All seven registered tools are granted to
 # every principal by the design (the reads are self-scoped, the three helpdesk
-# mutations self-only or any); a future tool with a narrower row goes here as
-# an explicit dict, never as `dict.fromkeys(..., True)` copied by habit.
+# mutations self-only or any, and every principal may classify and list their
+# own requests); a future tool with a narrower row goes here as an explicit
+# dict, never as `dict.fromkeys(..., True)` copied by habit.
 MATRIX: dict[str, dict[str, bool]] = {
     "get_me": dict.fromkeys(PRINCIPALS, True),
     "list_my_access": dict.fromkeys(PRINCIPALS, True),
     "reset_own_password": dict.fromkeys(PRINCIPALS, True),
     "unlock_own_account": dict.fromkeys(PRINCIPALS, True),
     "create_ticket": dict.fromkeys(PRINCIPALS, True),
+    "classify_access_request": dict.fromkeys(PRINCIPALS, True),
+    "list_my_requests": dict.fromkeys(PRINCIPALS, True),
 }
 
 
-def _arguments_for(tool_name: str) -> dict[str, Any]:
+@cache
+def _tenant_rows(slug: str) -> TenantRows:
+    """The deterministic seed rows for one tenant, computed once: a classify
+    call needs a real role id in the caller's own tenant."""
+    return generate_tenant({CUAN.slug: CUAN, NORDLICHT.slug: NORDLICHT}[slug])
+
+
+def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
     """Minimally valid arguments, so a permitted call exercises RBAC, not
     validation. Mutating tools need a fresh idempotency key per call; the
-    ticket title is unique so no case replays another's row."""
+    ticket title is unique so no case replays another's row; classify names
+    the caller as target with a real seeded role (both tenants seed
+    wiki.viewer), so a permitted call actually succeeds."""
     if tool_name in {"reset_own_password", "unlock_own_account"}:
         return {"idempotency_key": f"fake-key-{uuid.uuid4().hex}"}
     if tool_name == "create_ticket":
@@ -79,6 +94,13 @@ def _arguments_for(tool_name: str) -> dict[str, Any]:
             "title": f"fake matrix ticket {uuid.uuid4().hex}",
             "body": "fake body",
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "classify_access_request":
+        rows = _tenant_rows(env.tenant_a.tenant_slug)
+        assert rows.tenant_id == env.tenant_a.tenant_id
+        return {
+            "target_user_id": str(env.tenant_a.user_id),
+            "role_id": str(rows.role_ids[("wiki", "viewer")]),
         }
     return {}
 
@@ -115,7 +137,7 @@ def test_matrix_expectation_holds_through_the_transport(
     the matrix denies, and not refused when it allows."""
     token = token_for(mcp_env.tenant_a, principals=(principal,))
 
-    result = call_tool(bearer(token), tool_name, _arguments_for(tool_name))
+    result = call_tool(bearer(token), tool_name, _arguments_for(tool_name, mcp_env))
 
     if MATRIX[tool_name][principal]:
         assert result.is_error is False, (

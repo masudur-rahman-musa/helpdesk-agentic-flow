@@ -130,13 +130,15 @@ def test_the_registry_declares_the_non_success_event_types_exactly() -> None:
     assert registry.DISABLED_EVENT_TYPE == "tool.disabled"
     assert registry.FAILED_EVENT_TYPE == "tool.failed"
     assert registry.REPLAYED_EVENT_TYPE == "tool.replayed"
-    # The declared success events: the reads share `tool.succeeded`, each
-    # mutating tool names its action.
+    # The declared success events: the reads share `tool.succeeded` except
+    # classify, which names its own; each mutating tool
+    # names its action.
     assert {spec.event_type for spec in REGISTRY.values()} == {
         "tool.succeeded",
         "user.password_reset",
         "user.account_unlocked",
         "ticket.created",
+        "request.classified",
     }
 
 
