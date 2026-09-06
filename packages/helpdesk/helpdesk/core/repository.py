@@ -13,11 +13,20 @@ from datetime import datetime
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import CursorResult, Delete, delete, or_, select
+from sqlalchemy import ColumnElement, CursorResult, Delete, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.core.db import bound_tenant_id
-from helpdesk.models import Grant, IdempotencyKey, Role, System, Tenant, TenantScoped, User
+from helpdesk.models import (
+    Department,
+    Grant,
+    IdempotencyKey,
+    Role,
+    System,
+    Tenant,
+    TenantScoped,
+    User,
+)
 
 
 async def find_tenant_by_slug(session: AsyncSession, slug: str) -> Tenant | None:
@@ -72,6 +81,42 @@ async def lock_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
     revocation exists that could refuse the loser instead.
     """
     result = await session.execute(select(User).where(User.id == user_id).with_for_update())
+    return result.scalars().one_or_none()
+
+
+async def lock_department(session: AsyncSession, department_id: uuid.UUID) -> Department | None:
+    """The bound tenant's department, locked for the rest of this transaction.
+
+    `SELECT … FOR UPDATE` through the ORM, so the tenant guard still injects
+    its filter: a department id in another tenant reads exactly like one that
+    does not exist (both None), and the id is not a cross-tenant existence
+    oracle. Pinned by
+    `test_access_reviews.py::test_locking_a_scope_answers_the_same_way_for_another_tenants_row_and_a_missing_one`.
+
+    The lock is what serialises two openings of the same review (decision G):
+    opening is a read-compute-write — is a review already open for this
+    (scope, period), and if not write one — and the idempotency guard cannot
+    help, because two callers send two different keys. The loser waits, then
+    re-reads the review the winner committed and is refused
+    `ReviewAlreadyOpenError`. Pinned end to end by
+    `test_mcp_reviews.py::test_two_callers_racing_the_same_review_leave_exactly_one`.
+    """
+    result = await session.execute(
+        select(Department).where(Department.id == department_id).with_for_update()
+    )
+    return result.scalars().one_or_none()
+
+
+async def lock_system(session: AsyncSession, system_id: uuid.UUID) -> System | None:
+    """The bound tenant's system, locked for the rest of this transaction.
+
+    The system-scoped twin of `lock_department`, with the same tenant-guard
+    and serialisation properties; the two exist separately because a review
+    over a department and a review over a system are different rows to hold,
+    and one helper taking "whichever id is set" would have to re-decide the
+    scope the caller already knows.
+    """
+    result = await session.execute(select(System).where(System.id == system_id).with_for_update())
     return result.scalars().one_or_none()
 
 
@@ -159,6 +204,29 @@ async def list_active_grants_for_user(
     ]
 
 
+async def list_granted_role_ids(session: AsyncSession, user_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    """Every role this user holds under a review's definition of held.
+
+    The per-holder twin of the two scope listings, and it uses the same
+    `_granted_clauses` for the same reason: the SoD question a review asks is
+    "should this person ever have held these two together", and a lapsed row
+    the sweep has not touched still IS held. Asking the directory port's
+    `list_account_role_ids` instead would drop exactly the lapsed halves, so a
+    grant that completes a pair would read `non_standard` or `ok` — which is
+    the flag a reviewer would then never look at (pinned by
+    `test_access_reviews.py::test_a_grant_that_is_all_three_reads_sod_conflict`,
+    whose conflicting grant has a past expiry).
+
+    Unscoped by design: a system review sees one half of a pair and the other
+    half is nearly always a role of a different system, so a conflict computed
+    inside the review's scope would find nothing at all.
+    """
+    result = await session.execute(
+        select(Grant.role_id).where(Grant.user_id == user_id, *_granted_clauses())
+    )
+    return frozenset(result.scalars().all())
+
+
 def is_live_grant(grant: Grant, now: datetime) -> bool:
     """Is this already-loaded grant live as of `now`?
 
@@ -181,6 +249,126 @@ def is_live_grant(grant: Grant, now: datetime) -> bool:
         and grant.revoked_at is None
         and (grant.expires_at is None or grant.expires_at > now)
     )
+
+
+class ScopedGrant(BaseModel):
+    """One live grant inside a review's scope, with what flagging it needs.
+
+    A Pydantic model rather than a `Grant` row for the same reason as
+    `ActiveGrant`: the flagging pass in `helpdesk.access.reviews` needs the
+    holder's DEPARTMENT beside the grant, and returning ORM rows would make
+    every caller re-read `users` per grant to get it.
+
+    `expires_at` rides along because an earlier change's `stale` rule is entirely
+    about it, and `user_id` because the SoD and template questions are asked
+    per holder rather than per grant.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    grant_id: uuid.UUID
+    user_id: uuid.UUID
+    role_id: uuid.UUID
+    holder_department_id: uuid.UUID | None
+    expires_at: datetime | None
+
+
+def _granted_clauses() -> tuple[Any, ...]:
+    """What the design means by an ACTIVE grant: the row is `active` and unrevoked.
+
+    Deliberately WITHOUT the expiry conjunct the liveness filters carry, and
+    that is the whole point of the review family below.
+    `grants.status` is `active | expired | revoked`, and nothing flips a row
+    to `expired` until row 21's sweep runs, so a grant whose `expires_at` went
+    by last week is still sitting there as `active`. That row is not "live"
+    access to `list_my_access` — every liveness filter drops it — but it is
+    exactly the drift a review exists to surface, and the seed plants it
+    (`_STALE_EXPIRES_AT`, expired but still active).
+
+    So a review's universe is wider than a liveness read by exactly the lapsed
+    rows, and `stale` is the word it gives them. A review that used
+    `_live_grant_clauses` instead could never produce a stale item at all
+    (pinned by `test_access_reviews.py::test_an_already_past_expiry_is_stale`,
+    which is what caught this).
+    """
+    return (Grant.status == ACTIVE_GRANT_STATUS, Grant.revoked_at.is_(None))
+
+
+def _live_grant_clauses(now: datetime) -> tuple[Any, ...]:
+    """The three conjuncts every liveness filter here spells out, in one place.
+
+    Same as `is_live_grant`'s Python half: status `active`, nothing revoked
+    it, and either it never expires or `expires_at` — the first instant the
+    grant is gone — is still ahead, so the comparison is strict.
+    """
+    return (*_granted_clauses(), or_(Grant.expires_at.is_(None), Grant.expires_at > now))
+
+
+async def _list_scoped_grants(
+    session: AsyncSession, scope_clause: ColumnElement[bool], *, join_role: bool
+) -> Sequence[ScopedGrant]:
+    """The shared body of the two scope listings; the clause is the only difference.
+
+    Whole entities are selected, not columns, so the tenant guard in
+    `helpdesk.core.db` injects its filter per mapped entity: every table in
+    the join is scoped by the session rather than by this `where`, which is
+    what makes another tenant's department or system id answer with an empty
+    scope instead of its grants.
+
+    Ordered by the holder's address then `granted_at` then `id`, so a review
+    reads grouped by person and two openings over the same rows produce the
+    same item order.
+
+    The filter is `_granted_clauses`, not `_live_grant_clauses`: a review's
+    universe includes the lapsed-but-`active` rows, which is where its whole
+    `stale` flag comes from. There is no `now` parameter for that reason —
+    nothing here is clock-dependent, and taking one would invite the expiry
+    conjunct back.
+    """
+    statement = select(Grant, User).join(User, User.id == Grant.user_id)
+    if join_role:
+        statement = statement.join(Role, Role.id == Grant.role_id)
+    result = await session.execute(
+        statement.where(scope_clause, *_granted_clauses()).order_by(
+            User.email, Grant.granted_at, Grant.id
+        )
+    )
+    return [
+        ScopedGrant(
+            grant_id=grant.id,
+            user_id=grant.user_id,
+            role_id=grant.role_id,
+            holder_department_id=user.department_id,
+            expires_at=grant.expires_at,
+        )
+        for grant, user in result.all()
+    ]
+
+
+async def list_active_grants_in_department(
+    session: AsyncSession, department_id: uuid.UUID
+) -> Sequence[ScopedGrant]:
+    """Live grants held by the members of one department.
+
+    Department scope is about PEOPLE: every grant of every user whose
+    `department_id` is this one, whichever system the role belongs to. A user
+    who transferred out yesterday is not in it even if the grant predates the
+    move, because the review asks a manager about the people they have now.
+    """
+    return await _list_scoped_grants(session, User.department_id == department_id, join_role=False)
+
+
+async def list_active_grants_for_system(
+    session: AsyncSession, system_id: uuid.UUID
+) -> Sequence[ScopedGrant]:
+    """Live grants for the roles of one system.
+
+    System scope is about ACCESS: every live grant whose role belongs to this
+    system, whoever holds it and whichever department they are in. The two
+    listings therefore overlap without either containing the other, which is
+    why they are two functions rather than one filter.
+    """
+    return await _list_scoped_grants(session, Role.system_id == system_id, join_role=True)
 
 
 async def lock_live_grants_for_role(

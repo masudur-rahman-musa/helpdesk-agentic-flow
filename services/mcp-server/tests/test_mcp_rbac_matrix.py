@@ -36,13 +36,14 @@ No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
 
 import asyncio
+import itertools
 import uuid
 from functools import cache
 from typing import Any
 
 import pytest
 from helpdesk.auth.rbac import Principal
-from helpdesk.models import AccessRequest, Grant, RequestStatus, User
+from helpdesk.models import AccessRequest, AccessReview, Grant, RequestStatus, ReviewStatus, User
 from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
@@ -161,6 +162,28 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. the design's two review rows, identical to each other and to the
+    # revoke row: five cells, `hr` holds one, `employee` and `auditor` hold
+    # none. `auditor` is the cell that matters — it holds one on the audit row
+    # and none here, so a row copied from `search_audit` by habit fails.
+    "open_access_review": {
+        "employee": False,
+        "manager": True,
+        "system_owner": True,
+        "hr": True,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
+    "list_review_items": {
+        "employee": False,
+        "manager": True,
+        "system_owner": True,
+        "hr": True,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # An earlier change. the design's revoke row, written out literally rather than
     # derived from `_MATRIX`: five cells, and `hr` DOES hold one here (unlike
     # the approval rows above), so a row copied from `approve_request` by
@@ -207,6 +230,20 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
     }
 )
 
+# An earlier change. A third answer this sweep has to allow for, and the reason it
+# exists: both review tools check the design's SCOPE before the id's existence
+#, the opposite order from `revoke_access`. So a
+# permitted `manager` or `system_owner` sending an id they cannot reach is
+# refused FORBIDDEN by the scope gate, not NOT_FOUND by a lookup, and this
+# sweep cannot separate that from a matrix denial for those two cells. It
+# therefore asserts only that a permitted principal never gets DATA back from
+# an unreachable id; the matrix cell itself is pinned per principal, in both
+# directions, by `test_mcp_reviews.py::
+# test_each_permitted_principal_opens_a_review_in_their_scope` and
+# `::test_the_two_denied_principals_open_nothing`, and the scope gate's own
+# kill is `::test_a_manager_may_not_open_a_review_for_another_department`.
+SCOPE_BEFORE_EXISTENCE_TOOLS = frozenset({"open_access_review", "list_review_items"})
+
 # An earlier change decision G. The tools that take an id argument, which is the axis
 # the cross-tenant sweep can actually exercise, and the rest. The two sets are
 # asserted to partition the registry, so a new tool has to be classified
@@ -221,6 +258,10 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "onboard_user",
         "transfer_user",
         "offboard_user",
+        # An earlier change: one takes a department or system id, the other a review
+        # id, so both have a cross-tenant call to make.
+        "open_access_review",
+        "list_review_items",
     }
 )
 NO_ID_TOOLS: frozenset[str] = frozenset(
@@ -245,6 +286,15 @@ IDENTITY_ONLY_TOOLS: tuple[str, ...] = (
     "reset_own_password",
     "unlock_own_account",
 )
+
+
+# A period no other call in this sweep uses: decision H's shape admits four
+# quarters, so the YEAR is what varies.
+_MATRIX_PERIOD_YEARS = itertools.count(2201)
+
+
+def _matrix_period() -> str:
+    return f"{next(_MATRIX_PERIOD_YEARS)}-Q1"
 
 
 @cache
@@ -310,6 +360,17 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "end_date": "2026-10-31",
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
+    if tool_name == "open_access_review":
+        # A department id that resolves nowhere, so no principal opens a real
+        # review per matrix cell in the shared seeded database. A fresh period
+        # per call as well, so nothing can be refused as a duplicate instead.
+        return {
+            "department_id": str(uuid.uuid4()),
+            "period": _matrix_period(),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "list_review_items":
+        return {"review_id": str(uuid.uuid4())}
     if tool_name in ALLOW_ANSWERS_NOT_FOUND:
         # Valid arguments naming a row that does not exist: a permitted
         # caller must get past RBAC and be refused NOT_FOUND by the lookup,
@@ -369,7 +430,13 @@ def test_matrix_expectation_holds_through_the_transport(
 
     result = call_tool(bearer(token), tool_name, _arguments_for(tool_name, mcp_env))
 
-    if MATRIX[tool_name][principal] and tool_name in ALLOW_ANSWERS_NOT_FOUND:
+    if MATRIX[tool_name][principal] and tool_name in SCOPE_BEFORE_EXISTENCE_TOOLS:
+        assert result.is_error is True, (
+            f"{principal} sent {tool_name} an id nothing in the tenant resolves and got "
+            f"data back: {result.content!r}"
+        )
+        assert error_code(result) in {"FORBIDDEN", "NOT_FOUND"}, result.content
+    elif MATRIX[tool_name][principal] and tool_name in ALLOW_ANSWERS_NOT_FOUND:
         assert error_code(result) == "NOT_FOUND", (
             f"{principal} is permitted to call {tool_name} by SPEC §7, so the refusal "
             f"must come from the lookup, not the matrix: {result.content!r}"
@@ -475,6 +542,32 @@ def _pending_request(
 
 
 @cache
+def _foreign_review(env: SeededMcp) -> uuid.UUID:
+    """One real `access_reviews` row in the OTHER tenant, planted once.
+
+    A random uuid would test nothing here: every tool answers NOT_FOUND for
+    one whether the tenant guard exists or not, so the id the sweep sends has
+    to be a row that really exists somewhere else.
+    """
+    review_id = uuid.uuid4()
+    _write(
+        env.database_url,
+        insert(AccessReview).values(
+            id=review_id,
+            tenant_id=env.tenant_b.tenant_id,
+            reviewer_user_id=env.tenant_b.user_id,
+            department_id=env.tenant_b.department_id,
+            system_id=None,
+            period="2026-Q1",
+            status=ReviewStatus.OPEN.value,
+            due_at=None,
+            completed_at=None,
+        ),
+    )
+    return review_id
+
+
+@cache
 def _live_grant_id(database_url: str, tenant_id: uuid.UUID) -> uuid.UUID:
     """A grant the seed already wrote in the named tenant."""
     rows = _fetch(
@@ -541,6 +634,19 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "end_date": "2026-10-31",
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
+    if tool_name == "open_access_review":
+        # Tenant B's department, a real row there: the refusal has to come from
+        # the tenant guard (or the scope gate above it), not from an id nobody
+        # could resolve anyway.
+        return {
+            "department_id": str(
+                _tenant_rows(env.tenant_b.tenant_slug).department_ids["Engineering"]
+            ),
+            "period": _matrix_period(),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "list_review_items":
+        return {"review_id": str(_foreign_review(env))}
     arguments = {"idempotency_key": f"fake-key-{uuid.uuid4().hex}"}
     if tool_name == "revoke_access":
         arguments["grant_id"] = str(_live_grant_id(env.database_url, env.tenant_b.tenant_id))

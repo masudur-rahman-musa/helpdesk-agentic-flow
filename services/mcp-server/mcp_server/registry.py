@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
-from mcp_server.tools import access, approvals, helpdesk, lifecycle, read
+from mcp_server.tools import access, approvals, helpdesk, lifecycle, read, reviews
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
 """What a read tool writes when it worked. Per-tool rather than global (plan
@@ -208,6 +208,33 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=True,
         handler=lifecycle.offboard_user,
+    ),
+    ToolSpec(
+        # `tool.succeeded` is the SUMMARY event: the
+        # domain appends `review.opened` itself with the REVIEW as its subject
+        # and the flag tally as its payload. The pipeline's event names the
+        # tool, so as the declared type it would record that somebody called
+        # one and not which scope was reviewed or what was found.
+        name=rbac.Tool.OPEN_ACCESS_REVIEW.value,
+        tool=rbac.Tool.OPEN_ACCESS_REVIEW,
+        description=(
+            "Open an access review over a department or a system, flagging every live grant in it."
+        ),
+        input_model=reviews.OpenAccessReviewInput,
+        output_model=reviews.OpenAccessReviewOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=reviews.open_access_review,
+    ),
+    ToolSpec(
+        name=rbac.Tool.LIST_REVIEW_ITEMS.value,
+        tool=rbac.Tool.LIST_REVIEW_ITEMS,
+        description="List the flagged grants of one access review.",
+        input_model=reviews.ListReviewItemsInput,
+        output_model=reviews.ListReviewItemsOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=reviews.list_review_items,
     ),
     ToolSpec(
         name=rbac.Tool.LIST_PENDING_APPROVALS.value,

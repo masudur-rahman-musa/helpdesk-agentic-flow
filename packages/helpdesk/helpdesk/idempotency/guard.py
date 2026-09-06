@@ -130,6 +130,18 @@ def _storable(response: Mapping[str, Any], tool_name: str) -> dict[str, Any]:
     receives on the first call is byte-identical to what a replay returns:
     a value the encoder renders (a UUID, a datetime) becomes its rendered
     form once, here, instead of differing between the two paths.
+
+    Applied to BOTH paths — the fresh response and the stored row alike —
+    because the round trip normalises key ORDER as well as values, and the
+    two sources order keys differently. `canonical_json` sorts; a `jsonb`
+    column read back from Postgres does not, it orders by key length and then
+    bytewise. So a response whose sorted order differs from that one came
+    back with the same values in a different byte string on replay, which is
+    exactly what byte-identity promises not to do. Pinned by
+    `test_mcp_reviews.py::test_a_replayed_key_returns_the_same_response_and_opens_no_second_review`,
+    whose `flag_counts` is the first dict-valued field any tool output has and
+    is what exposed this; every earlier mutating tool happened to have a key
+    set the two orders agree on.
     """
     try:
         encoded = canonical_json(response)
@@ -182,7 +194,10 @@ async def run_once(
             raise IdempotencyConflictError(
                 f"idempotency key {key!r} was already used for a different request"
             )
-        return RunOnceResult(response=existing.response, replayed=True)
+        # Normalised on the way out, not trusted as stored: see `_storable`.
+        # The values are already canonical (this row was written through it),
+        # so this only restores the key order Postgres's `jsonb` dropped.
+        return RunOnceResult(response=_storable(existing.response, tool_name), replayed=True)
 
     response = _storable(await fn(), tool_name)
 

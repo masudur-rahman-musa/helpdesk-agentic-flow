@@ -69,6 +69,16 @@ EXPECTED_TOOL_NAMES = {
     "reject_request",
     # An earlier change: the one tool that takes access away.
     "revoke_access",
+    # An earlier change: the design's joiner, mover and leaver. Added by
+    # an earlier change, which is the first session to run this file since they landed
+    # — under `automode = checks` each of those plans ran only its own tests,
+    # so this literal was stale for three rows rather than for one.
+    "onboard_user",
+    "transfer_user",
+    "offboard_user",
+    # An earlier change: opening an access review and reading its items.
+    "open_access_review",
+    "list_review_items",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")

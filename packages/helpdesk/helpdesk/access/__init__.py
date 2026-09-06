@@ -12,6 +12,9 @@ place access is taken away, over the whole live set for a (user, role).
 `offboard_user` marks a leaver, revokes everything they hold and
 closes every request still open against them — all three through
 `execute_grant` and `revoke_role_access`, never writing a grant themselves.
+`reviews.py` opens a periodic access review over a department or a
+system and flags every live grant in it; it decides nothing about access, and
+an earlier change's decide path is what turns a flag into a revocation.
 `approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
@@ -78,6 +81,16 @@ from helpdesk.access.requests import (
     resolved_approver_ids,
     set_request_status,
 )
+from helpdesk.access.reviews import (
+    REVIEW_OPENED_EVENT_TYPE,
+    STALE_WINDOW,
+    OpenReviewResult,
+    ReviewAlreadyOpenError,
+    ReviewScope,
+    find_review,
+    list_items,
+    open_review,
+)
 from helpdesk.access.revoke import (
     GRANT_REVOKED_EVENT_TYPE,
     REVOKED_GRANT_STATUS,
@@ -95,7 +108,9 @@ __all__ = [
     "LEAVER_STATUS",
     "OFFBOARD_REVOKE_REASON",
     "REQUEST_REJECTED_EVENT_TYPE",
+    "REVIEW_OPENED_EVENT_TYPE",
     "REVOKED_GRANT_STATUS",
+    "STALE_WINDOW",
     "TRANSFER_REVOKE_REASON",
     "UNUSABLE_PASSWORD_HASH",
     "USER_OFFBOARDED_EVENT_TYPE",
@@ -110,8 +125,11 @@ __all__ = [
     "NotAnApproverError",
     "OffboardResult",
     "OnboardResult",
+    "OpenReviewResult",
     "PolicyBlockedAtExecutionError",
     "RequestNotPendingError",
+    "ReviewAlreadyOpenError",
+    "ReviewScope",
     "SameDepartmentError",
     "SimulatedDirectory",
     "SkippedRole",
@@ -127,8 +145,10 @@ __all__ = [
     "decide_slot",
     "dump_slots",
     "execute_grant",
+    "find_review",
     "first_fillable_index",
     "is_rejected",
+    "list_items",
     "list_pending_for_approver",
     "list_requests_for_requester",
     "lock_open_requests_for_target",
@@ -136,6 +156,7 @@ __all__ = [
     "may_fill",
     "offboard_user",
     "onboard_user",
+    "open_review",
     "parse_slots",
     "reclassify",
     "request_in_scope",

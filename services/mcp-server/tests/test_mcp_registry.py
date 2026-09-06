@@ -33,6 +33,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from helpdesk.access import reviews as reviews_domain
 from helpdesk.audit.writer import AuditEventInput, append_event
 from helpdesk.auth import rbac
 from helpdesk.core.db import create_engine, create_session_factory, tenant_session
@@ -46,7 +47,7 @@ from helpdesk.killswitch import (
     InvalidSwitchTargetError,
     key_for,
 )
-from helpdesk.models import AuditEvent
+from helpdesk.models import PERIOD_LENGTH, AuditEvent
 from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
@@ -61,7 +62,7 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
 )
 from mcp_server import registry
 from mcp_server.registry import REGISTRY, lookup
-from mcp_server.tools import approvals
+from mcp_server.tools import approvals, reviews
 from mcp_server.tools.base import MutatingToolInput
 from redis.asyncio import Redis
 from sqlalchemy import String
@@ -289,6 +290,11 @@ MUTATING_TOOL_NAMES = frozenset(
         # POLICY_BLOCKED by its own already-leaver check for a call the caller
         # saw succeed.
         "offboard_user",
+        # An earlier change: it writes a review and one item per active grant in scope,
+        # so a retried call must replay rather than be refused POLICY_BLOCKED
+        # by its own duplicate check for a call the caller saw succeed.
+        # `list_review_items` is a read and must stay off this list.
+        "open_access_review",
     }
 )
 
@@ -372,3 +378,63 @@ def test_an_unregistered_wire_name_touches_no_redis_key(
     assert error_code(result) == "INTERNAL"
     assert _redis_keys(mcp_redis_url, f"{KEY_PREFIX}:*") == []
     assert _redis_keys(mcp_redis_url, f"*{UNREGISTERED_NAME}*") == []
+
+
+# --- the two review tools --------------------------------------------
+
+
+REVIEW_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
+    # Both declare the GENERIC success event and the opener appends its own
+    # `review.opened` (decision K): the pipeline's event carries a fixed
+    # payload and the TOOL as its subject, which would record that somebody
+    # called a tool and not what was reviewed.
+    ("open_access_review", rbac.Tool.OPEN_ACCESS_REVIEW, registry.SUCCESS_EVENT_TYPE, True),
+    ("list_review_items", rbac.Tool.LIST_REVIEW_ITEMS, registry.SUCCESS_EVENT_TYPE, False),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "tool", "event_type", "mutating"),
+    REVIEW_TOOL_EXPECTATIONS,
+    ids=[name for name, _, _, _ in REVIEW_TOOL_EXPECTATIONS],
+)
+def test_each_review_tool_is_registered_once_under_its_matrix_name(
+    name: str, tool: rbac.Tool, event_type: str, mutating: bool
+) -> None:
+    """Catches the opener pointed at `DECIDE_REVIEW_ITEM` (whose the design row
+    is identical, so no permission test anywhere would notice), the read
+    declared as mutating — which would demand an idempotency key for a call
+    the guard never protects — and the opener declared as a read, which skips
+    the guard entirely so a retried open writes a second review.
+
+    The names are written out literally rather than derived from the registry:
+    reading the value under test back out of the code under test would assert
+    nothing.
+    """
+    spec = REGISTRY[name]
+
+    assert spec.name == name == tool.value
+    assert spec.tool is tool
+    assert spec.event_type == event_type
+    assert spec.mutating is mutating
+    assert name not in registry.WIRE_NAME_ALIASES
+
+
+def test_the_review_opened_event_type_is_exactly_the_spec_string() -> None:
+    """Pins the value exactly. the design names
+    `review.opened` and the handler appends it under that name; a typo would
+    produce an event type nothing in the audit UI or the golden set knows,
+    with every other test still green because they read the same constant."""
+    assert reviews_domain.REVIEW_OPENED_EVENT_TYPE == "review.opened"
+
+
+def test_the_review_item_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
+    """Decision I, pinned exactly: an unbounded item
+    list is an unbounded response over the wire, and a default that drifts
+    changes what every caller who omits `limit` receives. `PERIOD_LENGTH` is
+    the column's own size and the input model checks the client's string
+    against it, so widening one without the other fails here."""
+    assert reviews.LIMIT_MIN == 1
+    assert reviews.LIMIT_DEFAULT == 50
+    assert reviews.LIMIT_MAX == 200
+    assert PERIOD_LENGTH == 16
