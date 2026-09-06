@@ -67,6 +67,8 @@ EXPECTED_TOOL_NAMES = {
     "list_pending_approvals",
     "approve_request",
     "reject_request",
+    # An earlier change: the one tool that takes access away.
+    "revoke_access",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")

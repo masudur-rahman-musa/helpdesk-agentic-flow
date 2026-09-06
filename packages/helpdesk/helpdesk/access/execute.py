@@ -30,18 +30,17 @@ Everything here runs in the caller's transaction. The grant and its
 afterwards takes both with it (pinned by
 `test_access_execute.py::test_the_grant_and_its_event_roll_back_together`).
 
-UNRESOLVED, owed to row 11d. Nothing here makes a grant
-unique per (user, role): two requests for the same role under two different
-idempotency keys both classify, both execute, and leave two live `grants`
-rows for one role. The engine deliberately does not block it — it sees the
-target's `active_grant_role_ids` and chooses not to, because re-granting is
-how a renewal has to work — so refusing here would contradict the
-classification the user was shown. The consequence lands on revocation: row
-11d owns `revoke_access`, and
-revoking "the grant" for a role must revoke every
-live row for that (user, role), or access survives a revocation the audit
-log records as successful. Whoever builds that either enforces uniqueness
-at insert or revokes the set; this module does neither today.
+RESOLVED by an earlier change, and still true of this module: nothing here makes a
+grant unique per (user, role): two requests for the same role under two
+different idempotency keys both classify, both execute, and leave two live
+`grants` rows for one role. The engine deliberately does not block it — it
+sees the target's `active_grant_role_ids` and chooses not to, because
+re-granting is how a renewal has to work — so refusing here would contradict
+the classification the user was shown. The consequence was answered on the
+revocation side rather than by a constraint here: `helpdesk.access.revoke`
+takes the LIVE SET for a (user, role) as its unit and revokes every row in it
+(decision A), so access cannot survive a revocation the audit log records as
+successful.
 """
 
 import uuid

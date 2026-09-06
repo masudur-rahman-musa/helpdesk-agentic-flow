@@ -146,6 +146,22 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=access.create_access_request,
     ),
     ToolSpec(
+        # `tool.succeeded` is the SUMMARY event: the
+        # handler appends one `grant.revoked` per revoked row, because a set of
+        # two revocations recorded as one event naming the tool answers no
+        # question an auditor asks.
+        name=rbac.Tool.REVOKE_ACCESS.value,
+        tool=rbac.Tool.REVOKE_ACCESS,
+        description=(
+            "Revoke a grant, and every other live grant the same user holds for that role."
+        ),
+        input_model=access.RevokeAccessInput,
+        output_model=access.RevokeAccessOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=access.revoke_access,
+    ),
+    ToolSpec(
         name=rbac.Tool.LIST_PENDING_APPROVALS.value,
         tool=rbac.Tool.LIST_PENDING_APPROVALS,
         description="List the access requests waiting on the calling user's approval.",

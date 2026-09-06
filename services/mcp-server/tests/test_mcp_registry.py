@@ -272,6 +272,9 @@ MUTATING_TOOL_NAMES = frozenset(
         # read and must stay off this list.
         "approve_request",
         "reject_request",
+        # An earlier change: it ends live grants, so a retried call must replay rather
+        # than re-read the live set and revoke whatever is there now.
+        "revoke_access",
     }
 )
 

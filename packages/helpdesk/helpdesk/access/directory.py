@@ -6,7 +6,8 @@ change to it goes through `DirectoryProvider`, so a future Entra/SCIM/LDAP
 adapter is one new implementation of this Protocol, not a refactor.
 `SimulatedDirectory` is the only v1 implementation: the seeded directory
 tables themselves. An earlier change added `apply_grant`, the half `execute_grant`
-writes through; revocation lands with row 11c.
+writes through, and an earlier change `revoke_grant`, the half
+`helpdesk.access.revoke.revoke_role_access` writes through.
 
 Sessions here come from `tenant_session`, so the guard in `helpdesk.core.db`
 filters every query to the bound tenant; a user id from another tenant reads
@@ -22,7 +23,12 @@ from typing import Protocol
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.core.repository import ACTIVE_GRANT_STATUS, Repository, find_user_by_id
+from helpdesk.core.repository import (
+    ACTIVE_GRANT_STATUS,
+    REVOKED_GRANT_STATUS,
+    Repository,
+    find_user_by_id,
+)
 from helpdesk.models import Grant, RoleTemplate, User
 
 
@@ -66,6 +72,18 @@ class DirectoryProvider(Protocol):
         changes access. The decision to grant is NOT taken here — the caller
         (`helpdesk.access.execute.execute_grant`) has already re-classified
         and refused a conflict or a block, and this method only records it.
+        """
+        ...
+
+    async def revoke_grant(self, *, grant: Grant, reason: str, revoked_at: datetime) -> Grant:
+        """Take this ONE grant away, as of `revoked_at`.
+
+        Singular on purpose, matching `apply_grant`: a
+        real Entra/SCIM adapter removes one assignment at a time and must not
+        carry the policy that decides which assignments those are. WHICH rows
+        a revocation covers is `helpdesk.access.revoke.revoke_role_access`'s
+        decision, and an implementation of this method that widened the write
+        past the grant it was handed would revoke rows nothing audited.
         """
         ...
 
@@ -135,3 +153,30 @@ class SimulatedDirectory:
             revoke_reason=None,
             status=ACTIVE_GRANT_STATUS,
         )
+
+    async def revoke_grant(self, *, grant: Grant, reason: str, revoked_at: datetime) -> Grant:
+        """End one live `grants` row through the tenant-scoped repository.
+
+        All THREE columns are written, not just `revoked_at`: `status` is what
+        every liveness filter reads first, so a row stamped with a timestamp
+        and left `active` still answers `list_my_access`. Pinned by
+        `test_access_revoke.py::test_revoking_marks_the_row_revoked_with_the_reason_and_timestamp`.
+
+        Flushed, not committed, exactly like `apply_grant`: the caller's
+        transaction owns the row and its `grant.revoked` event, so a failure
+        afterwards takes both (pinned by
+        `test_access_revoke.py::test_the_revocations_and_their_events_roll_back_together`).
+
+        `update` answers None for an id in another tenant, which cannot happen
+        here — the grant was read through this same bound session — so a None
+        is a wiring bug and is raised rather than swallowed.
+        """
+        revoked = await Repository(self._session, Grant).update(
+            grant.id,
+            revoked_at=revoked_at,
+            revoke_reason=reason,
+            status=REVOKED_GRANT_STATUS,
+        )
+        if revoked is None:  # pragma: no cover - unreachable through the bound session
+            raise RuntimeError(f"grant {grant.id} vanished from its own tenant while revoking")
+        return revoked

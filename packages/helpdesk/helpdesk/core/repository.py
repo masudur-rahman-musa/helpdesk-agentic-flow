@@ -56,6 +56,16 @@ async def find_user_by_id(session: AsyncSession, user_id: uuid.UUID) -> User | N
 ACTIVE_GRANT_STATUS = "active"
 """The one `grants.status` value that can still be a live grant."""
 
+REVOKED_GRANT_STATUS = "revoked"
+"""What `grants.status` says once access was taken away.
+
+Beside its sibling rather than in `helpdesk.access.revoke`, which is where
+the plan's file list put it: the directory port writes the value and
+`access.revoke` imports the port, so defining it there would close an import
+cycle. `helpdesk.access.revoke` re-exports it, so the name is importable from
+the module that owns the policy. Pinned to the exact string by
+`test_access_revoke.py::test_revoking_marks_the_row_revoked_with_the_reason_and_timestamp`."""
+
 
 class ActiveGrant(BaseModel):
     """One live grant, with the role and system named rather than referenced.
@@ -125,6 +135,71 @@ async def list_active_grants_for_user(
         )
         for grant, role, system in result.all()
     ]
+
+
+def is_live_grant(grant: Grant, now: datetime) -> bool:
+    """Is this already-loaded grant live as of `now`?
+
+    The Python half of the three conjuncts every SQL liveness filter here
+    spells out (`list_active_grants_for_user`, `lock_live_grants_for_role`,
+    and the directory's `list_account_role_ids`): status `active`, nothing
+    revoked it, and either it never expires or `expires_at` — the first
+    instant the grant is gone — is still ahead, so the comparison is strict.
+
+    It lives beside them rather than in the caller that needs it
+    (`mcp_server.tools.access.revoke_access`, which has to answer for the ONE
+    grant a caller named before locking the set) so the two answers cannot
+    drift into a tool that refuses `POLICY_BLOCKED` for a grant every read
+    still shows as live. That they agree is pinned by
+    `test_access_revoke.py::test_the_python_liveness_predicate_agrees_with_the_locked_read`,
+    which crosses the four states against `lock_live_grants_for_role` itself.
+    """
+    return (
+        grant.status == ACTIVE_GRANT_STATUS
+        and grant.revoked_at is None
+        and (grant.expires_at is None or grant.expires_at > now)
+    )
+
+
+async def lock_live_grants_for_role(
+    session: AsyncSession, user_id: uuid.UUID, role_id: uuid.UUID, now: datetime
+) -> Sequence[Grant]:
+    """The bound tenant's LIVE grants for one (user, role), locked for this
+    transaction.
+
+    "Live" is the same three conjuncts as `list_active_grants_for_user`, and
+    the set is the unit rather than one row because nothing makes a grant
+    unique per (user, role): two requests under two idempotency keys both
+    execute, so revoking the row a caller named would leave access alive
+    (pinned by
+    `test_access_revoke.py::test_a_second_live_row_for_the_same_role_is_revoked_too`).
+
+    `SELECT … FOR UPDATE` through the ORM, so the tenant guard still injects
+    its filter and the rows are held until the caller's transaction ends. The
+    lock is what serialises two revocations of the same role: two callers send
+    two different idempotency keys, so the guard cannot (pinned by
+    `test_mcp_revoke_access.py::test_two_callers_racing_the_same_revocation_write_one_event_per_row`).
+    It covers rows that exist when it is taken; a grant committed afterwards is
+    a new live grant, not a missed revocation.
+
+    Ordered by `granted_at` then `id` so the revoked set reads oldest first and
+    two runs over the same rows produce the same event order, pinned by
+    `test_access_revoke.py::test_the_revoked_set_comes_back_oldest_first`
+    (planted newest first, so an unordered read fails).
+    """
+    result = await session.execute(
+        select(Grant)
+        .where(
+            Grant.user_id == user_id,
+            Grant.role_id == role_id,
+            Grant.status == ACTIVE_GRANT_STATUS,
+            Grant.revoked_at.is_(None),
+            or_(Grant.expires_at.is_(None), Grant.expires_at > now),
+        )
+        .order_by(Grant.granted_at, Grant.id)
+        .with_for_update()
+    )
+    return result.scalars().all()
 
 
 # Set by the session/mixin, never by callers: accepting them in **fields

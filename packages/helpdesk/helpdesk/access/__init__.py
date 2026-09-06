@@ -4,7 +4,9 @@
 11a, `apply_grant` from 11b). `snapshot.py` turns repository state into plan
 08's `RequestSnapshot`. `requests.py` holds the access-request reads and
 writes the tools consume. `execute.py` is the one place a grant is written,
-with the design's re-check in front of it. `approvals.py` is the
+with the design's re-check in front of it, and `revoke.py` the one
+place access is taken away, over the whole live set for a (user, role).
+`approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
 """
@@ -40,12 +42,21 @@ from helpdesk.access.requests import (
     resolved_approver_ids,
     set_request_status,
 )
+from helpdesk.access.revoke import (
+    GRANT_REVOKED_EVENT_TYPE,
+    REVOKED_GRANT_STATUS,
+    GrantNotActiveError,
+    revoke_role_access,
+)
 from helpdesk.access.snapshot import build_request_snapshot
 
 __all__ = [
     "GRANT_EXECUTED_EVENT_TYPE",
+    "GRANT_REVOKED_EVENT_TYPE",
     "GROUP_SLOTS",
+    "REVOKED_GRANT_STATUS",
     "DirectoryProvider",
+    "GrantNotActiveError",
     "NotAnApproverError",
     "PolicyBlockedAtExecutionError",
     "RequestNotPendingError",
@@ -69,5 +80,6 @@ __all__ = [
     "parse_slots",
     "request_in_scope",
     "resolved_approver_ids",
+    "revoke_role_access",
     "set_request_status",
 ]

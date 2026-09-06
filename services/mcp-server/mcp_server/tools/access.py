@@ -1,4 +1,4 @@
-"""The access tools: two reads from an earlier change, one mutation from an earlier change.
+"""The access tools: two reads from an earlier change, two mutations from an earlier change.
 
 `classify_access_request` is pure over DB state (the design): it builds the
 snapshot, runs the policy engine, and returns the whole `Classification` —
@@ -25,6 +25,14 @@ stage so a caller who may not call a tool learns nothing about its argument
 shape. The second check is therefore inside the handler, before any write,
 and the pipeline records the `FORBIDDEN` it raises as `tool.denied`.
 
+`revoke_access` is the other direction, and the only tool here
+that takes no policy decision at all: there is nothing to classify when
+access is being removed. It resolves the named grant, runs the design's scope
+through an earlier change's `request_in_scope` — one scope authority for approvals and
+revocation — and then hands the (user, role) pair to
+`helpdesk.access.revoke_role_access`, which revokes the whole LIVE SET
+(decision A) rather than the row the caller named.
+
 No function here opens a session or touches the transport: the pipeline
 binds the session to the token's tenant before any of them is called.
 """
@@ -35,19 +43,24 @@ from typing import Any
 
 from helpdesk.access import (
     DirectoryProvider,
+    GrantNotActiveError,
     SimulatedDirectory,
     approval_slots,
     build_request_snapshot,
     execute_grant,
     list_requests_for_requester,
+    request_in_scope,
     resolved_approver_ids,
+    revoke_role_access,
 )
 from helpdesk.access import (
     create_access_request as persist_access_request,
 )
 from helpdesk.audit import AuditEventInput, append_event
 from helpdesk.auth import rbac
-from helpdesk.models import Grant, RequestStatus
+from helpdesk.core.repository import Repository, is_live_grant
+from helpdesk.errors import NotFoundError
+from helpdesk.models import Grant, RequestStatus, Role, System
 from helpdesk.policy.engine import classify
 from helpdesk.policy.types import (
     Classification,
@@ -468,6 +481,138 @@ def _output(
         policy_refs=list(classification.policy_refs),
         grant_id=None if grant is None else grant.id,
         expires_at=None if grant is None else grant.expires_at,
+    )
+
+
+REASON_MAX_LENGTH = 2000
+"""Cap on `revoke_access.reason`.
+
+`grants.revoke_reason` is unbounded `Text`, so this Pydantic bound is the only
+backstop there is. The lower bound is 1, not 0: an access removal with an
+empty reason is one nobody can audit. Both ends pinned inclusively by
+`test_mcp_revoke_access.py::test_the_reason_boundary_is_inclusive_at_1_and_2000`."""
+
+
+class RevokeAccessInput(MutatingToolInput):
+    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`."""
+
+    grant_id: uuid.UUID
+    reason: str = Field(min_length=1, max_length=REASON_MAX_LENGTH)
+
+
+class RevokeAccessOutput(BaseModel):
+    """Every grant this call ended, not just the one it was handed."""
+
+    revoked_grant_ids: list[uuid.UUID]
+    """EVERY live row for the named grant's `(user, role)` (decision A), the
+    named one included. Shorter output would misreport the scope of what
+    happened: an earlier change leaves two live rows for one role reachable."""
+
+    revoked_count: int
+
+
+async def _grant_in_scope(session: AsyncSession, identity: Identity, grant: Grant) -> bool:
+    """Does the design's `revoke_access` row reach this grant?
+
+    The same `request_in_scope` the approval tools use (decision B), asked with
+    grant-derived arguments: its parameters are already neutral — an actor, the
+    actor's department, the subject's department, the system's owner — so
+    approvals and revocation cannot answer the scope question differently.
+
+    The caller's department and the holder's are read from the DIRECTORY, never
+    from the token's `department_id` claim: a manager transferred after their
+    token was issued must not revoke in the department they left. Pinned in
+    both directions by
+    `test_mcp_revoke_access.py::test_the_managers_department_comes_from_the_directory_not_the_token`,
+    which moves the caller's row and reuses the token minted before the move.
+    The user id itself still comes only from the token.
+
+    This runs BEFORE the liveness test (decision C), so a caller whose scope
+    does not reach a grant learns `FORBIDDEN` whatever state it is in, and the
+    id cannot be probed for that state. Pinned by
+    `::test_an_already_revoked_grant_is_refused_policy_blocked`, whose second
+    half sends the SAME not-live state out of scope.
+    """
+    directory = SimulatedDirectory(session)
+    caller = await directory.lookup_user(identity.user_id)
+    holder = await directory.lookup_user(grant.user_id)
+    role = await Repository(session, Role).get(grant.role_id)
+    system = None if role is None else await Repository(session, System).get(role.system_id)
+    return request_in_scope(
+        rbac.authorize(identity.claims, rbac.Tool.REVOKE_ACCESS).scopes,
+        approver_user_id=identity.user_id,
+        approver_department_id=None if caller is None else caller.department_id,
+        target_department_id=None if holder is None else holder.department_id,
+        system_owner_user_id=None if system is None else system.owner_user_id,
+    )
+
+
+async def revoke_access(
+    session: AsyncSession, identity: Identity, args: RevokeAccessInput
+) -> RevokeAccessOutput:
+    """Take away the access this grant represents, and every live twin of it.
+
+    Three refusals in this order, each a different the design code and each with
+    a case no other guard can decide:
+
+    `NOT_FOUND` — no such grant, or one in another tenant. `Repository.get`
+    runs through the tenant-bound session, so the two are indistinguishable and
+    a grant id is not an existence oracle
+    (`test_another_tenants_grant_and_a_missing_one_answer_the_same_way`).
+
+    `FORBIDDEN` — the design's scope does not reach the grant. Raised as
+    `RbacDenied`, which the pipeline records as `tool.denied` rather than
+    `tool.failed` (a permission decision filed as an outage would be a false
+    record). This runs before the liveness test on purpose. Its own kill is
+    `test_a_manager_may_not_revoke_outside_their_department`, whose caller the
+    matrix admits, so only the department comparison can refuse it.
+
+    The pipeline's matrix stage has NO independent kill on this tool, and that
+    is a property of the code rather than a gap in the tests: `_grant_in_scope`
+    re-runs `rbac.authorize`, which raises for a principal holding no cell on
+    this the design row, so a caller the matrix refuses is refused here too and
+    deleting the pipeline stage changes no answer.
+    `test_a_denied_call_writes_tool_denied_and_revokes_nothing` pins the
+    refusal and its `tool.denied` record, not that stage.
+
+    `POLICY_BLOCKED` — the grant is not live (decision C), from
+    `GrantNotActiveError`, raised here for the named row and again inside
+    `revoke_role_access` when the whole locked live set is empty. The second is
+    what a caller who lost a race sees
+    (`test_two_callers_racing_the_same_revocation_write_one_event_per_row`).
+
+    `now` is read once and passed on, so the liveness test, the locked read and
+    every `revoked_at` answer for one instant. Everything runs in the
+    transaction the pipeline opened, so the revoked rows and their
+    `grant.revoked` events commit or roll back together.
+    """
+    grant = await Repository(session, Grant).get(args.grant_id)
+    if grant is None:
+        raise NotFoundError("no such grant in this tenant")
+    if not await _grant_in_scope(session, identity, grant):
+        raise rbac.RbacDenied(rbac.Tool.REVOKE_ACCESS.value)
+
+    now = datetime.now(UTC)
+    # The named grant is tested for liveness through the same predicate the
+    # locked read uses, so a caller pointing at a row that is already gone is
+    # told so, rather than silently having a sibling row revoked under an
+    # output that does not contain the id they sent.
+    if not is_live_grant(grant, now):
+        raise GrantNotActiveError(f"grant {grant.id} is not live: it was revoked, or it expired")
+
+    revoked = await revoke_role_access(
+        session,
+        SimulatedDirectory(session),
+        user_id=grant.user_id,
+        role_id=grant.role_id,
+        reason=args.reason,
+        revoked_by_user_id=identity.user_id,
+        actor_ref=str(identity.user_id),
+        session_id=identity.session_id,
+        now=now,
+    )
+    return RevokeAccessOutput(
+        revoked_grant_ids=[row.id for row in revoked], revoked_count=len(revoked)
     )
 
 
