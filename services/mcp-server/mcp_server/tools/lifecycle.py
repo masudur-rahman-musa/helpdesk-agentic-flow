@@ -1,4 +1,4 @@
-"""The lifecycle tools: the design's joiner half.
+"""The lifecycle tools: the design's joiner and mover halves (requirement #15).
 
 `onboard_user` is the first tool that creates a PERSON rather than access.
 Everything it decides lives in `helpdesk.access.lifecycle`; what lives here
@@ -14,10 +14,17 @@ token's, and a joiner's principals are the fixed
 `JOINER_PRINCIPALS` constant, because an HR caller able to name them could
 mint an `it_admin` through a lifecycle tool (decision D).
 
-The registry declares the GENERIC `tool.succeeded` for this tool, not
-`user.onboarded` (decision F): the handler appends the hire itself, naming
-the new user as the subject, and the pipeline's event lands last as the
-summary — the same shape as an earlier change's `grant.revoked`.
+`transfer_user` is the mover, and it resolves the SAME way: the
+`user_id` and the `new_department_id` are looked up in the token's tenant and
+either absence answers the same `NOT_FOUND`. It takes no tenant argument
+either, and no department for the person to come FROM — where they are now is
+read off their row, never taken from the caller.
+
+The registry declares the GENERIC `tool.succeeded` for both tools, not
+`user.onboarded` or `user.transferred` (12a decision F, 12b decision C): each
+handler appends its own the design event naming the PERSON as the subject,
+and the pipeline's event lands last as the summary — the same shape as plan
+11d's `grant.revoked`.
 
 No function here opens a session or touches the transport: the pipeline binds
 the session to the token's tenant before the handler is called.
@@ -27,8 +34,9 @@ import re
 import uuid
 from datetime import UTC, date, datetime
 
-from helpdesk.access import SimulatedDirectory
+from helpdesk.access import SimulatedDirectory, SkippedRole
 from helpdesk.access import onboard_user as onboard_user_core
+from helpdesk.access import transfer_user as transfer_user_core
 from helpdesk.core.repository import Repository
 from helpdesk.errors import ErrorCode, NotFoundError
 from helpdesk.models import Department, User
@@ -181,10 +189,99 @@ async def onboard_user(
     return OnboardUserOutput(
         user_id=result.user.id,
         applied_role_ids=[grant.role_id for grant in result.applied],
-        skipped=[
-            SkippedRoleOutput(
-                role_id=record.role_id, reason_code=record.reason_code, reason=record.reason
-            )
-            for record in result.skipped
-        ],
+        skipped=[_skipped(record) for record in result.skipped],
+    )
+
+
+class TransferUserInput(MutatingToolInput):
+    """the design's mover signature. `extra="forbid"` comes from `MutatingToolInput`.
+
+    Three arguments and no fourth: there is no tenant and no
+    department to move FROM, because where the person is now is read off their
+    row — a caller who could name it could diff a template the person was never
+    in. A `tenant_id` in the arguments is refused rather than dropped, pinned by
+    `test_mcp_transfer_user.py::test_an_unknown_field_is_refused_with_no_department_change`.
+    """
+
+    user_id: uuid.UUID
+    new_department_id: uuid.UUID
+    effective_date: date
+    """A real date, typed rather than a string. It reaches the
+    `user.transferred` payload and nothing parses it afterwards (decision G:
+    there is no column and no scheduler until row 21), so `"2026-13-01"` and
+    `"2026-09-31"` typed as `str` would become permanent audit records nobody
+    can read. Both are `VALIDATION` before any effect, pinned by
+    `test_mcp_transfer_user.py::test_the_input_types_are_refused_before_any_effect`."""
+
+
+class TransferUserOutput(BaseModel):
+    """The four sets of the diff, plus what the engine refused.
+
+    `retained_role_ids` and `non_standard_role_ids` name roles nothing was
+    done to, and they are answered rather than left implicit: they are the only
+    thing that tells a caller which kept grants their new department's template
+    accounts for and which an access review will later flag (decision H).
+    """
+
+    from_department_id: uuid.UUID | None
+    revoked_role_ids: list[uuid.UUID]
+    applied_role_ids: list[uuid.UUID]
+    skipped: list[SkippedRoleOutput]
+    retained_role_ids: list[uuid.UUID]
+    non_standard_role_ids: list[uuid.UUID]
+
+
+async def transfer_user(
+    session: AsyncSession, identity: Identity, args: TransferUserInput
+) -> TransferUserOutput:
+    """Move one person to another department in the token's tenant, and diff.
+
+    The destination is resolved through the tenant-bound repository BEFORE any
+    write, and `lock_user` inside the domain call resolves the person the same
+    way, so both absences — missing, and belonging to another tenant — answer
+    the identical `NOT_FOUND` at each id. Pinned separately by
+    `test_mcp_transfer_user.py::test_a_missing_and_another_tenants_user_answer_the_same_not_found`
+    and `::test_a_missing_and_another_tenants_department_answer_the_same_not_found`,
+    the second over a REAL foreign department, because a lookup outside the
+    guard would write another tenant's department id onto this tenant's user.
+
+    the design's matrix row is the only permission gate on this tool, and it runs
+    in the pipeline: all three permitted principals hold `Scope.ANY`, so unlike
+    `revoke_access` there is no second, argument-dependent check.
+    `test_the_other_four_principals_are_denied_and_move_nobody` sends fully
+    valid arguments for all four refused principals, so deleting that stage is
+    the one change that turns those cases into completed transfers (standing
+    rule 16).
+
+    Everything runs in the transaction the pipeline opened, so the department,
+    the revocations, the grants and every event commit or roll back together.
+    """
+    if await Repository(session, Department).get(args.new_department_id) is None:
+        raise NotFoundError("no such department in this tenant")
+
+    result = await transfer_user_core(
+        session,
+        SimulatedDirectory(session),
+        user_id=args.user_id,
+        new_department_id=args.new_department_id,
+        effective_date=args.effective_date,
+        transferred_by_user_id=identity.user_id,
+        actor_ref=str(identity.user_id),
+        session_id=identity.session_id,
+        now=datetime.now(UTC),
+    )
+    return TransferUserOutput(
+        from_department_id=result.from_department_id,
+        revoked_role_ids=list(result.revoked_role_ids),
+        applied_role_ids=list(result.applied_role_ids),
+        skipped=[_skipped(record) for record in result.skipped],
+        retained_role_ids=list(result.retained_role_ids),
+        non_standard_role_ids=list(result.non_standard_role_ids),
+    )
+
+
+def _skipped(record: SkippedRole) -> SkippedRoleOutput:
+    """One domain refusal on the wire. Shared so the two tools cannot drift."""
+    return SkippedRoleOutput(
+        role_id=record.role_id, reason_code=record.reason_code, reason=record.reason
     )

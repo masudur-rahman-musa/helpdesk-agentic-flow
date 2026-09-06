@@ -1,4 +1,4 @@
-"""`onboard_user`: the joiner half of the design's lifecycle (requirement #15).
+"""The joiner and mover halves of the design's lifecycle (requirement #15).
 
 A joiner is two facts, not one: a person exists, and that person holds what
 their department's template says they should. The second is access, so it is
@@ -31,6 +31,18 @@ Everything runs in the caller's transaction: the person, their grants and
 every event are flushed, never committed, so a failure afterwards takes all
 of them (pinned by `test_access_lifecycle.py::
 test_a_duplicate_email_is_refused_before_any_write`).
+
+`transfer_user` is the mover half, and it decides nothing either:
+`revoke_role_access` takes access away, `execute_grant` gives it, and this
+module only works out WHICH roles each half gets. That diff is four sets
+computed at one instant against the target's live grants and the two
+department templates — revoke, apply, retain, and the non-standard grants
+that belong to neither template and are left alone (decision H).
+
+One pass, unlike onboarding: the design's `user.transferred` lands AFTER the
+grant events (decision C) because the person already exists, so nothing has
+to be recorded before the engine has been asked and the classify-only pass
+above has nothing to buy here.
 """
 
 import uuid
@@ -47,11 +59,12 @@ from helpdesk.access.execute import (
     execute_grant,
     reclassify,
 )
+from helpdesk.access.revoke import revoke_role_access
 from helpdesk.audit import AuditEventInput, append_event
 from helpdesk.auth.rbac import Principal
 from helpdesk.core.db import bound_tenant_id
-from helpdesk.core.repository import find_user_by_email
-from helpdesk.errors import ErrorCode, ToolError
+from helpdesk.core.repository import Repository, find_user_by_email, lock_user
+from helpdesk.errors import ErrorCode, NotFoundError, ToolError
 from helpdesk.models import Grant, User
 from helpdesk.policy.types import TargetStatus
 
@@ -92,6 +105,65 @@ test_the_three_permitted_principals_each_onboard_a_joiner`."""
 JOINER_STATUS = TargetStatus.ACTIVE.value
 """A joiner is `active`; `leaver` is an earlier change's direction."""
 
+USER_TRANSFERRED_EVENT_TYPE = "user.transferred"
+"""the design's own name for "this person moved department".
+
+Appended by this module with the MOVER as its subject and the whole diff as
+its payload, not declared as the calling tool's registry event (decision C):
+the pipeline's event carries the TOOL as subject and a fixed payload, so it
+would record that somebody called a tool and not who moved or what they
+gained and lost. The subject and the exact nine payload
+keys are pinned by `test_access_transfer.py::
+test_user_transferred_names_the_user_and_carries_exactly_nine_keys` and again
+through the transport by `test_mcp_transfer_user.py::
+test_the_audit_sequence_is_revoked_then_executed_then_transferred_then_succeeded`."""
+
+TRANSFER_REVOKE_REASON = "transferred out of the department that granted this role"
+"""What `grants.revoke_reason` says on every revocation a transfer makes.
+
+A fixed sentence rather than a caller-supplied one so an auditor can grep the
+column for the moves and tell them from a manual `revoke_access`. Pinned to
+the exact string by `test_access_transfer.py::
+test_the_transfer_constants_and_error_codes_are_exactly_the_spec_values` and
+read off the revoked row by
+`::test_the_diff_revokes_applies_retains_and_leaves_the_non_standard_grant`."""
+
+
+class SameDepartmentError(ToolError):
+    """The mover is already in the department they were asked to move to.
+
+    `POLICY_BLOCKED`, and raised BEFORE any write (decision E). The diff is
+    empty by construction, so nothing about the tables differs either way and
+    the only trace of the alternative is a `user.transferred` recording a move
+    that never happened. The code is pinned by `test_access_transfer.py::
+    test_the_transfer_constants_and_error_codes_are_exactly_the_spec_values`
+    and the "before any write" half by
+    `::test_a_transfer_into_the_same_department_is_refused_before_any_write`.
+
+    It is also what refuses the loser of a race: the second caller waits on
+    `lock_user`, then re-reads the department the winner wrote (pinned by
+    `test_mcp_transfer_user.py::test_two_callers_racing_the_same_transfer_leave_one_move`).
+    """
+
+    code = ErrorCode.POLICY_BLOCKED
+
+
+class LeaverTransferError(ToolError):
+    """The mover is a `leaver`, so there is no move to make (decision F).
+
+    `POLICY_BLOCKED`, and raised BEFORE any revocation. The engine blocks
+    every new grant for a leaver on its own (the design), so letting one
+    through would report each arriving role in `skipped` and look harmless —
+    but a revocation is not a policy decision and would still run, stripping
+    the leaver's remaining access under an event that says they moved. Pinned
+    by `test_access_transfer.py::test_a_leaver_target_is_refused_before_any_revocation`,
+    which asserts the old grant STILL LIVE; the `skipped`-only alternative
+    leaves it revoked.
+    """
+
+    code = ErrorCode.POLICY_BLOCKED
+
+
 _ACTOR_KIND = "user"
 """Onboarding is always somebody's call: the design gives the row three
 principals, unlike `execute_grant`, which is system-only."""
@@ -131,6 +203,27 @@ class OnboardResult:
     user: User
     applied: tuple[Grant, ...]
     skipped: tuple[SkippedRole, ...]
+
+
+@dataclass(frozen=True)
+class TransferResult:
+    """The mover and the four sets of §1, each role in exactly one of them.
+
+    `retained_role_ids` and `non_standard_role_ids` name roles NOTHING was
+    done to, and they are part of the answer rather than a detail: a caller
+    who cannot tell "kept because the new template names it" from "kept
+    because no template does" cannot see what an access review will later
+    flag (decision H). `from_department_id` is nullable because a person with
+    no department transfers additively.
+    """
+
+    user: User
+    from_department_id: uuid.UUID | None
+    revoked_role_ids: tuple[uuid.UUID, ...]
+    applied_role_ids: tuple[uuid.UUID, ...]
+    skipped: tuple[SkippedRole, ...]
+    retained_role_ids: tuple[uuid.UUID, ...]
+    non_standard_role_ids: tuple[uuid.UUID, ...]
 
 
 class _WithDecidedRoles:
@@ -258,6 +351,204 @@ async def onboard_user(
     return OnboardResult(user=user, applied=tuple(applied), skipped=tuple(skipped))
 
 
+async def transfer_user(
+    session: AsyncSession,
+    directory: DirectoryProvider,
+    *,
+    user_id: uuid.UUID,
+    new_department_id: uuid.UUID,
+    effective_date: date,
+    transferred_by_user_id: uuid.UUID,
+    actor_ref: str | None = None,
+    session_id: uuid.UUID | None = None,
+    now: datetime,
+) -> TransferResult:
+    """Move one person between departments and diff the two templates.
+
+    The caller has already resolved `new_department_id` inside its own tenant
+    and refused an unknown one `NOT_FOUND`
+    (`mcp_server.tools.lifecycle.transfer_user`); `lock_user` below answers
+    None for a user id that is missing OR another tenant's, so the same
+    `NOT_FOUND` covers both here (pinned by `test_mcp_transfer_user.py::
+    test_a_missing_and_another_tenants_user_answer_the_same_not_found`).
+
+    The lock comes FIRST, before either refusal, because both of them read
+    state a concurrent transfer can change: the department the
+    same-department check compares against is exactly what the winner of a
+    race rewrites (decision D).
+
+    Order of effects, and each part of it is a decision:
+
+    1. revoke, then apply (decision B) — an SoD pair spanning the two
+       departments then resolves in favour of the department the person is
+       moving INTO, which is the point of a transfer;
+    2. the department is written BEFORE the applications (decision A), because
+       `build_request_snapshot` reads `role_in_department_template` off the
+       target's CURRENT department: an application classified before the write
+       sees every arriving role as out-of-template and caps its expiry as
+       `elevated` (pinned by
+       `test_access_transfer.py::test_the_applications_are_classified_against_the_new_department`,
+       the only case that flips if the write moves);
+    3. `user.transferred` lands after both sets of grant events (decision C),
+       because every set it names is known only by then.
+
+    `now` is keyword-only and supplied by the caller, so the four sets, every
+    classification, each `revoked_at` and each `granted_at` answer for one
+    instant; reading a clock here would let a grant be diffed against one
+    moment and revoked at another.
+
+    Everything runs in the caller's transaction. Decision B leaves an instant
+    where the mover holds neither the departing role nor the arriving one; it
+    is inside that single transaction, so no other reader ever sees it
+    (pinned by `test_access_transfer.py::test_the_transfer_and_its_events_roll_back_together`).
+    """
+    user = await lock_user(session, user_id)
+    if user is None:
+        raise NotFoundError("no such user in this tenant")
+    if user.status == TargetStatus.LEAVER.value:
+        raise LeaverTransferError("a leaver cannot be transferred")
+    if user.department_id == new_department_id:
+        raise SameDepartmentError("that user is already in this department")
+
+    from_department_id = user.department_id
+    held = await directory.list_account_role_ids(user_id, now)
+    old_template = (
+        frozenset()
+        if from_department_id is None
+        else await directory.list_department_role_ids(from_department_id)
+    )
+    new_template = await directory.list_department_role_ids(new_department_id)
+
+    # The four sets of §1, computed together at this one instant so no role can
+    # fall into two of them or into none. Sorted, so two runs over the same
+    # data write their events in the same order.
+    to_revoke = sorted((held & old_template) - new_template)
+    retained = sorted(held & new_template)
+    to_apply = sorted(new_template - held)
+    non_standard = sorted(held - old_template - new_template)
+
+    for role_id in to_revoke:
+        await revoke_role_access(
+            session,
+            directory,
+            user_id=user_id,
+            role_id=role_id,
+            reason=TRANSFER_REVOKE_REASON,
+            revoked_by_user_id=transferred_by_user_id,
+            actor_ref=actor_ref if actor_ref is not None else str(transferred_by_user_id),
+            session_id=session_id,
+            now=now,
+        )
+
+    # Before the applications, never after (decision A).
+    await Repository(session, User).update(user_id, department_id=new_department_id)
+
+    applied: list[uuid.UUID] = []
+    skipped: list[SkippedRole] = []
+    for role_id in to_apply:
+        try:
+            await execute_grant(
+                session,
+                directory,
+                request_id=None,
+                requester_user_id=transferred_by_user_id,
+                target_user_id=user_id,
+                role_id=role_id,
+                requested_expiry_days=None,
+                granted_by_user_id=transferred_by_user_id,
+                actor_ref=actor_ref if actor_ref is not None else str(transferred_by_user_id),
+                session_id=session_id,
+                now=now,
+            )
+        except (SodConflictAtExecutionError, PolicyBlockedAtExecutionError) as refusal:
+            # A refused role costs that role, not the move (§1, criterion 5):
+            # a broken template is a data defect somebody has to see, and
+            # leaving a mover in their new department with nothing is worse.
+            skipped.append(
+                SkippedRole(role_id=role_id, reason_code=refusal.code, reason=str(refusal))
+            )
+            continue
+        applied.append(role_id)
+
+    await _append_transferred(
+        session,
+        user_id=user_id,
+        from_department_id=from_department_id,
+        to_department_id=new_department_id,
+        effective_date=effective_date,
+        revoked_role_ids=to_revoke,
+        applied_role_ids=applied,
+        skipped=skipped,
+        retained_role_ids=retained,
+        non_standard_role_ids=non_standard,
+        actor_ref=actor_ref if actor_ref is not None else str(transferred_by_user_id),
+        session_id=session_id,
+        now=now,
+    )
+    return TransferResult(
+        user=user,
+        from_department_id=from_department_id,
+        revoked_role_ids=tuple(to_revoke),
+        applied_role_ids=tuple(applied),
+        skipped=tuple(skipped),
+        retained_role_ids=tuple(retained),
+        non_standard_role_ids=tuple(non_standard),
+    )
+
+
+async def _append_transferred(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    from_department_id: uuid.UUID | None,
+    to_department_id: uuid.UUID,
+    effective_date: date,
+    revoked_role_ids: list[uuid.UUID],
+    applied_role_ids: list[uuid.UUID],
+    skipped: list[SkippedRole],
+    retained_role_ids: list[uuid.UUID],
+    non_standard_role_ids: list[uuid.UUID],
+    actor_ref: str,
+    session_id: uuid.UUID | None,
+    now: datetime,
+) -> None:
+    """the design's move record, subject the mover, nine keys exactly.
+
+    `effective_date` is here and nowhere else (decision G): the design puts it
+    in the signature, there is no column for it and no scheduler until row 21,
+    so the transfer takes effect now and this payload is the only record that
+    a date was asked for. `non_standard_role_ids` is likewise decision H's
+    only record — nothing flags those grants until an access review runs.
+    """
+    await append_event(
+        session,
+        bound_tenant_id(session),
+        AuditEventInput(
+            occurred_at=now,
+            actor_kind=_ACTOR_KIND,
+            actor_ref=actor_ref,
+            session_id=session_id,
+            trace_id=None,
+            event_type=USER_TRANSFERRED_EVENT_TYPE,
+            subject_type=_SUBJECT_TYPE,
+            subject_id=str(user_id),
+            payload={
+                "user_id": str(user_id),
+                "from_department_id": (
+                    None if from_department_id is None else str(from_department_id)
+                ),
+                "to_department_id": str(to_department_id),
+                "effective_date": effective_date.isoformat(),
+                "revoked_role_ids": [str(role_id) for role_id in revoked_role_ids],
+                "applied_role_ids": [str(role_id) for role_id in applied_role_ids],
+                "skipped_role_ids": [str(record.role_id) for record in skipped],
+                "retained_role_ids": [str(role_id) for role_id in retained_role_ids],
+                "non_standard_role_ids": [str(role_id) for role_id in non_standard_role_ids],
+            },
+        ),
+    )
+
+
 async def _decide(
     session: AsyncSession,
     directory: DirectoryProvider,
@@ -341,10 +632,16 @@ async def _append_onboarded(
 __all__ = [
     "JOINER_PRINCIPALS",
     "JOINER_STATUS",
+    "TRANSFER_REVOKE_REASON",
     "UNUSABLE_PASSWORD_HASH",
     "USER_ONBOARDED_EVENT_TYPE",
+    "USER_TRANSFERRED_EVENT_TYPE",
     "DuplicateEmailError",
+    "LeaverTransferError",
     "OnboardResult",
+    "SameDepartmentError",
     "SkippedRole",
+    "TransferResult",
     "onboard_user",
+    "transfer_user",
 ]

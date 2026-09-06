@@ -6,8 +6,10 @@
 writes the tools consume. `execute.py` is the one place a grant is written,
 with the design's re-check in front of it, and `revoke.py` the one
 place access is taken away, over the whole live set for a (user, role).
-`lifecycle.py` is the joiner half of the design: it creates the
-person and applies their department's template through `execute_grant`.
+`lifecycle.py` is the design's joiner and mover halves: `onboard_user` (plan
+12a) creates the person and applies their department's template, and
+`transfer_user` diffs the two templates and moves them, both
+through `execute_grant` and `revoke_role_access`.
 `approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
@@ -45,12 +47,18 @@ from helpdesk.access.execute import (
 from helpdesk.access.lifecycle import (
     JOINER_PRINCIPALS,
     JOINER_STATUS,
+    TRANSFER_REVOKE_REASON,
     UNUSABLE_PASSWORD_HASH,
     USER_ONBOARDED_EVENT_TYPE,
+    USER_TRANSFERRED_EVENT_TYPE,
     DuplicateEmailError,
+    LeaverTransferError,
     OnboardResult,
+    SameDepartmentError,
     SkippedRole,
+    TransferResult,
     onboard_user,
+    transfer_user,
 )
 from helpdesk.access.requests import (
     approval_slots,
@@ -74,21 +82,26 @@ __all__ = [
     "JOINER_PRINCIPALS",
     "JOINER_STATUS",
     "REVOKED_GRANT_STATUS",
+    "TRANSFER_REVOKE_REASON",
     "UNUSABLE_PASSWORD_HASH",
     "USER_ONBOARDED_EVENT_TYPE",
+    "USER_TRANSFERRED_EVENT_TYPE",
     "DirectoryProvider",
     "DirectoryReader",
     "DuplicateEmailError",
     "GrantNotActiveError",
+    "LeaverTransferError",
     "NotAnApproverError",
     "OnboardResult",
     "PolicyBlockedAtExecutionError",
     "RequestNotPendingError",
+    "SameDepartmentError",
     "SimulatedDirectory",
     "SkippedRole",
     "SlotDecision",
     "SlotState",
     "SodConflictAtExecutionError",
+    "TransferResult",
     "approval_slots",
     "build_request_snapshot",
     "chain_is_complete",
@@ -109,4 +122,5 @@ __all__ = [
     "resolved_approver_ids",
     "revoke_role_access",
     "set_request_status",
+    "transfer_user",
 ]

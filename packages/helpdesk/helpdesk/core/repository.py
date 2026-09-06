@@ -53,6 +53,28 @@ async def find_user_by_id(session: AsyncSession, user_id: uuid.UUID) -> User | N
     return result.scalars().one_or_none()
 
 
+async def lock_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
+    """The bound tenant's user, locked for the rest of this transaction.
+
+    `SELECT … FOR UPDATE` through the ORM, so the tenant guard still injects
+    its filter: a user id in another tenant reads exactly like one that does
+    not exist (both None), and the id is not a cross-tenant existence oracle.
+
+    The lock is what serialises two transfers of the same person (decision D).
+    A transfer is a read-compute-write over the person AND their grants: it
+    reads the department, diffs two templates against what they hold, then
+    writes all three. `lock_live_grants_for_role` covers the revoke half only,
+    so without this both callers read the old department and both apply the
+    arriving role. The idempotency guard cannot help either, because two
+    callers send two different keys. Pinned end to end by
+    `test_mcp_transfer_user.py::test_two_callers_racing_the_same_transfer_leave_one_move`,
+    whose mover holds nothing and whose old template is empty, so no
+    revocation exists that could refuse the loser instead.
+    """
+    result = await session.execute(select(User).where(User.id == user_id).with_for_update())
+    return result.scalars().one_or_none()
+
+
 ACTIVE_GRANT_STATUS = "active"
 """The one `grants.status` value that can still be a live grant."""
 

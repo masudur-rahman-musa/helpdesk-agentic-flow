@@ -176,6 +176,23 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=lifecycle.onboard_user,
     ),
     ToolSpec(
+        # `tool.succeeded` is the SUMMARY event: the
+        # handler appends `user.transferred` itself with the MOVER as its
+        # subject and the whole diff as its payload, which is what an auditor
+        # asking "why does this person hold this" reads. The pipeline's event
+        # names the tool and would answer that for nobody.
+        name=rbac.Tool.TRANSFER_USER.value,
+        tool=rbac.Tool.TRANSFER_USER,
+        description=(
+            "Move a user to another department, applying the new template and revoking the old."
+        ),
+        input_model=lifecycle.TransferUserInput,
+        output_model=lifecycle.TransferUserOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=lifecycle.transfer_user,
+    ),
+    ToolSpec(
         name=rbac.Tool.LIST_PENDING_APPROVALS.value,
         tool=rbac.Tool.LIST_PENDING_APPROVALS,
         description="List the access requests waiting on the calling user's approval.",

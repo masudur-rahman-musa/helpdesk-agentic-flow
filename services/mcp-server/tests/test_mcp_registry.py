@@ -276,6 +276,11 @@ MUTATING_TOOL_NAMES = frozenset(
         # retried call must replay rather than be refused POLICY_BLOCKED by
         # its own duplicate-address check.
         "onboard_user",
+        # An earlier change: it revokes and grants in one pass, so a retried call must
+        # replay rather than move the person a second time (by then they are
+        # already in the new department, and a re-run answers POLICY_BLOCKED
+        # for a call the caller saw succeed).
+        "transfer_user",
         # An earlier change: it ends live grants, so a retried call must replay rather
         # than re-read the live set and revoke whatever is there now.
         "revoke_access",
