@@ -8,8 +8,10 @@ with the design's re-check in front of it, and `revoke.py` the one
 place access is taken away, over the whole live set for a (user, role).
 `lifecycle.py` is the design's joiner and mover halves: `onboard_user` (plan
 12a) creates the person and applies their department's template, and
-`transfer_user` diffs the two templates and moves them, both
-through `execute_grant` and `revoke_role_access`.
+`transfer_user` diffs the two templates and moves them, and
+`offboard_user` marks a leaver, revokes everything they hold and
+closes every request still open against them — all three through
+`execute_grant` and `revoke_role_access`, never writing a grant themselves.
 `approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
@@ -47,23 +49,32 @@ from helpdesk.access.execute import (
 from helpdesk.access.lifecycle import (
     JOINER_PRINCIPALS,
     JOINER_STATUS,
+    LEAVER_STATUS,
+    OFFBOARD_REVOKE_REASON,
     TRANSFER_REVOKE_REASON,
     UNUSABLE_PASSWORD_HASH,
+    USER_OFFBOARDED_EVENT_TYPE,
     USER_ONBOARDED_EVENT_TYPE,
     USER_TRANSFERRED_EVENT_TYPE,
+    AlreadyLeaverError,
     DuplicateEmailError,
     LeaverTransferError,
+    OffboardResult,
     OnboardResult,
     SameDepartmentError,
     SkippedRole,
     TransferResult,
+    offboard_user,
     onboard_user,
     transfer_user,
 )
 from helpdesk.access.requests import (
+    REQUEST_REJECTED_EVENT_TYPE,
+    append_request_rejected,
     approval_slots,
     create_access_request,
     list_requests_for_requester,
+    lock_open_requests_for_target,
     resolved_approver_ids,
     set_request_status,
 )
@@ -81,17 +92,23 @@ __all__ = [
     "GROUP_SLOTS",
     "JOINER_PRINCIPALS",
     "JOINER_STATUS",
+    "LEAVER_STATUS",
+    "OFFBOARD_REVOKE_REASON",
+    "REQUEST_REJECTED_EVENT_TYPE",
     "REVOKED_GRANT_STATUS",
     "TRANSFER_REVOKE_REASON",
     "UNUSABLE_PASSWORD_HASH",
+    "USER_OFFBOARDED_EVENT_TYPE",
     "USER_ONBOARDED_EVENT_TYPE",
     "USER_TRANSFERRED_EVENT_TYPE",
+    "AlreadyLeaverError",
     "DirectoryProvider",
     "DirectoryReader",
     "DuplicateEmailError",
     "GrantNotActiveError",
     "LeaverTransferError",
     "NotAnApproverError",
+    "OffboardResult",
     "OnboardResult",
     "PolicyBlockedAtExecutionError",
     "RequestNotPendingError",
@@ -102,6 +119,7 @@ __all__ = [
     "SlotState",
     "SodConflictAtExecutionError",
     "TransferResult",
+    "append_request_rejected",
     "approval_slots",
     "build_request_snapshot",
     "chain_is_complete",
@@ -113,8 +131,10 @@ __all__ = [
     "is_rejected",
     "list_pending_for_approver",
     "list_requests_for_requester",
+    "lock_open_requests_for_target",
     "lock_request",
     "may_fill",
+    "offboard_user",
     "onboard_user",
     "parse_slots",
     "reclassify",

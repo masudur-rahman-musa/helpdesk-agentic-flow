@@ -193,6 +193,23 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=lifecycle.transfer_user,
     ),
     ToolSpec(
+        # `tool.succeeded` is the SUMMARY event: the handler appends
+        # `user.offboarded` itself with the LEAVER as its subject, plus one
+        # `grant.revoked` per revoked row and one `request.rejected` per closed
+        # request. The pipeline's event names the tool, so as the declared type
+        # it would record that somebody called one and not who left.
+        name=rbac.Tool.OFFBOARD_USER.value,
+        tool=rbac.Tool.OFFBOARD_USER,
+        description=(
+            "Mark a user a leaver, revoke every grant they hold and close their open requests."
+        ),
+        input_model=lifecycle.OffboardUserInput,
+        output_model=lifecycle.OffboardUserOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=lifecycle.offboard_user,
+    ),
+    ToolSpec(
         name=rbac.Tool.LIST_PENDING_APPROVALS.value,
         tool=rbac.Tool.LIST_PENDING_APPROVALS,
         description="List the access requests waiting on the calling user's approval.",

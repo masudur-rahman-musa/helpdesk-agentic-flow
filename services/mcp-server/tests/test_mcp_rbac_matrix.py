@@ -149,6 +149,18 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. the design's `offboard_user` row: TWO cells, the narrowest
+    # lifecycle row of the three. `it_admin` holds a cell on both rows above
+    # and NONE here, so a row copied from `transfer_user` by habit fails.
+    "offboard_user": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": True,
+        "it_admin": False,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # An earlier change. the design's revoke row, written out literally rather than
     # derived from `_MATRIX`: five cells, and `hr` DOES hold one here (unlike
     # the approval rows above), so a row copied from `approve_request` by
@@ -180,8 +192,19 @@ MATRIX: dict[str, dict[str, bool]] = {
 # permitted call naming a REAL person would move somebody per (tool, principal)
 # cell inside the shared seeded database, so it names a user id that resolves
 # nowhere and is refused NOT_FOUND by the handler's own lookup.
+# `offboard_user` joins for the same reason as `transfer_user`: a
+# permitted call naming a REAL person would strip somebody's access per
+# (tool, principal) cell inside the shared seeded database, so it names a user
+# id that resolves nowhere and is refused NOT_FOUND by the domain's own lookup.
 ALLOW_ANSWERS_NOT_FOUND = frozenset(
-    {"approve_request", "reject_request", "revoke_access", "onboard_user", "transfer_user"}
+    {
+        "approve_request",
+        "reject_request",
+        "revoke_access",
+        "onboard_user",
+        "transfer_user",
+        "offboard_user",
+    }
 )
 
 # An earlier change decision G. The tools that take an id argument, which is the axis
@@ -197,6 +220,7 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "revoke_access",
         "onboard_user",
         "transfer_user",
+        "offboard_user",
     }
 )
 NO_ID_TOOLS: frozenset[str] = frozenset(
@@ -276,6 +300,14 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "user_id": str(uuid.uuid4()),
             "new_department_id": str(uuid.uuid4()),
             "effective_date": "2026-09-15",
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "offboard_user":
+        # A user id that resolves nowhere, so a permitted principal is refused
+        # NOT_FOUND rather than offboarding somebody per matrix cell.
+        return {
+            "user_id": str(uuid.uuid4()),
+            "end_date": "2026-10-31",
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name in ALLOW_ANSWERS_NOT_FOUND:
@@ -499,6 +531,14 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
                 _tenant_rows(env.tenant_b.tenant_slug).department_ids["Engineering"]
             ),
             "effective_date": "2026-09-15",
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "offboard_user":
+        # Tenant B's person, a real row there: the refusal has to come from the
+        # tenant guard, not from an id nobody could resolve anyway.
+        return {
+            "user_id": str(env.tenant_b.user_id),
+            "end_date": "2026-10-31",
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     arguments = {"idempotency_key": f"fake-key-{uuid.uuid4().hex}"}

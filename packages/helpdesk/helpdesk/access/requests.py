@@ -8,15 +8,34 @@ bound tenant on every write.
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.audit import AuditEventInput, append_event
+from helpdesk.core.db import bound_tenant_id
 from helpdesk.core.repository import Repository
 from helpdesk.errors import NotFoundError
 from helpdesk.models import AccessRequest, RequestStatus
 from helpdesk.policy.types import Classification, RequiredApprover
+
+REQUEST_REJECTED_EVENT_TYPE = "request.rejected"
+"""the design's name for "this request ended without being executed".
+
+Defined here rather than in either caller because it now has two: an earlier change's
+`reject_request` (a person deciding a seat) and an earlier change's `offboard_user`
+(every open request of a leaver, closed on their way out). Two spellings of
+one event type would let an auditor's filter miss half the closures, so
+`mcp_server.tools.approvals` imports this name rather than repeating the
+string. Pinned to the exact value by `test_access_offboard.py::
+test_the_offboard_constants_and_error_code_are_exactly_the_spec_values`, and
+its subject and payload by `::
+test_the_pending_and_approved_requests_targeting_the_user_are_rejected`."""
+
+_ACTOR_KIND = "user"
+_SUBJECT_TYPE = "access_request"
 
 
 def resolved_approver_ids(approvers: Sequence[RequiredApprover]) -> list[uuid.UUID]:
@@ -156,3 +175,85 @@ async def list_approved_role_ids_for_target(
         )
     )
     return frozenset(request.role_id for request in result.scalars())
+
+
+async def lock_open_requests_for_target(
+    session: AsyncSession, target_user_id: uuid.UUID
+) -> Sequence[AccessRequest]:
+    """The bound tenant's still-open requests TARGETING this user, locked.
+
+    "Open" is `pending` or `approved` and nothing else.
+    `approved` belongs here because an approved-but-not-yet-executed row is
+    exactly the one that can still become a grant — the design already counts
+    it for SoD — so leaving it open would hand back the access an offboard
+    just removed. `executed`, `rejected`, `failed`, `rolled_back` and
+    `expired` are ended already, and rewriting one would erase the record of
+    how it ended (pinned by `test_access_offboard.py::
+    test_an_executed_and_a_rejected_request_targeting_the_user_are_untouched`).
+
+    Filtered by TARGET, not requester: a request this user FILED for somebody
+    else is that person's access, and closing it would punish a third party
+    for somebody else's departure (pinned by the `filed_for_somebody_else`
+    row of `::test_the_pending_and_approved_requests_targeting_the_user_are_rejected`).
+
+    `SELECT … FOR UPDATE` through the ORM, so the tenant guard still injects
+    its filter and the rows are held until the caller's transaction ends. The
+    lock is what stops two concurrent offboards closing one request twice;
+    its serialising half cannot be seen from a single session, so it is pinned
+    end to end by `test_mcp_offboard_user.py::
+    test_two_callers_racing_the_same_offboard_leave_one_departure`.
+
+    Ordered by `created_at` then id, so two runs over the same rows write
+    their closure events in the same order.
+    """
+    result = await session.execute(
+        select(AccessRequest)
+        .where(
+            AccessRequest.target_user_id == target_user_id,
+            AccessRequest.status.in_((RequestStatus.PENDING.value, RequestStatus.APPROVED.value)),
+        )
+        .order_by(AccessRequest.created_at, AccessRequest.id)
+        .with_for_update()
+    )
+    return result.scalars().all()
+
+
+async def append_request_rejected(
+    session: AsyncSession,
+    request: AccessRequest,
+    *,
+    reason: str,
+    actor_ref: str,
+    session_id: uuid.UUID | None,
+    now: datetime,
+) -> None:
+    """One `request.rejected`, subject the REQUEST.
+
+    A status change that produced no event would be the one lifecycle effect
+    invisible in the log: the offboard's summary names the closed ids, but a
+    request's own trail would then end at its creation. `reason` is carried
+    so an auditor can tell an offboard's rejections from a person's — the
+    offboard passes its fixed `OFFBOARD_REVOKE_REASON`. Subject and payload
+    pinned by `test_access_offboard.py::
+    test_the_pending_and_approved_requests_targeting_the_user_are_rejected`.
+    """
+    await append_event(
+        session,
+        bound_tenant_id(session),
+        AuditEventInput(
+            occurred_at=now,
+            actor_kind=_ACTOR_KIND,
+            actor_ref=actor_ref,
+            session_id=session_id,
+            trace_id=None,
+            event_type=REQUEST_REJECTED_EVENT_TYPE,
+            subject_type=_SUBJECT_TYPE,
+            subject_id=str(request.id),
+            payload={
+                "request_id": str(request.id),
+                "target_user_id": str(request.target_user_id),
+                "role_id": str(request.role_id),
+                "reason": reason,
+            },
+        ),
+    )

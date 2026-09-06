@@ -284,6 +284,11 @@ MUTATING_TOOL_NAMES = frozenset(
         # An earlier change: it ends live grants, so a retried call must replay rather
         # than re-read the live set and revoke whatever is there now.
         "revoke_access",
+        # An earlier change: it revokes every live grant and closes every open request
+        # in one pass, so a retried call must replay rather than be refused
+        # POLICY_BLOCKED by its own already-leaver check for a call the caller
+        # saw succeed.
+        "offboard_user",
     }
 )
 

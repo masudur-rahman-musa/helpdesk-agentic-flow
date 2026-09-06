@@ -72,6 +72,9 @@ from helpdesk.access.execute import (
     PolicyBlockedAtExecutionError,
     SodConflictAtExecutionError,
 )
+from helpdesk.access.requests import (
+    REQUEST_REJECTED_EVENT_TYPE as REQUEST_REJECTED_EVENT_TYPE,  # re-exported, see below
+)
 from helpdesk.audit import AuditEventInput, append_event
 from helpdesk.auth import rbac
 from helpdesk.core.repository import Repository
@@ -85,8 +88,13 @@ from mcp_server.identity import Identity
 from mcp_server.tools.base import MutatingToolInput
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
-REQUEST_REJECTED_EVENT_TYPE = "request.rejected"
 """the design's two decision events, appended by these handlers (decision I).
+
+`REQUEST_REJECTED_EVENT_TYPE` is imported from `helpdesk.access.requests`
+rather than defined here, because an earlier change gave it a second writer:
+`offboard_user` closes every request still open against a leaver. Two
+spellings of one event type would let an auditor's filter miss half the
+closures.
 
 Appended here rather than declared as the registry `event_type` because the
 pipeline's own event carries a fixed payload (`{"tool", "scope"}`) and a

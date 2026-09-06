@@ -1,4 +1,4 @@
-"""The lifecycle tools: the design's joiner and mover halves (requirement #15).
+"""The lifecycle tools: the design's joiner, mover and leaver (requirement #15).
 
 `onboard_user` is the first tool that creates a PERSON rather than access.
 Everything it decides lives in `helpdesk.access.lifecycle`; what lives here
@@ -20,11 +20,16 @@ either absence answers the same `NOT_FOUND`. It takes no tenant argument
 either, and no department for the person to come FROM — where they are now is
 read off their row, never taken from the caller.
 
-The registry declares the GENERIC `tool.succeeded` for both tools, not
-`user.onboarded` or `user.transferred` (12a decision F, 12b decision C): each
-handler appends its own the design event naming the PERSON as the subject,
-and the pipeline's event lands last as the summary — the same shape as plan
-11d's `grant.revoked`.
+`offboard_user` is the leaver, and it resolves the LEAST: its
+only id is the person, and `lock_user` inside the domain call answers the
+same `NOT_FOUND` for a missing user and another tenant's, so this module
+looks nothing up before calling. It takes no tenant argument either.
+
+The registry declares the GENERIC `tool.succeeded` for all three tools, not
+`user.onboarded`, `user.transferred` or `user.offboarded` (12a decision F,
+12b decision C, 12d): each handler appends its own the design event naming
+the PERSON as the subject, and the pipeline's event lands last as the
+summary — the same shape as an earlier change's `grant.revoked`.
 
 No function here opens a session or touches the transport: the pipeline binds
 the session to the token's tenant before the handler is called.
@@ -35,6 +40,7 @@ import uuid
 from datetime import UTC, date, datetime
 
 from helpdesk.access import SimulatedDirectory, SkippedRole
+from helpdesk.access import offboard_user as offboard_user_core
 from helpdesk.access import onboard_user as onboard_user_core
 from helpdesk.access import transfer_user as transfer_user_core
 from helpdesk.core.repository import Repository
@@ -277,6 +283,81 @@ async def transfer_user(
         skipped=[_skipped(record) for record in result.skipped],
         retained_role_ids=list(result.retained_role_ids),
         non_standard_role_ids=list(result.non_standard_role_ids),
+    )
+
+
+class OffboardUserInput(MutatingToolInput):
+    """the design's leaver signature. `extra="forbid"` comes from `MutatingToolInput`.
+
+    Two arguments and no third: there is no tenant and nothing
+    naming what to revoke, because an offboard takes back everything the
+    person holds — a caller able to name a subset could offboard somebody on
+    paper and leave their access alive. A `tenant_id` in the arguments is
+    refused rather than dropped, pinned by
+    `test_mcp_offboard_user.py::test_an_unknown_field_is_refused_with_no_state_change`.
+    """
+
+    user_id: uuid.UUID
+    end_date: date
+    """A real date, typed rather than a string. It is written straight into
+    `users.end_date` and rendered into the `user.offboarded` payload, so
+    `"2026-13-01"` and `"2026-09-31"` typed as `str` would reach a column and
+    a permanent audit record. Both are `VALIDATION` before any effect, pinned
+    by `test_mcp_offboard_user.py::test_the_input_types_are_refused_before_any_effect`."""
+
+
+class OffboardUserOutput(BaseModel):
+    """What the departure took away and what it closed.
+
+    `revoked_grant_count` counts ROWS and `revoked_role_ids` counts ROLES:
+    nothing makes a grant unique per (user, role), so a caller told only the
+    roles cannot tell how many live grants ended (an earlier change's reason, answered
+    here in the response rather than left to the audit log).
+    """
+
+    revoked_role_ids: list[uuid.UUID]
+    revoked_grant_count: int
+    closed_request_ids: list[uuid.UUID]
+
+
+async def offboard_user(
+    session: AsyncSession, identity: Identity, args: OffboardUserInput
+) -> OffboardUserOutput:
+    """Mark one person in the token's tenant a leaver and take back their access.
+
+    Nothing is resolved here: the only id is the person, and `lock_user`
+    inside the domain call reads through the tenant-bound session, so missing
+    and belonging to another tenant answer the identical `NOT_FOUND` (pinned
+    by `test_mcp_offboard_user.py::
+    test_a_missing_and_another_tenants_user_answer_the_same_not_found`, which
+    re-reads the foreign user's status and live roles afterwards).
+
+    the design's matrix row is the only permission gate on this tool, and it runs
+    in the pipeline: both permitted principals hold `Scope.ANY`, so unlike
+    `revoke_access` there is no second, argument-dependent check. The row is
+    narrower than the other two lifecycle tools — `it_admin` may onboard and
+    transfer but NOT offboard — and
+    `test_the_other_five_principals_are_denied_and_offboard_nobody` sends
+    fully valid arguments for all five refused principals, so deleting that
+    stage is the one change that turns those cases into completed departures.
+
+    Everything runs in the transaction the pipeline opened, so the status, the
+    revocations, the closures and every event commit or roll back together.
+    """
+    result = await offboard_user_core(
+        session,
+        SimulatedDirectory(session),
+        user_id=args.user_id,
+        end_date=args.end_date,
+        offboarded_by_user_id=identity.user_id,
+        actor_ref=str(identity.user_id),
+        session_id=identity.session_id,
+        now=datetime.now(UTC),
+    )
+    return OffboardUserOutput(
+        revoked_role_ids=list(result.revoked_role_ids),
+        revoked_grant_count=result.revoked_grant_count,
+        closed_request_ids=list(result.closed_request_ids),
     )
 
 

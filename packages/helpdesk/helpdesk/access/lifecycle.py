@@ -43,6 +43,16 @@ One pass, unlike onboarding: the design's `user.transferred` lands AFTER the
 grant events (decision C) because the person already exists, so nothing has
 to be recorded before the engine has been asked and the classify-only pass
 above has nothing to buy here.
+
+`offboard_user` is the leaver half, and it decides least of all:
+there is nothing to classify when access is being taken away, so it composes
+`revoke_role_access` over every role the person holds and `set_request_status`
+over every request still open against them. The `status = leaver` write goes
+FIRST (decision D), because the engine blocks every new grant for a leaver
+(the design): a concurrent `create_access_request` reading the row after it is
+refused rather than granting access to somebody mid-departure. It narrows
+that window without closing it — `lock_user` serialises offboards and
+transfers, not request creation — and row 21's leaver sweep is the backstop.
 """
 
 import uuid
@@ -59,13 +69,18 @@ from helpdesk.access.execute import (
     execute_grant,
     reclassify,
 )
-from helpdesk.access.revoke import revoke_role_access
+from helpdesk.access.requests import (
+    append_request_rejected,
+    lock_open_requests_for_target,
+    set_request_status,
+)
+from helpdesk.access.revoke import GrantNotActiveError, revoke_role_access
 from helpdesk.audit import AuditEventInput, append_event
 from helpdesk.auth.rbac import Principal
 from helpdesk.core.db import bound_tenant_id
 from helpdesk.core.repository import Repository, find_user_by_email, lock_user
 from helpdesk.errors import ErrorCode, NotFoundError, ToolError
-from helpdesk.models import Grant, User
+from helpdesk.models import Grant, RequestStatus, User
 from helpdesk.policy.types import TargetStatus
 
 USER_ONBOARDED_EVENT_TYPE = "user.onboarded"
@@ -103,7 +118,43 @@ and read off the created row by `test_mcp_onboard_user.py::
 test_the_three_permitted_principals_each_onboard_a_joiner`."""
 
 JOINER_STATUS = TargetStatus.ACTIVE.value
-"""A joiner is `active`; `leaver` is an earlier change's direction."""
+"""A joiner is `active`; `LEAVER_STATUS` below is the other direction."""
+
+LEAVER_STATUS = TargetStatus.LEAVER.value
+"""What `users.status` says once somebody has left.
+
+Read off `TargetStatus`, which is what the policy engine's the design leaver
+rule tests, so the status an offboard writes and the status that blocks every
+future grant cannot drift into two strings. Pinned to the exact value by
+`test_access_offboard.py::test_the_offboard_constants_and_error_code_are_exactly_the_spec_values`
+and read off the row by `::test_the_status_becomes_leaver_and_the_end_date_is_the_argument`."""
+
+USER_OFFBOARDED_EVENT_TYPE = "user.offboarded"
+"""the design's own name for "this person left".
+
+Appended by this module with the LEAVER as its subject and the whole
+departure as its payload, not declared as the calling tool's registry event
+(decision C's shape, shared with 12a and 12b): the pipeline's event carries
+the TOOL as subject and a fixed payload, so it would record that somebody
+called a tool and not who left, what they lost, or what was closed against
+them. The subject and the exact five payload keys are
+pinned by `test_access_offboard.py::
+test_user_offboarded_names_the_user_and_carries_exactly_five_keys` and again
+through the transport by `test_mcp_offboard_user.py::
+test_the_audit_sequence_is_revoked_then_rejected_then_offboarded_then_succeeded`."""
+
+OFFBOARD_REVOKE_REASON = "offboarded: the user left the organisation"
+"""What `grants.revoke_reason` says on every revocation an offboard makes.
+
+A fixed sentence rather than a caller-supplied one (decision I) so an auditor
+can grep the column for departures and tell them from a manual
+`revoke_access` (free text) and from a transfer's
+`TRANSFER_REVOKE_REASON`. It is also what the closure event carries, so an
+offboard's rejected requests are tellable from a person's. Pinned to the
+exact string by `test_access_offboard.py::
+test_the_offboard_constants_and_error_code_are_exactly_the_spec_values` and
+read off the revoked row by
+`::test_every_live_grant_is_revoked_and_the_count_is_rows_not_roles`."""
 
 USER_TRANSFERRED_EVENT_TYPE = "user.transferred"
 """the design's own name for "this person moved department".
@@ -159,6 +210,24 @@ class LeaverTransferError(ToolError):
     by `test_access_transfer.py::test_a_leaver_target_is_refused_before_any_revocation`,
     which asserts the old grant STILL LIVE; the `skipped`-only alternative
     leaves it revoked.
+    """
+
+    code = ErrorCode.POLICY_BLOCKED
+
+
+class AlreadyLeaverError(ToolError):
+    """The target has already been offboarded, so there is no departure to make.
+
+    `POLICY_BLOCKED`, and raised BEFORE any write (decision F). A second
+    offboard has nothing left to revoke, so succeeding would look harmless and
+    still write a `user.offboarded` recording a departure that already
+    happened, with empty lists that read like the person had held no access at
+    all. Row 21's leaver sweep selects `status = active`, so it never reaches
+    this. Pinned by `test_access_offboard.py::
+    test_an_already_leaver_target_is_refused_before_any_write`, which asserts
+    the leaver's grant STILL LIVE and their open request still `pending`, and
+    the code by
+    `::test_the_offboard_constants_and_error_code_are_exactly_the_spec_values`.
     """
 
     code = ErrorCode.POLICY_BLOCKED
@@ -224,6 +293,24 @@ class TransferResult:
     skipped: tuple[SkippedRole, ...]
     retained_role_ids: tuple[uuid.UUID, ...]
     non_standard_role_ids: tuple[uuid.UUID, ...]
+
+
+@dataclass(frozen=True)
+class OffboardResult:
+    """The person who left, what was taken away, and what was closed.
+
+    `revoked_grant_count` counts ROWS and `revoked_role_ids` counts ROLES, and
+    the two differ whenever one role was held twice: nothing makes a grant
+    unique per (user, role), so `revoke_role_access` takes the whole live set
+    and a caller told only "3 roles" cannot tell how much access ended
+    (pinned by `test_access_offboard.py::
+    test_every_live_grant_is_revoked_and_the_count_is_rows_not_roles`).
+    """
+
+    user: User
+    revoked_role_ids: tuple[uuid.UUID, ...]
+    revoked_grant_count: int
+    closed_request_ids: tuple[uuid.UUID, ...]
 
 
 class _WithDecidedRoles:
@@ -549,6 +636,179 @@ async def _append_transferred(
     )
 
 
+async def offboard_user(
+    session: AsyncSession,
+    directory: DirectoryProvider,
+    *,
+    user_id: uuid.UUID,
+    end_date: date,
+    offboarded_by_user_id: uuid.UUID,
+    actor_ref: str | None = None,
+    session_id: uuid.UUID | None = None,
+    now: datetime,
+) -> OffboardResult:
+    """Mark one person a leaver, take back everything they hold, close what is open.
+
+    The caller resolves nothing first: `lock_user` answers None for a user id
+    that is missing OR another tenant's, so one `NOT_FOUND` covers both and
+    the id is no cross-tenant existence oracle (pinned by
+    `test_mcp_offboard_user.py::test_a_missing_and_another_tenants_user_answer_the_same_not_found`).
+    The lock comes first because the refusal below reads state a concurrent
+    offboard rewrites: the loser waits on it, re-reads the `leaver` the winner
+    wrote and is refused, which is what leaves one departure in the log
+    (pinned by `::test_two_callers_racing_the_same_offboard_leave_one_departure`).
+
+    Order of effects, each part of it a decision:
+
+    1. `status = leaver` and `end_date` are written BEFORE anything is taken
+       away (decision D), because the engine blocks every new grant for a
+       leaver (the design): a `create_access_request` that reads the row after
+       this write is refused instead of granting access to somebody halfway
+       out. The window is narrowed, not closed — see the module docstring.
+    2. the revocations, then the closures. §1 and §6 fix that observable
+       order; §4's decision D lists the two the other way round and argues
+       only the point above, so the acceptance criteria are what this follows
+       (recorded in the plan's §9).
+    3. `user.offboarded` last (before the pipeline's `tool.succeeded`), because
+       every list it names is known only by then.
+
+    A role whose live set was emptied between the read and its revocation
+    costs that role and nothing else (decision H): the end state that role
+    wanted already holds, so it is dropped from `revoked_role_ids` and the
+    departure stands (pinned by
+    `test_access_offboard.py::test_a_role_emptied_before_its_revocation_is_omitted_and_the_rest_stands`).
+
+    A person holding nothing at all is offboarded cleanly, not refused
+    (decision G): offboarding is about the person's state, and refusing here
+    would leave a departing employee `active` for ever precisely because they
+    had no access (pinned by
+    `::test_a_user_with_no_grants_and_no_open_requests_offboards_cleanly`).
+
+    `now` is keyword-only and supplied by the caller, so the liveness test that
+    picked the held set, every `revoked_at` and the event all answer for one
+    instant. `end_date` is a separate argument and is written as given, never
+    derived from `now`: the two are different days whenever a departure is
+    recorded late (pinned by
+    `::test_the_status_becomes_leaver_and_the_end_date_is_the_argument`).
+
+    Everything runs in the caller's transaction, so the status, the
+    revocations, the closures and every event commit or roll back together
+    (pinned by `::test_the_offboard_and_its_events_roll_back_together`).
+    """
+    user = await lock_user(session, user_id)
+    if user is None:
+        raise NotFoundError("no such user in this tenant")
+    if user.status == LEAVER_STATUS:
+        raise AlreadyLeaverError("that user has already been offboarded")
+
+    resolved_actor = actor_ref if actor_ref is not None else str(offboarded_by_user_id)
+    # Both sets are read at this one instant, before any write, so nothing the
+    # loop below does can add to what it is walking. Sorted, so two runs over
+    # the same rows write their events in the same order.
+    held = sorted(await directory.list_account_role_ids(user_id, now))
+    open_requests = await lock_open_requests_for_target(session, user_id)
+
+    await Repository(session, User).update(user_id, status=LEAVER_STATUS, end_date=end_date)
+
+    revoked_role_ids: list[uuid.UUID] = []
+    revoked_grant_count = 0
+    for role_id in held:
+        try:
+            revoked = await revoke_role_access(
+                session,
+                directory,
+                user_id=user_id,
+                role_id=role_id,
+                reason=OFFBOARD_REVOKE_REASON,
+                revoked_by_user_id=offboarded_by_user_id,
+                actor_ref=resolved_actor,
+                session_id=session_id,
+                now=now,
+            )
+        except GrantNotActiveError:
+            # Decision H: somebody else emptied this role first, which is the
+            # end state this loop wanted. The refusal costs the role, not the
+            # departure.
+            continue
+        revoked_role_ids.append(role_id)
+        revoked_grant_count += len(revoked)
+
+    closed_request_ids: list[uuid.UUID] = []
+    for request in open_requests:
+        await set_request_status(session, request.id, status=RequestStatus.REJECTED)
+        await append_request_rejected(
+            session,
+            request,
+            reason=OFFBOARD_REVOKE_REASON,
+            actor_ref=resolved_actor,
+            session_id=session_id,
+            now=now,
+        )
+        closed_request_ids.append(request.id)
+
+    await _append_offboarded(
+        session,
+        user_id=user_id,
+        end_date=end_date,
+        revoked_role_ids=revoked_role_ids,
+        revoked_grant_count=revoked_grant_count,
+        closed_request_ids=closed_request_ids,
+        actor_ref=resolved_actor,
+        session_id=session_id,
+        now=now,
+    )
+    return OffboardResult(
+        user=user,
+        revoked_role_ids=tuple(revoked_role_ids),
+        revoked_grant_count=revoked_grant_count,
+        closed_request_ids=tuple(closed_request_ids),
+    )
+
+
+async def _append_offboarded(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    end_date: date,
+    revoked_role_ids: list[uuid.UUID],
+    revoked_grant_count: int,
+    closed_request_ids: list[uuid.UUID],
+    actor_ref: str,
+    session_id: uuid.UUID | None,
+    now: datetime,
+) -> None:
+    """the design's departure record, subject the leaver, five keys exactly.
+
+    `revoked_grant_count` is carried beside `revoked_role_ids` rather than
+    left to be inferred from it: the two differ whenever one role was held
+    twice, and a log that named only the roles would understate how much
+    access ended. `end_date` is the argument, ISO-rendered, and is the only
+    record that a date was asked for beyond the column itself. Pinned by
+    `test_access_offboard.py::test_user_offboarded_names_the_user_and_carries_exactly_five_keys`.
+    """
+    await append_event(
+        session,
+        bound_tenant_id(session),
+        AuditEventInput(
+            occurred_at=now,
+            actor_kind=_ACTOR_KIND,
+            actor_ref=actor_ref,
+            session_id=session_id,
+            trace_id=None,
+            event_type=USER_OFFBOARDED_EVENT_TYPE,
+            subject_type=_SUBJECT_TYPE,
+            subject_id=str(user_id),
+            payload={
+                "user_id": str(user_id),
+                "end_date": end_date.isoformat(),
+                "revoked_role_ids": [str(role_id) for role_id in revoked_role_ids],
+                "revoked_grant_count": revoked_grant_count,
+                "closed_request_ids": [str(request_id) for request_id in closed_request_ids],
+            },
+        ),
+    )
+
+
 async def _decide(
     session: AsyncSession,
     directory: DirectoryProvider,
@@ -632,16 +892,22 @@ async def _append_onboarded(
 __all__ = [
     "JOINER_PRINCIPALS",
     "JOINER_STATUS",
+    "LEAVER_STATUS",
+    "OFFBOARD_REVOKE_REASON",
     "TRANSFER_REVOKE_REASON",
     "UNUSABLE_PASSWORD_HASH",
+    "USER_OFFBOARDED_EVENT_TYPE",
     "USER_ONBOARDED_EVENT_TYPE",
     "USER_TRANSFERRED_EVENT_TYPE",
+    "AlreadyLeaverError",
     "DuplicateEmailError",
     "LeaverTransferError",
+    "OffboardResult",
     "OnboardResult",
     "SameDepartmentError",
     "SkippedRole",
     "TransferResult",
+    "offboard_user",
     "onboard_user",
     "transfer_user",
 ]
