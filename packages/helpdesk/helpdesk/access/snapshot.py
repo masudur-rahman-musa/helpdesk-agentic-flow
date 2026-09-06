@@ -2,7 +2,7 @@
 
 The first and only consumer of the policy engine's `RequestSnapshot` shape.
 Directory state (target user, template membership, live grants) comes
-through the `DirectoryProvider` read half; catalog and request state (role,
+through `DirectoryReader`, the port's read half; catalog and request state (role,
 system, SoD rules, manager, approved-pending set) through the repository
 and `helpdesk.access.requests`. The engine itself stays pure — this module
 does all the I/O so `policy/` never has to.
@@ -23,7 +23,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.access.directory import DirectoryProvider
+from helpdesk.access.directory import DirectoryReader
 from helpdesk.access.requests import list_approved_role_ids_for_target
 from helpdesk.core.repository import Repository
 from helpdesk.errors import NotFoundError
@@ -42,7 +42,7 @@ from helpdesk.policy.types import (
 
 async def build_request_snapshot(
     session: AsyncSession,
-    directory: DirectoryProvider,
+    directory: DirectoryReader,
     *,
     requester_user_id: uuid.UUID,
     target_user_id: uuid.UUID,

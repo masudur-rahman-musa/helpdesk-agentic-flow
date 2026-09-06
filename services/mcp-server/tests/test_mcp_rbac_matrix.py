@@ -125,6 +125,18 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. the design's `onboard_user` row: three cells, and the narrowest
+    # of the lifecycle rows — `manager` and `system_owner` hold nothing here
+    # even though the revoke row above gives them both a cell.
+    "onboard_user": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": True,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # An earlier change. the design's revoke row, written out literally rather than
     # derived from `_MATRIX`: five cells, and `hr` DOES hold one here (unlike
     # the approval rows above), so a row copied from `approve_request` by
@@ -147,7 +159,14 @@ MATRIX: dict[str, dict[str, bool]] = {
 # matters here — the matrix let the caller through and a LATER stage refused
 # them, so a permitted cell can never be satisfied by a FORBIDDEN.
 # `test_mcp_approvals.py` owns what happens after that stage.
-ALLOW_ANSWERS_NOT_FOUND = frozenset({"approve_request", "reject_request", "revoke_access"})
+# `onboard_user` joins them for a different reason: a permitted
+# call with a REAL department would hire a person per (tool, principal) cell
+# into the shared seeded database. A department id that resolves nowhere is
+# refused NOT_FOUND by the handler's own lookup, which is the same assertion —
+# the matrix let the caller through and a later stage refused them.
+ALLOW_ANSWERS_NOT_FOUND = frozenset(
+    {"approve_request", "reject_request", "revoke_access", "onboard_user"}
+)
 
 # An earlier change decision G. The tools that take an id argument, which is the axis
 # the cross-tenant sweep can actually exercise, and the rest. The two sets are
@@ -160,6 +179,7 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "approve_request",
         "reject_request",
         "revoke_access",
+        "onboard_user",
     }
 )
 NO_ID_TOOLS: frozenset[str] = frozenset(
@@ -221,6 +241,17 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             arguments["justification"] = f"fake matrix request {uuid.uuid4().hex}"
             arguments["idempotency_key"] = f"fake-key-{uuid.uuid4().hex}"
         return arguments
+    if tool_name == "onboard_user":
+        # A department id that resolves nowhere, so a permitted principal is
+        # refused NOT_FOUND rather than hiring somebody per matrix cell.
+        return {
+            "email": f"fake.matrix.joiner.{uuid.uuid4().hex}@fake.invalid",
+            "display_name": "Fake Matrix Joiner",
+            "department_id": str(uuid.uuid4()),
+            "start_date": "2026-09-01",
+            "manager_user_id": str(env.tenant_a.user_id),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
     if tool_name in ALLOW_ANSWERS_NOT_FOUND:
         # Valid arguments naming a row that does not exist: a permitted
         # caller must get past RBAC and be refused NOT_FOUND by the lookup,
@@ -414,6 +445,22 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             arguments["justification"] = f"fake cross-tenant request {uuid.uuid4().hex}"
             arguments["idempotency_key"] = f"fake-key-{uuid.uuid4().hex}"
         return arguments
+    if tool_name == "onboard_user":
+        # Tenant B's department AND tenant B's manager, both real rows there:
+        # the refusal has to come from the tenant guard, not from ids nobody
+        # could resolve anyway.
+        return {
+            "email": f"fake.cross.joiner.{uuid.uuid4().hex}@fake.invalid",
+            "display_name": "Fake Cross Joiner",
+            # "Engineering" is seeded in BOTH tenants, so this resolves in
+            # tenant B whichever of the two the fixture made tenant B.
+            "department_id": str(
+                _tenant_rows(env.tenant_b.tenant_slug).department_ids["Engineering"]
+            ),
+            "start_date": "2026-09-01",
+            "manager_user_id": str(env.tenant_b.user_id),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
     arguments = {"idempotency_key": f"fake-key-{uuid.uuid4().hex}"}
     if tool_name == "revoke_access":
         arguments["grant_id"] = str(_live_grant_id(env.database_url, env.tenant_b.tenant_id))

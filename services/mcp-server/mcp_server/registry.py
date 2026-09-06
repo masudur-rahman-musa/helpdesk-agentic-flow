@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
-from mcp_server.tools import access, approvals, helpdesk, read
+from mcp_server.tools import access, approvals, helpdesk, lifecycle, read
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
 """What a read tool writes when it worked. Per-tool rather than global (plan
@@ -160,6 +160,20 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=True,
         handler=access.revoke_access,
+    ),
+    ToolSpec(
+        # `tool.succeeded` is the SUMMARY event: the
+        # handler appends `user.onboarded` itself with the NEW USER as its
+        # subject, because the pipeline's event names the tool and would
+        # record that somebody called one, not who was hired.
+        name=rbac.Tool.ONBOARD_USER.value,
+        tool=rbac.Tool.ONBOARD_USER,
+        description=("Create a joiner in this tenant and apply their department's role template."),
+        input_model=lifecycle.OnboardUserInput,
+        output_model=lifecycle.OnboardUserOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=lifecycle.onboard_user,
     ),
     ToolSpec(
         name=rbac.Tool.LIST_PENDING_APPROVALS.value,

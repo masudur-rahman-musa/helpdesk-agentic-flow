@@ -48,7 +48,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.access.directory import DirectoryProvider
+from helpdesk.access.directory import DirectoryProvider, DirectoryReader
 from helpdesk.access.snapshot import build_request_snapshot
 from helpdesk.audit import AuditEventInput, append_event
 from helpdesk.core.db import bound_tenant_id
@@ -112,7 +112,7 @@ async def execute_grant(
     instant; reading a clock here instead would let the grant start before
     the state it was checked against.
     """
-    classification = await _reclassify(
+    classification = await reclassify(
         session,
         directory,
         requester_user_id=requester_user_id,
@@ -155,9 +155,9 @@ async def execute_grant(
     return grant
 
 
-async def _reclassify(
+async def reclassify(
     session: AsyncSession,
-    directory: DirectoryProvider,
+    directory: DirectoryReader,
     *,
     requester_user_id: uuid.UUID,
     target_user_id: uuid.UUID,
@@ -172,6 +172,14 @@ async def _reclassify(
     `blocked` decision would otherwise produce — the engine blocks on a
     conflict, so the order here is what decides which of the two the design
     codes the caller sees.
+
+    Public because an earlier change needs the same answer WITHOUT the grant:
+    `helpdesk.access.lifecycle` has to name the roles a joiner's template
+    will and will not give them before either grant is written, and a second
+    copy of the order above would be free to drift from the one that
+    actually writes them. It stays a re-check and never a decision of its
+    own — the only caller that may act on it is one that then goes through
+    `execute_grant`.
     """
     snapshot = await build_request_snapshot(
         session,
@@ -200,4 +208,5 @@ __all__ = [
     "PolicyBlockedAtExecutionError",
     "SodConflictAtExecutionError",
     "execute_grant",
+    "reclassify",
 ]

@@ -6,6 +6,8 @@
 writes the tools consume. `execute.py` is the one place a grant is written,
 with the design's re-check in front of it, and `revoke.py` the one
 place access is taken away, over the whole live set for a (user, role).
+`lifecycle.py` is the joiner half of the design: it creates the
+person and applies their department's template through `execute_grant`.
 `approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
@@ -28,12 +30,27 @@ from helpdesk.access.approvals import (
     parse_slots,
     request_in_scope,
 )
-from helpdesk.access.directory import DirectoryProvider, SimulatedDirectory
+from helpdesk.access.directory import (
+    DirectoryProvider,
+    DirectoryReader,
+    SimulatedDirectory,
+)
 from helpdesk.access.execute import (
     GRANT_EXECUTED_EVENT_TYPE,
     PolicyBlockedAtExecutionError,
     SodConflictAtExecutionError,
     execute_grant,
+    reclassify,
+)
+from helpdesk.access.lifecycle import (
+    JOINER_PRINCIPALS,
+    JOINER_STATUS,
+    UNUSABLE_PASSWORD_HASH,
+    USER_ONBOARDED_EVENT_TYPE,
+    DuplicateEmailError,
+    OnboardResult,
+    SkippedRole,
+    onboard_user,
 )
 from helpdesk.access.requests import (
     approval_slots,
@@ -54,13 +71,21 @@ __all__ = [
     "GRANT_EXECUTED_EVENT_TYPE",
     "GRANT_REVOKED_EVENT_TYPE",
     "GROUP_SLOTS",
+    "JOINER_PRINCIPALS",
+    "JOINER_STATUS",
     "REVOKED_GRANT_STATUS",
+    "UNUSABLE_PASSWORD_HASH",
+    "USER_ONBOARDED_EVENT_TYPE",
     "DirectoryProvider",
+    "DirectoryReader",
+    "DuplicateEmailError",
     "GrantNotActiveError",
     "NotAnApproverError",
+    "OnboardResult",
     "PolicyBlockedAtExecutionError",
     "RequestNotPendingError",
     "SimulatedDirectory",
+    "SkippedRole",
     "SlotDecision",
     "SlotState",
     "SodConflictAtExecutionError",
@@ -77,7 +102,9 @@ __all__ = [
     "list_requests_for_requester",
     "lock_request",
     "may_fill",
+    "onboard_user",
     "parse_slots",
+    "reclassify",
     "request_in_scope",
     "resolved_approver_ids",
     "revoke_role_access",
