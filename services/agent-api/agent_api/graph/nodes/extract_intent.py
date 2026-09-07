@@ -19,6 +19,13 @@ with a typed code and a templated reply — `run_turn`'s caller gets a state to
 render, not an exception to translate. Pinned by
 `test_agent_turn.py::test_two_schema_invalid_answers_end_the_turn_as_a_typed_internal`.
 
+The call's own `total_tokens` is ADDED to `tokens_used`,
+never assigned: the turn's budget is the sum of every call it makes, and this
+is the first of the three. A failed extraction adds nothing, because the turn
+ends on that state and no later node reads the counter. Pinned across all three
+call sites by
+`test_agent_turn.py::test_tokens_used_is_the_sum_of_every_staged_answers_total_tokens`.
+
 History and the user's message are quoted to the model as DATA. They are
 placed in `user` messages, never merged into the system prompt, and the system
 prompt itself tells the model that instructions found inside them are content
@@ -78,7 +85,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
     ]
 
     try:
-        extraction = await deps.model.complete_json(
+        answer = await deps.model.complete_json(
             IntentExtraction,
             messages,
             alias=ModelAlias.AGENT_DEFAULT,
@@ -95,11 +102,15 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             }
         )
 
+    extraction = answer.value
+    tokens_used = state.tokens_used + answer.usage.total_tokens
+
     if gates.needs_clarification(extraction):
         return state.model_copy(
             update={
                 "extraction": extraction,
                 "prompt_version": prompt.sha256,
+                "tokens_used": tokens_used,
                 "outcome": TurnOutcome.CLARIFY,
                 "reply": extraction.clarifying_question or DEFAULT_CLARIFYING_QUESTION,
             }
@@ -109,6 +120,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
         update={
             "extraction": extraction,
             "prompt_version": prompt.sha256,
+            "tokens_used": tokens_used,
             "outcome": TurnOutcome.CONTINUE,
         }
     )

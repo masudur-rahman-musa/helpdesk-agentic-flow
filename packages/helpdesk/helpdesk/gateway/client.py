@@ -176,6 +176,30 @@ class ModelAnswer:
 M = TypeVar("M", bound=BaseModel)
 
 
+@dataclass(frozen=True)
+class StructuredAnswer[T: BaseModel]:
+    """A validated structured answer and the usage of the call that produced it.
+
+    `complete_json` returns this rather than the bare model (an earlier change decision
+    A) because the `ModelAnswer` carries the `total_tokens` a caller's budget
+    is spent from: a method that discarded it left the agent's `tokens_used`
+    with nothing to read, so `MAX_TURN_TOKENS` could never bite however long a
+    turn ran. One return shape rather than a second method, so a later caller
+    cannot reach the model without also being handed its bill.
+
+    On a RETRIED call `usage` is the second answer's, never the first's: the
+    first attempt's text was discarded unparsed, and pairing it with the value
+    would describe two different requests in one object. Pinned by
+    `test_gateway_client.py::test_the_usage_of_a_retried_call_is_the_second_answers_not_the_first`.
+
+    Frozen for `ModelAnswer`'s reason: a caller may not rewrite the counts a
+    turn is billed and capped by.
+    """
+
+    value: T
+    usage: ModelAnswer
+
+
 class ModelClient:
     """One httpx client, two call shapes, typed refusals.
 
@@ -250,7 +274,7 @@ class ModelClient:
         traceparent: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
-    ) -> M:
+    ) -> StructuredAnswer[M]:
         """One turn constrained to `schema_model`, validated here as well.
 
         The schema is the one Pydantic generates, so the shape asked for and
@@ -262,6 +286,12 @@ class ModelClient:
         `test_gateway_client.py::test_complete_json_retries_exactly_once_and_returns_the_second_answer`,
         `::test_complete_json_retries_once_when_valid_json_fails_the_models_validation`
         and `::test_complete_json_gives_up_after_the_second_invalid_answer`.
+
+        The answer comes back as a `StructuredAnswer`: the validated value
+        beside the `ModelAnswer` of the attempt that produced it, so a caller
+        spending a token budget reads the gateway's own count rather than
+        estimating one. Pinned by
+        `::test_complete_json_returns_the_validated_value_beside_the_calls_own_usage`.
         """
         headers = self._headers(tenant_slug, session_id, traceparent)
         body = self._body(messages, alias, max_tokens, temperature)
@@ -276,7 +306,9 @@ class ModelClient:
         for attempt in range(STRUCTURED_OUTPUT_ATTEMPTS):
             answer = self._parsed(await self._post(body, headers), alias)
             try:
-                return schema_model.model_validate_json(answer.text)
+                return StructuredAnswer(
+                    value=schema_model.model_validate_json(answer.text), usage=answer
+                )
             except ValidationError:
                 if attempt == STRUCTURED_OUTPUT_ATTEMPTS - 1:
                     raise ModelUnavailableError(

@@ -50,6 +50,31 @@ Every case that stages model answers for an intent whose row is non-empty now
 stages a SECOND answer, the planning round. Those are fixture
 changes: no assertion in them moved.
 
+An earlier change closes the turn. The graph gains ``execute_tools`` (which edges BACK
+to ``plan_tools``) and ``compose_reply``, so a turn that used to end at the
+validation handover now executes its round, replans, and composes one
+assistant message:
+
+``agent_api.graph.nodes.execute_tools``
+    ``async def execute_tools(state, deps) -> TurnState`` — every validated
+        call through ``deps.tools``, ``tool_calls_made`` up by the number
+        ATTEMPTED (decision F).
+``agent_api.graph.nodes.compose_reply``
+    ``COMPOSITION_PROMPT = "reply_composition"``
+    ``async def compose_reply(state, deps) -> TurnState`` — one ``complete``
+        call under ``agent-default``, one assistant row, the reply on the
+        state, the answer's ``total_tokens`` added to ``tokens_used``.
+``agent_api.graph.gates``
+    ``execution_outcome`` · ``exhausted_outcome`` · ``TurnOutcome.DONE``
+``agent_api.graph.build``
+    ``GRAPH_RECURSION_LIMIT = 50`` — passed by ``run_turn`` in the invocation
+        config (decision G).
+
+Two fixture changes carry the whole of an earlier change §8: every case that reaches
+``plan_tools`` stages one more answer, the composition (``COMPOSED_REPLY``),
+and a turn that ran to the end now finishes on ``TurnOutcome.DONE`` with an
+assistant row rather than on ``CONTINUE`` with none.
+
 Cost and isolation. Postgres is the compose stack's, one throwaway database
 built once for the whole module with three obviously fake
 tenants seeded into it once; per-case isolation is a namespace, a fresh
@@ -75,11 +100,19 @@ from typing import Any, cast
 
 import httpx
 import pytest
-from agent_api.graph.build import FAILURE_REPLY, TurnDeps, build_graph, run_turn
+from agent_api.graph import build as build_module
+from agent_api.graph.build import (
+    FAILURE_REPLY,
+    GRAPH_RECURSION_LIMIT,
+    TurnDeps,
+    build_graph,
+    run_turn,
+)
 from agent_api.graph.gates import (
     MAX_CALLS_PER_ROUND,
     MAX_DISAMBIGUATION_OPTIONS,
     MAX_TOOL_CALLS,
+    MAX_TURN_TOKENS,
 )
 from agent_api.graph.nodes.endings import REFUSAL_REPLY
 from agent_api.graph.nodes.plan_tools import PLANNING_PROMPT, plan_tools
@@ -322,12 +355,39 @@ def turn_env(pg: TempDatabaseFactory) -> Iterator[TurnEnv]:
 # --- the stubbed gateway ------------------------------------------------------
 
 
-def _completion(content: str) -> httpx.Response:
+TOKENS_PER_ANSWER = 2
+"""What one staged answer bills unless the case says otherwise.
+
+Every turn's `tokens_used` is then `TOKENS_PER_ANSWER` times the number of
+gateway calls it made, which is what
+`test_tokens_used_is_the_sum_of_every_staged_answers_total_tokens` reads.
+"""
+
+
+@dataclass(frozen=True)
+class StagedAnswer:
+    """One staged model answer and the bill the gateway reports for it.
+
+    The bill is separable from the text because two cases turn on it: the
+    token budget can only be spent through a gateway answer, and `tokens_used`
+    can only be told from a hard-coded number by answers that differ.
+    """
+
+    text: str
+    total_tokens: int = TOKENS_PER_ANSWER
+
+
+def _completion(answer: str | StagedAnswer) -> httpx.Response:
+    staged = StagedAnswer(answer) if isinstance(answer, str) else answer
     return httpx.Response(
         200,
         json={
-            "choices": [{"message": {"content": content}}],
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            "choices": [{"message": {"content": staged.text}}],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": staged.total_tokens - 1,
+                "total_tokens": staged.total_tokens,
+            },
         },
     )
 
@@ -356,7 +416,7 @@ class StagedGateway:
     a hard stop rather than as a count read afterwards.
     """
 
-    def __init__(self, answers: Sequence[str]) -> None:
+    def __init__(self, answers: Sequence[str | StagedAnswer]) -> None:
         self._answers = list(answers)
         self.requests: list[httpx.Request] = []
 
@@ -373,6 +433,15 @@ class StagedGateway:
     @property
     def call_count(self) -> int:
         return len(self.requests)
+
+    @property
+    def staged_tokens(self) -> int:
+        """What every answer this gateway actually served billed, in total."""
+        served = self._answers[: len(self.requests)]
+        return sum(
+            TOKENS_PER_ANSWER if isinstance(answer, str) else answer.total_tokens
+            for answer in served
+        )
 
 
 # --- the stubbed tool caller ---------------------------------------
@@ -577,6 +646,14 @@ Staged wherever an existing 17a/17b case now reaches `plan_tools` (plan §8).
 Nothing is executed until 17d, so an empty round keeps every one of those
 cases at the same outcome, the same message rows and the same tool calls."""
 
+COMPOSED_REPLY = "I have put your fake payroll request in front of your manager."
+"""The composition's answer, staged wherever a turn now reaches `compose_reply`.
+
+Prose, not JSON: decision E makes the composition a plain `complete` call, so
+an implementation that asked for structured output would be handed this string
+and fail to parse it — which is a red this file should show rather than hide.
+"""
+
 CLASSIFY_PROPOSAL = _proposal(
     "classify_access_request", target_user_id=TARGET_USER_ID, role_id=ROLE_ID
 )
@@ -614,9 +691,15 @@ def test_the_happy_path_runs_the_three_nodes_and_resolves_the_entities(turn_env:
     staged answer is the planning round; a graph that still stopped after
     retrieval would leave it unused, which the outcome and the call count
     below cannot see, so `test_a_request_access_turn_plans_exactly_once...`
-    is what pins the new edge. No assertion here moved."""
+    is what pins the new edge. No assertion here moved.
+
+    An earlier change §8: it continues to the end. The empty round is accepted as
+    `DONE`, the turn composes, and the third staged answer is the composition
+    — so the outcome and the call count both move, and a graph still ending at
+    the validation handover leaves the third answer unread and the user with
+    no reply at all."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     tools = StubToolCaller()
 
     state = _run_turn(
@@ -629,14 +712,15 @@ def test_the_happy_path_runs_the_three_nodes_and_resolves_the_entities(turn_env:
     )
 
     assert tools.names == [SEARCH_POLICY]
-    assert state.outcome is TurnOutcome.CONTINUE
+    assert state.outcome is TurnOutcome.DONE
+    assert state.reply == COMPOSED_REPLY
     assert state.extraction is not None
     assert state.extraction.intent is Intent.REQUEST_ACCESS
     assert state.resolved is not None
     assert state.resolved.system_id == turn_env.tenant_a.system_ids["payroll"]
     assert state.resolved.system_slug == "payroll"
     assert state.resolved.role_id == turn_env.tenant_a.role_ids["payroll-read"]
-    assert gateway.call_count == 1
+    assert gateway.call_count == 3
 
 
 def test_the_prompt_version_is_the_extraction_prompts_own_digest(turn_env: TurnEnv) -> None:
@@ -645,7 +729,7 @@ def test_the_prompt_version_is_the_extraction_prompts_own_digest(turn_env: TurnE
     `prompts/` has, so a bad turn cannot be tied to the prompt that produced
     it (the design)."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
 
     state = _run_turn(
         turn_env,
@@ -685,7 +769,7 @@ def test_the_history_window_is_the_last_twenty_messages_oldest_first(turn_env: T
     (load the history, THEN store the incoming message) is what fixes that the
     new message is not one of the twenty."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     planted = [(MessageRole.USER, f"planted {index:02d}") for index in range(PLANTED_MESSAGES)]
 
     state = _run_turn(
@@ -715,7 +799,7 @@ def test_a_message_of_exactly_the_cap_is_accepted_and_stored(turn_env: TurnEnv) 
     narrower than the check, which would answer the same turn with a
     truncation error after the session row was written."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     message = "x" * MAX_MESSAGE_CHARS
 
     state = _run_turn(
@@ -723,9 +807,10 @@ def test_a_message_of_exactly_the_cap_is_accepted_and_stored(turn_env: TurnEnv) 
     )
 
     rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
-    assert state.outcome is TurnOutcome.CONTINUE
-    assert len(rows) == 1
-    assert len(rows[0].content) == MAX_MESSAGE_CHARS
+    user_rows = [row for row in rows if row.role == MessageRole.USER.value]
+    assert state.outcome is TurnOutcome.DONE
+    assert len(user_rows) == 1
+    assert len(user_rows[0].content) == MAX_MESSAGE_CHARS
 
 
 def test_a_message_one_character_over_the_cap_writes_nothing_at_all(turn_env: TurnEnv) -> None:
@@ -859,7 +944,7 @@ def test_a_candidate_in_another_tenant_is_not_a_candidate(turn_env: TurnEnv) -> 
     choose between its own system and another company's — or resolve to the
     wrong id outright."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     assert turn_env.tenant_b.system_ids["payroll"] != turn_env.tenant_a.system_ids["payroll"], (
         "premise: both tenants own a system slugged 'payroll', with different ids"
     )
@@ -886,7 +971,7 @@ def test_every_row_written_carries_the_callers_tenant_and_user(turn_env: TurnEnv
     from the token, not the arguments": `run_turn` receives both as arguments
     from the route that read the token, so that property has no seam here."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     caller = turn_env.tenant_a.other_user_id
 
     _run_turn(
@@ -929,7 +1014,7 @@ def test_a_request_access_turn_calls_search_policy_exactly_once(turn_env: TurnEn
     deliberately ASCENDING in score. Only the node's own pass-through can keep
     this order, so a sort added anywhere flips the case."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     page = [
         _citation("fake-access-policy", score=0.11),
         _citation("fake-payroll-policy", score=0.9),
@@ -946,17 +1031,21 @@ def test_a_request_access_turn_calls_search_policy_exactly_once(turn_env: TurnEn
     )
 
     assert tools.names == [SEARCH_POLICY]
-    assert state.outcome is TurnOutcome.CONTINUE
+    assert state.outcome is TurnOutcome.DONE
     assert list(state.citations) == [Citation.model_validate(item) for item in page]
 
 
-def test_a_retrieving_turn_writes_no_assistant_message(turn_env: TurnEnv) -> None:
-    """Criterion 7: the non-refused edge is 17c's handover point, so nothing is
-    said to the user yet. Catches a `retrieve_policy` that stores a reply of its
-    own — the user would be answered twice once 17c composes the real one — and
-    an edge routing a successful retrieval into an ending node."""
+def test_a_retrieving_turn_writes_exactly_one_assistant_message(turn_env: TurnEnv) -> None:
+    """An earlier change §8, renamed from `..._writes_no_assistant_message`: the reply
+    now exists, and there must be exactly ONE of it.
+
+    Catches a `retrieve_policy` or an `execute_tools` that stores a reply of
+    its own — the user is then answered twice for one question, and the second
+    answer is the one the composition never saw — and an edge routing a
+    successful retrieval into an ending node, which would store a templated
+    reply instead of the composed one."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     tools = StubToolCaller(payload=_page(_citation("fake-access-policy", score=0.8)))
 
     state = _run_turn(
@@ -969,8 +1058,9 @@ def test_a_retrieving_turn_writes_no_assistant_message(turn_env: TurnEnv) -> Non
     )
 
     rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
-    assert state.reply is None
-    assert [row.role for row in rows] == [MessageRole.USER.value]
+    assert state.reply == COMPOSED_REPLY
+    assert [row.role for row in rows] == [MessageRole.USER.value, MessageRole.ASSISTANT.value]
+    assert rows[1].content == COMPOSED_REPLY
 
 
 def test_an_ask_policy_turn_also_retrieves(turn_env: TurnEnv) -> None:
@@ -979,7 +1069,9 @@ def test_an_ask_policy_turn_also_retrieves(turn_env: TurnEnv) -> None:
     system and resolves no entity, so nothing else in the turn would notice
     that the one intent whose whole purpose is the corpus never reads it."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_extraction_json(intent="ask_policy", confidence=0.95)])
+    gateway = StagedGateway(
+        [_extraction_json(intent="ask_policy", confidence=0.95), COMPOSED_REPLY]
+    )
     tools = StubToolCaller(payload=_page(_citation("fake-expenses-policy", score=0.7)))
 
     state = _run_turn(
@@ -992,7 +1084,7 @@ def test_an_ask_policy_turn_also_retrieves(turn_env: TurnEnv) -> None:
     )
 
     assert tools.names == [SEARCH_POLICY]
-    assert state.outcome is TurnOutcome.CONTINUE
+    assert state.outcome is TurnOutcome.DONE
     assert len(state.citations) == 1
 
 
@@ -1006,12 +1098,21 @@ def test_a_reset_password_turn_makes_no_tool_call_and_carries_no_citations(
     about. The stub would ANSWER such a call, so only the count can see it.
 
     An earlier change §8: `reset_password` has a non-empty `INTENT_TOOLS` row, so the
-    turn now plans and a second answer is staged. The assertions do not move —
-    a `reset_password` turn still makes NO tool call, because 17c executes
-    nothing."""
+    turn now plans and a second answer is staged.
+
+    An earlier change §8: execution exists from this plan on, so the assertion is that
+    no `search_policy` call was made rather than that no call was made at all.
+    The planner proposes nothing here, so the count would agree either way;
+    the citation half does not move, and it is the half that matters — a
+    retrieval on this intent would carry policy chunks into the composition
+    for a request nobody asked a policy question about."""
     session_id = uuid.uuid4()
     gateway = StagedGateway(
-        [_extraction_json(intent="reset_password", confidence=0.95), EMPTY_PLAN]
+        [
+            _extraction_json(intent="reset_password", confidence=0.95),
+            EMPTY_PLAN,
+            COMPOSED_REPLY,
+        ]
     )
     tools = StubToolCaller(payload=_page(_citation("fake-password-policy", score=0.9)))
 
@@ -1024,8 +1125,8 @@ def test_a_reset_password_turn_makes_no_tool_call_and_carries_no_citations(
         tools=tools,
     )
 
-    assert tools.calls == []
-    assert state.outcome is TurnOutcome.CONTINUE
+    assert SEARCH_POLICY not in tools.names
+    assert state.outcome is TurnOutcome.DONE
     assert state.citations == ()
 
 
@@ -1148,7 +1249,7 @@ def test_a_message_at_the_query_cap_is_sent_whole(turn_env: TurnEnv) -> None:
     unchanged and lets the SERVER's `check_query` refuse it. Criterion 5 says
     neither length refuses the turn, so the outcome is asserted too."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     tools = StubToolCaller()
     message = "x" * MAX_QUERY_CHARS
 
@@ -1163,7 +1264,7 @@ def test_a_message_at_the_query_cap_is_sent_whole(turn_env: TurnEnv) -> None:
 
     assert len(tools.calls) == 1
     assert tools.calls[0][1]["query"] == message
-    assert state.outcome is TurnOutcome.CONTINUE
+    assert state.outcome is TurnOutcome.DONE
 
 
 def test_a_message_one_character_over_the_query_cap_is_cut_not_refused(
@@ -1175,7 +1276,7 @@ def test_a_message_one_character_over_the_query_cap_is_cut_not_refused(
     still resolve. The stored message keeps every character — the cut is on the
     query only — which is what the row-length assertion pins."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     tools = StubToolCaller()
     message = "y" * (MAX_QUERY_CHARS + 1)
 
@@ -1191,7 +1292,7 @@ def test_a_message_one_character_over_the_query_cap_is_cut_not_refused(
     rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
     assert len(tools.calls) == 1
     assert tools.calls[0][1]["query"] == "y" * MAX_QUERY_CHARS
-    assert state.outcome is TurnOutcome.CONTINUE
+    assert state.outcome is TurnOutcome.DONE
     assert len(rows[0].content) == MAX_QUERY_CHARS + 1
 
 
@@ -1205,7 +1306,7 @@ def test_run_turn_opens_and_closes_the_caller_exactly_once(turn_env: TurnEnv) ->
     catches a `run_turn` that never enters the caller at all — the stub answers
     regardless, so nothing else in the turn would notice."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
     tools = StubToolCaller()
 
     _run_turn(
@@ -1323,20 +1424,26 @@ def _run_plan_tools(state: TurnState, gateway: StagedGateway) -> TurnState:
     return asyncio.run(scenario())
 
 
-def test_a_request_access_turn_plans_exactly_once_and_hands_over_its_validated_calls(
+def test_a_request_access_turn_plans_executes_replans_and_composes(
     turn_env: TurnEnv,
 ) -> None:
-    """Criterion 3 and the new handover. Catches a graph left ending at the
-    retrieval outcome — the second staged answer would go unread and
-    `validated` would be empty — and a `plan_tools` that loops inside one
-    turn, which a third gateway request fails outright.
+    """An earlier change criteria 1, 4 and 7, and an earlier change §8: this case used to end at
+    the validation handover with nothing executed and nothing said.
 
-    Nothing is executed: the tool caller records the retrieval and nothing
-    else, because execution is 17d's. And nothing is said: the handover
-    carries the validated calls on the state with no assistant row, so a node
-    that answered the user here would be answering before the work was done."""
+    The cycle is what it pins. Four answers are staged — the classification,
+    the round that proposes one call, the empty round that follows it and the
+    composition — so a graph whose `execute_tools` edges to `END` instead of
+    back to `plan_tools` never reads the third or fourth, and the turn ends
+    with no reply. A graph that replans without executing leaves the tool
+    caller with only the retrieval on it.
+
+    Exactly one assistant row: the composed reply, written once. A turn that
+    stored a reply per round would show two, and one that answered from the
+    ending nodes would store the template instead."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_payroll_answer(), _plan_json(CLASSIFY_PROPOSAL)])
+    gateway = StagedGateway(
+        [_payroll_answer(), _plan_json(CLASSIFY_PROPOSAL), EMPTY_PLAN, COMPOSED_REPLY]
+    )
     tools = StubToolCaller(payload=_page(_citation("fake-access-policy", score=0.8)))
 
     state = _run_turn(
@@ -1349,11 +1456,16 @@ def test_a_request_access_turn_plans_exactly_once_and_hands_over_its_validated_c
     )
 
     rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
-    assert gateway.call_count == 2
-    assert state.outcome is TurnOutcome.CONTINUE
-    assert [call.tool for call in state.validated] == ["classify_access_request"]
-    assert tools.names == [SEARCH_POLICY]
-    assert [row.role for row in rows] == [MessageRole.USER.value]
+    assistant_rows = [row for row in rows if row.role == MessageRole.ASSISTANT.value]
+    assert gateway.call_count == 4
+    assert state.outcome is TurnOutcome.DONE
+    assert tools.names == [SEARCH_POLICY, "classify_access_request"]
+    assert [result.tool for result in state.tool_results] == ["classify_access_request"]
+    assert state.tool_results[0].ok is True
+    assert state.tool_calls_made == 1
+    assert state.reply == COMPOSED_REPLY
+    assert len(assistant_rows) == 1
+    assert assistant_rows[0].content == COMPOSED_REPLY
 
 
 def test_the_planner_asks_the_strong_alias_and_the_classifier_the_default_one(
@@ -1364,8 +1476,15 @@ def test_the_planner_asks_the_strong_alias_and_the_classifier_the_default_one(
     Catches a planner copied from `extract_intent` and left on
     `agent-default` — choosing which mutation to call is the riskiest
     judgment in the turn, and the cheap alias is the one that classifies into
-    a closed label set."""
-    gateway = StagedGateway([_payroll_answer(), _plan_json(CLASSIFY_PROPOSAL)])
+    a closed label set.
+
+    An earlier change adds the third: decision D puts the composition back on
+    `agent-default`, which is the whole of that decision and is invisible
+    anywhere else. The list is asserted in ORDER, so a composition left on the
+    strong alias — paid on every turn that gets this far — fails here."""
+    gateway = StagedGateway(
+        [_payroll_answer(), _plan_json(CLASSIFY_PROPOSAL), EMPTY_PLAN, COMPOSED_REPLY]
+    )
 
     _run_turn(
         turn_env,
@@ -1379,6 +1498,8 @@ def test_the_planner_asks_the_strong_alias_and_the_classifier_the_default_one(
     assert [_model_of(request) for request in gateway.requests] == [
         ModelAlias.AGENT_DEFAULT.value,
         ModelAlias.AGENT_STRONG.value,
+        ModelAlias.AGENT_STRONG.value,
+        ModelAlias.AGENT_DEFAULT.value,
     ]
 
 
@@ -1392,7 +1513,7 @@ def test_the_planning_call_quotes_the_citations_as_data_and_not_as_instructions(
     system message: every system message must be a prompt file this repo
     ships, and the citation text must appear in a `user` message."""
     citation = _citation("fake-access-policy", score=0.8)
-    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN])
+    gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
 
     _run_turn(
         turn_env,
@@ -1419,9 +1540,15 @@ def test_an_ask_policy_turn_makes_no_planning_call_at_all(turn_env: TurnEnv) -> 
     the model first and filters its proposals afterwards: only ONE answer is
     staged, so a second request fails the case outright — and the turn would
     otherwise pay a strong-alias call per policy question to be told there was
-    nothing to call."""
+    nothing to call.
+
+    An earlier change §8: the second staged answer is the COMPOSITION, so the hard stop
+    still holds — a planner that called the model would take the composition's
+    slot and the turn would then ask for a third answer that is not there."""
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_extraction_json(intent="ask_policy", confidence=0.95)])
+    gateway = StagedGateway(
+        [_extraction_json(intent="ask_policy", confidence=0.95), COMPOSED_REPLY]
+    )
     tools = StubToolCaller(payload=_page(_citation("fake-expenses-policy", score=0.7)))
 
     state = _run_turn(
@@ -1433,10 +1560,11 @@ def test_an_ask_policy_turn_makes_no_planning_call_at_all(turn_env: TurnEnv) -> 
         tools=tools,
     )
 
-    assert gateway.call_count == 1
-    assert state.outcome is TurnOutcome.CONTINUE
+    assert gateway.call_count == 2
+    assert state.outcome is TurnOutcome.DONE
     assert state.proposed == ()
     assert state.validated == ()
+    assert state.reply == COMPOSED_REPLY
 
 
 def test_a_rejected_round_ends_on_the_refusal_with_exactly_one_assistant_message(
@@ -1525,7 +1653,7 @@ def test_run_turn_stamps_started_at_from_the_injected_clock(turn_env: TurnEnv) -
         turn_env.tenant_a,
         session_id=uuid.uuid4(),
         message="I need payroll access",
-        gateway=StagedGateway([_payroll_answer(), EMPTY_PLAN]),
+        gateway=StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY]),
     )
 
     assert state.started_at == NOW
@@ -1543,7 +1671,7 @@ def test_the_planning_prompt_version_rides_on_its_own_state_field(turn_env: Turn
         turn_env.tenant_a,
         session_id=uuid.uuid4(),
         message="I need payroll access",
-        gateway=StagedGateway([_payroll_answer(), EMPTY_PLAN]),
+        gateway=StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY]),
     )
 
     extraction_digest = load_prompt("intent_extraction").sha256
@@ -1616,3 +1744,223 @@ def test_a_round_over_the_per_round_cap_is_refused_whole() -> None:
     assert gateway.call_count == 1
     assert state.outcome is TurnOutcome.REFUSE
     assert state.proposed == ()
+
+
+# --- an earlier change: the cycle, its three stops and the counters --------------------
+
+
+def test_a_turn_driven_to_the_call_budget_composes_and_never_trips_the_limit(
+    turn_env: TurnEnv,
+) -> None:
+    """Plan §5's second risk, and decision G's whole reason. Six rounds of one
+    call each is about twenty-five node visits with the four leading nodes and
+    the composition, so LangGraph's DEFAULT recursion limit of 25 aborts this
+    turn with a `GraphRecursionError` — a turn every budget in this plan
+    permits, failing on a library default nobody chose.
+
+    Catches that default being left in place. It also catches an
+    `execute_tools` that counts successes rather than attempts (decision F):
+    the budget would never be reached, the planner would be asked for an
+    eighth round, and the staged answers would run out.
+
+    Six calls is the INCLUSIVE bound, so the seventh planning round still
+    happens and is the empty one that ends the turn."""
+    session_id = uuid.uuid4()
+    rounds = [_plan_json(CLASSIFY_PROPOSAL)] * MAX_TOOL_CALLS
+    gateway = StagedGateway([_payroll_answer(), *rounds, EMPTY_PLAN, COMPOSED_REPLY])
+    tools = StubToolCaller(payload=_page(_citation("fake-access-policy", score=0.8)))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="I need payroll access",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
+    assistant_rows = [row for row in rows if row.role == MessageRole.ASSISTANT.value]
+    assert gateway.call_count == MAX_TOOL_CALLS + 3
+    assert state.tool_calls_made == MAX_TOOL_CALLS
+    assert len(state.tool_results) == MAX_TOOL_CALLS
+    assert tools.names.count("classify_access_request") == MAX_TOOL_CALLS
+    assert state.outcome is TurnOutcome.DONE
+    assert state.reply == COMPOSED_REPLY
+    assert len(assistant_rows) == 1
+
+
+def test_a_spent_budget_with_no_tool_results_ends_on_the_refusal_template(
+    turn_env: TurnEnv,
+) -> None:
+    """Criterion 5's first half, through the whole graph. The extraction alone
+    bills one token past `MAX_TURN_TOKENS`, so the turn stands past a budget
+    having called nothing — the state 17c's node test could only build by
+    hand.
+
+    Catches an `exhausted_outcome` wired to compose whatever happened: this
+    turn has no tool result and no citation worth composing, so the model
+    would be asked to write a reply out of nothing. It also catches a
+    `tokens_used` that never counts the EXTRACTION's spend — with the counter
+    at zero the planner would plan, ask for an answer that is not staged, and
+    fail the case."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([StagedAnswer(_payroll_answer(), total_tokens=MAX_TURN_TOKENS + 1)])
+    tools = StubToolCaller(payload=_page(_citation("fake-access-policy", score=0.8)))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="I need payroll access",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
+    assistant_rows = [row for row in rows if row.role == MessageRole.ASSISTANT.value]
+    assert gateway.call_count == 1
+    assert state.outcome is TurnOutcome.REFUSE
+    assert state.tool_results == ()
+    assert state.reply == REFUSAL_REPLY
+    assert len(assistant_rows) == 1
+    assert assistant_rows[0].content == REFUSAL_REPLY
+
+
+def test_a_spent_budget_with_tool_results_composes_instead_of_refusing(
+    turn_env: TurnEnv,
+) -> None:
+    """Criterion 5's second half, and decision C in the words a person reads.
+    The planning round bills past the budget, so the turn's SECOND planning
+    round is refused — but by then a call has been made and its result is on
+    the state.
+
+    Catches the design followed literally: `refuse_and_ticket` would answer
+    the person whose access request was just filed with "I could not find
+    anything in the current policy documents that covers this", which is a
+    false statement about a mutation the same turn performed. Only the
+    presence of a tool result separates this case from the one above, so
+    deleting the `tool_results` half of the predicate flips exactly this
+    one."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway(
+        [
+            _payroll_answer(),
+            StagedAnswer(_plan_json(CLASSIFY_PROPOSAL), total_tokens=MAX_TURN_TOKENS + 1),
+            COMPOSED_REPLY,
+        ]
+    )
+    tools = StubToolCaller(payload=_page(_citation("fake-access-policy", score=0.8)))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="I need payroll access",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
+    assistant_rows = [row for row in rows if row.role == MessageRole.ASSISTANT.value]
+    assert gateway.call_count == 3
+    assert state.tool_calls_made == 1
+    assert [result.tool for result in state.tool_results] == ["classify_access_request"]
+    assert state.outcome is TurnOutcome.DONE
+    assert state.reply == COMPOSED_REPLY
+    assert len(assistant_rows) == 1
+    assert assistant_rows[0].content == COMPOSED_REPLY
+    assert REFUSAL_REPLY not in [row.content for row in rows]
+
+
+def test_tokens_used_is_the_sum_of_every_staged_answers_total_tokens(
+    turn_env: TurnEnv,
+) -> None:
+    """Criterion 8, and plan §5's fifth risk: counted twice, or not at all,
+    once three call sites feed one counter.
+
+    The three answers bill three DIFFERENT numbers, so every wrong
+    implementation lands on a different total: a counter fed only by the
+    extraction reads 11, one fed only by the planner 13, one that forgot the
+    composition 24, and one that added the same answer twice cannot reach 41
+    either. An earlier change's deviation — "`tokens_used` is present and always 0" —
+    is closed by this row, which is why the assertion is an equality and not
+    "greater than zero"."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway(
+        [
+            StagedAnswer(_payroll_answer(), total_tokens=11),
+            StagedAnswer(EMPTY_PLAN, total_tokens=13),
+            StagedAnswer(COMPOSED_REPLY, total_tokens=17),
+        ]
+    )
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="I need payroll access",
+        gateway=gateway,
+    )
+
+    assert gateway.call_count == 3
+    assert state.tokens_used == 11 + 13 + 17
+    assert state.tokens_used == gateway.staged_tokens
+
+
+def test_the_recursion_limit_is_exactly_fifty_and_is_what_run_turn_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """a project rule on decision G's number, from both sides: the constant's
+    value, and the fact that the invocation actually carries it.
+
+    Catches a `GRAPH_RECURSION_LIMIT` declared and never passed — the graph
+    would run under LangGraph's default 25 while a constant in the source said
+    otherwise, which is the failure mode the six-round case above can only
+    report as a mystery. It also catches a config REPLACED rather than
+    extended: `deps` must still ride on it, and a turn whose deps went missing
+    fails at the first node.
+
+    No graph is compiled and no row is written: the compiled object is
+    replaced by a recorder, which is the only way to read the config
+    `ainvoke` was handed."""
+
+    class RecordingGraph:
+        def __init__(self) -> None:
+            self.configs: list[dict[str, Any]] = []
+
+        async def ainvoke(
+            self, state: TurnState, config: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
+            self.configs.append({} if config is None else config)
+            return state.model_dump()
+
+    recorder = RecordingGraph()
+    monkeypatch.setattr(build_module, "build_graph", lambda: recorder)
+    tools = StubToolCaller()
+
+    async def scenario() -> TurnState:
+        client = ModelClient(
+            base_url=GATEWAY_URL,
+            api_keys=API_KEYS,
+            transport=httpx.MockTransport(StagedGateway([]).handler),
+        )
+        try:
+            deps = TurnDeps(db=cast(AsyncSession, None), model=client, tools=tools, now=lambda: NOW)
+            return await run_turn(
+                deps=deps,
+                tenant_id=uuid.uuid4(),
+                user_id=uuid.uuid4(),
+                session_id=uuid.uuid4(),
+                tenant_slug=TENANT_A,
+                message="I need payroll access",
+            )
+        finally:
+            await client.aclose()
+
+    asyncio.run(scenario())
+
+    assert GRAPH_RECURSION_LIMIT == 50
+    assert len(recorder.configs) == 1
+    assert recorder.configs[0]["recursion_limit"] == GRAPH_RECURSION_LIMIT
+    assert "deps" in recorder.configs[0]["configurable"]

@@ -92,6 +92,16 @@ async def validate_tool_calls(state: TurnState, deps: TurnDeps) -> TurnState:
     every clean `request_access` turn to the refusal template
     (`test_agent_planning.py::test_an_empty_round_is_accepted_and_validates_nothing`).
 
+    An accepted round is then routed by what it has to EXECUTE rather than by
+    the verdict alone: `gates.execution_outcome` answers
+    `DONE` for the empty round, which composes, and `CONTINUE` for a round with
+    calls, which executes and cycles back to `plan_tools`. A single `CONTINUE`
+    for both would send the empty round through `execute_tools` over an empty
+    tuple and round again until the recursion limit aborted it. Pinned by
+    `test_agent_gates.py::test_execution_outcome_sends_only_a_non_empty_round_to_execution`
+    and through the graph by
+    `test_agent_turn.py::test_a_request_access_turn_plans_executes_replans_and_composes`.
+
     Order is preserved, because order is the plan: a classification before the
     request it justifies, a listing before the thing it identifies. Pinned by
     `::test_a_valid_round_of_two_yields_two_validated_calls_in_the_proposed_order`.
@@ -111,5 +121,5 @@ async def validate_tool_calls(state: TurnState, deps: TurnDeps) -> TurnState:
         validated.append(call)
 
     return state.model_copy(
-        update={"outcome": gates.validation_outcome(True), "validated": tuple(validated)}
+        update={"outcome": gates.execution_outcome(len(validated)), "validated": tuple(validated)}
     )

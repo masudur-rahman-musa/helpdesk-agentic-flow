@@ -30,7 +30,18 @@ Expected implementation surface (the implementer must provide exactly this):
                              session_id=None, traceparent=None,
                              max_tokens=None, temperature=None) -> ModelAnswer``
         ``async def complete_json(self, schema_model, messages, *, <same
-            keywords>) -> <schema_model instance>``
+            keywords>) -> StructuredAnswer[<schema_model>]``
+
+An earlier change changes exactly one return shape (decision A). ``complete_json``
+answers a ``StructuredAnswer`` rather than the bare model:
+
+    ``@dataclass(frozen=True) class StructuredAnswer[M: BaseModel]`` —
+        ``value: M`` (the validated model) and ``usage: ModelAnswer`` (the
+        answer ``complete`` would have returned for the SAME request, so the
+        turn can add its ``total_tokens`` to a budget). On a retried call the
+        usage is the SECOND answer's: the first was discarded unparsed, and
+        billing a turn for output nobody read would be a number no operator
+        can reconcile.
         ``async def aclose(self) -> None``
         ``@classmethod from_settings(cls, settings: Settings) -> ModelClient``
 
@@ -67,6 +78,7 @@ from helpdesk.gateway.client import (
     ModelForbiddenError,
     ModelRequestError,
     ModelUnavailableError,
+    StructuredAnswer,
 )
 from helpdesk.gateway.traceparent import TRACEPARENT_PATTERN
 from pydantic import BaseModel, create_model
@@ -126,6 +138,29 @@ def _ok_body(text: str = ANSWER_TEXT, model: str = "agent-strong") -> dict[str, 
         ],
         "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
     }
+
+
+def _body_with_tokens(text: str, total_tokens: int) -> dict[str, Any]:
+    """The same response body with a chosen `usage.total_tokens`.
+
+    The two attempts of a retried structured call are billed differently on
+    purpose, so "which answer's usage came back" is decidable from the number
+    alone rather than from an ordering the test cannot see.
+    """
+    body = _ok_body(text=text)
+    body["usage"] = {
+        "prompt_tokens": 1,
+        "completion_tokens": total_tokens - 1,
+        "total_tokens": total_tokens,
+    }
+    return body
+
+
+FIRST_ATTEMPT_TOKENS = 5
+SECOND_ATTEMPT_TOKENS = 41
+"""Two different bills for the two attempts of one retried call, and neither
+is `_ok_body`'s 18: a client returning any other answer's usage names a number
+no row here can produce by accident."""
 
 
 _OK_HEADERS: dict[str, str] = {
@@ -223,10 +258,10 @@ def _complete_json(
     *,
     alias: ModelAlias = ModelAlias.AGENT_DEFAULT,
     tenant: str = TENANT,
-) -> BaseModel:
+) -> StructuredAnswer[BaseModel]:
     """Drive one `complete_json` call and close the client, in one event loop."""
 
-    async def scenario() -> BaseModel:
+    async def scenario() -> StructuredAnswer[BaseModel]:
         try:
             return await client.complete_json(
                 schema_model, MESSAGES, alias=alias, tenant_slug=tenant
@@ -512,7 +547,7 @@ def test_a_schema_name_of_exactly_the_cap_is_accepted() -> None:
     assert (
         json.loads(recorder.requests[0].content)["response_format"]["json_schema"]["name"] == name
     )
-    assert result.model_dump() == VALID_DECISION
+    assert result.value.model_dump() == VALID_DECISION
 
 
 def test_a_schema_name_one_character_over_the_cap_is_refused_before_any_request() -> None:
@@ -587,9 +622,10 @@ def test_complete_json_sends_the_response_format_pydantic_generates() -> None:
         "type": "json_schema",
         "json_schema": {"name": "Decision", "schema": Decision.model_json_schema()},
     }
-    assert isinstance(result, Decision)
-    assert result.decision == "grant"
-    assert result.reason == "already entitled"
+    assert isinstance(result, StructuredAnswer)
+    assert isinstance(result.value, Decision)
+    assert result.value.decision == "grant"
+    assert result.value.reason == "already entitled"
 
 
 def test_complete_json_retries_exactly_once_and_returns_the_second_answer() -> None:
@@ -609,8 +645,8 @@ def test_complete_json_retries_exactly_once_and_returns_the_second_answer() -> N
     result = _complete_json(client, Decision)
 
     assert len(handler.requests) == 2
-    assert isinstance(result, Decision)
-    assert result.decision == "grant"
+    assert isinstance(result.value, Decision)
+    assert result.value.decision == "grant"
 
 
 def test_complete_json_retries_once_when_valid_json_fails_the_models_validation() -> None:
@@ -630,8 +666,8 @@ def test_complete_json_retries_once_when_valid_json_fails_the_models_validation(
     result = _complete_json(client, Decision)
 
     assert len(handler.requests) == 2
-    assert isinstance(result, Decision)
-    assert result.reason == "already entitled"
+    assert isinstance(result.value, Decision)
+    assert result.value.reason == "already entitled"
 
 
 def test_complete_json_gives_up_after_the_second_invalid_answer() -> None:
@@ -654,6 +690,59 @@ def test_complete_json_gives_up_after_the_second_invalid_answer() -> None:
 
     assert len(handler.requests) == 2
     assert excinfo.value.code is ErrorCode.INTERNAL
+
+
+def test_complete_json_returns_the_validated_value_beside_the_calls_own_usage() -> None:
+    """An earlier change decision A. Catches a `complete_json` that returns the bare
+    model and throws the `ModelAnswer` away, which is the shape this method
+    had before: the agent's `tokens_used` would then have nothing to read for
+    the extraction or for any planning round, and `MAX_TURN_TOKENS` could
+    never bite however long a turn ran.
+
+    The usage is asserted field by field against the body and the headers the
+    transport answered — the same facts `complete` returns — so a client that
+    fabricates a zeroed `ModelAnswer` beside the value fails here too."""
+    recorder = _Recorder(_ok_response(_ok_body(text=json.dumps(VALID_DECISION))))
+    client = _client(recorder)
+
+    result = _complete_json(client, Decision, alias=ModelAlias.AGENT_STRONG)
+
+    assert isinstance(result, StructuredAnswer)
+    assert isinstance(result.value, Decision)
+    assert result.value.model_dump() == VALID_DECISION
+    assert isinstance(result.usage, ModelAnswer)
+    assert result.usage.total_tokens == 18
+    assert result.usage.prompt_tokens == 11
+    assert result.usage.completion_tokens == 7
+    assert result.usage.alias is ModelAlias.AGENT_STRONG
+    assert result.usage.gateway_model == GATEWAY_MODEL
+    assert result.usage.gateway_trace_id == GATEWAY_TRACE_ID
+    assert result.usage.text == json.dumps(VALID_DECISION)
+
+
+def test_the_usage_of_a_retried_call_is_the_second_answers_not_the_first() -> None:
+    """Catches a client that keeps the first attempt's `ModelAnswer` and pairs
+    it with the second attempt's value — the pair would then describe two
+    different requests, and a turn's token counter would be reconciled against
+    a bill nobody was charged.
+
+    The two attempts carry different token counts and neither is the default
+    18, so only the second answer's usage can produce the expected number; the
+    request count keeps the single retry pinned at the same time."""
+    handler = _Sequence(
+        [
+            _ok_response(_body_with_tokens("{not json", FIRST_ATTEMPT_TOKENS)),
+            _ok_response(_body_with_tokens(json.dumps(VALID_DECISION), SECOND_ATTEMPT_TOKENS)),
+        ]
+    )
+    client = _client(handler)
+
+    result = _complete_json(client, Decision)
+
+    assert len(handler.requests) == 2
+    assert result.value.model_dump() == VALID_DECISION
+    assert result.usage.total_tokens == SECOND_ATTEMPT_TOKENS
+    assert result.usage.text == json.dumps(VALID_DECISION)
 
 
 # --- a project rule: no provider model name anywhere ----------------------------

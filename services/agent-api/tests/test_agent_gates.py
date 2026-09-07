@@ -35,6 +35,21 @@ An earlier change extends the same file with the planner's own gates:
         elapsed_seconds: float) -> bool`` — all three bounds INCLUSIVE.
     ``def validation_outcome(accepted: bool) -> TurnOutcome``
 
+An earlier change extends it once more, with the two predicates the execution cycle
+reads and the sixth outcome:
+
+``agent_api.graph.state``
+    ``TurnOutcome`` gains ``DONE`` (value ``"done"``): the round that proposed
+        nothing, and the budget spent by a turn that already called something.
+        SIX members, no seventh.
+
+``agent_api.graph.gates``
+    ``def execution_outcome(validated_count: int) -> TurnOutcome`` —
+        ``CONTINUE`` for a round with calls to make, ``DONE`` for an empty one.
+    ``def exhausted_outcome(result_count: int) -> TurnOutcome`` —
+        ``REFUSE`` when the turn has no tool results, ``DONE`` when it has any. Both take a COUNT and are called positionally
+        here, so the parameter names are the implementer's to choose.
+
 the design's boundary rule is what makes this file possible: every decision is
 computed by framework-free code and the conditional edge only reads the
 result. Nothing here imports langgraph, opens a socket or touches Postgres.
@@ -59,6 +74,8 @@ from agent_api.graph.gates import (
     allowed_tools,
     candidate_outcome,
     capped_options,
+    execution_outcome,
+    exhausted_outcome,
     may_plan_another_round,
     missing_required_entities,
     needs_clarification,
@@ -579,3 +596,62 @@ def test_validation_outcome_maps_the_rounds_verdict_to_its_branch(
     execution — the second half being decision C's exact failure, a half-done
     mutation nobody asked for."""
     assert validation_outcome(accepted) is expected
+
+
+# --- an earlier change: the execution cycle's two predicates ----------------------------
+
+SPEC_OUTCOMES: frozenset[str] = frozenset(
+    {"continue", "clarify", "disambiguate", "refuse", "failed", "done"}
+)
+"""Every branch a node may record, written out as a literal: SIX, counted from
+the five an earlier change fixed plus an earlier change's `DONE`."""
+
+
+def test_turn_outcome_has_exactly_the_six_members() -> None:
+    """Catches `DONE` added as a seventh spelling of an existing branch (a
+    `COMPOSE` beside it), and catches it never being added at all — the empty
+    round would then have to reuse `CONTINUE`, which the edge after validation
+    cannot tell apart from a round with calls to execute, so a turn with
+    nothing left to do would execute an empty list and plan again forever.
+
+    The VALUE is pinned as well as the member: an earlier change checkpoints this state
+    and a trace line is read by it."""
+    assert {member.value for member in TurnOutcome} == SPEC_OUTCOMES
+    assert len(TurnOutcome) == 6
+    assert TurnOutcome.DONE.value == "done"
+
+
+@pytest.mark.parametrize(
+    ("validated_count", "expected"),
+    [(0, TurnOutcome.DONE), (1, TurnOutcome.CONTINUE), (MAX_CALLS_PER_ROUND, TurnOutcome.CONTINUE)],
+)
+def test_execution_outcome_sends_only_a_non_empty_round_to_execution(
+    validated_count: int, expected: TurnOutcome
+) -> None:
+    """Catches a predicate that answers `CONTINUE` for the empty round, which
+    is the ordinary end of a turn: `execute_tools` would run over an empty
+    tuple, edge back to `plan_tools`, and the turn would circle until the
+    recursion limit aborted it rather than composing a reply.
+
+    The inverted twin is caught by the non-zero rows: a `DONE` there would
+    compose a reply before the calls the planner asked for were ever made."""
+    assert execution_outcome(validated_count) is expected
+
+
+@pytest.mark.parametrize(
+    ("result_count", "expected"),
+    [(0, TurnOutcome.REFUSE), (1, TurnOutcome.DONE), (MAX_TOOL_CALLS, TurnOutcome.DONE)],
+)
+def test_exhausted_outcome_refuses_only_a_turn_that_has_done_nothing(
+    result_count: int, expected: TurnOutcome
+) -> None:
+    """Decision C, and the reason it amends the design. Catches the literal
+    reading of the specification — every exhausted budget to
+    `refuse_and_ticket` — which after a real mutation answers the person who
+    made it with the refusal template: "nothing in the current policy covers
+    this", said to somebody whose access request was just filed.
+
+    The zero row is the other half: a turn that spent its budget having called
+    nothing has nothing to compose from, so composing would put the model in
+    front of a user with no tool result behind it."""
+    assert exhausted_outcome(result_count) is expected

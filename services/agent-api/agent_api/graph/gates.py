@@ -5,7 +5,9 @@ by code that imports no framework and touches no store, and the conditional
 edge downstream only reads the field the node wrote: clarify-or-continue after
 intent extraction, clarify/continue/disambiguate after entity resolution, and
 an earlier change's pair — whether the turn retrieves at all, and what the tool's own
-refusal flag means. That is what makes the rule
+refusal flag means — and an earlier change's, which end the loop: whether an accepted
+round has anything to execute, and what a spent budget means to a turn that has
+already called something. That is what makes the rule
 enforceable rather than a claim: every case below is tested with no graph at
 all, and `test_agent_gates.py::test_the_gates_module_imports_no_framework_and_no_io`
 parses this file to prove the property has not quietly moved.
@@ -312,3 +314,30 @@ def validation_outcome(accepted: bool) -> TurnOutcome:
     `test_agent_gates.py::test_validation_outcome_maps_the_rounds_verdict_to_its_branch`.
     """
     return TurnOutcome.CONTINUE if accepted else TurnOutcome.REFUSE
+
+
+def execution_outcome(validated_count: int) -> TurnOutcome:
+    """Whether an accepted round has anything to execute (17d criterion 4).
+
+    The empty round is the ordinary end of a turn: a planner with nothing left
+    to call proposes nothing, and answering `CONTINUE` here would send the turn
+    through `execute_tools` over an empty tuple, back to `plan_tools`, and
+    round again until the recursion limit aborted what should have been a
+    composed reply. Pinned across an empty round and a full one by
+    `test_agent_gates.py::test_execution_outcome_sends_only_a_non_empty_round_to_execution`.
+    """
+    return TurnOutcome.CONTINUE if validated_count else TurnOutcome.DONE
+
+
+def exhausted_outcome(result_count: int) -> TurnOutcome:
+    """What a spent budget means, given what the turn has already done (17d decision C).
+
+    This AMENDS the design, which routes every exhausted budget to
+    `refuse_and_ticket`. That is right for a turn which did nothing
+    and wrong for one which already filed a request: the refusal template says
+    no current policy covers the question, which after a real mutation is a
+    false statement to the person who made it. So a turn with results composes
+    over them, and only a turn with none refuses. Pinned both ways by
+    `test_agent_gates.py::test_exhausted_outcome_refuses_only_a_turn_that_has_done_nothing`.
+    """
+    return TurnOutcome.DONE if result_count else TurnOutcome.REFUSE

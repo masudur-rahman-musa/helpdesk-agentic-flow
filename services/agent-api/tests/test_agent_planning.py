@@ -301,12 +301,18 @@ def test_an_empty_round_is_accepted_and_validates_nothing() -> None:
     """The turn's ordinary end: a planner with nothing left to call proposes
     an empty round. Catches a validator that treats "no proposals" as a
     failure and refuses a turn that did everything right — every retrieving
-    `request_access` turn would then end on the refusal template."""
+    `request_access` turn would then end on the refusal template.
+
+    An earlier change re-points the accepted branch: the empty round is still accepted
+    and still validates nothing, but it now records `DONE` rather than
+    `CONTINUE`, because the edge after this node has to tell "nothing left to
+    call, compose" from "calls to execute" and a single value cannot. Recorded
+    in an earlier change's Deviations."""
     state = _state(Intent.REQUEST_ACCESS)
 
     result = _validate(state)
 
-    assert result.outcome is TurnOutcome.CONTINUE
+    assert result.outcome is TurnOutcome.DONE
     assert result.validated == ()
 
 

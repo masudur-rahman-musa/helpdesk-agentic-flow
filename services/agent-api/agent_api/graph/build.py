@@ -34,12 +34,14 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agent_api.graph.deps import TurnDeps
+from agent_api.graph.nodes.compose_reply import compose_reply
 from agent_api.graph.nodes.endings import (
     ask_clarifying,
     ask_disambiguation,
     fail_turn,
     refuse_and_ticket,
 )
+from agent_api.graph.nodes.execute_tools import execute_tools
 from agent_api.graph.nodes.extract_intent import FAILURE_REPLY, extract_intent
 from agent_api.graph.nodes.load_session import load_session
 from agent_api.graph.nodes.plan_tools import plan_tools
@@ -48,7 +50,7 @@ from agent_api.graph.nodes.retrieve_policy import retrieve_policy
 from agent_api.graph.nodes.validate_tool_calls import validate_tool_calls
 from agent_api.graph.state import TurnOutcome, TurnState
 
-__all__ = ["FAILURE_REPLY", "TurnDeps", "build_graph", "run_turn"]
+__all__ = ["FAILURE_REPLY", "GRAPH_RECURSION_LIMIT", "TurnDeps", "build_graph", "run_turn"]
 
 LOAD_SESSION = "load_session"
 EXTRACT_INTENT = "extract_intent"
@@ -56,10 +58,29 @@ RESOLVE_ENTITIES = "resolve_entities"
 RETRIEVE_POLICY = "retrieve_policy"
 PLAN_TOOLS = "plan_tools"
 VALIDATE_TOOL_CALLS = "validate_tool_calls"
+EXECUTE_TOOLS = "execute_tools"
+COMPOSE_REPLY = "compose_reply"
 REFUSE_AND_TICKET = "refuse_and_ticket"
 ASK_CLARIFYING = "ask_clarifying"
 ASK_DISAMBIGUATION = "ask_disambiguation"
 FAIL_TURN = "fail_turn"
+
+GRAPH_RECURSION_LIMIT = 50
+"""The graph's own backstop, passed on every invocation (17d decision G).
+
+the design asks for a hard recursion limit behind the three budgets, and
+LangGraph's default 25 is not one: six executed calls is up to seven planning
+rounds, which with the four leading nodes and the composition is about
+twenty-five node visits — so the default would abort turns every budget in
+this plan permits, on a library value nobody chose. Fifty leaves the budgets as
+the thing that actually stops the loop and the limit as the thing that stops a
+loop the budgets somehow did not.
+
+a project rule, pinned from both sides by
+`test_agent_turn.py::test_the_recursion_limit_is_exactly_fifty_and_is_what_run_turn_passes`
+(the value, and that the invocation carries it) and by
+`::test_a_turn_driven_to_the_call_budget_composes_and_never_trips_the_limit`.
+"""
 
 _DEPS_KEY = "deps"
 """Where `TurnDeps` rides on the invocation config.
@@ -103,6 +124,14 @@ async def _plan_tools(state: TurnState, config: RunnableConfig) -> dict[str, Any
 
 async def _validate_tool_calls(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
     return (await validate_tool_calls(state, _deps(config))).model_dump()
+
+
+async def _execute_tools(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await execute_tools(state, _deps(config))).model_dump()
+
+
+async def _compose_reply(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await compose_reply(state, _deps(config))).model_dump()
 
 
 async def _refuse_and_ticket(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
@@ -157,38 +186,70 @@ def _after_planning(state: TurnState) -> str:
     """Read `outcome`. Nothing else, and no computation (the design).
 
     `REFUSE` here is loop control, not a policy refusal: the turn has spent a
-    budget the design fixes, so it offers a person rather than planning again.
-    `refuse_and_ticket` is deliberately the same ending — from the user's side
-    both are "I would rather not guess at this, shall I get somebody".
+    budget the design fixes and had nothing to show for it, so it offers a
+    person rather than planning again. `refuse_and_ticket` is deliberately the
+    same ending — from the user's side both are "I would rather not guess at
+    this, shall I get somebody".
+
+    `DONE` is the OTHER half of the same budget (17d decision C): a turn that
+    already called something composes over what happened, because the refusal
+    template says no current policy covers the question and that is a false
+    statement to somebody whose request was just filed. Which of the two the
+    node wrote was decided by `gates.exhausted_outcome`; this function only
+    reads it.
     """
     if state.outcome is TurnOutcome.FAILED:
         return FAIL_TURN
     if state.outcome is TurnOutcome.REFUSE:
         return REFUSE_AND_TICKET
+    if state.outcome is TurnOutcome.DONE:
+        return COMPOSE_REPLY
     return VALIDATE_TOOL_CALLS
 
 
 def _after_validation(state: TurnState) -> str:
     """Read `outcome`. Nothing else, and no computation (the design).
 
-    `CONTINUE` reaches `END` and that is 17d's handover point: the validated
-    calls ride on the state, nothing has been executed and no assistant
-    message has been written, so the next plan hangs execution and the composed
-    reply off exactly this edge.
+    Three branches now that 17d has taken the handover this edge was left open
+    for: a refused round offers a person, an accepted round with calls executes
+    them, and the accepted EMPTY round — a planner with nothing left to do —
+    goes straight to the composition. `gates.execution_outcome` made that last
+    distinction; nothing is computed here.
     """
     if state.outcome is TurnOutcome.REFUSE:
         return REFUSE_AND_TICKET
-    return END
+    if state.outcome is TurnOutcome.DONE:
+        return COMPOSE_REPLY
+    return EXECUTE_TOOLS
+
+
+def _after_execution(state: TurnState) -> str:
+    """Read `outcome`. Nothing else, and no computation (the design).
+
+    The cycle: an executed round goes BACK to `plan_tools`, so its results feed
+    the next round (the design steps 6 and 7) and `classify_access_request`
+    then `create_access_request` is two rounds rather than one guess. The loop
+    ends where the planner proposes nothing, or where a budget is spent, or —
+    only if both of those somehow failed — at `GRAPH_RECURSION_LIMIT`.
+
+    `FAILED` is the one tool error worth ending on: `execute_tools` writes it
+    for an `INTERNAL` alone (17d decision B), and every other code is recorded
+    as a result and composed over.
+    """
+    if state.outcome is TurnOutcome.FAILED:
+        return FAIL_TURN
+    return PLAN_TOOLS
 
 
 def build_graph() -> CompiledStateGraph:
-    """The six working nodes and the four ways the turn can stop early.
+    """The eight working nodes, the planning cycle and the four early stops.
 
-    `validate_tool_calls` reaching `END` on `CONTINUE` is now the handover
-    point: an earlier change hangs execution, the loop back to planning and the composed
-    reply off exactly that edge, which is why an accepted round writes no
-    assistant message here and carries its validated calls on the state
-    instead.
+    The cycle is `plan_tools` → `validate_tool_calls` → `execute_tools` →
+    `plan_tools`, which is what the design's steps 6 and 7 describe. Three
+    independent things end it, each tested alone: the round that proposes
+    nothing (`DONE`, straight to `compose_reply`), any of the three budgets
+    (17c's predicate, read through `gates.exhausted_outcome`), and
+    `GRAPH_RECURSION_LIMIT` as the backstop behind both.
     """
     graph = StateGraph(TurnState)
     graph.add_node(LOAD_SESSION, _load_session)
@@ -197,6 +258,8 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node(RETRIEVE_POLICY, _retrieve_policy)
     graph.add_node(PLAN_TOOLS, _plan_tools)
     graph.add_node(VALIDATE_TOOL_CALLS, _validate_tool_calls)
+    graph.add_node(EXECUTE_TOOLS, _execute_tools)
+    graph.add_node(COMPOSE_REPLY, _compose_reply)
     graph.add_node(REFUSE_AND_TICKET, _refuse_and_ticket)
     graph.add_node(ASK_CLARIFYING, _ask_clarifying)
     graph.add_node(ASK_DISAMBIGUATION, _ask_disambiguation)
@@ -237,6 +300,7 @@ def build_graph() -> CompiledStateGraph:
         {
             REFUSE_AND_TICKET: REFUSE_AND_TICKET,
             FAIL_TURN: FAIL_TURN,
+            COMPOSE_REPLY: COMPOSE_REPLY,
             VALIDATE_TOOL_CALLS: VALIDATE_TOOL_CALLS,
         },
     )
@@ -245,9 +309,19 @@ def build_graph() -> CompiledStateGraph:
         _after_validation,
         {
             REFUSE_AND_TICKET: REFUSE_AND_TICKET,
-            END: END,
+            COMPOSE_REPLY: COMPOSE_REPLY,
+            EXECUTE_TOOLS: EXECUTE_TOOLS,
         },
     )
+    graph.add_conditional_edges(
+        EXECUTE_TOOLS,
+        _after_execution,
+        {
+            FAIL_TURN: FAIL_TURN,
+            PLAN_TOOLS: PLAN_TOOLS,
+        },
+    )
+    graph.add_edge(COMPOSE_REPLY, END)
     graph.add_edge(REFUSE_AND_TICKET, END)
     graph.add_edge(ASK_CLARIFYING, END)
     graph.add_edge(ASK_DISAMBIGUATION, END)
@@ -289,6 +363,12 @@ async def run_turn(
     clock of its own would restart the deadline on every round. Pinned by
     `::test_run_turn_stamps_started_at_from_the_injected_clock`.
 
+    `GRAPH_RECURSION_LIMIT` rides on the same config (17d decision G). It is
+    the backstop behind the three budgets, not a budget of its own: LangGraph's
+    default 25 would abort turns the budgets permit, so it is passed explicitly
+    rather than left to the library
+    (`::test_the_recursion_limit_is_exactly_fifty_and_is_what_run_turn_passes`).
+
     Identity is passed in by the route that read the token and is never taken
     from the message or from the extracted entities.
     """
@@ -304,5 +384,11 @@ async def run_turn(
         started_at=deps.now(),
     )
     async with deps.tools:
-        result = await build_graph().ainvoke(state, config={"configurable": {_DEPS_KEY: deps}})
+        result = await build_graph().ainvoke(
+            state,
+            config={
+                "configurable": {_DEPS_KEY: deps},
+                "recursion_limit": GRAPH_RECURSION_LIMIT,
+            },
+        )
     return TurnState.model_validate(result)

@@ -29,6 +29,13 @@ prompt-injection path straight to a mutation. Pinned by
 `prompt_version` is the extraction prompt's by 17b's assertion. Pinned by
 `::test_the_planning_prompt_version_rides_on_its_own_state_field`.
 
+**Every round's own `total_tokens` is ADDED to `tokens_used`** (17d criterion
+7), including the round that is refused for being over the per-round cap: the
+call was paid for whether or not its answer was used, and a budget that only
+counted rounds it liked would let an over-proposing planner run for free.
+Pinned across all three call sites by
+`test_agent_turn.py::test_tokens_used_is_the_sum_of_every_staged_answers_total_tokens`.
+
 The node does not raise. A gateway that cannot answer ends the TURN, as state,
 with a typed code and the templated reply — the same shape every other node
 uses, and nothing survives on `proposed`
@@ -65,7 +72,14 @@ def elapsed_seconds(state: TurnState, deps: TurnDeps) -> float:
 
 
 def _refuse(state: TurnState) -> TurnState:
-    """Propose nothing and route to the refusal, leaving the round unplanned."""
+    """Propose nothing and route to the refusal, leaving the round unplanned.
+
+    This is the REJECTED round, not the spent budget: a round over
+    `MAX_CALLS_PER_ROUND` is a plan the model did not think through, and there
+    is nothing to compose from it. The budget path answers with
+    `gates.exhausted_outcome` instead (decision C), because a turn that already
+    called something has results a reply must be written from.
+    """
     return state.model_copy(update={"outcome": TurnOutcome.REFUSE, "proposed": ()})
 
 
@@ -100,7 +114,17 @@ async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState:
         tokens_used=state.tokens_used,
         elapsed_seconds=elapsed_seconds(state, deps),
     ):
-        return _refuse(state)
+        # Decision C: the budget is spent, so the turn stops planning — but
+        # WHAT that means depends on whether it has already done something.
+        # A turn that filed a request may not answer with the refusal
+        # template, which says no policy covers the question. The branch is
+        # the pure predicate and the edge only reads it (the design).
+        return state.model_copy(
+            update={
+                "outcome": gates.exhausted_outcome(len(state.tool_results)),
+                "proposed": (),
+            }
+        )
 
     prompt = load_prompt(PLANNING_PROMPT)
     system = load_prompt(SYSTEM_PROMPT)
@@ -127,7 +151,7 @@ async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState:
     ]
 
     try:
-        plan = await deps.model.complete_json(
+        answer = await deps.model.complete_json(
             ToolPlan,
             messages,
             alias=ModelAlias.AGENT_STRONG,
@@ -146,17 +170,25 @@ async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState:
             }
         )
 
+    plan = answer.value
+    tokens_used = state.tokens_used + answer.usage.total_tokens
+
     if len(plan.calls) > gates.MAX_CALLS_PER_ROUND:
         # An over-long round is refused WHOLE rather than trimmed, for
         # decision C's reason: keeping the first three of five calls executes
         # a plan the model did not make. Pinned by
         # `test_agent_turn.py::test_a_round_over_the_per_round_cap_is_refused_whole`.
-        return _refuse(state.model_copy(update={"planning_prompt_version": prompt.sha256}))
+        return _refuse(
+            state.model_copy(
+                update={"planning_prompt_version": prompt.sha256, "tokens_used": tokens_used}
+            )
+        )
 
     return state.model_copy(
         update={
             "planning_prompt_version": prompt.sha256,
             "round_number": round_number,
+            "tokens_used": tokens_used,
             "outcome": TurnOutcome.CONTINUE,
             "proposed": tuple(plan.calls),
         }

@@ -92,6 +92,15 @@ class TurnOutcome(StrEnum):
     The conditional edges read THIS and nothing else (the design): a node
     computes the branch with framework-free code and records it here, so the
     routing function has nothing left to decide.
+
+    `DONE` is an earlier change's sixth member and means "stop looping, compose": the
+    round that proposed nothing, and the budget spent by a turn that already
+    called something (decision C). It exists as its own member rather than
+    reusing `CONTINUE` because the edge after validation cannot otherwise tell
+    an empty round from a round with calls to execute, and a turn with nothing
+    left to do would execute an empty list and plan again until the recursion
+    limit aborted it. Exactly six members, pinned by
+    `test_agent_gates.py::test_turn_outcome_has_exactly_the_six_members`.
     """
 
     CONTINUE = "continue"
@@ -99,6 +108,7 @@ class TurnOutcome(StrEnum):
     DISAMBIGUATE = "disambiguate"
     REFUSE = "refuse"
     FAILED = "failed"
+    DONE = "done"
 
 
 class ResolvedEntities(BaseModel):

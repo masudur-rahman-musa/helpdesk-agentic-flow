@@ -20,6 +20,11 @@ An earlier change adds a third file, ``prompts/tool_planning.md``: the prompt
 ``TurnState.planning_prompt_version``, never on ``prompt_version``, because one
 string cannot carry two versions.
 
+An earlier change adds a fourth file, ``prompts/reply_composition.md``: the prompt
+``compose_reply`` sends under the ``agent-default`` alias. It must carry SPEC
+§10.2's two obligations in its own words, because the composition is the one
+call whose output a person reads.
+
 Nothing here needs Postgres, Redis, Qdrant or a socket: the loader reads the
 repository's own files, and the mutation case writes into `tmp_path` with
 ``PROMPTS_DIR`` monkeypatched, so the shipped prompts are never edited by a
@@ -39,8 +44,9 @@ from helpdesk.errors import ErrorCode, ToolError
 SYSTEM_PROMPT = "system"
 INTENT_PROMPT = "intent_extraction"
 PLANNING_PROMPT = "tool_planning"
+COMPOSITION_PROMPT = "reply_composition"
 
-SHIPPED_PROMPTS = (SYSTEM_PROMPT, INTENT_PROMPT, PLANNING_PROMPT)
+SHIPPED_PROMPTS = (SYSTEM_PROMPT, INTENT_PROMPT, PLANNING_PROMPT, COMPOSITION_PROMPT)
 
 SYSTEM_PROMPT_REQUIRED_PHRASES = (
     "does not decide access",
@@ -157,3 +163,23 @@ def test_the_planning_prompt_names_every_tool_a_row_can_offer() -> None:
 
     missing = [name for name in offered if name not in text]
     assert not missing, f"tool_planning.md does not name: {missing}"
+
+
+def test_the_composition_prompt_states_the_agent_does_not_decide_access() -> None:
+    """An earlier change §6, and plan §5's third risk in the only place this plan can
+    address it. Catches a composition prompt that describes the format of a
+    reply and nothing else: the composing call is handed the tool results and
+    the policy passages together, so a model told only to "write a friendly
+    answer" is free to read a `POLICY_BLOCKED` as a hurdle and tell the user
+    the access is on its way.
+
+    The same two obligations `system.md` carries, asserted separately here
+    because the composition is the one call whose words reach a person: the
+    agent does not decide access, and it may not claim a grant happened unless
+    a tool result says so. Row 19's decision-word post-check is the guard that
+    catches a reply which says it anyway; this is the instruction it rests on.
+    """
+    text = load_prompt(COMPOSITION_PROMPT).text.lower()
+
+    missing = [phrase for phrase in SYSTEM_PROMPT_REQUIRED_PHRASES if phrase not in text]
+    assert not missing, f"reply_composition.md does not state: {missing}"
