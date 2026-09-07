@@ -85,6 +85,9 @@ EXPECTED_TOOL_NAMES = {
     "decide_review_item",
     # An earlier change: the design's undo, the first tool of the design's Admin group.
     "rollback_request",
+    # An earlier change: the audit log read back under a filter, the Admin group's
+    # read half.
+    "search_audit",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")

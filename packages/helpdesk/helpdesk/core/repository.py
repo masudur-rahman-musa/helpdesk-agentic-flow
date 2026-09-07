@@ -8,7 +8,7 @@ returns False) — never the row, never a cross-tenant effect.
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import Any, cast
 
@@ -524,6 +524,26 @@ class Repository[M: TenantScoped]:
     async def get(self, id: uuid.UUID, /) -> M | None:
         result = await self._session.execute(select(self._model).where(self._model.id == id))
         return result.scalars().one_or_none()
+
+    async def get_many(self, ids: Collection[uuid.UUID], /) -> dict[uuid.UUID, M]:
+        """The rows behind these ids, keyed by id, in ONE statement.
+
+        The batched half of `get`, added by an earlier change: resolving a page of
+        audit subjects one id at a time is a round trip per row against the
+        one table the design never prunes. Ids belonging to another tenant
+        are simply absent from the result, exactly as `get` returns None for
+        one — the session guard filters the SELECT, so a caller cannot learn
+        that a foreign id exists by finding it here.
+
+        An empty `ids` runs no statement at all: `IN ()` is not valid SQL and
+        a query for nothing has no answer worth a round trip.
+        """
+        if not ids:
+            return {}
+        result = await self._session.execute(
+            select(self._model).where(self._model.id.in_(list(ids)))
+        )
+        return {row.id: row for row in result.scalars().all()}
 
     async def list(self) -> Sequence[M]:
         result = await self._session.execute(select(self._model))

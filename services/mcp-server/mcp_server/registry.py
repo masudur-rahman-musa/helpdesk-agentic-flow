@@ -321,6 +321,22 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=admin.rollback_request,
     ),
     ToolSpec(
+        # A READ: `search_audit` changes nothing, so it carries no
+        # idempotency key and the pipeline's generic `tool.succeeded` is the
+        # whole record it leaves. The wire name, the matrix member, the kill
+        # switch key and the audit subject are one string by construction.
+        name=rbac.Tool.SEARCH_AUDIT.value,
+        tool=rbac.Tool.SEARCH_AUDIT,
+        description=(
+            "Search this tenant's audit log, newest first, within the caller's scope."
+        ),
+        input_model=read.SearchAuditInput,
+        output_model=read.SearchAuditOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=read.search_audit,
+    ),
+    ToolSpec(
         name=rbac.Tool.CREATE_TICKET.value,
         tool=rbac.Tool.CREATE_TICKET,
         description="File a helpdesk ticket for the calling user.",

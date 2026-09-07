@@ -234,6 +234,19 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. the design's audit row, the WIDEST in the matrix: six cells, and
+    # the only row where `auditor` holds one. `employee` is the single
+    # principal without one, so a row copied from any other by habit fails —
+    # every other row above denies at least two principals.
+    "search_audit": {
+        "employee": False,
+        "manager": True,
+        "system_owner": True,
+        "hr": True,
+        "it_admin": True,
+        "auditor": True,
+        "platform_admin": True,
+    },
 }
 
 # Tools whose PERMITTED call cannot succeed on arguments alone: both deciding
@@ -330,6 +343,14 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         "unlock_own_account",
         "create_ticket",
         "list_pending_approvals",
+        # An earlier change: `search_audit` takes ids only as optional FILTERS, and a
+        # filter naming another tenant's row is answered with an empty page,
+        # not a refusal (criterion 8) — so it cannot join the sweep below,
+        # which asserts every cross-tenant call errors. That empty page is
+        # pinned instead by `test_mcp_search_audit.py::
+        # test_another_tenants_subject_id_returns_an_empty_page_not_an_error`,
+        # which plants a REAL row in the other tenant.
+        "search_audit",
     }
 )
 # The five decision G names explicitly: everything they answer is decided by
