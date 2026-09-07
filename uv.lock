@@ -926,6 +926,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
+    { name = "qdrant-client" },
     { name = "redis" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
@@ -937,6 +938,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "pyjwt", specifier = ">=2.9" },
+    { name = "qdrant-client", specifier = ">=1.12" },
     { name = "redis", specifier = ">=5.2" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
 ]

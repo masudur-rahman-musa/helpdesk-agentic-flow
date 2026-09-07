@@ -39,6 +39,22 @@ TITLE_LENGTH = 200
 SOURCE_PATH_LENGTH = 256
 """The `policy_documents.source_path` column width."""
 
+COLLECTION_NAME_PREFIX = "policy_"
+"""What every per-tenant Qdrant collection is named `policy_{tenant_slug}` by."""
+
+COLLECTION_NAME_LENGTH = len(COLLECTION_NAME_PREFIX) + SLUG_LENGTH
+"""The cap on a Qdrant collection name.
+
+Derived, not chosen: a collection name is the prefix plus a tenant slug, so a
+smaller cap would refuse the longest tenant `check_slug` accepts and a larger
+one would admit a name no valid tenant can produce. Unlike the four widths
+above it guards no column — Qdrant takes the name as a URL path segment and
+sizes it itself — which is exactly why a project rule wants a pre-check here.
+`check_slug` is the narrower of the two gates. Pinned by
+`test_rag_naming.py::test_the_collection_name_cap_is_exactly_the_prefix_plus_the_slug_cap`
+and its accepted-at-71 / refused-at-72 pair.
+"""
+
 SLUG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 """A lowercase-hyphen slug: no uppercase, no underscore, no leading, trailing
 or doubled hyphen. `(tenant, slug)` is the key `is_current` is flipped over,
@@ -92,3 +108,15 @@ def check_title(value: str) -> str:
 def check_source_path(value: str) -> str:
     """The accepted source path, or `InvalidPolicyNameError`."""
     return _checked(value, cap=SOURCE_PATH_LENGTH, pattern=None, what="source path")
+
+
+def check_collection_name(value: str) -> str:
+    """The accepted Qdrant collection name, or `InvalidPolicyNameError`.
+
+    No pattern: the name is built from a slug `check_slug` has already
+    accepted, so the only thing left to bound is the length of the whole. The
+    empty string is refused here rather than left to the store, where it
+    addresses the collections index instead of a collection; pinned by
+    `test_rag_naming.py::test_an_empty_collection_name_is_refused`.
+    """
+    return _checked(value, cap=COLLECTION_NAME_LENGTH, pattern=None, what="collection name")

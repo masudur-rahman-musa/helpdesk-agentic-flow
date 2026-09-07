@@ -76,9 +76,7 @@ def _stripped(sentences: list[Sentence]) -> list[str]:
 # --- the partition invariant ---------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "text", [text for _, text in TEXTS], ids=[name for name, _ in TEXTS]
-)
+@pytest.mark.parametrize("text", [text for _, text in TEXTS], ids=[name for name, _ in TEXTS])
 def test_the_sentences_of_a_text_partition_it_exactly(text: str) -> None:
     """Catches a splitter that returns stripped sentences and so silently
     drops the whitespace between them: the concatenation then differs from
@@ -90,9 +88,7 @@ def test_the_sentences_of_a_text_partition_it_exactly(text: str) -> None:
     assert "".join(sentence.text for sentence in sentences) == text
 
 
-@pytest.mark.parametrize(
-    "text", [text for _, text in TEXTS], ids=[name for name, _ in TEXTS]
-)
+@pytest.mark.parametrize("text", [text for _, text in TEXTS], ids=[name for name, _ in TEXTS])
 def test_the_offsets_are_contiguous_and_span_the_text(text: str) -> None:
     """Catches offsets computed independently of the returned text — a
     splitter that reports the position of the MATCH (the full stop) rather

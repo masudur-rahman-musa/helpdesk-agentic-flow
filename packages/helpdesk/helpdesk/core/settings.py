@@ -2,8 +2,9 @@
 
 Every service builds its `Settings` from here; nothing reads os.environ
 directly. The four backing-service values are required so a misconfigured
-deployment fails at startup, not on first use; the three ingestion values
-added by an earlier change carry defaults, each with its reason next to the field.
+deployment fails at startup, not on first use; the four ingestion values
+added by an earlier change carry defaults, each with its reason next to the
+field.
 """
 
 from pathlib import Path
@@ -45,6 +46,19 @@ class Settings(BaseSettings):
     asked to ingest, rather than by refusing every service its settings.
     Pinned by
     `test_rag_gateway.py::test_a_tenant_with_no_configured_key_is_refused_before_any_request`.
+    """
+
+    qdrant_timeout_seconds: float = 30.0
+    """The timeout every Qdrant client this project builds carries.
+
+    Explicit rather than the library's own default:
+    ingestion upserts a whole document's points in one request, and a socket
+    with no deadline turns an unreachable vector store into a walker that
+    never returns. 30 seconds is the read half 14b's gateway client already
+    uses, so the two external calls of one ingest wait the same. Pinned by
+    `test_rag_vectors.py::test_the_settings_default_timeout_is_exactly_the_planned_value`,
+    and asserted on the CONSTRUCTED client by
+    `test_rag_vectors.py::test_the_constructed_client_carries_the_configured_timeout`.
     """
 
     embedding_cache_dir: Path = Path(".cache/fastembed")

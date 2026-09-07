@@ -10,6 +10,12 @@ Expected implementation surface (the implementer must provide exactly this):
     ``SLUG_PATTERN: re.Pattern[str]`` — a lowercase-hyphen slug.
     ``VERSION_PATTERN: re.Pattern[str]`` — ``r"v[1-9][0-9]{0,3}"`` (decision G).
     ``InvalidPolicyNameError(ToolError)`` — ``code = ErrorCode.VALIDATION``.
+    ``COLLECTION_NAME_LENGTH = 71`` — an earlier change decision G: the Qdrant
+        collection name is an UNSIZED store (a URL path segment with no
+        backstop of its own), so it gets a typed pre-check beside the four
+        above. The value is ``len("policy_") + SLUG_LENGTH``.
+    ``check_collection_name(value: str) -> str`` — raises the same
+        ``InvalidPolicyNameError``.
     ``check_slug(value: str) -> str``
     ``check_version(value: str) -> str``
     ``check_title(value: str) -> str``
@@ -39,6 +45,7 @@ from collections.abc import Callable
 import pytest
 from helpdesk.errors import ErrorCode
 from helpdesk.rag.naming import (
+    COLLECTION_NAME_LENGTH,
     SLUG_LENGTH,
     SLUG_PATTERN,
     SOURCE_PATH_LENGTH,
@@ -46,6 +53,7 @@ from helpdesk.rag.naming import (
     VERSION_LENGTH,
     VERSION_PATTERN,
     InvalidPolicyNameError,
+    check_collection_name,
     check_slug,
     check_source_path,
     check_title,
@@ -201,3 +209,53 @@ def test_an_empty_slug_and_an_empty_version_are_refused() -> None:
         with pytest.raises(InvalidPolicyNameError) as excinfo:
             check("")
         assert excinfo.value.code is ErrorCode.VALIDATION
+
+
+# --- an earlier change: the collection name, an unsized store (decision G) -------------
+
+COLLECTION_PREFIX = "policy_"
+
+
+def _collection_name_of_length(length: int) -> str:
+    """A collection name of exactly `length` characters, prefix included."""
+    return (COLLECTION_PREFIX + _slug_of_length(max(length - len(COLLECTION_PREFIX), 1)))[:length]
+
+
+def test_the_collection_name_cap_is_exactly_the_prefix_plus_the_slug_cap() -> None:
+    """Catches a `COLLECTION_NAME_LENGTH` chosen as a round number rather than
+    derived from what a collection name IS: a cap under 71 would refuse the
+    longest tenant `check_slug` accepts, and one over it would admit a name no
+    valid tenant can produce, which makes the pair a duplicate check instead
+    of an earlier change §5's narrowing pair."""
+    assert COLLECTION_NAME_LENGTH == 71
+    assert len(COLLECTION_PREFIX) + SLUG_LENGTH == COLLECTION_NAME_LENGTH
+
+
+def test_a_collection_name_at_exactly_the_cap_is_accepted() -> None:
+    """Catches an exclusive comparison (`< CAP` instead of `<=`), which would
+    refuse the collection of the longest tenant slug the store accepts — a
+    tenant that could then be seeded but never ingested."""
+    value = _collection_name_of_length(COLLECTION_NAME_LENGTH)
+    assert len(value) == COLLECTION_NAME_LENGTH
+    assert check_collection_name(value) == value
+
+
+def test_a_collection_name_one_over_the_cap_is_refused() -> None:
+    """Catches a missing length check on the one name in this package that no
+    column and no schema bounds: Qdrant takes the name as a URL path segment,
+    so without this pre-check an over-long name is a 4xx read back from the
+    store instead of a typed VALIDATION raised before the request."""
+    value = _collection_name_of_length(COLLECTION_NAME_LENGTH + 1)
+    assert len(value) == COLLECTION_NAME_LENGTH + 1
+    with pytest.raises(InvalidPolicyNameError) as excinfo:
+        check_collection_name(value)
+    assert excinfo.value.code is ErrorCode.VALIDATION
+
+
+def test_an_empty_collection_name_is_refused() -> None:
+    """Catches a check that only measures an upper bound, letting the empty
+    string through as a collection name — which Qdrant would read as a request
+    against the collections index rather than against a collection."""
+    with pytest.raises(InvalidPolicyNameError) as excinfo:
+        check_collection_name("")
+    assert excinfo.value.code is ErrorCode.VALIDATION

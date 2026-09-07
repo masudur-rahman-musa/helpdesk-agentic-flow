@@ -392,11 +392,8 @@ def test_every_character_of_every_corpus_section_lies_in_some_chunk(path: Path) 
             )
             continue
         uncovered = [
-            index
-            for index in range(section.char_start, section.char_end)
-            if index not in covered
+            index for index in range(section.char_start, section.char_end) if index not in covered
         ]
         assert not uncovered, (
-            f"{path}: section {section.heading_path} leaves "
-            f"{len(uncovered)} characters in no chunk"
+            f"{path}: section {section.heading_path} leaves {len(uncovered)} characters in no chunk"
         )

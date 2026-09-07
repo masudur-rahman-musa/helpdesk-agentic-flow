@@ -56,8 +56,7 @@ def embedder() -> FastEmbedEmbedder:
         settings = load_settings()
     except ValidationError as exc:
         pytest.fail(
-            "Settings are not configured (env or .env). Copy .env.example to .env.\n"
-            f"{exc}",
+            f"Settings are not configured (env or .env). Copy .env.example to .env.\n{exc}",
             pytrace=False,
         )
     cache_dir = Path(settings.embedding_cache_dir)
