@@ -1,5 +1,5 @@
 """ORM models: directory core, the audit chain, the
-idempotency keys, access requests and access reviews."""
+idempotency keys, access requests, access reviews and the policy corpus."""
 
 from helpdesk.models.access import (
     PERIOD_LENGTH,
@@ -25,6 +25,7 @@ from helpdesk.models.directory import (
     User,
 )
 from helpdesk.models.idempotency import IdempotencyKey
+from helpdesk.models.policy import PolicyChunk, PolicyDocument
 
 __all__ = [
     "PERIOD_LENGTH",
@@ -35,6 +36,8 @@ __all__ = [
     "Department",
     "Grant",
     "IdempotencyKey",
+    "PolicyChunk",
+    "PolicyDocument",
     "RequestStatus",
     "ReviewDecision",
     "ReviewFlag",
