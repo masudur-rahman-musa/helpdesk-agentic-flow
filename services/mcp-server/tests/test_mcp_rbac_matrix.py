@@ -43,7 +43,16 @@ from typing import Any
 
 import pytest
 from helpdesk.auth.rbac import Principal
-from helpdesk.models import AccessRequest, AccessReview, Grant, RequestStatus, ReviewStatus, User
+from helpdesk.models import (
+    AccessRequest,
+    AccessReview,
+    Grant,
+    RequestStatus,
+    ReviewFlag,
+    ReviewItem,
+    ReviewStatus,
+    User,
+)
 from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
@@ -96,14 +105,16 @@ MATRIX: dict[str, dict[str, bool]] = {
     "list_my_requests": dict.fromkeys(PRINCIPALS, True),
     "create_access_request": dict.fromkeys(PRINCIPALS, True),
     # An earlier change. The first rows on this axis that are not "everyone": the design
-    # gives the approval row four cells and leaves `employee`, `hr` and
-    # `auditor` without one. `hr` being denied here is the recorded the design /
-    # §9.3 conflict, not an oversight.
+    # gives the approval rows five cells and leaves `employee` and `auditor`
+    # without one. `hr` HOLDS a cell here since an earlier change step 5:
+    # the design puts an `hr` seat on a `critical` HRIS chain, and without the
+    # cell that seat was fillable by nobody. `auditor` is the cell that
+    # matters now — it holds one on the audit row and none here.
     "list_pending_approvals": {
         "employee": False,
         "manager": True,
         "system_owner": True,
-        "hr": False,
+        "hr": True,
         "it_admin": True,
         "auditor": False,
         "platform_admin": True,
@@ -112,7 +123,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "employee": False,
         "manager": True,
         "system_owner": True,
-        "hr": False,
+        "hr": True,
         "it_admin": True,
         "auditor": False,
         "platform_admin": True,
@@ -121,7 +132,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "employee": False,
         "manager": True,
         "system_owner": True,
-        "hr": False,
+        "hr": True,
         "it_admin": True,
         "auditor": False,
         "platform_admin": True,
@@ -176,6 +187,19 @@ MATRIX: dict[str, dict[str, bool]] = {
         "platform_admin": True,
     },
     "list_review_items": {
+        "employee": False,
+        "manager": True,
+        "system_owner": True,
+        "hr": True,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
+    # An earlier change. the design's `decide_review_item` row, identical to the two
+    # review rows above: the tool that turns a flag into a revocation is
+    # reachable by exactly the principals who may open the review and read
+    # its items, and by no one else.
+    "decide_review_item": {
         "employee": False,
         "manager": True,
         "system_owner": True,
@@ -242,7 +266,18 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
 # test_each_permitted_principal_opens_a_review_in_their_scope` and
 # `::test_the_two_denied_principals_open_nothing`, and the scope gate's own
 # kill is `::test_a_manager_may_not_open_a_review_for_another_department`.
-SCOPE_BEFORE_EXISTENCE_TOOLS = frozenset({"open_access_review", "list_review_items"})
+# An earlier change adds the third: `decide_review_item` answers the scope question
+# from the item's own review BEFORE the item's existence is tested (decision
+# H), so it belongs here and NOT in `ALLOW_ANSWERS_NOT_FOUND` (standing rule
+# 25) — a permitted-but-out-of-scope caller and a matrix denial would both
+# read FORBIDDEN and that cell would pin nothing. Its matrix cell is pinned
+# per principal by `test_mcp_reviews.py::
+# test_each_permitted_principal_decides_an_item_in_their_scope` and
+# `::test_the_two_denied_principals_decide_nothing`, and the ORDER of the two
+# stages by `::test_an_out_of_scope_item_is_refused_before_its_existence_is_tested`.
+SCOPE_BEFORE_EXISTENCE_TOOLS = frozenset(
+    {"open_access_review", "list_review_items", "decide_review_item"}
+)
 
 # An earlier change decision G. The tools that take an id argument, which is the axis
 # the cross-tenant sweep can actually exercise, and the rest. The two sets are
@@ -262,6 +297,8 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         # id, so both have a cross-tenant call to make.
         "open_access_review",
         "list_review_items",
+        # An earlier change: it takes a review ITEM id, so it has one too.
+        "decide_review_item",
     }
 )
 NO_ID_TOOLS: frozenset[str] = frozenset(
@@ -371,6 +408,17 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         }
     if tool_name == "list_review_items":
         return {"review_id": str(uuid.uuid4())}
+    if tool_name == "decide_review_item":
+        # An item id that resolves nowhere, so no principal ends anybody's
+        # access per matrix cell in the shared seeded database. A scoped
+        # caller is refused FORBIDDEN by the scope gate and an `any` caller
+        # NOT_FOUND by the lookup behind it, which is why this tool is in
+        # SCOPE_BEFORE_EXISTENCE_TOOLS rather than ALLOW_ANSWERS_NOT_FOUND.
+        return {
+            "item_id": str(uuid.uuid4()),
+            "decision": "keep",
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
     if tool_name in ALLOW_ANSWERS_NOT_FOUND:
         # Valid arguments naming a row that does not exist: a permitted
         # caller must get past RBAC and be refused NOT_FOUND by the lookup,
@@ -568,6 +616,31 @@ def _foreign_review(env: SeededMcp) -> uuid.UUID:
 
 
 @cache
+def _foreign_review_item(env: SeededMcp) -> uuid.UUID:
+    """One real `review_items` row in the OTHER tenant, planted once.
+
+    Same reason as `_foreign_review`: a random uuid answers NOT_FOUND whether
+    the tenant guard exists or not, so the id the sweep sends has to point at
+    a row that really exists somewhere else — and at a real grant there, so a
+    decision that escaped the guard would end genuine access.
+    """
+    item_id = uuid.uuid4()
+    _write(
+        env.database_url,
+        insert(ReviewItem).values(
+            id=item_id,
+            tenant_id=env.tenant_b.tenant_id,
+            review_id=_foreign_review(env),
+            grant_id=_live_grant_id(env.database_url, env.tenant_b.tenant_id),
+            flag=ReviewFlag.OK.value,
+            decision=None,
+            decided_at=None,
+        ),
+    )
+    return item_id
+
+
+@cache
 def _live_grant_id(database_url: str, tenant_id: uuid.UUID) -> uuid.UUID:
     """A grant the seed already wrote in the named tenant."""
     rows = _fetch(
@@ -647,6 +720,12 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         }
     if tool_name == "list_review_items":
         return {"review_id": str(_foreign_review(env))}
+    if tool_name == "decide_review_item":
+        return {
+            "item_id": str(_foreign_review_item(env)),
+            "decision": "keep",
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
     arguments = {"idempotency_key": f"fake-key-{uuid.uuid4().hex}"}
     if tool_name == "revoke_access":
         arguments["grant_id"] = str(_live_grant_id(env.database_url, env.tenant_b.tenant_id))

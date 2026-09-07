@@ -295,6 +295,10 @@ MUTATING_TOOL_NAMES = frozenset(
         # by its own duplicate check for a call the caller saw succeed.
         # `list_review_items` is a read and must stay off this list.
         "open_access_review",
+        # An earlier change: it writes a decision and can end a grant, so a retried
+        # call must replay rather than be refused POLICY_BLOCKED by decision
+        # C's already-decided check for a call the caller saw succeed.
+        "decide_review_item",
     }
 )
 

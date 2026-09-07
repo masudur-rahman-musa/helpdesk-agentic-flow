@@ -227,6 +227,22 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=reviews.open_access_review,
     ),
     ToolSpec(
+        # `tool.succeeded` is the SUMMARY event: the
+        # handler appends `review.item_decided` itself with the ITEM as its
+        # subject, and a revoke decision appends `grant.revoked` before it.
+        # The pipeline's event names the tool, so as the declared type it
+        # would record that somebody called one and not which grant was ended
+        # or whether the review is now finished.
+        name=rbac.Tool.DECIDE_REVIEW_ITEM.value,
+        tool=rbac.Tool.DECIDE_REVIEW_ITEM,
+        description="Keep or revoke one flagged grant of an access review.",
+        input_model=reviews.DecideReviewItemInput,
+        output_model=reviews.DecideReviewItemOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=reviews.decide_review_item,
+    ),
+    ToolSpec(
         name=rbac.Tool.LIST_REVIEW_ITEMS.value,
         tool=rbac.Tool.LIST_REVIEW_ITEMS,
         description="List the flagged grants of one access review.",

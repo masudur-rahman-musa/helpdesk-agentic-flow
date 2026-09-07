@@ -1,4 +1,5 @@
-"""The two review tools: opening one, and reading its items.
+"""The three review tools: opening one (12c), reading its items (12c), and
+deciding one of them (12e).
 
 `open_access_review` is the design's `open_access_review(department_id |
 system_id, period, idempotency_key)`. Everything it decides lives in
@@ -39,10 +40,15 @@ import uuid
 from datetime import UTC, datetime
 
 from helpdesk.access import (
+    ItemAlreadyDecidedError as ItemAlreadyDecidedError,  # re-exported for the tests
+)
+from helpdesk.access import (
     ReviewAlreadyOpenError as ReviewAlreadyOpenError,  # re-exported for the tests
 )
 from helpdesk.access import (
     SimulatedDirectory,
+    decide_item,
+    find_item,
     find_review,
     list_items,
     open_review,
@@ -51,7 +57,7 @@ from helpdesk.access import (
 from helpdesk.auth import rbac
 from helpdesk.core.repository import Repository
 from helpdesk.errors import NotFoundError
-from helpdesk.models import PERIOD_LENGTH, AccessReview, ReviewFlag, System
+from helpdesk.models import PERIOD_LENGTH, AccessReview, ReviewDecision, ReviewFlag, System
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -174,6 +180,47 @@ class ReviewItemOutput(BaseModel):
 class ListReviewItemsOutput(BaseModel):
     review_id: uuid.UUID
     items: list[ReviewItemOutput]
+
+
+class DecideReviewItemInput(MutatingToolInput):
+    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`.
+
+    `decision` is the `ReviewDecision` StrEnum itself, not a `str` with a
+    validator: the enum is the pre-check, so an unknown
+    word, an empty string, a member with a trailing newline and a member with
+    a trailing space are each refused as `VALIDATION` at argument parsing,
+    before any effect runs and with no client string anywhere near the
+    `review_items.decision` column. That is why no `re.fullmatch` validator
+    appears here as it does on `period` above — there is no pattern to get
+    wrong. Pinned, accepted and rejected rows alike, by
+    `test_mcp_reviews.py::test_the_decision_word_is_an_exact_enum_member_or_refused_before_any_write`.
+
+    Forbidding extras matters for the usual reason: a `tenant_id`, a
+    `decided_by_user_id` or a `reason` in the arguments is a caller who
+    believes they are choosing something they are not, and the reason is a
+    module constant nobody may supply (decision E).
+    """
+
+    item_id: uuid.UUID
+    decision: ReviewDecision
+
+
+class DecideReviewItemOutput(BaseModel):
+    item_id: uuid.UUID
+    review_id: uuid.UUID
+    decision: ReviewDecision
+    decided_at: datetime | None
+    revoked_grant_count: int
+    """0 for every `keep`, and 0 for decision B's item whose grant was already
+    revoked when the decision landed; 1 for a revocation that ended a row. The
+    caller is told what their decision actually did, rather than being left to
+    assume `revoke` always ends access."""
+
+    review_complete: bool
+    """Whether THIS decision was the review's last undecided item. There is no
+    `review.completed` event and no `complete_review` tool, so this and the
+    same key on `review.item_decided` are the whole record of a review
+    closing (decision F/G)."""
 
 
 async def _in_scope(
@@ -332,6 +379,84 @@ async def list_review_items(
     )
 
 
+async def decide_review_item(
+    session: AsyncSession, identity: Identity, args: DecideReviewItemInput
+) -> DecideReviewItemOutput:
+    """Record a reviewer's keep-or-revoke on one item, and act on it.
+
+    Scope is checked BEFORE the item's existence (decision H), from the item's
+    REVIEW, exactly as `list_review_items` above does it: an item id that is
+    missing or in another tenant reads as no scope at all, so a `manager` or
+    `system_owner` caller is refused `FORBIDDEN` without learning whether it
+    exists, and only an `any`-scope caller reaches the `NOT_FOUND` behind it.
+    Forced rather than chosen — 12c's two tools already answer in that order,
+    and one family answering differently for the same id would make this tool
+    the oracle the other two are not. Pinned by
+    `::test_an_out_of_scope_item_is_refused_before_its_existence_is_tested` and
+    `::test_a_missing_and_another_tenants_item_answer_the_same_not_found`.
+
+    Every refusal in order:
+
+    `FORBIDDEN` — the design's scope does not reach the item's review. Its own
+    kills are `::test_a_manager_may_not_decide_an_item_of_another_departments_review`
+    and `::test_a_system_owner_may_not_decide_an_item_of_a_system_they_do_not_own`,
+    whose callers the matrix admits, so only the scope comparison can refuse
+    them. As on 12c's two tools, the pipeline's matrix stage has no independent
+    kill here and that is a property of the code, not a gap: `_in_scope`
+    re-runs `rbac.authorize`, which raises for a principal holding no cell on
+    this row, so deleting the pipeline stage changes no answer (standing rule
+    20).
+
+    `NOT_FOUND` — no such item, or one in another tenant, indistinguishable
+    because `find_item` runs through the tenant-bound session.
+
+    `POLICY_BLOCKED` — the item already carries a decision
+    (`ItemAlreadyDecidedError`), refused under the grant row's lock so two
+    concurrent deciders leave one decided item and one refusal.
+
+    The caller's department is read from the DIRECTORY, never from the token's
+    `department_id` claim, through the same `_in_scope` the other two use
+    (`::test_the_deciders_department_comes_from_the_directory_not_the_token`).
+    Everything runs in the transaction the pipeline opened, so the decision,
+    the revocation, any completion and `review.item_decided` commit or roll
+    back together.
+    """
+    item = await find_item(session, args.item_id)
+    review = None if item is None else await find_review(session, item.review_id)
+    if not await _in_scope(
+        session,
+        identity,
+        rbac.Tool.DECIDE_REVIEW_ITEM,
+        department_id=None if review is None else review.department_id,
+        system_owner_user_id=await _owner_of(session, review),
+    ):
+        raise rbac.RbacDenied(rbac.Tool.DECIDE_REVIEW_ITEM.value)
+    if item is None:
+        raise NotFoundError("no such access review item in this tenant")
+
+    result = await decide_item(
+        session,
+        SimulatedDirectory(session),
+        item=item,
+        decision=args.decision,
+        decided_by_user_id=identity.user_id,
+        actor_ref=str(identity.user_id),
+        session_id=identity.session_id,
+        now=datetime.now(UTC),
+    )
+    return DecideReviewItemOutput(
+        item_id=result.item.id,
+        review_id=result.item.review_id,
+        # `args.decision` rather than the column read back: they are the same
+        # value — `decide_item` just wrote it — and the column is `str | None`,
+        # so re-parsing it would only add a widening the enum already forbids.
+        decision=args.decision,
+        decided_at=result.item.decided_at,
+        revoked_grant_count=result.revoked_grant_count,
+        review_complete=result.review_complete,
+    )
+
+
 async def _owner_of(session: AsyncSession, review: AccessReview | None) -> uuid.UUID | None:
     """The owner of a system-scoped review's system, or None.
 
@@ -349,12 +474,16 @@ __all__ = [
     "LIMIT_MAX",
     "LIMIT_MIN",
     "PERIOD_PATTERN",
+    "DecideReviewItemInput",
+    "DecideReviewItemOutput",
+    "ItemAlreadyDecidedError",
     "ListReviewItemsInput",
     "ListReviewItemsOutput",
     "OpenAccessReviewInput",
     "OpenAccessReviewOutput",
     "ReviewAlreadyOpenError",
     "ReviewItemOutput",
+    "decide_review_item",
     "list_review_items",
     "open_access_review",
 ]

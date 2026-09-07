@@ -144,6 +144,9 @@ LIMIT_TARGET_TWO = ROWS.users_by_department["Production"][56]
 EXTRA_ARG_TARGET = ROWS.users_by_department["Production"][57]
 NOT_PENDING_TARGET = ROWS.users_by_department["Production"][58]
 HR_SEAT_TARGET = ROWS.users_by_department["Production"][59]
+# An earlier change step 5: the chain an `hr` caller now completes, on its own target
+# so the `it_admin` refusal case above keeps its own untouched row.
+HR_CHAIN_TARGET = ROWS.users_by_department["Production"][67]
 # Same tenant, another department: a cross-tenant target
 # would be refused by the tenant guard whether the scope rule holds or not.
 SALES_TARGET = ROWS.users_by_department["Sales"][12]
@@ -632,41 +635,99 @@ def test_the_queue_ignores_an_unknown_argument(
 
 
 @pytest.mark.parametrize("tool_name", [LIST, APPROVE, REJECT])
-def test_an_hr_officer_cannot_reach_the_approval_tools_at_all(
+def test_an_hr_officer_reaches_all_three_approval_tools(
     mcp_env: SeededMcp,  # noqa: F811
     tool_name: str,
 ) -> None:
-    """Pins an earlier change §5's recorded the design / §9.3 conflict, so it reads as
-    the behaviour that was decided rather than as an oversight.
+    """An earlier change decision J / a design note, rewritten from an earlier change's FORBIDDEN
+    expectation. Catches the `hr` cells being dropped
+    again from the design's three approval rows.
 
-    §9.3 puts an `hr` seat on a `critical` request against an HRIS system;
-    §7's approval row gives `hr` no cell at all. This plan implements §7 as
-    written (the matrix is the single source of truth and changing the table
-    is the owner's call), so a critical HRIS chain contains a seat NOBODY may
-    fill: the `hr` caller is refused here at the RBAC stage, and an
-    `it_admin` or `platform_admin` does not hold the `hr` principal the seat
-    names — which the case below asserts. The row parks in `pending` for
-    ever. Catches someone "fixing" the conflict by adding `hr` to the matrix
-    without an ADR.
+    §9.3 puts an `hr` seat on a `critical` HRIS chain and §7's approval rows
+    gave `hr` no cell, so that seat was fillable by nobody and such a request
+    parked in `pending` for ever; a design note settles it by adding `hr` at
+    `Scope.ANY`, the scope `hr` already holds on every other row it appears
+    in. The row stays pinned in BOTH directions rather than deleted: this
+    case is the allow direction, and the matrix sweep's denial rows are the
+    other.
+
+    The two deciding tools name a request id that resolves nowhere, so the
+    assertion is `NOT_FOUND` and not success — the matrix let the caller
+    through and a LATER stage refused them, which is exactly what a
+    `FORBIDDEN` here would disprove. The queue takes no id at all, so it
+    answers with data. The token carries the officer's own principals, so
+    nothing but the `hr` cell can admit these calls.
     """
     officer = _seeded(HR_OFFICER)
     assert "hr" in officer.principals, "premise: the seeded HR index 1 is the officer"
-    events_before = _audit_event_types(mcp_env.database_url, officer.tenant_id)
+    assert set(officer.principals) & {"manager", "system_owner", "it_admin", "platform_admin"} == (
+        set()
+    ), "premise: the officer holds no OTHER principal with a cell on these rows"
 
     arguments = {} if tool_name == LIST else _decision_args(tool_name, uuid.uuid4())
     result = call_tool(bearer(token_for(officer)), tool_name, arguments)
 
-    assert error_code(result) == "FORBIDDEN"
-    events_after = _audit_event_types(mcp_env.database_url, officer.tenant_id)
-    assert events_after == [*events_before, DENIED_EVENT]
+    if tool_name == LIST:
+        assert result.is_error is False, result.content
+        assert _structured(result)["approvals"] is not None
+    else:
+        assert error_code(result) == "NOT_FOUND"
+
+
+def test_an_hr_caller_fills_the_hr_seat_of_a_critical_hris_chain_and_it_completes(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """The half of decision J that the matrix cell alone does not prove: the
+    §9.3 seat is now actually fillable, end to end.
+
+    An `hr` cell on the matrix would still leave the chain stuck if the seat
+    rule refused the caller — the case below shows an `it_admin` cannot fill
+    an `hr` seat, so SOMEBODY holding the `hr` principal has to be able to,
+    or the seat is decoration. The chain holds exactly one open `hr` slot on
+    a `critical` HRIS request, so completing it must execute the grant: the
+    grant row is re-read for the request, so a chain marked `approved` with
+    no access behind it fails here. The officer is a party to nothing in this
+    request, so the party rule cannot be what admits or refuses it.
+    """
+    officer = _seeded(HR_OFFICER)
+    request_id = _plant_request(
+        mcp_env.database_url,
+        requester_user_id=REQUESTER.id,
+        target_user_id=HR_CHAIN_TARGET.id,
+        role_id=CAPPED_ROLE,
+        approvals=[_seat(ApproverSlot.HR)],
+    )
+    assert officer.user_id not in {REQUESTER.id, HR_CHAIN_TARGET.id}, (
+        "premise: the officer is a party to neither side of this request"
+    )
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(officer)),
+            APPROVE,
+            {"request_id": str(request_id), "idempotency_key": _key()},
+        )
+    )
+
+    assert payload["slot"] == ApproverSlot.HR.value
+    assert payload["chain_complete"] is True
+    row = _request_row(mcp_env.database_url, request_id)
+    assert row.status == RequestStatus.APPROVED.value
+    assert _slots(row.approvals) == [(ApproverSlot.HR.value, SlotDecision.APPROVE.value)]
+    grants = _grants_for_request(mcp_env.database_url, request_id)
+    assert len(grants) == 1, "the completed chain must leave exactly one grant"
+    assert str(grants[0].user_id) == str(HR_CHAIN_TARGET.id)
+    assert str(grants[0].role_id) == str(CAPPED_ROLE)
 
 
 def test_an_it_admin_may_not_fill_the_hr_seat_a_critical_hris_chain_names(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """The second half of the conflict above: catches a group seat matched
-    against "any group principal", which would let an `it_admin` fill an `hr`
-    seat and silently shorten the §9.3 chain the seat exists for.
+    """The seat rule, which the matrix cell above cannot reach: catches a
+    group seat matched against "any group principal", which would let an
+    `it_admin` fill an `hr` seat and silently shorten the §9.3 chain the seat
+    exists for. Since a design note the `hr` caller reaches these tools, so this
+    refusal is the only thing keeping the seat meaning what it names.
 
     The caller's matrix cell ALLOWS `approve_request` (`it_admin`, scope
     `any`), and the row is pending, so neither the RBAC stage nor the status

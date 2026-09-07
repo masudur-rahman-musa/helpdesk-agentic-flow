@@ -154,21 +154,35 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
         Tool.EXECUTE_GRANT: {},  # system-only: no user principal, ever
+        # `hr` carries `any` on all three by a design note.
+        # the design puts an `hr` seat on a `critical` HRIS chain while the design
+        # originally gave `hr` no cell here, so that seat was fillable by
+        # NOBODY — an `hr` caller was refused before any seat was examined,
+        # and an `it_admin` or `platform_admin` reaching the tool does not
+        # hold the `hr` principal the seat names — and such a request parked
+        # in `pending` for ever with no error anywhere. `any` is the scope
+        # `hr` already holds on every other row it appears in; an HR officer
+        # has no department or system to narrow against. The seat exclusions
+        # are untouched: requester and target still fill no seat, and one
+        # person still fills at most one seat of a chain.
         Tool.LIST_PENDING_APPROVALS: {
             Principal.MANAGER: Scope.OWN_DEPARTMENT,
             Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
+            Principal.HR: Scope.ANY,
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
         Tool.APPROVE_REQUEST: {
             Principal.MANAGER: Scope.OWN_DEPARTMENT,
             Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
+            Principal.HR: Scope.ANY,
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
         Tool.REJECT_REQUEST: {
             Principal.MANAGER: Scope.OWN_DEPARTMENT,
             Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
+            Principal.HR: Scope.ANY,
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },

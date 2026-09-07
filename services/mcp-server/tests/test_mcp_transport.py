@@ -79,6 +79,10 @@ EXPECTED_TOOL_NAMES = {
     # An earlier change: opening an access review and reading its items.
     "open_access_review",
     "list_review_items",
+    # An earlier change: the keep-or-revoke half, the only path from a review to a
+    # change in access (a project rule: this literal is part of every diff
+    # that adds a REGISTRY entry).
+    "decide_review_item",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")

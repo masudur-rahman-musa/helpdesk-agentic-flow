@@ -50,10 +50,16 @@ from typing import Any
 
 import pytest
 from helpdesk.access.directory import SimulatedDirectory
+from helpdesk.access.lifecycle import OFFBOARD_REVOKE_REASON, TRANSFER_REVOKE_REASON
 from helpdesk.access.reviews import (
+    REVIEW_ITEM_DECIDED_EVENT_TYPE,
     REVIEW_OPENED_EVENT_TYPE,
+    REVIEW_REVOKE_REASON,
     STALE_WINDOW,
+    ItemAlreadyDecidedError,
     ReviewAlreadyOpenError,
+    decide_item,
+    find_item,
     list_items,
     open_review,
 )
@@ -63,6 +69,7 @@ from helpdesk.errors import ErrorCode
 from helpdesk.models import (
     Department,
     Grant,
+    ReviewDecision,
     ReviewFlag,
     ReviewStatus,
     Role,
@@ -902,26 +909,51 @@ def test_two_concurrent_openers_leave_exactly_one_review(
 # --- decision J: an empty scope -------------------------------------------------
 
 
-def test_a_scope_with_no_active_grants_opens_a_review_with_zero_items(
+def test_a_scope_with_no_active_grants_opens_a_review_already_completed(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision J: catches an empty scope being refused.
+    """An earlier change decision F, rewritten from an earlier change's `open` expectation. Catches an item-less review left `open`.
 
-    "Nobody holds anything" is a true answer to a review, and refusing it
-    would leave a department unreviewable precisely when it is clean — and
-    would make the emptiness itself unrecordable, since decision A's scope
-    columns are the only trace an item-less review leaves. The review row is
-    re-read and asserted `open` with its department set, so a handler that
-    returned early without writing anything fails too.
+    Completion is only ever written by deciding the LAST undecided item, so a
+    review with zero items has no path to `completed` at all: left `open` it
+    sits on row 21's reminder list for ever, and no call any principal can
+    make will ever clear it. The status AND `completed_at` are both asserted,
+    because a status flipped without the timestamp records a completion that
+    happened at no time. Decision J is unchanged and still pinned here: the
+    empty scope is opened rather than refused, with its department set, so a
+    handler that returned early without writing anything fails too.
     """
     scope = plant_scope(access_db_url, members=1)
 
-    review = open_one(access_db_url, department_id=scope.department_id)
+    review = open_one(access_db_url, department_id=scope.department_id, now=OPENED_AT)
 
     assert items_of(access_db_url, review.review_id) == {}
     rows = reviews_for(access_db_url, department_id=scope.department_id)
     assert [str(row[0]) for row in rows] == [str(review.review_id)]
-    assert str(rows[0][2]) == ReviewStatus.OPEN.value
+    assert str(rows[0][2]) == ReviewStatus.COMPLETED.value
+    assert review.status == ReviewStatus.COMPLETED.value
+    assert review_row(access_db_url, review.review_id).completed_at == OPENED_AT
+
+
+def test_a_scope_with_one_active_grant_still_opens_open(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """The other direction of decision F, without which the case above is
+    satisfied by a handler that writes every review `completed`.
+
+    One undecided item exists, so the review has something to answer and must
+    stay `open` with no `completed_at`. Deleting the "no items" condition and
+    completing every review is the single change that flips this.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    plant_grant(access_db_url, user_id=scope.members[0], role_id=scope.template_role_id)
+
+    review = open_one(access_db_url, department_id=scope.department_id)
+
+    assert review.status == ReviewStatus.OPEN.value
+    row = review_row(access_db_url, review.review_id)
+    assert row.status == ReviewStatus.OPEN.value
+    assert row.completed_at is None
 
 
 # --- the audit record (criterion 3, a project rule) ---------------------------
@@ -1089,3 +1121,652 @@ def test_another_tenants_review_items_are_invisible(
         )
         == []
     )
+
+
+# =================================================================================
+# An earlier change, sections 1 and 6: `decide_item`, the keep-or-revoke half.
+#
+# Surface under test (written before it exists):
+#
+# ``helpdesk.access.reviews``
+#     ``REVIEW_ITEM_DECIDED_EVENT_TYPE = "review.item_decided"`` (the design,
+#     decision G).
+#     ``REVIEW_REVOKE_REASON`` — the one fixed sentence a review's revocation
+#     writes to `grants.revoke_reason` (decision E).
+#     ``ItemAlreadyDecidedError(ToolError)`` — `code = POLICY_BLOCKED`
+#     (decision C).
+#     ``async def find_item(session, item_id) -> ReviewItem | None`` — the
+#     bound tenant's item, through the ORM.
+#     ``async def decide_item(session, directory, *, item, decision,
+#     decided_by_user_id, actor_ref=None, session_id=None, now)
+#     -> DecideItemResult`` — locks the item's GRANT row
+#     (`core.repository.lock_grant_row`, decision I), refuses a second
+#     decision, writes `decision` and `decided_at`, revokes that ONE row
+#     through `access.revoke.revoke_grant_row` for `revoke`, completes the
+#     review when nothing is left undecided, and appends one
+#     `review.item_decided`. All in the caller's transaction.
+#
+# The result carries `.item`, `.review`, `.revoked_grant_count` and
+# `.review_complete`.
+#
+# Namespace: the same seeded session-scoped database, the
+# same freshly planted scope per case, and unique periods; nothing here is
+# rebuilt.
+# =================================================================================
+
+# The decider, an IT user no other case in this file opens a review as.
+DECIDER = ROWS.users_by_department["IT"][6]
+
+# The revocation event's name as a LITERAL: this file must fail when the
+# constant it is written against is renamed.
+GRANT_REVOKED_EVENT = "grant.revoked"
+
+
+@dataclass(frozen=True)
+class DecisionFacts:
+    """What one `decide_item` returned, copied out before its session closes."""
+
+    item_id: uuid.UUID
+    decision: str | None
+    decided_at: datetime | None
+    revoked_grant_count: int
+    review_complete: bool
+    review_status: str
+
+
+@dataclass(frozen=True)
+class ReviewRow:
+    status: str
+    completed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ItemRow:
+    item_id: uuid.UUID
+    grant_id: uuid.UUID
+    flag: str
+    decision: str | None
+    decided_at: datetime | None
+
+
+@dataclass(frozen=True)
+class GrantRow:
+    status: str
+    revoked_at: datetime | None
+    revoke_reason: str | None
+
+
+def _execute(url: str, sql: str, params: dict[str, Any]) -> None:
+    """One committed statement written AROUND the surface, never through it."""
+
+    async def scenario() -> None:
+        engine = create_engine(url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(sql), params)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def review_row(url: str, review_id: uuid.UUID) -> ReviewRow:
+    rows = _rows(
+        url,
+        "SELECT status, completed_at FROM access_reviews WHERE id = :review",
+        {"review": review_id},
+    )
+    assert len(rows) == 1, f"expected exactly one review row, got {len(rows)}"
+    return ReviewRow(status=str(rows[0][0]), completed_at=rows[0][1])
+
+
+def item_rows(url: str, review_id: uuid.UUID) -> list[ItemRow]:
+    """Every item of one review, in the order they were written."""
+    return [
+        ItemRow(
+            item_id=uuid.UUID(str(row[0])),
+            grant_id=uuid.UUID(str(row[1])),
+            flag=str(row[2]),
+            decision=None if row[3] is None else str(row[3]),
+            decided_at=row[4],
+        )
+        for row in _rows(
+            url,
+            "SELECT id, grant_id, flag, decision, decided_at FROM review_items"
+            " WHERE review_id = :review ORDER BY created_at, id",
+            {"review": review_id},
+        )
+    ]
+
+
+def grant_row(url: str, grant_id: uuid.UUID) -> GrantRow:
+    rows = _rows(
+        url,
+        "SELECT status, revoked_at, revoke_reason FROM grants WHERE id = :grant",
+        {"grant": grant_id},
+    )
+    assert len(rows) == 1, f"expected exactly one grant row, got {len(rows)}"
+    return GrantRow(status=str(rows[0][0]), revoked_at=rows[0][1], revoke_reason=rows[0][2])
+
+
+def decided_events(url: str) -> list[Any]:
+    return _rows(
+        url,
+        "SELECT subject_type, subject_id, payload FROM audit_events"
+        " WHERE tenant_id = :tenant AND event_type = :event_type ORDER BY seq",
+        {"tenant": ROWS.tenant_id, "event_type": REVIEW_ITEM_DECIDED_EVENT_TYPE},
+    )
+
+
+def revoked_events(url: str) -> list[Any]:
+    return _rows(
+        url,
+        "SELECT subject_id, payload FROM audit_events"
+        " WHERE tenant_id = :tenant AND event_type = :event_type ORDER BY seq",
+        {"tenant": ROWS.tenant_id, "event_type": GRANT_REVOKED_EVENT},
+    )
+
+
+def decide_one(
+    url: str,
+    *,
+    item_id: uuid.UUID,
+    decision: ReviewDecision,
+    now: datetime = OPENED_AT,
+) -> DecisionFacts:
+    """One `decide_item` in one committed transaction, item read by `find_item`."""
+
+    async def work(session: AsyncSession) -> DecisionFacts:
+        item = await find_item(session, item_id)
+        assert item is not None, "premise: the item resolves in the bound tenant"
+        result = await decide_item(
+            session,
+            SimulatedDirectory(session),
+            item=item,
+            decision=decision,
+            decided_by_user_id=DECIDER.id,
+            actor_ref=str(DECIDER.id),
+            session_id=None,
+            now=now,
+        )
+        return DecisionFacts(
+            item_id=result.item.id,
+            decision=result.item.decision,
+            decided_at=result.item.decided_at,
+            revoked_grant_count=result.revoked_grant_count,
+            review_complete=result.review_complete,
+            review_status=result.review.status,
+        )
+
+    return in_tenant(url, work)
+
+
+def decide_then_raise(url: str, *, item_id: uuid.UUID) -> None:
+    """Decide `revoke`, then fail the enclosing transaction."""
+
+    async def work(session: AsyncSession) -> None:
+        item = await find_item(session, item_id)
+        assert item is not None, "premise: the item resolves in the bound tenant"
+        result = await decide_item(
+            session,
+            SimulatedDirectory(session),
+            item=item,
+            decision=ReviewDecision.REVOKE,
+            decided_by_user_id=DECIDER.id,
+            actor_ref=str(DECIDER.id),
+            session_id=None,
+            now=OPENED_AT,
+        )
+        assert result.revoked_grant_count == 1, (
+            "premise: the grant was revoked before the caller failed"
+        )
+        raise _Boom("the caller failed after the decision was written")
+
+    with contextlib.suppress(_Boom):
+        in_tenant(url, work)
+
+
+def open_with_grants(
+    url: str, *, expires_at: datetime | None = FAR_EXPIRY, count: int = 1
+) -> tuple[Scope, ReviewFacts, list[ItemRow]]:
+    """A planted scope holding `count` active grants, and the review over it."""
+    scope = plant_scope(url, members=1)
+    roles = (scope.template_role_id, scope.extra_role_id, scope.other_system_role_id)
+    assert count <= len(roles), "this helper plants at most one grant per planted role"
+    for role_id in roles[:count]:
+        plant_grant(url, user_id=scope.members[0], role_id=role_id, expires_at=expires_at)
+    review = open_one(url, department_id=scope.department_id)
+    items = item_rows(url, review.review_id)
+    assert len(items) == count, "premise: one item per planted grant"
+    return scope, review, items
+
+
+# --- the constants --------------------------------------------
+
+
+def test_the_decide_constants_and_error_code_are_exactly_the_spec_values() -> None:
+    """Pins every 12e value this file otherwise reads as a symbol.
+
+    Catches the event type renamed, which leaves every query in this file
+    green (they all read the constant) and the audit log unqueryable.
+    Catches `ItemAlreadyDecidedError` carrying `NOT_FOUND` — telling a caller
+    who legitimately reached the item that it does not exist — or inheriting
+    `ToolError`'s default `INTERNAL`, filing a refused re-decision as an
+    outage.
+
+    `REVIEW_REVOKE_REASON` is asserted byte for byte AND against the other
+    two revocation reasons in the codebase (decision E): the reason is the
+    only thing on the row and on the event that tells an auditor a review
+    ended this access rather than a transfer, an offboarding or a manual
+    `revoke_access`, so a reason equal to (or containing) one of the others
+    destroys exactly the distinction it exists for.
+    """
+    assert REVIEW_ITEM_DECIDED_EVENT_TYPE == "review.item_decided"
+    assert REVIEW_REVOKE_REASON == "revoked by an access review decision"
+    assert REVIEW_REVOKE_REASON not in {TRANSFER_REVOKE_REASON, OFFBOARD_REVOKE_REASON}
+    assert ItemAlreadyDecidedError.code is ErrorCode.POLICY_BLOCKED
+    assert ItemAlreadyDecidedError.code.value == "POLICY_BLOCKED"
+
+
+# --- `keep`: a record and nothing else (criterion 3, decision D) -----------------
+
+
+def test_keep_records_the_decision_and_touches_no_grant_and_no_other_item(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Decision D. Catches a `keep` that extends the grant's expiry, revokes
+    anything, or stamps every item of the review instead of the one named.
+
+    The review holds TWO items, and only the first is decided: the second is
+    re-read and must still carry a null `decision` and a null `decided_at`,
+    so an update keyed on the REVIEW rather than on the item fails here while
+    a single-item case would pass it. Both grant rows are re-read whole
+    (status, `revoked_at`, `revoke_reason`) and the tenant's `grant.revoked`
+    count is unchanged, so "keep changes no access at all" is asserted about
+    the store and not about the return value. `decided_at` is the exact
+    instant the caller passed, so a decider reading its own clock fails.
+    """
+    _scope, review, items = open_with_grants(access_db_url, count=2)
+    revocations_before = len(revoked_events(access_db_url))
+
+    facts = decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.KEEP)
+
+    assert facts.decision == ReviewDecision.KEEP.value
+    assert facts.decided_at == OPENED_AT
+    assert facts.revoked_grant_count == 0
+    after = item_rows(access_db_url, review.review_id)
+    assert after[0].decision == ReviewDecision.KEEP.value
+    assert after[0].decided_at == OPENED_AT
+    assert after[1].decision is None, "the item nobody decided must stay undecided"
+    assert after[1].decided_at is None
+    for item in after:
+        row = grant_row(access_db_url, item.grant_id)
+        assert row.status == ACTIVE_GRANT_STATUS
+        assert row.revoked_at is None
+        assert row.revoke_reason is None
+    assert len(revoked_events(access_db_url)) == revocations_before
+
+
+# --- `revoke`: the one path from a review to a change (criteria 2 and 4) ---------
+
+
+def test_revoke_ends_the_items_grant_with_the_review_reason_and_one_event(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Criterion 2. Catches a `revoke` that records the decision and leaves
+    the access alive, and one that revokes with a reason an auditor cannot
+    tell from a manual `revoke_access`.
+
+    Every column that says a grant is gone is asserted as an exact value —
+    `status`, `revoked_at` against the instant the caller passed, and
+    `revoke_reason` byte for byte against `REVIEW_REVOKE_REASON` — because
+    `list_active_grants_for_user` reads two of the three, so a revocation
+    writing only `revoked_at` looks correct to every reader while the row
+    still says `active`. Exactly ONE `grant.revoked` is appended, naming that
+    grant as its subject: the review's unit is one row (decision A), so a
+    decide path that fanned out over the (user, role) live set would end a
+    neighbouring grant nobody reviewed. The SECOND item's grant is re-read
+    unchanged, which is what pins that fan-out.
+    """
+    _scope, review, items = open_with_grants(access_db_url, count=2)
+    revocations_before = len(revoked_events(access_db_url))
+
+    facts = decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.REVOKE)
+
+    assert facts.decision == ReviewDecision.REVOKE.value
+    assert facts.revoked_grant_count == 1
+    revoked = grant_row(access_db_url, items[0].grant_id)
+    assert revoked.status == REVOKED_GRANT_STATUS
+    assert revoked.revoked_at == OPENED_AT
+    assert revoked.revoke_reason == REVIEW_REVOKE_REASON
+    untouched = grant_row(access_db_url, items[1].grant_id)
+    assert untouched.status == ACTIVE_GRANT_STATUS
+    assert untouched.revoked_at is None
+    events = revoked_events(access_db_url)
+    assert len(events) == revocations_before + 1, "one grant.revoked, for one row"
+    assert str(events[-1][0]) == str(items[0].grant_id)
+    assert dict(events[-1][1])["reason"] == REVIEW_REVOKE_REASON
+    assert item_rows(access_db_url, review.review_id)[1].decision is None
+
+
+def test_a_stale_items_grant_is_revoked_although_no_live_set_holds_it(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Criterion 4 and decision A, the case the whole extraction exists for.
+
+    The grant is `active` but its expiry has already gone by, so an earlier change's
+    `lock_live_grants_for_role` returns nothing for its (user, role) and
+    `revoke_role_access` would refuse it `POLICY_BLOCKED` — leaving the most
+    reviewable item in the tenant the one item a reviewer cannot revoke, and
+    a review nobody can complete. Routing the decide path through 11d
+    unchanged (decision A option ii) is the single change that fails this:
+    every other case here plants a grant with a distant expiry and passes
+    either way.
+
+    The item's flag is asserted `stale` as a premise, so a fixture that
+    stopped producing the case cannot leave this green.
+    """
+    _scope, review, items = open_with_grants(access_db_url, expires_at=PAST_EXPIRY, count=1)
+    assert items[0].flag == ReviewFlag.STALE.value, "premise: this is decision A's row"
+    revocations_before = len(revoked_events(access_db_url))
+
+    facts = decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.REVOKE)
+
+    assert facts.revoked_grant_count == 1
+    row = grant_row(access_db_url, items[0].grant_id)
+    assert row.status == REVOKED_GRANT_STATUS
+    assert row.revoke_reason == REVIEW_REVOKE_REASON
+    assert len(revoked_events(access_db_url)) == revocations_before + 1
+    assert review_row(access_db_url, review.review_id).status == ReviewStatus.COMPLETED.value
+
+
+# --- decision B: the grant went away while the review waited ---------------------
+
+
+def test_a_grant_revoked_before_the_decision_is_recorded_and_revokes_nothing(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Decision B. Catches a decide path that refuses an item whose grant is
+    already gone, and one that revokes it a second time.
+
+    Refusing leaves an item nobody can decide and therefore a review nobody
+    can complete, and the reviewer's only remaining move would be `keep`,
+    which would record a lie. Revoking again would rewrite `revoke_reason`
+    and `revoked_at` and erase the record of what actually ended the access —
+    both are re-read against the HISTORIC values written around the tool, so
+    a second revocation fails on the reason rather than on a count. The
+    reported `revoked_grant_count` is `0`, which is the only thing that keeps
+    the audit record honest about a decision that ended nothing.
+    """
+    _scope, review, items = open_with_grants(access_db_url, count=1)
+    historic_at = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
+    historic_reason = "fake historical revocation, must not be rewritten"
+    _execute(
+        access_db_url,
+        "UPDATE grants SET status = :status, revoked_at = :at, revoke_reason = :reason"
+        " WHERE id = :grant",
+        {
+            "status": REVOKED_GRANT_STATUS,
+            "at": historic_at,
+            "reason": historic_reason,
+            "grant": items[0].grant_id,
+        },
+    )
+    revocations_before = len(revoked_events(access_db_url))
+
+    facts = decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.REVOKE)
+
+    assert facts.decision == ReviewDecision.REVOKE.value
+    assert facts.revoked_grant_count == 0
+    assert item_rows(access_db_url, review.review_id)[0].decision == ReviewDecision.REVOKE.value
+    row = grant_row(access_db_url, items[0].grant_id)
+    assert row.revoked_at == historic_at
+    assert row.revoke_reason == historic_reason
+    assert len(revoked_events(access_db_url)) == revocations_before
+
+
+# --- decision C: a decision is written once --------------------------------------
+
+
+def test_a_second_decision_on_a_decided_item_is_refused_and_writes_nothing(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Decision C. Catches an overwrite, which destroys the only thing the
+    table is for: what a named person decided at a named instant.
+
+    The second call names the OPPOSITE decision, so an implementation that
+    overwrites is visible in the stored word and not only in a timestamp, and
+    the grant is re-read `active` afterwards, so an overwrite that also
+    revoked the access fails on the row as well as on the item. The refusal
+    is `ItemAlreadyDecidedError` (`POLICY_BLOCKED`) rather than a silent
+    no-op: a reviewer who believes their revoke landed must be told it did
+    not.
+    """
+    _scope, review, items = open_with_grants(access_db_url, count=1)
+    first = decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.KEEP)
+    assert first.decision == ReviewDecision.KEEP.value
+    revocations_before = len(revoked_events(access_db_url))
+    events_before = len(decided_events(access_db_url))
+
+    with pytest.raises(ItemAlreadyDecidedError):
+        decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.REVOKE)
+
+    stored = item_rows(access_db_url, review.review_id)[0]
+    assert stored.decision == ReviewDecision.KEEP.value
+    assert stored.decided_at == OPENED_AT
+    assert grant_row(access_db_url, items[0].grant_id).status == ACTIVE_GRANT_STATUS
+    assert len(revoked_events(access_db_url)) == revocations_before
+    assert len(decided_events(access_db_url)) == events_before
+
+
+def test_two_concurrent_deciders_leave_one_decided_item_and_one_refusal(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Decision I's lock, on two real connections.
+
+    Both callers ask to REVOKE the same item and neither sends an idempotency
+    key at this layer, so nothing but `SELECT … FOR UPDATE` on the item's
+    grant row can serialise them: without it both read an undecided item,
+    both pass decision C's check, and the grant is revoked twice — two
+    `grant.revoked` events for one row, the second rewriting the first's
+    `revoked_at`. Exactly one success, exactly one `POLICY_BLOCKED` and
+    exactly one revocation event are asserted, so a lock taken AFTER the
+    already-decided check (which serialises nothing) fails here.
+    """
+    _scope, review, items = open_with_grants(access_db_url, count=1)
+    revocations_before = len(revoked_events(access_db_url))
+
+    def attempt() -> str:
+        try:
+            decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.REVOKE)
+        except ItemAlreadyDecidedError:
+            return "refused"
+        return "decided"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = [future.result() for future in [pool.submit(attempt), pool.submit(attempt)]]
+
+    assert sorted(outcomes) == ["decided", "refused"], outcomes
+    assert item_rows(access_db_url, review.review_id)[0].decision == ReviewDecision.REVOKE.value
+    assert len(revoked_events(access_db_url)) == revocations_before + 1
+    assert grant_row(access_db_url, items[0].grant_id).revoked_at == OPENED_AT
+
+
+# --- completion (criterion 6, decision F) ----------------------------------------
+
+
+def test_the_last_undecided_item_completes_the_review_and_an_earlier_one_does_not(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Criterion 6, both directions in one review.
+
+    Catches a decide that completes on the FIRST item — which would close a
+    reviewer's worklist while items they never saw are still undecided — and
+    one that never completes at all, leaving every review on row 21's
+    reminder list for ever. `review_complete` is asserted on BOTH results,
+    because it is the only place the flag is observable before the event, and
+    `completed_at` is asserted null after the first decision and exactly the
+    caller's instant after the second: a status flipped without the timestamp
+    records a completion that happened at no time.
+    """
+    _scope, review, items = open_with_grants(access_db_url, count=2)
+
+    first = decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.KEEP)
+
+    assert first.review_complete is False
+    assert first.review_status == ReviewStatus.OPEN.value
+    midway = review_row(access_db_url, review.review_id)
+    assert midway.status == ReviewStatus.OPEN.value
+    assert midway.completed_at is None
+
+    last = decide_one(access_db_url, item_id=items[1].item_id, decision=ReviewDecision.KEEP)
+
+    assert last.review_complete is True
+    assert last.review_status == ReviewStatus.COMPLETED.value
+    closed = review_row(access_db_url, review.review_id)
+    assert closed.status == ReviewStatus.COMPLETED.value
+    assert closed.completed_at == OPENED_AT
+
+
+def test_a_neighbouring_reviews_undecided_item_does_not_hold_this_one_open(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """The completion check is per REVIEW, not per tenant.
+
+    A second review over a different scope is opened first and left entirely
+    undecided, so a completion rule that asked "are any items in this tenant
+    undecided" would leave this review `open` after its last item was
+    answered — and would complete the neighbour the moment somebody else
+    finished theirs. Nothing else in this file plants two live reviews at
+    once, so no other case can fail on it.
+    """
+    _neighbour, neighbour_review, neighbour_items = open_with_grants(access_db_url, count=1)
+    _scope, review, items = open_with_grants(access_db_url, count=1)
+
+    last = decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.KEEP)
+
+    assert last.review_complete is True
+    assert review_row(access_db_url, review.review_id).status == ReviewStatus.COMPLETED.value
+    assert review_row(access_db_url, neighbour_review.review_id).status == ReviewStatus.OPEN.value
+    assert item_rows(access_db_url, neighbour_review.review_id)[0].decision is None
+    assert neighbour_items[0].decision is None
+
+
+# --- the audit record (decision G, a project rule) -----------------------------
+
+
+def test_review_item_decided_names_the_item_and_carries_decision_gs_keys(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """a project rule. Catches an event whose subject is the review, the
+    grant or the tool rather than the ITEM, and one whose payload cannot
+    answer what the reviewer did.
+
+    An auditor asking "what happened to item X" queries `subject_id`; an
+    event naming the review answers that question for no item in the tenant
+    while a count-only assertion still passes. The payload keys are asserted
+    as an exact set and every value is checked, because each one answers a
+    question nothing else in the log can: `grant_id`, `user_id` and `role_id`
+    say WHOSE access this was (the item row alone names only a grant),
+    `flag` says why it was in front of a reviewer, `revoked_grant_count`
+    distinguishes decision B's "revoke that ended nothing" from a real
+    revocation, and `review_complete` is the ONLY record that this decision
+    closed the review — there is no `review.completed` event.
+    """
+    _scope, review, items = open_with_grants(access_db_url, count=2)
+    events_before = len(decided_events(access_db_url))
+    scope_item = item_rows(access_db_url, review.review_id)[0]
+
+    decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.REVOKE)
+
+    events = decided_events(access_db_url)
+    assert len(events) == events_before + 1, "exactly one review.item_decided per decision"
+    subject_type, subject_id, payload = events[-1]
+    assert str(subject_type) == "review_item"
+    assert str(subject_id) == str(items[0].item_id)
+    payload = dict(payload)
+    assert set(payload) == {
+        "review_id",
+        "item_id",
+        "grant_id",
+        "user_id",
+        "role_id",
+        "flag",
+        "decision",
+        "revoked_grant_count",
+        "review_complete",
+    }
+    assert payload["review_id"] == str(review.review_id)
+    assert payload["item_id"] == str(items[0].item_id)
+    assert payload["grant_id"] == str(items[0].grant_id)
+    assert payload["flag"] == scope_item.flag
+    assert payload["decision"] == ReviewDecision.REVOKE.value
+    assert payload["revoked_grant_count"] == 1
+    assert payload["review_complete"] is False, "one item is still undecided"
+
+    decide_one(access_db_url, item_id=items[1].item_id, decision=ReviewDecision.KEEP)
+
+    closing = dict(decided_events(access_db_url)[-1][2])
+    assert closing["review_complete"] is True
+    assert closing["revoked_grant_count"] == 0
+
+
+def test_the_decision_the_revocation_and_the_event_roll_back_together(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Catches a decide path that commits (or opens its own session for) the
+    item update, the revocation or the event.
+
+    The caller fails AFTER `decide_item` returned, so anything committed in
+    its own transaction survives a rollback that must take it — an item
+    recorded as revoked whose access is still live, a revoked grant nobody
+    can point at a decision for, or a `review.item_decided` describing a
+    decision that does not exist. Each of the three is re-read; the two event
+    counts are safe to assert as unchanged because the cases above prove both
+    are normally written, so an implementation that never writes them fails
+    there rather than silently here.
+    """
+    _scope, review, items = open_with_grants(access_db_url, count=1)
+    decisions_before = len(decided_events(access_db_url))
+    revocations_before = len(revoked_events(access_db_url))
+
+    decide_then_raise(access_db_url, item_id=items[0].item_id)
+
+    stored = item_rows(access_db_url, review.review_id)[0]
+    assert stored.decision is None
+    assert stored.decided_at is None
+    grant = grant_row(access_db_url, items[0].grant_id)
+    assert grant.status == ACTIVE_GRANT_STATUS
+    assert grant.revoked_at is None
+    assert review_row(access_db_url, review.review_id).status == ReviewStatus.OPEN.value
+    assert len(decided_events(access_db_url)) == decisions_before
+    assert len(revoked_events(access_db_url)) == revocations_before
+
+
+# --- `find_item` (the handler's existence half) ----------------------------------
+
+
+def test_find_item_answers_nothing_for_another_tenants_item(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Catches `find_item` reading `review_items` outside the tenant guard.
+
+    The id alone must not be a capability: a session bound to another tenant
+    must answer exactly as it does for an id that never existed, which is
+    what lets the caller turn both into ONE `NOT_FOUND`. The same read is
+    proved non-empty in the owning tenant first, so an implementation that
+    answers None to everybody cannot pass.
+    """
+    _scope, _review, items = open_with_grants(access_db_url, count=1)
+
+    async def work(session: AsyncSession) -> uuid.UUID | None:
+        found = await find_item(session, items[0].item_id)
+        return None if found is None else found.id
+
+    async def missing(session: AsyncSession) -> uuid.UUID | None:
+        found = await find_item(session, uuid.uuid4())
+        return None if found is None else found.id
+
+    assert in_tenant(access_db_url, work) == items[0].item_id
+    assert in_tenant(access_db_url, work, tenant_id=OTHER_TENANT_ROWS.tenant_id) is None
+    assert in_tenant(access_db_url, missing) is None

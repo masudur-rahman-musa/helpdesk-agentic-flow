@@ -1178,3 +1178,696 @@ def test_the_audit_sequence_is_review_opened_then_tool_succeeded(
     assert event_payload["period"] == used_period
     assert event_payload["reviewer_user_id"] == str(scope.manager.user_id)
     assert event_payload["item_count"] == 1
+
+
+# =================================================================================
+# An earlier change, sections 1 and 6: `decide_review_item`, through the transport.
+#
+# Surface under test (written before it exists):
+#
+# ``mcp_server.tools.reviews``
+#     ``DecideReviewItemInput(MutatingToolInput)`` — ``item_id: uuid.UUID``
+#     and ``decision: ReviewDecision`` (the StrEnum, so no client string can
+#     reach the column), plus the idempotency key and ``extra="forbid"`` of
+#     ``MutatingToolInput``. No tenant and no user argument: both come from
+#     the token.
+#     ``DecideReviewItemOutput`` — ``item_id``, ``review_id``, ``decision``,
+#     ``decided_at``, ``revoked_grant_count`` and ``review_complete``.
+#     ``decide_review_item`` (MUTATING, registry ``event_type`` the generic
+#     ``tool.succeeded``: the handler's own ``review.item_decided`` names the
+#     ITEM and lands first).
+#
+# Scope is checked BEFORE the item's existence (decision H), the same order
+# as 12c's two tools, so an item id is neither an existence nor a state
+# oracle for a caller whose the design row does not reach it.
+# =================================================================================
+
+DECIDE = "decide_review_item"
+
+# The audit contract as literals, never imports (same reason as above).
+REVIEW_ITEM_DECIDED_EVENT = "review.item_decided"
+GRANT_REVOKED_EVENT = "grant.revoked"
+
+KEEP = "keep"
+REVOKE = "revoke"
+
+
+def _decide_args(
+    item_id: uuid.UUID | str,
+    decision: str,
+    *,
+    idempotency_key: str | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "item_id": str(item_id),
+        "decision": decision,
+        "idempotency_key": _key() if idempotency_key is None else idempotency_key,
+        **extra,
+    }
+
+
+def _item_rows(database_url: str, review_id: uuid.UUID) -> list[Any]:
+    return _rows(
+        database_url,
+        "SELECT id, grant_id, flag, decision, decided_at FROM review_items"
+        " WHERE review_id = :review ORDER BY created_at, id",
+        {"review": review_id},
+    )
+
+
+def _item_row(database_url: str, item_id: uuid.UUID | str) -> Any:
+    rows = _rows(
+        database_url,
+        "SELECT id, grant_id, decision, decided_at FROM review_items WHERE id = :item",
+        {"item": uuid.UUID(str(item_id))},
+    )
+    assert len(rows) == 1, f"expected exactly one item row, got {len(rows)}"
+    return rows[0]
+
+
+def _grant_row(database_url: str, grant_id: uuid.UUID | str) -> Any:
+    rows = _rows(
+        database_url,
+        "SELECT status, revoked_at, revoke_reason FROM grants WHERE id = :grant",
+        {"grant": uuid.UUID(str(grant_id))},
+    )
+    assert len(rows) == 1, f"expected exactly one grant row, got {len(rows)}"
+    return rows[0]
+
+
+def _review_row(database_url: str, review_id: uuid.UUID | str) -> Any:
+    rows = _rows(
+        database_url,
+        "SELECT status, completed_at FROM access_reviews WHERE id = :review",
+        {"review": uuid.UUID(str(review_id))},
+    )
+    assert len(rows) == 1, f"expected exactly one review row, got {len(rows)}"
+    return rows[0]
+
+
+def _decided_events(database_url: str, tenant_id: uuid.UUID) -> list[Any]:
+    return _rows(
+        database_url,
+        "SELECT subject_type, subject_id, payload FROM audit_events WHERE tenant_id = :tenant"
+        " AND event_type = :event_type ORDER BY seq",
+        {"tenant": tenant_id, "event_type": REVIEW_ITEM_DECIDED_EVENT},
+    )
+
+
+def _revoked_event_count(database_url: str, tenant_id: uuid.UUID) -> int:
+    return len(
+        _rows(
+            database_url,
+            "SELECT seq FROM audit_events WHERE tenant_id = :tenant AND event_type = :event_type",
+            {"tenant": tenant_id, "event_type": GRANT_REVOKED_EVENT},
+        )
+    )
+
+
+def _plant_item(
+    database_url: str,
+    tenant_id: uuid.UUID,
+    *,
+    review_id: uuid.UUID,
+    grant_id: uuid.UUID,
+) -> uuid.UUID:
+    """One committed `review_items` row, written around the tools.
+
+    Used for the OTHER tenant only: an item the tools must never reach has to
+    be a real row there, or a `NOT_FOUND` would prove nothing.
+    """
+    item_id = uuid.uuid4()
+    _execute(
+        database_url,
+        "INSERT INTO review_items (id, tenant_id, review_id, grant_id, flag, decision,"
+        " decided_at, created_at, updated_at)"
+        " VALUES (:id, :tenant, :review, :grant, :flag, NULL, NULL, now(), now())",
+        {
+            "id": item_id,
+            "tenant": tenant_id,
+            "review": review_id,
+            "grant": grant_id,
+            "flag": ReviewFlag.OK.value,
+        },
+    )
+    return item_id
+
+
+def _open_with_item(
+    env: SeededMcp, scope: Scope, *, principal: str = "manager"
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Open a review over `scope` and return (review_id, its one item id).
+
+    Driven through the two 12c tools rather than by planting rows, so the
+    item under decision is exactly the item a reviewer would be shown.
+    """
+    token = bearer(token_for(_caller_for(principal, scope), principals=(principal,)))
+    opened = _structured(call_tool(token, OPEN, _scope_arguments_for(principal, scope)))
+    listed = _structured(call_tool(token, LIST, {"review_id": str(opened["review_id"])}))
+    assert len(listed["items"]) == 1, "premise: the planted scope holds exactly one grant"
+    return uuid.UUID(str(opened["review_id"])), uuid.UUID(str(listed["items"][0]["item_id"]))
+
+
+# --- the design's allow set and its refusal direction (criterion 10) ----------------
+
+
+@pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
+def test_each_permitted_principal_decides_an_item_in_their_scope(
+    mcp_env: SeededMcp,  # noqa: F811
+    principal: str,
+) -> None:
+    """The allow direction every refusal below depends on, one cell of SPEC
+    §7's `decide_review_item` row at a time.
+
+    Catches a registry entry wired to the wrong matrix member: `offboard_user`
+    admits only `hr` and `platform_admin` and `approve_request` admits neither
+    `hr` nor `auditor`, while this row admits five — so a member borrowed from
+    either fails here or in the denial case below. The token carries exactly
+    ONE principal, so nothing but that principal's own cell can admit the
+    call, and each caller is given a review its own cell reaches, so a
+    `system_owner` passing on a department review would be a widened scope
+    rather than a passing test.
+
+    The item row is re-read with no tenant filter, so the decision is proven
+    to have landed on the row and not only in the response.
+    """
+    scope = plant_scope(mcp_env)
+    caller = _caller_for(principal, scope)
+    _review_id, item_id = _open_with_item(mcp_env, scope, principal=principal)
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(caller, principals=(principal,))),
+            DECIDE,
+            _decide_args(item_id, KEEP),
+        )
+    )
+
+    assert payload["decision"] == KEEP
+    assert str(payload["item_id"]) == str(item_id)
+    assert payload["revoked_grant_count"] == 0
+    stored = _item_row(mcp_env.database_url, item_id)
+    assert str(stored.decision) == KEEP
+    assert stored.decided_at is not None
+
+
+@pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
+def test_the_two_denied_principals_decide_nothing(
+    mcp_env: SeededMcp,  # noqa: F811
+    principal: str,
+) -> None:
+    """the design's two empty cells on this row, and the record they leave.
+
+    The item is a real row the SAME caller's manager token just opened, in
+    the caller's own tenant and own department, so neither the `NOT_FOUND`
+    lookup nor the already-decided refusal can produce this answer — only a
+    permission decision can. `tool.denied` rather than `tool.failed`: a
+    permission decision filed as an outage is a false record.
+
+    This does NOT claim the pipeline's RBAC stage as its kill (standing rule
+    20): the handler re-runs `rbac.authorize` through `_in_scope`, so
+    deleting the pipeline stage changes no answer here.
+    """
+    scope = plant_scope(mcp_env)
+    _review_id, item_id = _open_with_item(mcp_env, scope)
+    events_before = _audit_event_types(mcp_env.database_url, scope.tenant_id)
+
+    result = call_tool(
+        bearer(token_for(scope.manager, principals=(principal,))),
+        DECIDE,
+        _decide_args(item_id, REVOKE),
+    )
+
+    assert error_code(result) == "FORBIDDEN"
+    assert _item_row(mcp_env.database_url, item_id).decision is None
+    assert str(_grant_row(mcp_env.database_url, scope.grant_id).status) == ACTIVE_STATUS
+    assert _audit_event_types(mcp_env.database_url, scope.tenant_id) == [
+        *events_before,
+        DENIED_EVENT,
+    ]
+
+
+# --- scope, per principal (criterion 10, a project rule) -----------------------
+
+
+def test_a_manager_may_not_decide_an_item_of_another_departments_review(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """a project rule: the design's `own_department` scope is the ONLY gate
+    this case can fail on.
+
+    The caller carries `manager`, which the matrix admits on this row, and the
+    item is a real undecided row in the caller's OWN tenant, so neither the
+    matrix nor the `NOT_FOUND` lookup nor decision C can refuse it — deleting
+    the scope comparison is the one change that turns this into a revoked
+    grant in a department the caller has no reach over. The same caller then
+    decides an item of their OWN review, so a handler that refuses every
+    manager passes nothing.
+    """
+    own = plant_scope(mcp_env)
+    other = plant_scope(mcp_env)
+    _foreign_review, foreign_item = _open_with_item(mcp_env, other, principal="hr")
+    _own_review, own_item = _open_with_item(mcp_env, own)
+
+    refused = call_tool(
+        bearer(token_for(own.manager, principals=("manager",))),
+        DECIDE,
+        _decide_args(foreign_item, REVOKE),
+    )
+    allowed = call_tool(
+        bearer(token_for(own.manager, principals=("manager",))),
+        DECIDE,
+        _decide_args(own_item, REVOKE),
+    )
+
+    assert error_code(refused) == "FORBIDDEN"
+    assert _item_row(mcp_env.database_url, foreign_item).decision is None
+    assert str(_grant_row(mcp_env.database_url, other.grant_id).status) == ACTIVE_STATUS
+    assert allowed.is_error is False, allowed.content
+    assert str(_item_row(mcp_env.database_url, own_item).decision) == REVOKE
+
+
+def test_a_system_owner_may_not_decide_an_item_of_a_system_they_do_not_own(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """The `own_systems` half of the same gate, which the department case
+    cannot reach.
+
+    A handler that implemented `own_department` and left `own_systems`
+    answering True for every system passes the case above and fails here. The
+    caller owns a real system in the same tenant and decides an item of their
+    own system's review in the same test, so the refusal is about WHICH
+    system and not about the principal.
+    """
+    own = plant_scope(mcp_env)
+    other = plant_scope(mcp_env)
+    _foreign_review, foreign_item = _open_with_item(mcp_env, other, principal="system_owner")
+    _own_review, own_item = _open_with_item(mcp_env, own, principal="system_owner")
+
+    refused = call_tool(
+        bearer(token_for(own.owner, principals=("system_owner",))),
+        DECIDE,
+        _decide_args(foreign_item, REVOKE),
+    )
+    allowed = call_tool(
+        bearer(token_for(own.owner, principals=("system_owner",))),
+        DECIDE,
+        _decide_args(own_item, REVOKE),
+    )
+
+    assert error_code(refused) == "FORBIDDEN"
+    assert _item_row(mcp_env.database_url, foreign_item).decision is None
+    assert allowed.is_error is False, allowed.content
+    assert str(_item_row(mcp_env.database_url, own_item).decision) == REVOKE
+
+
+def test_the_deciders_department_comes_from_the_directory_not_the_token(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """a project rule on the department comparison of the deciding tool itself.
+
+    The token is minted with a `department_id` claim naming the department
+    whose review holds the item, while the caller's DIRECTORY row says
+    otherwise: a scope check reading the CLAIM admits the call and revokes
+    somebody's access, one reading the directory refuses it. Every other
+    scope case here passes whichever source is used, because both agree; only
+    this one separates them. a project rule is satisfied by keeping both
+    departments in ONE tenant, so the tenant guard cannot refuse this on the
+    scope rule's behalf.
+
+    A manager transferred after their token was issued must not keep the
+    reach of the department they left.
+    """
+    own = plant_scope(mcp_env)
+    other = plant_scope(mcp_env)
+    _review_id, item_id = _open_with_item(mcp_env, other, principal="hr")
+    forged = SeededUser(
+        tenant_id=own.manager.tenant_id,
+        tenant_slug=own.manager.tenant_slug,
+        user_id=own.manager.user_id,
+        email=own.manager.email,
+        display_name=own.manager.display_name,
+        # The claim lies: the directory row still says `own.department_id`.
+        department_id=other.department_id,
+        principals=own.manager.principals,
+        status=own.manager.status,
+    )
+
+    result = call_tool(
+        bearer(token_for(forged, principals=("manager",))),
+        DECIDE,
+        _decide_args(item_id, REVOKE),
+    )
+
+    assert error_code(result) == "FORBIDDEN"
+    assert _item_row(mcp_env.database_url, item_id).decision is None
+    assert str(_grant_row(mcp_env.database_url, other.grant_id).status) == ACTIVE_STATUS
+
+
+# --- the absences, and the order they are answered in (criterion 8, decision H) ---
+
+
+def test_a_missing_and_another_tenants_item_answer_the_same_not_found(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches an item lookup that escapes the tenant guard, and one that
+    distinguishes the two absences.
+
+    The other tenant's item is a REAL row there, on a real review over a real
+    grant, so the refusal has to come from the tenant guard rather than from
+    an id nobody could resolve anyway — a random uuid answers `NOT_FOUND`
+    whether the guard exists or not. If the two answers differed, an item id
+    would be a cross-tenant existence oracle, and a decided one would be a
+    lever on access in a tenant the caller cannot see. The answers are
+    compared as whole strings, so a code with an explanation appended fails.
+    The caller holds `platform_admin` (`Scope.ANY`), so the scope gate cannot
+    be what refuses either call.
+    """
+    caller = plant_scope(mcp_env).manager
+    foreign_scope = plant_scope(mcp_env, tenant_id=mcp_env.tenant_b.tenant_id)
+    foreign_review = _plant_review(
+        mcp_env.database_url,
+        mcp_env.tenant_b.tenant_id,
+        department_id=foreign_scope.department_id,
+        reviewer_user_id=foreign_scope.manager.user_id,
+    )
+    foreign_item = _plant_item(
+        mcp_env.database_url,
+        mcp_env.tenant_b.tenant_id,
+        review_id=foreign_review,
+        grant_id=foreign_scope.grant_id,
+    )
+
+    missing = call_tool(
+        bearer(token_for(caller, principals=("platform_admin",))),
+        DECIDE,
+        _decide_args(uuid.uuid4(), REVOKE),
+    )
+    foreign = call_tool(
+        bearer(token_for(caller, principals=("platform_admin",))),
+        DECIDE,
+        _decide_args(foreign_item, REVOKE),
+    )
+
+    assert error_code(missing) == "NOT_FOUND"
+    assert error_code(foreign) == error_code(missing)
+    assert _item_row(mcp_env.database_url, foreign_item).decision is None
+    assert str(_grant_row(mcp_env.database_url, foreign_scope.grant_id).status) == ACTIVE_STATUS
+
+
+def test_an_out_of_scope_item_is_refused_before_its_existence_is_tested(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Decision H, and the reason this tool joins `SCOPE_BEFORE_EXISTENCE_TOOLS`
+    rather than the rbac sweep's two older buckets.
+
+    ONE id that resolves nowhere is sent by two callers the matrix admits
+    equally: the scoped `manager` must be refused `FORBIDDEN` — the scope
+    question is answered from "no scope at all" before any lookup runs — and
+    the `Scope.ANY` `platform_admin` must reach the `NOT_FOUND` behind it.
+    Swapping the two stages is the single change that flips this: with the
+    lookup first, BOTH answers become `NOT_FOUND` and the manager learns
+    which item ids exist in departments they cannot reach. Neither answer
+    alone pins the order, which is why both are asserted against the same id.
+    """
+    scope = plant_scope(mcp_env)
+    unknown = uuid.uuid4()
+
+    scoped = call_tool(
+        bearer(token_for(scope.manager, principals=("manager",))),
+        DECIDE,
+        _decide_args(unknown, REVOKE),
+    )
+    wide = call_tool(
+        bearer(token_for(scope.manager, principals=("platform_admin",))),
+        DECIDE,
+        _decide_args(unknown, REVOKE),
+    )
+
+    assert error_code(scoped) == "FORBIDDEN"
+    assert error_code(wide) == "NOT_FOUND"
+
+
+# --- the input surface (criterion 9) ---------------------------------------------
+
+
+DECISION_CASES: list[tuple[str, str, bool]] = [
+    ("keep", KEEP, True),
+    ("revoke", REVOKE, True),
+    ("unknown word", "delete", False),
+    ("empty", "", False),
+    ("trailing newline", REVOKE + "\n", False),
+    ("trailing space", KEEP + " ", False),
+    ("uppercase member", "KEEP", False),
+]
+
+
+@pytest.mark.parametrize(
+    ("decision", "accepted"),
+    [case[1:] for case in DECISION_CASES],
+    ids=[case[0] for case in DECISION_CASES],
+)
+def test_the_decision_word_is_an_exact_enum_member_or_refused_before_any_write(
+    mcp_env: SeededMcp,  # noqa: F811
+    decision: str,
+    accepted: bool,
+) -> None:
+    """Criterion 9. Catches `decision` typed as a bare `str`, which would let
+    any client word land in the `review_items.decision` column — a value no
+    query for `keep` or `revoke` ever matches again, and a decision an
+    auditor cannot read.
+
+    The trailing-newline and trailing-space rows are what separate the enum
+    from a `Field(pattern=...)`, which matches a SUBSTRING and accepts both; the uppercase row catches a case-insensitive coercion.
+    Both accepted rows are here so the table cannot pass vacuously, and
+    because they are the only two words the column may ever hold. Every
+    refused row re-reads the item and the grant, so the refusal has to happen
+    BEFORE any write.
+    """
+    scope = plant_scope(mcp_env)
+    _review_id, item_id = _open_with_item(mcp_env, scope)
+
+    result = call_tool(
+        bearer(token_for(scope.manager, principals=("manager",))),
+        DECIDE,
+        _decide_args(item_id, decision),
+    )
+
+    stored = _item_row(mcp_env.database_url, item_id)
+    if accepted:
+        assert result.is_error is False, result.content
+        assert str(stored.decision) == decision
+    else:
+        assert error_code(result) == "VALIDATION"
+        assert stored.decision is None
+        assert str(_grant_row(mcp_env.database_url, scope.grant_id).status) == ACTIVE_STATUS
+
+
+def test_an_extra_argument_is_refused_with_nothing_written(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """`extra="forbid"` on the mutating input, and the reason it is not
+    `ignore`: an unexpected `user_id` or `tenant_id` in the arguments is a
+    caller who believes they are choosing something they are not, and
+    dropping it silently would end somebody's access under a success the
+    caller reads as something else. Every other argument here is valid, so
+    only the extras rule can refuse this call.
+    """
+    scope = plant_scope(mcp_env)
+    _review_id, item_id = _open_with_item(mcp_env, scope)
+
+    result = call_tool(
+        bearer(token_for(scope.manager, principals=("manager",))),
+        DECIDE,
+        _decide_args(item_id, REVOKE, tenant_id=str(scope.tenant_id)),
+    )
+
+    assert error_code(result) == "VALIDATION"
+    assert _item_row(mcp_env.database_url, item_id).decision is None
+    assert str(_grant_row(mcp_env.database_url, scope.grant_id).status) == ACTIVE_STATUS
+
+
+# --- what a `revoke` decision does end to end (criteria 2, 4 and 6) --------------
+
+
+def test_a_revoke_decision_ends_the_grant_and_completes_the_review(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """The whole path in one call: the only route from a review flag to a
+    change in access.
+
+    Catches a handler that records the decision and never calls the domain —
+    the item would read `revoke` while the access stayed live, which is the
+    failure this whole plan exists to prevent. `revoked_grant_count` is
+    asserted as 1 AND the grant row is re-read `revoked`, so a count computed
+    without a revocation cannot pass. The review is the item's last, so
+    `review_complete` and the stored `completed_at` are asserted together: a
+    status flipped without the timestamp records a completion that happened
+    at no time.
+    """
+    scope = plant_scope(mcp_env)
+    review_id, item_id = _open_with_item(mcp_env, scope)
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(scope.manager, principals=("manager",))),
+            DECIDE,
+            _decide_args(item_id, REVOKE),
+        )
+    )
+
+    assert payload["decision"] == REVOKE
+    assert payload["revoked_grant_count"] == 1
+    assert payload["review_complete"] is True
+    grant = _grant_row(mcp_env.database_url, scope.grant_id)
+    assert str(grant.status) == "revoked"
+    assert grant.revoked_at is not None
+    assert grant.revoke_reason is not None
+    review = _review_row(mcp_env.database_url, review_id)
+    assert str(review.status) == "completed"
+    assert review.completed_at is not None
+
+
+def test_a_second_decision_on_the_same_item_is_refused_policy_blocked(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Decision C at the boundary, with two DIFFERENT idempotency keys so the
+    guard cannot be what refuses the second call.
+
+    Catches an overwrite: a review is a record of what a named person decided
+    at a named instant, and a second call landing on the same row destroys
+    the only thing the table is for. `POLICY_BLOCKED` and not `VALIDATION`:
+    the arguments are perfectly well formed. The audit delta is exactly
+    `tool.failed`, so a refusal that still wrote a `review.item_decided`
+    fails here, and the stored word is re-read as the FIRST decision.
+    """
+    scope = plant_scope(mcp_env)
+    _review_id, item_id = _open_with_item(mcp_env, scope)
+    first = call_tool(
+        bearer(token_for(scope.manager, principals=("manager",))),
+        DECIDE,
+        _decide_args(item_id, KEEP),
+    )
+    events_between = _audit_event_types(mcp_env.database_url, scope.tenant_id)
+
+    second = call_tool(
+        bearer(token_for(scope.manager, principals=("manager",))),
+        DECIDE,
+        _decide_args(item_id, REVOKE),
+    )
+
+    assert first.is_error is False, first.content
+    assert error_code(second) == "POLICY_BLOCKED"
+    assert str(_item_row(mcp_env.database_url, item_id).decision) == KEEP
+    assert str(_grant_row(mcp_env.database_url, scope.grant_id).status) == ACTIVE_STATUS
+    assert _audit_event_types(mcp_env.database_url, scope.tenant_id) == [
+        *events_between,
+        FAILED_EVENT,
+    ]
+
+
+# --- replay (criterion 6) --------------------------------------------------------
+
+
+def test_a_replayed_key_returns_the_same_response_and_revokes_nothing_twice(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches a retry that re-runs the body.
+
+    The second call under the same key must not reach decision C's refusal:
+    by then the item carries a decision, so a re-run answers `POLICY_BLOCKED`
+    for a call the caller already saw succeed. Byte identity is asserted, not
+    just equality of meaning, so a response rebuilt rather than replayed
+    fails; the `grant.revoked` count is unchanged, so a second revocation
+    rewriting `revoked_at` fails; and the audit delta is exactly
+    `tool.replayed`, so a second `review.item_decided` — a false record of a
+    decision nobody made twice — fails too.
+    """
+    scope = plant_scope(mcp_env)
+    _review_id, item_id = _open_with_item(mcp_env, scope)
+    arguments = _decide_args(item_id, REVOKE, idempotency_key=_key())
+    caller = bearer(token_for(scope.manager, principals=("manager",)))
+
+    first = call_tool(caller, DECIDE, arguments)
+    events_between = _audit_event_types(mcp_env.database_url, scope.tenant_id)
+    revocations_between = _revoked_event_count(mcp_env.database_url, scope.tenant_id)
+    second = call_tool(caller, DECIDE, arguments)
+
+    assert _response_text(second) == _response_text(first)
+    assert second.structured_content == first.structured_content
+    assert _revoked_event_count(mcp_env.database_url, scope.tenant_id) == revocations_between
+    assert _audit_event_types(mcp_env.database_url, scope.tenant_id) == [
+        *events_between,
+        REPLAYED_EVENT,
+    ]
+
+
+# --- the audit sequence (criterion 5, decision G, a project rule) --------------
+
+
+def test_the_audit_sequence_is_review_item_decided_then_tool_succeeded(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Criterion 5 as an exact ordered list, which is the only place the order
+    of the two events is observable at all.
+
+    Catches the registry declaring `review.item_decided` as this tool's event
+    instead of the generic `tool.succeeded`: the pipeline writes its event
+    with the TOOL as subject and a fixed payload, so the log would record that
+    somebody called a tool and not which grant was ended and why (standing
+    rule 19), and the item's own event would be missing entirely.
+
+    The subject is the ITEM and the payload is decision G's exact key set,
+    asserted here as well as in the core suite because only the transport can
+    show that the event the PIPELINE adds did not overwrite or duplicate the
+    one the handler wrote. `review_complete` carries the completion: there is
+    no `review.completed` event, so if this key is dropped the audit log has
+    no record that the review closed at all.
+    """
+    scope = plant_scope(mcp_env)
+    review_id, item_id = _open_with_item(mcp_env, scope)
+    events_before = _audit_event_types(mcp_env.database_url, scope.tenant_id)
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(scope.manager, principals=("manager",))),
+            DECIDE,
+            _decide_args(item_id, REVOKE),
+        )
+    )
+
+    assert _audit_event_types(mcp_env.database_url, scope.tenant_id) == [
+        *events_before,
+        # The revocation's own event first, because `review.item_decided`
+        # reports `revoked_grant_count` and cannot be written before the
+        # revocation it counts; the pipeline's summary last (criterion 5).
+        GRANT_REVOKED_EVENT,
+        REVIEW_ITEM_DECIDED_EVENT,
+        SUCCEEDED_EVENT,
+    ]
+    record = _decided_events(mcp_env.database_url, scope.tenant_id)[-1]
+    assert str(record.subject_type) == "review_item"
+    assert str(record.subject_id) == str(item_id)
+    event_payload = dict(record.payload)
+    assert set(event_payload) == {
+        "review_id",
+        "item_id",
+        "grant_id",
+        "user_id",
+        "role_id",
+        "flag",
+        "decision",
+        "revoked_grant_count",
+        "review_complete",
+    }
+    assert event_payload["review_id"] == str(review_id)
+    assert event_payload["item_id"] == str(item_id)
+    assert event_payload["grant_id"] == str(scope.grant_id)
+    assert event_payload["user_id"] == str(scope.member_id)
+    assert event_payload["role_id"] == str(scope.role_id)
+    assert event_payload["flag"] in {flag.value for flag in ReviewFlag}
+    assert event_payload["decision"] == REVOKE
+    assert event_payload["revoked_grant_count"] == 1
+    assert event_payload["review_complete"] is True
+    assert payload["review_complete"] is True

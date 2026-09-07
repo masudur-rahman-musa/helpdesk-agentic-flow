@@ -251,6 +251,28 @@ def is_live_grant(grant: Grant, now: datetime) -> bool:
     )
 
 
+def is_active_grant(grant: Grant) -> bool:
+    """Is this already-loaded grant ACTIVE in the review family's sense?
+
+    The Python half of `_granted_clauses` below, and deliberately NOT of
+    `is_live_grant` above: status `active` and unrevoked, with no expiry test
+    at all. A grant whose expiry went by last week is still `active` until row
+    21's sweep runs, and that lapsed row is exactly what a review flags
+    `stale` and what a reviewer revokes.
+
+    It lives beside its SQL twin for the same reason `is_live_grant` does:
+    `helpdesk.access.reviews.decide_item` has to answer for the ONE grant an
+    item names — is there anything left to revoke, or is this decision B's
+    already-revoked row — and a second definition in that caller could drift
+    into a review that reports a revocation it did not perform. Pinned by
+    `test_access_reviews.py::test_a_grant_revoked_before_the_decision_is_recorded_and_revokes_nothing`
+    (the False case, `revoked_grant_count` 0) and by
+    `::test_a_stale_items_grant_is_revoked_although_no_live_set_holds_it`
+    (the True case that `is_live_grant` answers the other way).
+    """
+    return grant.status == ACTIVE_GRANT_STATUS and grant.revoked_at is None
+
+
 class ScopedGrant(BaseModel):
     """One live grant inside a review's scope, with what flagging it needs.
 
@@ -369,6 +391,33 @@ async def list_active_grants_for_system(
     why they are two functions rather than one filter.
     """
     return await _list_scoped_grants(session, Role.system_id == system_id, join_role=True)
+
+
+async def lock_grant_row(session: AsyncSession, grant_id: uuid.UUID) -> Grant | None:
+    """The bound tenant's grant, locked for the rest of this transaction.
+
+    `SELECT … FOR UPDATE` through the ORM, so the tenant guard still injects
+    its filter: a grant id in another tenant reads exactly like one that does
+    not exist (both None), and the id is not a cross-tenant existence oracle.
+
+    Deliberately UNFILTERED on liveness, unlike `lock_live_grants_for_role`
+    below. A review item is one grant row and the most reviewable row in the
+    tenant is a lapsed-but-`active` one, which every liveness filter drops; filtering here would make exactly the `stale` item
+    the one a reviewer could not act on. Liveness is the CALLER's question
+    afterwards, through `is_live_grant`.
+
+    The lock is what serialises two decisions on one review item (decision I):
+    deciding is a read-compute-write over the item and its grant, and two
+    callers send two different idempotency keys, so the guard cannot. The
+    grant row rather than the item row is held on purpose — the grant is what
+    both the decision and the revocation touch, and
+    `lock_live_grants_for_role` already locks grant rows, so one lock order
+    across the two paths keeps a review decision and a concurrent
+    `revoke_access` for the same person from deadlocking. Pinned end to end by
+    `test_access_reviews.py::test_two_concurrent_deciders_leave_one_decided_item_and_one_refusal`.
+    """
+    result = await session.execute(select(Grant).where(Grant.id == grant_id).with_for_update())
+    return result.scalars().one_or_none()
 
 
 async def lock_live_grants_for_role(

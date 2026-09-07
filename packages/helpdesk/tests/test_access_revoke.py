@@ -45,6 +45,7 @@ from helpdesk.access.revoke import (
     GRANT_REVOKED_EVENT_TYPE,
     REVOKED_GRANT_STATUS,
     GrantNotActiveError,
+    revoke_grant_row,
     revoke_role_access,
 )
 from helpdesk.core.db import create_engine, create_session_factory, tenant_session
@@ -100,6 +101,8 @@ REVOKER = ROWS.users_by_department["Production"][42]
 # eight made without one.
 PREDICATE_TARGET = ROWS.users_by_department["Production"][43]
 ORDER_TARGET = ROWS.users_by_department["Production"][44]
+# An earlier change: the row `revoke_role_access` cannot reach at all (decision A).
+LAPSED_TARGET = ROWS.users_by_department["Production"][45]
 
 # Distinct instants for the ordering case, both before `REVOKED_AT`.
 OLDER_GRANTED_AT = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
@@ -741,3 +744,78 @@ def test_the_role_is_gone_from_the_directorys_account_roles(
     held = _account_role_ids(access_db_url, DIRECTORY_TARGET.id)
     assert REVOKED_ROLE not in held
     assert NEIGHBOUR_ROLE in held, "only the revoked role may disappear"
+
+
+# --- an earlier change: the one row unit (`revoke_grant_row`, decision A) -----------------
+
+
+def test_revoke_grant_row_revokes_a_lapsed_but_active_row_the_live_set_cannot_reach(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """An earlier change decision A: the case that forced the extraction, and the only
+    case in this file that `revoke_role_access` answers differently.
+
+    The row is `status = 'active'` with an expiry already in the past, so
+    `lock_live_grants_for_role` returns nothing for its (user, role) and
+    `revoke_role_access` refuses it `POLICY_BLOCKED` — asserted here as the
+    premise, because that refusal IS why a second entry point exists. A
+    review item is exactly such a row (12c flags it `stale`), so an
+    implementation of `revoke_grant_row` that re-applied the liveness filter,
+    or that delegated back to the live set, would leave the most reviewable
+    grant in the tenant unrevocable while every other case here still passed.
+
+    Everything the set unit writes is asserted for the row unit too, so the
+    extraction cannot quietly become a second, thinner writer: all three
+    columns, and one `grant.revoked` naming this grant with the reason and
+    the `revoked_count` the CALLER passed — the count is the review's own (1
+    row), not a number the function may invent from a set it never read.
+    """
+    _premise_no_grants(access_db_url, LAPSED_TARGET.id, REVOKED_ROLE)
+    grant_id = _plant_grant(
+        access_db_url,
+        user_id=LAPSED_TARGET.id,
+        role_id=REVOKED_ROLE,
+        expires_at=PAST_EXPIRY,
+    )
+    with pytest.raises(GrantNotActiveError):
+        _revoke(access_db_url, user_id=LAPSED_TARGET.id, role_id=REVOKED_ROLE)
+    events_before = len(_revoked_events(access_db_url))
+
+    async def scenario() -> GrantFacts:
+        engine = create_engine(access_db_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, ROWS.tenant_id) as session:
+                result = await session.execute(select(Grant).where(Grant.id == grant_id))
+                revoked = await revoke_grant_row(
+                    session,
+                    SimulatedDirectory(session),
+                    grant=result.scalars().one(),
+                    reason=REASON,
+                    revoked_by_user_id=REVOKER.id,
+                    actor_ref=str(REVOKER.id),
+                    session_id=None,
+                    revoked_count=1,
+                    now=REVOKED_AT,
+                )
+                return _facts(revoked)
+        finally:
+            await engine.dispose()
+
+    facts = asyncio.run(scenario())
+
+    assert facts.grant_id == grant_id
+    row = _row(access_db_url, grant_id)
+    assert row.status == REVOKED_GRANT_STATUS
+    assert row.revoked_at == REVOKED_AT
+    assert row.revoke_reason == REASON
+    events = _revoked_events(access_db_url)
+    assert len(events) == events_before + 1, "one grant.revoked, for the one row"
+    subject_type, subject_id, payload = events[-1]
+    assert subject_type == "grant"
+    assert subject_id == str(grant_id)
+    assert set(payload) == EXPECTED_PAYLOAD_KEYS
+    assert payload["user_id"] == str(LAPSED_TARGET.id)
+    assert payload["role_id"] == str(REVOKED_ROLE)
+    assert payload["reason"] == REASON
+    assert payload["revoked_count"] == 1
