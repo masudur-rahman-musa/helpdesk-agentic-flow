@@ -42,8 +42,10 @@ from agent_api.graph.nodes.endings import (
 )
 from agent_api.graph.nodes.extract_intent import FAILURE_REPLY, extract_intent
 from agent_api.graph.nodes.load_session import load_session
+from agent_api.graph.nodes.plan_tools import plan_tools
 from agent_api.graph.nodes.resolve_entities import resolve_entities
 from agent_api.graph.nodes.retrieve_policy import retrieve_policy
+from agent_api.graph.nodes.validate_tool_calls import validate_tool_calls
 from agent_api.graph.state import TurnOutcome, TurnState
 
 __all__ = ["FAILURE_REPLY", "TurnDeps", "build_graph", "run_turn"]
@@ -52,6 +54,8 @@ LOAD_SESSION = "load_session"
 EXTRACT_INTENT = "extract_intent"
 RESOLVE_ENTITIES = "resolve_entities"
 RETRIEVE_POLICY = "retrieve_policy"
+PLAN_TOOLS = "plan_tools"
+VALIDATE_TOOL_CALLS = "validate_tool_calls"
 REFUSE_AND_TICKET = "refuse_and_ticket"
 ASK_CLARIFYING = "ask_clarifying"
 ASK_DISAMBIGUATION = "ask_disambiguation"
@@ -93,6 +97,14 @@ async def _retrieve_policy(state: TurnState, config: RunnableConfig) -> dict[str
     return (await retrieve_policy(state, _deps(config))).model_dump()
 
 
+async def _plan_tools(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await plan_tools(state, _deps(config))).model_dump()
+
+
+async def _validate_tool_calls(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await validate_tool_calls(state, _deps(config))).model_dump()
+
+
 async def _refuse_and_ticket(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
     return (await refuse_and_ticket(state, _deps(config))).model_dump()
 
@@ -130,30 +142,61 @@ def _after_entities(state: TurnState) -> str:
 def _after_retrieval(state: TurnState) -> str:
     """Read `outcome`. Nothing else, and no computation (the design).
 
-    `CONTINUE` reaches `END` and that is 17c's handover point: the citations
-    ride on the state and no assistant message has been written, so the next
-    plan hangs planning, execution and the composed reply off this edge.
+    `CONTINUE` now reaches `plan_tools`: an earlier change took the handover this edge
+    was left open for, so a successful retrieval carries its citations into
+    planning rather than ending the turn.
     """
     if state.outcome is TurnOutcome.FAILED:
         return FAIL_TURN
+    if state.outcome is TurnOutcome.REFUSE:
+        return REFUSE_AND_TICKET
+    return PLAN_TOOLS
+
+
+def _after_planning(state: TurnState) -> str:
+    """Read `outcome`. Nothing else, and no computation (the design).
+
+    `REFUSE` here is loop control, not a policy refusal: the turn has spent a
+    budget the design fixes, so it offers a person rather than planning again.
+    `refuse_and_ticket` is deliberately the same ending — from the user's side
+    both are "I would rather not guess at this, shall I get somebody".
+    """
+    if state.outcome is TurnOutcome.FAILED:
+        return FAIL_TURN
+    if state.outcome is TurnOutcome.REFUSE:
+        return REFUSE_AND_TICKET
+    return VALIDATE_TOOL_CALLS
+
+
+def _after_validation(state: TurnState) -> str:
+    """Read `outcome`. Nothing else, and no computation (the design).
+
+    `CONTINUE` reaches `END` and that is 17d's handover point: the validated
+    calls ride on the state, nothing has been executed and no assistant
+    message has been written, so the next plan hangs execution and the composed
+    reply off exactly this edge.
+    """
     if state.outcome is TurnOutcome.REFUSE:
         return REFUSE_AND_TICKET
     return END
 
 
 def build_graph() -> CompiledStateGraph:
-    """The four working nodes and the four ways the turn can stop early.
+    """The six working nodes and the four ways the turn can stop early.
 
-    `retrieve_policy` reaching `END` on `CONTINUE` is now the handover point:
-    an earlier change hangs planning, execution and the composed reply off exactly that
-    edge, which is why a successful retrieval writes no assistant message here
-    and carries its citations on the state instead.
+    `validate_tool_calls` reaching `END` on `CONTINUE` is now the handover
+    point: an earlier change hangs execution, the loop back to planning and the composed
+    reply off exactly that edge, which is why an accepted round writes no
+    assistant message here and carries its validated calls on the state
+    instead.
     """
     graph = StateGraph(TurnState)
     graph.add_node(LOAD_SESSION, _load_session)
     graph.add_node(EXTRACT_INTENT, _extract_intent)
     graph.add_node(RESOLVE_ENTITIES, _resolve_entities)
     graph.add_node(RETRIEVE_POLICY, _retrieve_policy)
+    graph.add_node(PLAN_TOOLS, _plan_tools)
+    graph.add_node(VALIDATE_TOOL_CALLS, _validate_tool_calls)
     graph.add_node(REFUSE_AND_TICKET, _refuse_and_ticket)
     graph.add_node(ASK_CLARIFYING, _ask_clarifying)
     graph.add_node(ASK_DISAMBIGUATION, _ask_disambiguation)
@@ -185,6 +228,23 @@ def build_graph() -> CompiledStateGraph:
         {
             REFUSE_AND_TICKET: REFUSE_AND_TICKET,
             FAIL_TURN: FAIL_TURN,
+            PLAN_TOOLS: PLAN_TOOLS,
+        },
+    )
+    graph.add_conditional_edges(
+        PLAN_TOOLS,
+        _after_planning,
+        {
+            REFUSE_AND_TICKET: REFUSE_AND_TICKET,
+            FAIL_TURN: FAIL_TURN,
+            VALIDATE_TOOL_CALLS: VALIDATE_TOOL_CALLS,
+        },
+    )
+    graph.add_conditional_edges(
+        VALIDATE_TOOL_CALLS,
+        _after_validation,
+        {
+            REFUSE_AND_TICKET: REFUSE_AND_TICKET,
             END: END,
         },
     )
@@ -224,6 +284,11 @@ async def run_turn(
     turn's connection pool
     (`::test_the_caller_is_closed_when_a_node_raises`).
 
+    `started_at` is stamped here from the INJECTED clock, once per turn: it is
+    what `TURN_DEADLINE_SECONDS` is measured from, so a node reading a wall
+    clock of its own would restart the deadline on every round. Pinned by
+    `::test_run_turn_stamps_started_at_from_the_injected_clock`.
+
     Identity is passed in by the route that read the token and is never taken
     from the message or from the extracted entities.
     """
@@ -236,6 +301,7 @@ async def run_turn(
         session_id=session_id,
         tenant_slug=tenant_slug,
         user_message=message,
+        started_at=deps.now(),
     )
     async with deps.tools:
         result = await build_graph().ainvoke(state, config={"configurable": {_DEPS_KEY: deps}})

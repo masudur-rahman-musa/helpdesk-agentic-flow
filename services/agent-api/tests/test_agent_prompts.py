@@ -15,6 +15,11 @@ Expected implementation surface (the implementer must provide exactly this):
         ``code = ErrorCode.INTERNAL``).
     Files: ``prompts/system.md`` and ``prompts/intent_extraction.md``.
 
+An earlier change adds a third file, ``prompts/tool_planning.md``: the prompt
+``plan_tools`` sends under the ``agent-strong`` alias. Its digest rides on
+``TurnState.planning_prompt_version``, never on ``prompt_version``, because one
+string cannot carry two versions.
+
 Nothing here needs Postgres, Redis, Qdrant or a socket: the loader reads the
 repository's own files, and the mutation case writes into `tmp_path` with
 ``PROMPTS_DIR`` monkeypatched, so the shipped prompts are never edited by a
@@ -26,14 +31,16 @@ from pathlib import Path
 
 import pytest
 from agent_api import prompts as prompts_module
+from agent_api.graph.gates import INTENT_TOOLS
 from agent_api.graph.state import Intent
 from agent_api.prompts import PROMPTS_DIR, LoadedPrompt, PromptNotFoundError, load_prompt
 from helpdesk.errors import ErrorCode, ToolError
 
 SYSTEM_PROMPT = "system"
 INTENT_PROMPT = "intent_extraction"
+PLANNING_PROMPT = "tool_planning"
 
-SHIPPED_PROMPTS = (SYSTEM_PROMPT, INTENT_PROMPT)
+SHIPPED_PROMPTS = (SYSTEM_PROMPT, INTENT_PROMPT, PLANNING_PROMPT)
 
 SYSTEM_PROMPT_REQUIRED_PHRASES = (
     "does not decide access",
@@ -48,10 +55,11 @@ grant happened unless a tool result says so."""
 HEX_DIGEST_LENGTH = 64
 
 
-def test_the_prompts_directory_ships_both_files() -> None:
+def test_the_prompts_directory_ships_every_prompt_file() -> None:
     """Guard against a vacuous file: catches a loader shipped with no prompts
     at all, which would make every content case below pass by raising nothing
-    it asserts on."""
+    it asserts on. Renamed from `..._ships_both_files` by an earlier change, which adds
+    a third; no assertion moved."""
     assert PROMPTS_DIR.is_dir()
     for name in SHIPPED_PROMPTS:
         assert (PROMPTS_DIR / f"{name}.md").is_file(), name
@@ -132,3 +140,20 @@ def test_the_intent_prompt_names_every_intent_the_enum_carries() -> None:
 
     missing = [intent.value for intent in Intent if intent.value not in text]
     assert not missing, f"intent_extraction.md does not name: {missing}"
+
+
+def test_the_planning_prompt_names_every_tool_a_row_can_offer() -> None:
+    """An earlier change's prompt half, the same failure `test_the_intent_prompt_...`
+    guards for the label set. Catches a tool added to an `INTENT_TOOLS` row
+    and never described to the model: it would be offered in the allowed set
+    with no explanation of when to reach for it, so the model either never
+    calls it or calls it for the wrong turn — and nothing else in the suite
+    goes red, because the schema still validates either way.
+
+    Read off `INTENT_TOOLS` rather than off `TOOL_INPUTS`: `search_policy` is
+    in no row and the planner must never be told it may call it."""
+    text = load_prompt(PLANNING_PROMPT).text.lower()
+    offered = sorted(frozenset().union(*INTENT_TOOLS.values()))
+
+    missing = [name for name in offered if name not in text]
+    assert not missing, f"tool_planning.md does not name: {missing}"

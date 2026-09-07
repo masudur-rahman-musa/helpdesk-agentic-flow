@@ -180,3 +180,135 @@ def _is_supplied(value: object) -> bool:
     if isinstance(value, str):
         return bool(value.strip())
     return True
+
+
+INTENT_TOOLS: Mapping[Intent, frozenset[str]] = {
+    Intent.RESET_PASSWORD: frozenset({"reset_own_password", "create_ticket"}),
+    Intent.UNLOCK_ACCOUNT: frozenset({"unlock_own_account", "create_ticket"}),
+    Intent.REQUEST_ACCESS: frozenset(
+        {
+            "get_me",
+            "list_my_access",
+            "classify_access_request",
+            "create_access_request",
+            "create_ticket",
+        }
+    ),
+    Intent.REVOKE_ACCESS: frozenset({"list_my_access", "revoke_access", "create_ticket"}),
+    Intent.REPORT_MOVER: frozenset({"transfer_user", "create_ticket"}),
+    Intent.ONBOARD: frozenset({"onboard_user", "create_ticket"}),
+    Intent.OFFBOARD: frozenset({"offboard_user", "create_ticket"}),
+    Intent.OPEN_TICKET: frozenset({"create_ticket"}),
+    Intent.ASK_POLICY: frozenset(),
+    Intent.CHECK_MY_ACCESS: frozenset({"get_me", "list_my_access", "list_my_requests"}),
+    Intent.APPROVALS: frozenset({"list_pending_approvals", "approve_request", "reject_request"}),
+    Intent.REVIEW: frozenset({"open_access_review", "list_review_items", "decide_review_item"}),
+    Intent.OTHER: frozenset(),
+}
+"""Which tools the planner may propose for each intent.
+
+A row for EVERY intent, read through no `.get()` default, for the same reason
+`REQUIRED_ENTITIES` and `RETRIEVES_POLICY` have one: the next intent added to
+the enum is offered NOTHING until somebody writes its row, rather than
+inheriting a permissive default. Pinned by
+`test_agent_gates.py::test_intent_tools_covers_exactly_every_intent`, row by
+row by `::test_each_intents_row_is_the_planned_one`, and as a union against
+the catalogue by `::test_the_union_of_the_rows_is_exactly_the_eighteen_planner_tools`.
+
+The RBAC matrix already refuses what a principal may not call, so this is not
+authorization — it is the model's search space. Offering an approvals turn a
+lifecycle mutation costs nothing today and makes a prompt-injection attempt
+worth trying; thirteen rows cost one test and remove the class.
+
+`search_policy` is in NO row (criterion 2). Retrieval is `retrieve_policy`'s
+own call, decided by `RETRIEVES_POLICY` before the planner runs, and a row
+offering it would let the model re-run the corpus search inside its own loop.
+
+The two empty rows are the two intents that plan nothing: `ask_policy` is
+answered from the citations alone, and `other` is not a request at all. Both
+are decided by `allowed_tools` BEFORE the gateway is touched, so neither pays
+a strong-alias call to be told there was nothing to call.
+"""
+
+MAX_TOOL_CALLS = 6
+"""The most tool calls one turn may EXECUTE, INCLUSIVE (the design).
+
+Exactly six is still allowed; the seventh is what stops the loop. Standing
+rule 2, pinned from both sides by
+`test_agent_gates.py::test_may_plan_another_round_is_inclusive_at_each_of_the_three_bounds`
+and through the node by
+`test_agent_turn.py::test_a_turn_exactly_at_the_call_budget_still_plans`.
+"""
+
+MAX_CALLS_PER_ROUND = 3
+"""The most calls one planning round may PROPOSE (decision F).
+
+Three because two chained calls plus a listing is the widest useful round: a
+classification, the request it justifies, and the access listing that shaped
+it. A round of six would make `MAX_TOOL_CALLS` unreachable in more than one
+round and turn the per-turn cap into a per-round one.
+"""
+
+MAX_TURN_TOKENS = 40000
+"""The most gateway tokens one turn may spend, INCLUSIVE (the design).
+
+Counted from the gateway's own `total_tokens`, roughly two planning rounds
+plus a composed reply on the strong alias. Exactly 40000 may still plan; one
+more may not.
+"""
+
+TURN_DEADLINE_SECONDS = 90.0
+"""How long one turn may run before it stops planning, INCLUSIVE (the design).
+
+Three MCP read timeouts (`MCP_READ_TIMEOUT_SECONDS = 30.0`), so the deadline
+can only fire AFTER a tool has genuinely stalled rather than instead of that
+tool's own timeout. Measured from `started_at`, which `run_turn` stamps from
+the injected clock, so no test sleeps and no node reads a wall clock of its
+own.
+"""
+
+
+def allowed_tools(intent: Intent) -> frozenset[str]:
+    """The tools this intent's planner may propose.
+
+    Reads the table rather than naming intents, so a row edited above changes
+    behaviour instead of leaving the table decorative — the same property
+    `should_retrieve` is guarded for, pinned by
+    `test_agent_gates.py::test_allowed_tools_agrees_with_the_table_it_reads`.
+    """
+    return INTENT_TOOLS[intent]
+
+
+def may_plan_another_round(
+    *, tool_calls_made: int, tokens_used: int, elapsed_seconds: float
+) -> bool:
+    """Whether the turn may plan again, on the three budgets alone (the design).
+
+    Every bound is INCLUSIVE: exactly six executed calls, exactly the token
+    budget and exactly the deadline are all still allowed, and it is the value
+    one past each that refuses. The three are combined with `or` — ANY budget
+    spent stops the loop — which
+    `test_agent_gates.py::test_a_turn_past_every_bound_at_once_still_refuses`
+    pins separately, because the single-bound rows cannot tell `or` from `and`.
+
+    Nothing is measured here. The counters are written by the nodes that spend
+    them and the elapsed seconds are computed by the caller from `started_at`
+    and the injected clock, which is what keeps loop control pure and testable
+    with no graph, no gateway and no sleep.
+    """
+    if tool_calls_made > MAX_TOOL_CALLS:
+        return False
+    if tokens_used > MAX_TURN_TOKENS:
+        return False
+    return not elapsed_seconds > TURN_DEADLINE_SECONDS
+
+
+def validation_outcome(accepted: bool) -> TurnOutcome:
+    """The branch a round's verdict names (decision C).
+
+    A round is accepted or it is not; there is no partial answer, because
+    running the valid two thirds of a plan is a half-done mutation nobody
+    asked for. Pinned both ways by
+    `test_agent_gates.py::test_validation_outcome_maps_the_rounds_verdict_to_its_branch`.
+    """
+    return TurnOutcome.CONTINUE if accepted else TurnOutcome.REFUSE

@@ -14,6 +14,17 @@ Surface under test (written before it exists):
 ``agent_api.graph.state``
     ``class Citation(BaseModel)`` (frozen) — the seven wire fields.
 
+An earlier change extends the same file. ``TOOL_INPUTS`` grows to the nineteen tools
+the agent may reach, the drift sweep is parametrized over every one of them,
+and the catalogue gains
+
+``agent_api.tools.catalogue``
+    ``def planner_schema(name: str) -> dict[str, Any]`` — that tool's JSON
+        schema with ``idempotency_key`` removed from both ``properties`` and
+        ``required`` (decision E). It is what ``plan_tools`` shows the model,
+        so a key the model names is an unknown argument rather than an
+        override.
+
 Decision C is what this file exists for. agent-api and mcp-server are separate
 deployables that talk over HTTP and never import each other, so the argument
 models have to be written twice; this test is what makes the second copy true.
@@ -31,6 +42,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+import pytest
 from agent_api.graph.state import Citation
 from agent_api.tools.catalogue import (
     SEARCH_POLICY,
@@ -38,6 +50,7 @@ from agent_api.tools.catalogue import (
     TOOL_INPUTS,
     SearchPolicyArgs,
     SearchPolicyResult,
+    planner_schema,
 )
 
 # `mcp_fixtures` lives beside the mcp-server tests and is imported by name, the
@@ -68,6 +81,63 @@ CITATION_FIELDS: frozenset[str] = frozenset(
 Counted from the specification and the tool's own model: seven (standing rule
 6). Written out rather than read off the server, so a field DROPPED on both
 sides at once is still a red row here."""
+
+
+ADMIN_TOOLS: frozenset[str] = frozenset({"search_audit", "set_kill_switch", "rollback_request"})
+"""The three tools row 24 owns, which this catalogue must NOT register."""
+
+CATALOGUED_TOOLS: frozenset[str] = frozenset(
+    {
+        "get_me",
+        "list_my_access",
+        "list_my_requests",
+        "classify_access_request",
+        "create_access_request",
+        "revoke_access",
+        "onboard_user",
+        "transfer_user",
+        "offboard_user",
+        "open_access_review",
+        "list_review_items",
+        "decide_review_item",
+        "list_pending_approvals",
+        "approve_request",
+        "reject_request",
+        "reset_own_password",
+        "unlock_own_account",
+        "search_policy",
+        "create_ticket",
+    }
+)
+"""Every tool the agent may reach, as a literal: nineteen.
+
+Counted from the server's own `REGISTRY` — twenty-two specs — less the three
+in `ADMIN_TOOLS`. Written out rather than read off `tools/list`, so a tool
+DROPPED on both sides at once is still a red row here."""
+
+MUTATING_TOOLS: frozenset[str] = frozenset(
+    {
+        "create_access_request",
+        "revoke_access",
+        "onboard_user",
+        "transfer_user",
+        "offboard_user",
+        "open_access_review",
+        "decide_review_item",
+        "approve_request",
+        "reject_request",
+        "reset_own_password",
+        "unlock_own_account",
+        "create_ticket",
+    }
+)
+"""The twelve catalogued tools whose registry spec says `mutating=True`.
+
+Counted from `REGISTRY` and written out here, because agent-api never imports
+mcp-server (the design): these are exactly the tools whose wire input carries
+an `idempotency_key`, and the twelve rows below are what hold that copy true."""
+
+IDEMPOTENCY_KEY = "idempotency_key"
 
 
 def _advertised(env: SeededMcp) -> dict[str, Any]:
@@ -105,12 +175,22 @@ def test_the_args_model_defaults_top_k_to_the_catalogue_constant() -> None:
     assert SearchPolicyArgs.model_fields["top_k"].default == SEARCH_POLICY_TOP_K
 
 
-def test_tool_inputs_holds_exactly_the_one_tool_this_plan_registers() -> None:
-    """Catches a catalogue that registers 17c's tools early — a model with no
-    drift row on the server would be advertised nowhere and validated by
-    nothing — and a `TOOL_INPUTS` left mutable, where a node could register a
-    tool at runtime and escape the drift test below entirely."""
-    assert dict(TOOL_INPUTS) == {SEARCH_POLICY: SearchPolicyArgs}
+def test_tool_inputs_holds_exactly_the_nineteen_tools_the_agent_may_reach() -> None:
+    """An earlier change criterion 1, replacing 17b's one-entry assertion. Catches a
+    catalogue short of a tool — a name in an `INTENT_TOOLS` row that no model
+    validates, so its arguments reach the server unchecked — and one that
+    registers an admin tool: `search_audit`, `set_kill_switch` and
+    `rollback_request` belong to row 24, and a tool with no catalogue entry
+    cannot be proposed at all, which is the defence in depth behind the RBAC
+    matrix that decision A asks for.
+
+    `MappingProxyType` is asserted for the reason it was in 17b: a mutable
+    mapping lets a node register a tool at runtime, and a tool registered at
+    runtime is a tool the drift sweep below never compares."""
+    assert set(TOOL_INPUTS) == CATALOGUED_TOOLS
+    assert len(TOOL_INPUTS) == 19
+    assert ADMIN_TOOLS.isdisjoint(TOOL_INPUTS)
+    assert TOOL_INPUTS[SEARCH_POLICY] is SearchPolicyArgs
     assert isinstance(TOOL_INPUTS, MappingProxyType)
 
 
@@ -135,35 +215,86 @@ def test_the_citation_model_carries_exactly_the_seven_wire_fields() -> None:
 # --- decision C: the drift test ------------------------------------------------
 
 
+@pytest.fixture(scope="session")
+def advertised(mcp_env: SeededMcp) -> dict[str, Any]:  # noqa: F811
+    """One `tools/list`, read once for the whole sweep.
+
+    Nineteen parametrized rows driving their own MCP session would pay the
+    handshake nineteen times for an answer that cannot change between them."""
+    return _advertised(mcp_env)
+
+
+@pytest.mark.parametrize("name", sorted(CATALOGUED_TOOLS))
 def test_every_catalogued_tool_is_one_the_server_advertises(
-    mcp_env: SeededMcp,  # noqa: F811
+    name: str, advertised: dict[str, Any]
 ) -> None:
-    """Catches a tool renamed on the server, or misspelled here: the agent
-    would call a name `registry.lookup` cannot resolve and the turn would end
-    as an `INTERNAL` a user cannot act on, for a tool that exists."""
-    advertised = _advertised(mcp_env)
+    """One row per tool, where 17b had one subset check. Catches
+    a tool renamed on the server, or misspelled here: the agent would call a
+    name `registry.lookup` cannot resolve and the turn would end as an
+    `INTERNAL` a user cannot act on, for a tool that exists. It also catches
+    the catalogue entry being ABSENT, which the subset form could not — a
+    missing entry made that assertion truer, not falser."""
+    assert name in advertised
+    assert name in TOOL_INPUTS
 
-    assert set(TOOL_INPUTS) <= set(advertised)
 
-
+@pytest.mark.parametrize("name", sorted(CATALOGUED_TOOLS))
 def test_every_catalogued_schema_agrees_with_the_advertised_one(
-    mcp_env: SeededMcp,  # noqa: F811
+    name: str, advertised: dict[str, Any]
 ) -> None:
-    """Plan §5's first risk. Catches a field renamed on either side and a
-    field that changed from optional to required.
+    """Plan §5's first risk, now over all nineteen. Catches a field renamed on
+    either side and a field that changed from optional to required.
 
-    The property-name comparison catches `query` becoming `question`; the
-    required-set comparison catches `top_k` losing its default on the server,
-    which would make every agent call that omits it fail `VALIDATION` while
-    both models still list the same two fields. Neither check can answer for
-    the other."""
-    advertised = _advertised(mcp_env)
+    The property-name comparison catches `query` becoming `question` or
+    `user_id` becoming `target_user_id`; the required-set comparison catches a
+    field losing its default on the server, which would make every agent call
+    that omits it fail `VALIDATION` while both models still list the same
+    fields. Neither check can answer for the other, and neither can be
+    answered by the name sweep above."""
+    theirs: dict[str, Any] = advertised[name].input_schema
+    ours = TOOL_INPUTS[name].model_json_schema()
 
-    for name, model in TOOL_INPUTS.items():
-        theirs: dict[str, Any] = advertised[name].input_schema
-        ours = model.model_json_schema()
-        assert set(_properties(ours)) == set(_properties(theirs)), name
-        assert _required(ours) == _required(theirs), name
+    assert set(_properties(ours)) == set(_properties(theirs)), name
+    assert _required(ours) == _required(theirs), name
+
+
+# --- decision E: the planner-facing schema ------------------------------------
+
+
+@pytest.mark.parametrize("name", sorted(MUTATING_TOOLS))
+def test_every_mutating_tools_wire_model_still_carries_the_idempotency_key(
+    name: str,
+) -> None:
+    """The half decision E's projection cannot see. The projection is defined
+    as "the wire schema minus the key", so a wire model that never declared
+    one would satisfy it vacuously — and the derived key would then have no
+    field to travel in, leaving every mutation to be refused by the server for
+    a missing required argument."""
+    schema = TOOL_INPUTS[name].model_json_schema()
+
+    assert IDEMPOTENCY_KEY in _properties(schema), name
+    assert IDEMPOTENCY_KEY in _required(schema), name
+
+
+@pytest.mark.parametrize("name", sorted(CATALOGUED_TOOLS))
+def test_the_planner_facing_schema_is_the_wire_schema_minus_the_idempotency_key(
+    name: str,
+) -> None:
+    """Decision E and plan §5's third risk, over every tool rather than the
+    mutating twelve, because the read tools are what catch the opposite defect.
+
+    Catches a projection that returns the wire schema untouched — the model
+    would then be shown a required `idempotency_key`, name one, and have it
+    honoured, which is the identifier the model is free to reuse across two
+    different requests. Catches a projection that strips more than the key
+    (an empty `required`, or every property dropped), which would leave the
+    model guessing argument names it was never shown."""
+    wire = TOOL_INPUTS[name].model_json_schema()
+    ours = planner_schema(name)
+
+    assert set(_properties(ours)) == set(_properties(wire)) - {IDEMPOTENCY_KEY}, name
+    assert _required(ours) == _required(wire) - {IDEMPOTENCY_KEY}, name
+    assert IDEMPOTENCY_KEY not in _properties(ours), name
 
 
 def test_the_advertised_top_k_default_is_the_catalogues_own(

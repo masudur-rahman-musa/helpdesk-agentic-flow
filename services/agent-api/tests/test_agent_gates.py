@@ -22,6 +22,19 @@ Expected implementation surface (the implementer must provide exactly this):
     ``def candidate_outcome(candidate_count: int) -> TurnOutcome``
     ``def capped_options[T](candidates: Sequence[T]) -> tuple[T, ...]``
 
+An earlier change extends the same file with the planner's own gates:
+
+``agent_api.graph.gates``
+    ``INTENT_TOOLS: Mapping[Intent, frozenset[str]]`` — a row for EVERY
+        intent, union exactly the eighteen planner tools, ``search_policy`` in
+        none of them.
+    ``def allowed_tools(intent: Intent) -> frozenset[str]`` — reads the table.
+    ``MAX_TOOL_CALLS = 6`` · ``MAX_CALLS_PER_ROUND = 3`` ·
+        ``MAX_TURN_TOKENS = 40000`` · ``TURN_DEADLINE_SECONDS = 90.0``
+    ``def may_plan_another_round(*, tool_calls_made: int, tokens_used: int,
+        elapsed_seconds: float) -> bool`` — all three bounds INCLUSIVE.
+    ``def validation_outcome(accepted: bool) -> TurnOutcome``
+
 the design's boundary rule is what makes this file possible: every decision is
 computed by framework-free code and the conditional edge only reads the
 result. Nothing here imports langgraph, opens a socket or touches Postgres.
@@ -35,17 +48,26 @@ import pytest
 from agent_api.graph import gates as gates_module
 from agent_api.graph.gates import (
     CONFIDENCE_THRESHOLD,
+    INTENT_TOOLS,
+    MAX_CALLS_PER_ROUND,
     MAX_DISAMBIGUATION_OPTIONS,
+    MAX_TOOL_CALLS,
+    MAX_TURN_TOKENS,
     REQUIRED_ENTITIES,
     RETRIEVES_POLICY,
+    TURN_DEADLINE_SECONDS,
+    allowed_tools,
     candidate_outcome,
     capped_options,
+    may_plan_another_round,
     missing_required_entities,
     needs_clarification,
     retrieval_outcome,
     should_retrieve,
+    validation_outcome,
 )
 from agent_api.graph.state import Intent, IntentEntities, IntentExtraction, TurnOutcome
+from agent_api.tools.catalogue import SEARCH_POLICY, TOOL_INPUTS
 
 SPEC_INTENTS: frozenset[str] = frozenset(
     {
@@ -359,3 +381,201 @@ def test_retrieval_outcome_maps_the_refusal_flag_to_its_branch(
     unanswerable one on to 17c with an empty citation list. Decision D puts the
     threshold in the tool, so this is the only place the flag is interpreted."""
     assert retrieval_outcome(refused) is expected
+
+
+# --- an earlier change: the tool table and loop control --------------------------------
+
+PLANNER_TOOLS: frozenset[str] = frozenset(
+    {
+        "get_me",
+        "list_my_access",
+        "list_my_requests",
+        "classify_access_request",
+        "create_access_request",
+        "revoke_access",
+        "onboard_user",
+        "transfer_user",
+        "offboard_user",
+        "open_access_review",
+        "list_review_items",
+        "decide_review_item",
+        "list_pending_approvals",
+        "approve_request",
+        "reject_request",
+        "reset_own_password",
+        "unlock_own_account",
+        "create_ticket",
+    }
+)
+"""The eighteen tools a planner may propose, as a literal.
+
+`TOOL_INPUTS`' nineteen minus `search_policy`, counted from the server's own
+registry: twenty-two registered, less the three row 24 owns (`search_audit`,
+`set_kill_switch`, `rollback_request`), less the one the agent never plans."""
+
+PLANNED_INTENT_TOOLS: dict[str, frozenset[str]] = {
+    "reset_password": frozenset({"reset_own_password", "create_ticket"}),
+    "unlock_account": frozenset({"unlock_own_account", "create_ticket"}),
+    "request_access": frozenset(
+        {
+            "get_me",
+            "list_my_access",
+            "classify_access_request",
+            "create_access_request",
+            "create_ticket",
+        }
+    ),
+    "revoke_access": frozenset({"list_my_access", "revoke_access", "create_ticket"}),
+    "report_mover": frozenset({"transfer_user", "create_ticket"}),
+    "onboard": frozenset({"onboard_user", "create_ticket"}),
+    "offboard": frozenset({"offboard_user", "create_ticket"}),
+    "open_ticket": frozenset({"create_ticket"}),
+    "ask_policy": frozenset(),
+    "check_my_access": frozenset({"get_me", "list_my_access", "list_my_requests"}),
+    "approvals": frozenset({"list_pending_approvals", "approve_request", "reject_request"}),
+    "review": frozenset({"open_access_review", "list_review_items", "decide_review_item"}),
+    "other": frozenset(),
+}
+"""Decision A's table as a literal: thirteen rows whose union is the eighteen.
+
+Written out here rather than derived, so a row widened in `gates.py` — an
+approvals turn gaining `offboard_user` — is a red row rather than a tool the
+model may now propose. The plan's §6 fixes the union, the two empty rows and
+`search_policy`'s absence; the membership of each remaining row is derived
+from what the design says that intent DOES, and is fixed here."""
+
+
+def test_the_loop_control_constants_are_exactly_the_planned_values() -> None:
+    """a project rule on decision F's four numbers. Catches every one of them
+    being quietly widened to make a long eval turn finish: eight tool calls is
+    a loop nobody budgeted, a per-round cap equal to the per-turn cap makes the
+    per-turn cap unreachable, and a deadline under one MCP read timeout
+    (`MCP_READ_TIMEOUT_SECONDS = 30.0`) would fire INSTEAD of the tool's own
+    timeout rather than after a tool genuinely stalled."""
+    assert MAX_TOOL_CALLS == 6
+    assert MAX_CALLS_PER_ROUND == 3
+    assert MAX_TURN_TOKENS == 40000
+    assert TURN_DEADLINE_SECONDS == 90.0
+    assert MAX_CALLS_PER_ROUND < MAX_TOOL_CALLS
+
+
+def test_intent_tools_covers_exactly_every_intent() -> None:
+    """The same shape as `REQUIRED_ENTITIES` and `RETRIEVES_POLICY`, for the
+    same reason: catches a table keyed only by the intents that plan
+    something. Read through a `.get(intent, ...)` default, the next intent
+    added to the enum would inherit whatever that default is — either every
+    tool or none — instead of waiting for somebody to write its row."""
+    assert set(INTENT_TOOLS) == set(Intent)
+    assert len(INTENT_TOOLS) == 13
+
+
+def test_the_union_of_the_rows_is_exactly_the_eighteen_planner_tools() -> None:
+    """Both directions at once. Catches a tool the catalogue registers that no
+    row offers — dead weight nothing can ever propose — and a row naming a
+    tool the catalogue does not carry, which would be proposed and then fail
+    argument validation on every turn. `search_policy` is asserted absent
+    separately: retrieval is `retrieve_policy`'s own call, and a row offering
+    it lets the model re-run the corpus search inside its own loop."""
+    union: frozenset[str] = frozenset().union(*INTENT_TOOLS.values())
+
+    assert union == PLANNER_TOOLS
+    assert len(union) == 18
+    assert union == set(TOOL_INPUTS) - {SEARCH_POLICY}
+    assert all(SEARCH_POLICY not in row for row in INTENT_TOOLS.values())
+
+
+@pytest.mark.parametrize(
+    ("intent_value", "expected"),
+    sorted((key, value) for key, value in PLANNED_INTENT_TOOLS.items()),
+)
+def test_each_intents_row_is_the_planned_one(intent_value: str, expected: frozenset[str]) -> None:
+    """Decision A row by row, which the union test cannot see: a tool moved
+    from one row to another leaves the union untouched. Catches the case the
+    decision exists for — an approvals or a policy turn that can reach a
+    lifecycle mutation — and the opposite, a row narrowed until the intent can
+    no longer do the thing it names."""
+    assert INTENT_TOOLS[Intent(intent_value)] == expected
+
+
+def test_the_two_intents_that_plan_nothing_are_offered_nothing() -> None:
+    """Criterion 4's table half. `ask_policy` is answered from the citations
+    alone and `other` is not a request at all, so a row with anything in it
+    invites a model call and a mutation for a turn that asked for neither.
+    Kept apart from the row table above because this is the pair the planner
+    short-circuits on BEFORE the gateway is touched."""
+    assert allowed_tools(Intent.ASK_POLICY) == frozenset()
+    assert allowed_tools(Intent.OTHER) == frozenset()
+
+
+def test_allowed_tools_agrees_with_the_table_it_reads() -> None:
+    """Catches an `allowed_tools` that names intents in an `if` chain instead
+    of reading `INTENT_TOOLS`: every row test above would still pass, the
+    table would be a decoration, and an edit to a row would change nothing at
+    all. Same failure `should_retrieve` is guarded against."""
+    for intent in Intent:
+        assert allowed_tools(intent) == INTENT_TOOLS[intent]
+
+
+# --- the design's loop control, as a pure predicate ----------------------------
+
+
+@pytest.mark.parametrize(
+    ("tool_calls_made", "tokens_used", "elapsed_seconds", "expected"),
+    [
+        (0, 0, 0.0, True),
+        (MAX_TOOL_CALLS, 0, 0.0, True),
+        (MAX_TOOL_CALLS + 1, 0, 0.0, False),
+        (0, MAX_TURN_TOKENS, 0.0, True),
+        (0, MAX_TURN_TOKENS + 1, 0.0, False),
+        (0, 0, TURN_DEADLINE_SECONDS, True),
+        (0, 0, TURN_DEADLINE_SECONDS + 0.1, False),
+    ],
+)
+def test_may_plan_another_round_is_inclusive_at_each_of_the_three_bounds(
+    tool_calls_made: int, tokens_used: int, elapsed_seconds: float, expected: bool
+) -> None:
+    """Three inclusive pairs, each decided by ONE bound: in every
+    row the other two counters sit at zero, so deleting the bound under test
+    is the only change that flips that row.
+
+    Catches an off-by-one at any of the three — a turn cut off at five calls,
+    at one token under the budget, or a tenth of a second before the deadline
+    — and a budget compared against the wrong operand, which is how a bound
+    that never bites ships green."""
+    assert (
+        may_plan_another_round(
+            tool_calls_made=tool_calls_made,
+            tokens_used=tokens_used,
+            elapsed_seconds=elapsed_seconds,
+        )
+        is expected
+    )
+
+
+def test_a_turn_past_every_bound_at_once_still_refuses() -> None:
+    """Catches the three checks combined with `and` instead of `or`, which the
+    single-bound rows above cannot see: each of them has two counters at zero,
+    so an `and` would answer them correctly and only fail once more than one
+    bound is live."""
+    assert (
+        may_plan_another_round(
+            tool_calls_made=MAX_TOOL_CALLS + 1,
+            tokens_used=MAX_TURN_TOKENS + 1,
+            elapsed_seconds=TURN_DEADLINE_SECONDS + 0.1,
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("accepted", "expected"),
+    [(True, TurnOutcome.CONTINUE), (False, TurnOutcome.REFUSE)],
+)
+def test_validation_outcome_maps_the_rounds_verdict_to_its_branch(
+    accepted: bool, expected: TurnOutcome
+) -> None:
+    """Catches an inverted read of the round's verdict, which would refuse
+    every well-formed plan and hand every malformed one on to 17d for
+    execution — the second half being decision C's exact failure, a half-done
+    mutation nobody asked for."""
+    assert validation_outcome(accepted) is expected

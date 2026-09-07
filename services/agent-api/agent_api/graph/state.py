@@ -15,7 +15,9 @@ frozen object, and the conditional edge reads the field the node wrote.
 """
 
 import uuid
+from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from helpdesk.errors import ErrorCode
 from pydantic import BaseModel, ConfigDict
@@ -140,6 +142,75 @@ class Citation(BaseModel):
     score: float
 
 
+class ProposedCall(BaseModel):
+    """One tool call the MODEL asked for, exactly as it answered.
+
+    Unchecked by construction: the tool name may be invented and the arguments
+    may be anything JSON can hold. Nothing on this object may be executed —
+    `validate_tool_calls` turns an accepted round into `ValidatedCall`s, and a
+    round with one bad proposal produces none at all.
+
+    `arguments` deliberately carries NO `idempotency_key`: the planner-facing
+    schema omits the field, so a model that names one is proposing an unknown
+    argument. Pinned by
+    `test_agent_planning.py::test_a_proposal_that_names_its_own_idempotency_key_is_rejected`.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    tool: str
+    arguments: dict[str, Any]
+
+
+class ToolPlan(BaseModel):
+    """One planning round's answer — the schema `plan_tools` constrains.
+
+    `ModelClient.complete_json` builds the request's JSON schema from this
+    model and validates the answer against the same one, so what the model is
+    asked for and what is accepted cannot drift. An empty `calls` list is the
+    ordinary end of a turn: a planner with nothing left to do proposes
+    nothing, and `validate_tool_calls` accepts that round
+    (`test_agent_planning.py::test_an_empty_round_is_accepted_and_validates_nothing`).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    calls: list[ProposedCall] = []
+
+
+class ValidatedCall(BaseModel):
+    """One call the agent is prepared to make, arguments and all.
+
+    The difference from `ProposedCall` is the whole of an earlier change's validation:
+    the tool is catalogued AND in the intent's `INTENT_TOOLS` row, the
+    arguments validated against that tool's model, and a mutating call's
+    `idempotency_key` is IN `arguments` — derived by the agent from the turn's
+    own values (decision D), never supplied by the model.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    tool: str
+    arguments: dict[str, Any]
+
+
+class ToolResult(BaseModel):
+    """What one executed call answered. Written by an earlier change, carried here.
+
+    The field lands with 17c although nothing fills it, because the planning
+    prompt is shaped around "what the tools have said so far": adding it a
+    plan later would change the prompt, its digest and every planning test
+    written against it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    tool: str
+    ok: bool
+    payload: dict[str, Any] = {}
+    error_code: ErrorCode | None = None
+
+
 class TurnState(BaseModel):
     """Everything one turn knows, carried between nodes.
 
@@ -168,3 +239,11 @@ class TurnState(BaseModel):
     resolved: ResolvedEntities | None = None
     citations: tuple[Citation, ...] = ()
     error_code: ErrorCode | None = None
+    proposed: tuple[ProposedCall, ...] = ()
+    validated: tuple[ValidatedCall, ...] = ()
+    tool_results: tuple[ToolResult, ...] = ()
+    tool_calls_made: int = 0
+    tokens_used: int = 0
+    started_at: datetime | None = None
+    round_number: int = 0
+    planning_prompt_version: str | None = None
