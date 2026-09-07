@@ -40,6 +40,24 @@ async def find_tenant_by_slug(session: AsyncSession, slug: str) -> Tenant | None
     return result.scalars().one_or_none()
 
 
+async def find_tenant_by_id(session: AsyncSession, tenant_id: uuid.UUID) -> Tenant | None:
+    """Resolve a tenant by its id, or None.
+
+    The sibling of `find_tenant_by_slug`, and here for the same reason: a
+    tenant is the scoping root rather than a tenant-scoped row, so
+    `Repository` cannot fetch one and a service would otherwise build the
+    statement itself.
+
+    The caller passes the id off a verified token, never off an argument. `search_policy` uses it to turn `identity.tenant_id` into
+    the slug its collection name is built from; pinned by
+    `test_mcp_search_policy.py::test_the_collection_searched_is_the_tokens_and_an_extra_tenant_id_is_dropped`,
+    whose caller supplies the OTHER seeded tenant's id as an argument and
+    still searches its own collection.
+    """
+    result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
+    return result.scalars().one_or_none()
+
+
 async def find_user_by_email(session: AsyncSession, email: str) -> User | None:
     """The bound tenant's user with this email, or None.
 

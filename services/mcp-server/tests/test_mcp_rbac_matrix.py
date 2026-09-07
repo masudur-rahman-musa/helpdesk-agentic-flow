@@ -54,7 +54,10 @@ from helpdesk.models import (
     User,
 )
 from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+    RecordingEmbedder,
+    RecordingQdrant,
     SeededMcp,
+    as_client,
     bearer,
     call_tool,
     error_code,
@@ -65,6 +68,7 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
+from mcp_server import rag_clients
 from mcp_server.registry import REGISTRY
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -261,6 +265,12 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change: the design gives the policy search every principal at
+    # `Scope.ANY` — everyone who can ask a question can read the policy behind
+    # the answer, and a single False here would be a corpus an employee cannot
+    # reach (a project rule: this literal is part of every diff adding a
+    # REGISTRY entry).
+    "search_policy": dict.fromkeys(PRINCIPALS, True),
 }
 
 # Tools whose PERMITTED call cannot succeed on arguments alone: both deciding
@@ -369,6 +379,12 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # test_another_tenants_subject_id_returns_an_empty_page_not_an_error`,
         # which plants a REAL row in the other tenant.
         "search_audit",
+        # An earlier change: its arguments are a question and a page size, and the
+        # tenant is read off the TOKEN — there is no id for a cross-tenant
+        # call to carry. The isolation this tool actually needs is a
+        # collection name, which no argument can reach, and it is pinned end
+        # to end against the real store by `test_mcp_policy_isolation.py`.
+        "search_policy",
     }
 )
 # The five decision G names explicitly: everything they answer is decided by
@@ -495,6 +511,13 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "reason": f"fake matrix clear {uuid.uuid4().hex}",
             "scope": str(env.tenant_a.tenant_id),
         }
+    if tool_name == "search_policy":
+        # An earlier change. A `query` is required, so without this row a permitted
+        # caller would be refused VALIDATION where this sweep asserts a
+        # success and the cell would pin nothing. The
+        # store is stubbed for this file (`_stub_policy_search` below), so
+        # the page comes back empty and the call succeeds as a refusal.
+        return {"query": "fake matrix policy question"}
     if tool_name in ALLOW_ANSWERS_NOT_FOUND:
         # Valid arguments naming a row that does not exist: a permitted
         # caller must get past RBAC and be refused NOT_FOUND by the lookup,
@@ -522,6 +545,26 @@ NO_PRINCIPAL_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 CASES = [(tool_name, principal) for tool_name in sorted(REGISTRY) for principal in PRINCIPALS]
+
+
+@pytest.fixture(autouse=True)
+def _stub_policy_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An earlier change: this sweep never loads a model and never reaches Qdrant.
+
+    `search_policy` is the one registered tool with an external dependency,
+    and this file calls every tool once per principal. Left real, each of
+    those seven cells would load the ONNX models and query a collection this
+    file never ingests into — an outage of the compose store, or a collection
+    that simply is not there, would then read as a matrix failure.
+
+    The stub answers both arms with an empty page, so the tool succeeds as a
+    REFUSAL: still a success at the wire, which is exactly what the permitted
+    branch of the sweep asserts. Nothing about the matrix decision is faked —
+    RBAC runs before the handler is ever called — and no other tool in the
+    registry touches either accessor.
+    """
+    monkeypatch.setattr(rag_clients, "embedder", lambda: RecordingEmbedder())
+    monkeypatch.setattr(rag_clients, "qdrant", lambda settings: as_client(RecordingQdrant()))
 
 
 def test_the_principal_axis_is_the_whole_enum() -> None:

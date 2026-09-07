@@ -150,6 +150,7 @@ def create_app() -> FastAPI:
         checks = {
             "postgres": await readiness.check_postgres(),
             "redis": await readiness.check_redis(),
+            "qdrant": await readiness.check_qdrant(),
         }
         ready = all(checks.values())
         body = ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)

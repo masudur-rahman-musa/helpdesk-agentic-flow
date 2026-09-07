@@ -26,13 +26,14 @@ and the one password hash placeholder is a literal marker, not a real hash.
 import asyncio
 import sys
 import uuid
-from collections.abc import Awaitable, Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 import httpx2
 import mcp.types as mcp_types
 import pytest
@@ -40,13 +41,19 @@ from helpdesk.auth.jwt import issue_token
 from helpdesk.core.db import create_engine
 from helpdesk.core.settings import load_settings
 from helpdesk.models import Base, Grant, Role, System, Tenant, User
+from helpdesk.rag.chunking import Chunk
+from helpdesk.rag.chunks import write_chunks
+from helpdesk.rag.embedding import DENSE_DIMENSION, SparseVector
+from helpdesk.rag.store import register_document_version
+from helpdesk.rag.vectors import collection_name, ensure_collection, point_id, upsert_chunks
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import ValidationError
+from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 from sqlalchemy import insert, select, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 # Make repo-root `scripts/` importable, same as packages/helpdesk/tests/conftest.py.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -73,6 +80,18 @@ _PG_UNREACHABLE_MSG = (
     "Plan 10a mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
+# The Qdrant this suite drives. A literal rather than `load_settings()` because
+# `mcp_env` EXPORTS it to the server under test: the gate below and the server
+# must probe the same instance, or a green connectivity check says nothing
+# about the URL the tool call will use.
+TEST_QDRANT_URL = "http://localhost:6333"
+
+_QDRANT_UNREACHABLE_MSG = (
+    "Qdrant is unreachable at " + TEST_QDRANT_URL + ".\n"
+    "Plan 15b mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
+    "Original error: {error!r}"
+)
+
 _REDIS_UNREACHABLE_MSG = (
     "Redis is unreachable at the configured REDIS_URL.\n"
     "Plan 10a mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
@@ -94,6 +113,10 @@ PROBE_DISPLAY_NAME = "Grants Probe"
 # Not a hash and not a secret: this user never authenticates, tokens are minted
 # directly. A literal marker makes that impossible to mistake for a credential.
 PROBE_PASSWORD_HASH = "not-a-real-hash-this-user-never-logs-in"
+
+# A fixed instant for every planted policy version: an ingest time
+# that moved with the clock would make a re-registration look like a change.
+POLICY_INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
 
 
 # --- handles ------------------------------------------------------------------
@@ -450,7 +473,7 @@ def mcp_env(
     monkeypatch.setenv("DATABASE_URL", seeded_mcp_db.database_url)
     monkeypatch.setenv("REDIS_URL", mcp_redis_url)
     monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
-    monkeypatch.setenv("QDRANT_URL", "http://localhost:6333")
+    monkeypatch.setenv("QDRANT_URL", TEST_QDRANT_URL)
     return seeded_mcp_db
 
 
@@ -592,3 +615,244 @@ def http_get(path: str) -> httpx2.Response:
             await pipeline.close_shared_connections()
 
     return asyncio.run(scenario())
+
+
+# --- Qdrant --------------------------------------------------------
+#
+# a project rule again, one level down. The instance is the compose one and is
+# never wiped; the namespace is the two seeded tenants' collections, which only
+# this suite ever writes to, and they are dropped at BOTH ends of the session so
+# a previous run's points can neither hide a leak nor invent one. Nothing here
+# is rebuilt per test: per-test isolation is a uuid-suffixed DOCUMENT slug
+# inside the session's collections.
+#
+# No file in this suite loads a real model. `RecordingEmbedder` returns vectors
+# the tests choose and records every call, so a case can tell "refused" from
+# "refused before any effect", and `RecordingQdrant` does the
+# same for the store while answering each arm with the page the case programmed.
+
+
+@pytest.fixture(scope="session")
+def mcp_qdrant() -> str:
+    """Connectivity gate: fails loudly (never skips) when Qdrant is down.
+
+    A skip would let the design's isolation at the TOOL boundary — the only
+    boundary a client can reach — go unproven on a green run.
+    """
+    try:
+        response = httpx.get(f"{TEST_QDRANT_URL}/collections", timeout=5.0)
+        response.raise_for_status()
+    except Exception as exc:
+        pytest.fail(_QDRANT_UNREACHABLE_MSG.format(error=exc), pytrace=False)
+    return TEST_QDRANT_URL
+
+
+@pytest.fixture(scope="session")
+def mcp_policy_collections(seeded_mcp_db: SeededMcp, mcp_qdrant: str) -> Iterator[tuple[str, str]]:
+    """Both seeded tenants' policy collections, dropped at both ends.
+
+    The names are derived from `seeded_mcp_db.tenant_a/​tenant_b.tenant_slug` —
+    the handles the seeding fixture read back — never from a slug pinned by
+    name here: the pair the fixture returns is whichever two
+    tenants the seed produced, and a file that dropped one name while planting
+    into the other would be right half the time.
+    """
+    names = (
+        collection_name(seeded_mcp_db.tenant_a.tenant_slug),
+        collection_name(seeded_mcp_db.tenant_b.tenant_slug),
+    )
+    for name in names:
+        httpx.delete(f"{mcp_qdrant}/collections/{name}", timeout=30.0)
+    yield names
+    for name in names:
+        httpx.delete(f"{mcp_qdrant}/collections/{name}", timeout=30.0)
+
+
+def dense_vector() -> tuple[float, ...]:
+    """One all-positive vector of the model's width, shared by every text.
+
+    Cosine is then ~1.0 between any planted chunk and any query, so what a real
+    search returns is decided by the COLLECTION and the filters — which is what
+    the isolation case is about — and never by whether a fake similarity
+    happened to clear the refusal floor.
+    """
+    return tuple(0.05 + (index % 7) / 100.0 for index in range(DENSE_DIMENSION))
+
+
+class RecordingEmbedder:
+    """An `Embedder` that records every call and costs nothing.
+
+    Vectors are at the real model's width because they are written into and
+    queried against the real collection, which rejects any other.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def embed_dense(self, texts: Sequence[str]) -> list[tuple[float, ...]]:
+        self.calls.append("embed_dense")
+        return [dense_vector() for _ in texts]
+
+    def embed_sparse(self, texts: Sequence[str]) -> list[SparseVector]:
+        self.calls.append("embed_sparse")
+        return [SparseVector(indices=(1, 5, 9), values=(0.4, 0.3, 0.3)) for _ in texts]
+
+    def count_tokens(self, text: str) -> int:
+        self.calls.append("count_tokens")
+        return len(text.split())
+
+
+@dataclass(frozen=True)
+class StubPoint:
+    """One point as `retrieval._hits` reads it: an id, a score and a payload."""
+
+    id: str
+    score: float
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class StubResponse:
+    points: list[StubPoint]
+
+
+def stub_point(
+    *,
+    chunk_id: uuid.UUID,
+    document_id: uuid.UUID,
+    document_slug: str,
+    text: str,
+    score: float,
+    version: str = "v1",
+    heading_path: tuple[str, ...] = ("1. Purpose",),
+) -> StubPoint:
+    """A point carrying exactly the payload keys 14c's upsert writes."""
+    return StubPoint(
+        id=str(chunk_id),
+        score=score,
+        payload={
+            "document_id": str(document_id),
+            "document_slug": document_slug,
+            "version": version,
+            "is_current": True,
+            "heading_path": list(heading_path),
+            "chunk_index": 0,
+            "text": text,
+        },
+    )
+
+
+class RecordingQdrant:
+    """A stand-in store: records every call, answers each arm as programmed.
+
+    Two uses. The validation cases assert `calls == []`, which is how "refused"
+    is told apart from "refused before any effect". The page
+    cases program the two arms independently, so the ORDER the tool returns can
+    be made to differ from both arms' own orders and a dense-only or
+    unfused implementation is visible at the wire.
+    """
+
+    def __init__(
+        self,
+        dense: Sequence[StubPoint] = (),
+        sparse: Sequence[StubPoint] = (),
+    ) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.collections: list[str] = []
+        self._dense = list(dense)
+        self._sparse = list(sparse)
+
+    async def query_points(self, collection_name: str, /, **kwargs: Any) -> StubResponse:
+        self.calls.append(("query_points", dict(kwargs)))
+        self.collections.append(collection_name)
+        using = kwargs.get("using")
+        return StubResponse(points=list(self._dense if using == "dense" else self._sparse))
+
+    async def close(self) -> None:
+        self.calls.append(("close", {}))
+
+
+def as_client(store: RecordingQdrant) -> AsyncQdrantClient:
+    return cast(AsyncQdrantClient, store)
+
+
+@dataclass(frozen=True)
+class PlantedDocument:
+    """One registered policy version, in Postgres and (optionally) in Qdrant."""
+
+    document_id: uuid.UUID
+    slug: str
+    title: str
+    version: str
+    texts: tuple[str, ...]
+    chunk_ids: tuple[uuid.UUID, ...]
+
+
+async def plant_policy_document(
+    session: AsyncSession,
+    *,
+    tenant_slug: str,
+    tenant_id: uuid.UUID,
+    slug: str,
+    texts: Sequence[str],
+    version: str = "v1",
+    title: str | None = None,
+    client: AsyncQdrantClient | None = None,
+    ingested_at: datetime | None = None,
+) -> PlantedDocument:
+    """Register a version and its chunk rows; write its points when asked.
+
+    `client=None` plants the Postgres half only, which is what a case driving a
+    `RecordingQdrant` needs: the citation titles are resolved from
+    `policy_documents`, so those rows must be real even when the page itself is
+    programmed. With a client the same document also reaches the real
+    collection, which is what the isolation case searches.
+
+    Point ids are `vectors.point_id`, computed rather than invented, so a
+    programmed point names a `policy_chunks` row that actually exists.
+    """
+    document_title = title if title is not None else f"Fake Policy {slug}"
+    result = await register_document_version(
+        session,
+        tenant_slug=tenant_slug,
+        slug=slug,
+        title=document_title,
+        version=version,
+        source_path=f"policies/{tenant_slug}/{version}/{slug}.md",
+        source=f"# {document_title}\n\n{' '.join(texts)}\n".encode(),
+        ingested_at=ingested_at if ingested_at is not None else POLICY_INGESTED_AT,
+    )
+    document_id = result.document.id
+    chunks = [
+        Chunk(
+            heading_path=("1. Purpose",),
+            char_start=index * 200,
+            char_end=index * 200 + len(text),
+            text=text,
+            dense=dense_vector(),
+            sparse=SparseVector(indices=(1, 5, 9), values=(0.4, 0.3, 0.3)),
+        )
+        for index, text in enumerate(texts)
+    ]
+    chunk_ids = [point_id(tenant_id, document_id, index) for index in range(len(chunks))]
+    if client is not None:
+        await ensure_collection(client, tenant_slug)
+        upserted = await upsert_chunks(
+            client,
+            tenant_slug,
+            tenant_id=tenant_id,
+            document_id=document_id,
+            document_slug=slug,
+            version=version,
+            chunks=chunks,
+        )
+        assert list(upserted) == chunk_ids, "the deterministic point ids moved"
+    await write_chunks(session, document_id=document_id, chunks=chunks, point_ids=chunk_ids)
+    return PlantedDocument(
+        document_id=document_id,
+        slug=slug,
+        title=document_title,
+        version=version,
+        texts=tuple(texts),
+        chunk_ids=tuple(chunk_ids),
+    )

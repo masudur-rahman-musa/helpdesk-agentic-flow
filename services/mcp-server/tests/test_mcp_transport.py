@@ -92,9 +92,11 @@ EXPECTED_TOOL_NAMES = {
     # group. Registered like any other tool, so this literal has to name it
     # or the wire surface and the registry disagree.
     "set_kill_switch",
+    # An earlier change: the policy corpus read, and the only tool that reaches Qdrant.
+    "search_policy",
 }
 
-DEPENDENCIES: tuple[str, str] = ("postgres", "redis")
+DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")
 
 # The stdio entrypoint, driven as a real subprocess.
 _STDIO_CODE = "from mcp_server.main import run_stdio; run_stdio()"
@@ -188,7 +190,7 @@ def test_readyz_reports_ready_when_postgres_and_redis_answer(
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "checks": {"postgres": True, "redis": True},
+        "checks": {"postgres": True, "redis": True, "qdrant": True},
     }
 
 
@@ -219,5 +221,5 @@ def test_readyz_against_the_live_compose_stack_is_ready(
     assert response.status_code == 200, response.text
     assert response.json() == {
         "status": "ready",
-        "checks": {"postgres": True, "redis": True},
+        "checks": {"postgres": True, "redis": True, "qdrant": True},
     }

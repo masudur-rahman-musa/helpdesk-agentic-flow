@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
-from mcp_server.tools import access, admin, approvals, helpdesk, lifecycle, read, reviews
+from mcp_server.tools import access, admin, approvals, helpdesk, lifecycle, policy, read, reviews
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
 """What a read tool writes when it worked. Per-tool rather than global (plan
@@ -360,6 +360,25 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
         handler=admin.set_kill_switch,
+    ),
+    ToolSpec(
+        # A READ over Qdrant: nothing is written, so no idempotency key and no
+        # domain event of its own — the pipeline's generic `tool.succeeded` is
+        # the whole record a search leaves. The wire name, the matrix member,
+        # the kill switch key and the audit subject are one string by
+        # construction, which is what lets an admin stop policy search alone.
+        name=rbac.Tool.SEARCH_POLICY.value,
+        tool=rbac.Tool.SEARCH_POLICY,
+        description=(
+            "Search this tenant's policy corpus and return the passages an answer may cite. "
+            "Returns refused=true with no citations when nothing matches well enough to "
+            "answer from."
+        ),
+        input_model=policy.SearchPolicyInput,
+        output_model=policy.SearchPolicyOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=policy.search_policy,
     ),
     ToolSpec(
         name=rbac.Tool.CREATE_TICKET.value,
