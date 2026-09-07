@@ -12,6 +12,7 @@ __pycache__/
 .coverage
 .coverage-baseline
 htmlcov/
+.cache/
 node_modules/
 .next/
 dist/
