@@ -31,7 +31,7 @@ import httpx
 
 from helpdesk.core.settings import Settings
 from helpdesk.errors import ErrorCode, ToolError
-from helpdesk.rag.naming import check_slug
+from helpdesk.gateway.keys import checked_tenant_key
 
 MAX_REDACTION_CHARS = 16_384
 """The gateway's per-string cap, copied from `opsconsole.redaction`'s
@@ -147,22 +147,17 @@ class RedactionClient:
     def _checked(self, tenant_slug: str) -> tuple[str, str]:
         """The accepted slug and the key configured for it, or a typed refusal.
 
-        Returns both so the header and the lookup cannot drift apart:
-        `X-Tenant` carries the slug this key was read for, which is the pair
-        the gateway compares.
-
-        `check_slug` runs first (14a's pre-check), so an over-long or
-        malformed slug is refused before it can reach a header at all: a
-        header value is one of the unsized stores a project rule names.
+        Delegates to `helpdesk.gateway.keys.checked_tenant_key`, which both
+        gateway clients share so a design note's pairing lives in one place (plan
+        16 decision G). The wrapping preserves this client's own error class
+        and its messages unchanged, which is what
+        `test_rag_gateway.py::test_a_tenant_with_no_configured_key_is_refused_before_any_request`
+        asserts.
         """
         try:
-            slug = check_slug(tenant_slug)
+            return checked_tenant_key(tenant_slug, self._api_keys)
         except ToolError as exc:
             raise GatewayRequestError(str(exc)) from exc
-        key = self._api_keys.get(slug)
-        if key is None:
-            raise GatewayRequestError(f"no gateway API key is configured for tenant {slug!r}")
-        return slug, key
 
     async def redact_document(self, text: str, tenant_slug: str) -> RedactedDocument:
         """Redact one whole document and return it with the filed map's id.
