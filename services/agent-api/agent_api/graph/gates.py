@@ -1,10 +1,11 @@
-"""The two turn gates as pure predicates (the design's boundary rule).
+"""Every turn gate as a pure predicate (the design's boundary rule).
 
-LangGraph owns routing; it never owns a decision. Both branches this plan
-introduces — clarify-or-continue after intent extraction, and
-clarify/continue/disambiguate after entity resolution — are computed here, by
-code that imports no framework and touches no store, and the conditional edge
-downstream only reads the field the node wrote. That is what makes the rule
+LangGraph owns routing; it never owns a decision. Each branch is computed here,
+by code that imports no framework and touches no store, and the conditional
+edge downstream only reads the field the node wrote: clarify-or-continue after
+intent extraction, clarify/continue/disambiguate after entity resolution, and
+an earlier change's pair — whether the turn retrieves at all, and what the tool's own
+refusal flag means. That is what makes the rule
 enforceable rather than a claim: every case below is tested with no graph at
 all, and `test_agent_gates.py::test_the_gates_module_imports_no_framework_and_no_io`
 parses this file to prove the property has not quietly moved.
@@ -59,6 +60,36 @@ role, and requiring it here would ask a question the engine can answer.
 """
 
 
+RETRIEVES_POLICY: Mapping[Intent, bool] = {
+    Intent.RESET_PASSWORD: False,
+    Intent.UNLOCK_ACCOUNT: False,
+    Intent.REQUEST_ACCESS: True,
+    Intent.REVOKE_ACCESS: False,
+    Intent.REPORT_MOVER: False,
+    Intent.ONBOARD: False,
+    Intent.OFFBOARD: False,
+    Intent.OPEN_TICKET: False,
+    Intent.ASK_POLICY: True,
+    Intent.CHECK_MY_ACCESS: False,
+    Intent.APPROVALS: False,
+    Intent.REVIEW: False,
+    Intent.OTHER: False,
+}
+"""Which intents pay for a policy search (the design step 5).
+
+Exactly two: `request_access`, whose decision is made against policy, and
+`ask_policy`, which IS a policy question. The other eleven are answered from
+the directory or from a tool's own result, so a retrieval there is a round
+trip nobody reads.
+
+A row for EVERY intent, for the same reason `REQUIRED_ENTITIES` has one: a
+table keyed only by the two would be read through a `.get(intent, False)`
+default, and the next policy-answering intent added to `Intent` would silently
+answer from nothing. Pinned by
+`test_agent_gates.py::test_retrieves_policy_covers_exactly_every_intent`.
+"""
+
+
 def missing_required_entities(extraction: IntentExtraction) -> frozenset[str]:
     """Every required entity this extraction did not supply, not just the first.
 
@@ -104,6 +135,27 @@ def candidate_outcome(candidate_count: int) -> TurnOutcome:
     if candidate_count == 1:
         return TurnOutcome.CONTINUE
     return TurnOutcome.DISAMBIGUATE
+
+
+def should_retrieve(intent: Intent) -> bool:
+    """Whether this turn asks the policy corpus anything (the design step 5).
+
+    Reads the table rather than naming the two intents, so a row edited above
+    changes behaviour instead of leaving the table decorative. Pinned by
+    `test_agent_gates.py::test_should_retrieve_agrees_with_the_table_it_reads`.
+    """
+    return RETRIEVES_POLICY[intent]
+
+
+def retrieval_outcome(refused: bool) -> TurnOutcome:
+    """The branch the tool's own `refused` flag names (decision D).
+
+    The threshold is NOT recomputed here: `should_refuse` decided it over the
+    fused hits inside the tool (15a decision D), so this function interprets a
+    boolean and nothing else. Pinned both ways by
+    `test_agent_gates.py::test_retrieval_outcome_maps_the_refusal_flag_to_its_branch`.
+    """
+    return TurnOutcome.REFUSE if refused else TurnOutcome.CONTINUE
 
 
 def capped_options[T](candidates: Sequence[T]) -> tuple[T, ...]:

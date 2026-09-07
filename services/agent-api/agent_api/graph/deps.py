@@ -5,10 +5,15 @@ importing the module that imports every node. Re-exported from `build` for
 callers, which is the only name a route needs.
 
 Everything a node touches that is not pure is here and nowhere else: the
-tenant-bound database session, the model client, and the clock. The clock is
-injected rather than read, exactly as `helpdesk.auth.jwt` and the audit writer
-do it, so `started_at` and `last_seen_at` are judged against one clock a test
-controls.
+tenant-bound database session, the model client, the MCP tool caller and the
+clock. The clock is injected rather than read, exactly as `helpdesk.auth.jwt`
+and the audit writer do it, so `started_at` and `last_seen_at` are judged
+against one clock a test controls.
+
+`tools` is the `ToolCaller` PROTOCOL, never the concrete client: every node
+test runs against a stub, and only `test_agent_mcp_client.py` opens a real MCP
+session. The session's lifetime is the turn's, and
+`run_turn` is what enters and exits it — no node owns a connection.
 """
 
 from collections.abc import Callable
@@ -17,6 +22,8 @@ from datetime import datetime
 
 from helpdesk.gateway.client import ModelClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from agent_api.mcp_client import ToolCaller
 
 
 @dataclass(frozen=True)
@@ -30,4 +37,5 @@ class TurnDeps:
 
     db: AsyncSession
     model: ModelClient
+    tools: ToolCaller
     now: Callable[[], datetime]

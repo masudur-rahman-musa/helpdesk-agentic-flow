@@ -2,13 +2,16 @@
 
 Every service builds its `Settings` from here; nothing reads os.environ
 directly. The four backing-service values are required so a misconfigured
-deployment fails at startup, not on first use; the four ingestion values
-added by an earlier change carry defaults, each with its reason next to the
-field.
+deployment fails at startup, not on first use; every other value carries a
+default with its reason next to the field. A default is not an excuse for a
+missing check: `MCP_URL` and `GATEWAY_API_KEYS` are both validated here, so a
+malformed value is refused when the process starts rather than on the first
+call that uses it.
 """
 
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -24,6 +27,20 @@ class Settings(BaseSettings):
 
     gateway_url: str = "http://localhost:8080/v1"
     """The Ops Console gateway's versioned base URL; `/redact` hangs off it."""
+
+    mcp_url: str = "http://localhost:8081/mcp"
+    """Where the MCP server's streamable HTTP transport is mounted (the design).
+
+    Here rather than in an agent-api-local environment read (an earlier change decision
+    F): every other URL, secret and key map already loads and validates in this
+    class, and a second loader is a second place a misconfiguration hides until
+    the first turn.
+
+    Validated at load by `_mcp_url_is_an_absolute_http_url`, so a malformed
+    base URL fails when the process starts instead of on the first tool call.
+    Pinned by
+    `test_settings.py::test_a_malformed_mcp_url_is_refused_at_settings_load`.
+    """
 
     gateway_api_keys: Annotated[dict[str, str], NoDecode] = {}
     """One gateway API key per tenant slug, read from `GATEWAY_API_KEYS` in the
@@ -75,6 +92,25 @@ class Settings(BaseSettings):
         # Bytes, not characters: HS256 key strength is measured in key bytes.
         if len(value.encode()) < 32:
             raise ValueError("JWT_SECRET must be at least 32 bytes")
+        return value
+
+    @field_validator("mcp_url")
+    @classmethod
+    def _mcp_url_is_an_absolute_http_url(cls, value: str) -> str:
+        """An absolute http(s) URL with a host, and no whitespace anywhere.
+
+        The whitespace half is not decoration: a value copied into `.env` with
+        a trailing newline or a trailing space parses as a perfectly good URL
+        whose host carries the stray character, and the failure surfaces as a
+        DNS error on the first tool call rather than here. Refused at load
+        instead, which is the whole point of the field living in this class. Pinned by
+        `test_settings.py::test_a_malformed_mcp_url_is_refused_at_settings_load`.
+        """
+        parsed = urlsplit(value)
+        if any(character.isspace() for character in value):
+            raise ValueError("MCP_URL must contain no whitespace")
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("MCP_URL must be an absolute http or https URL")
         return value
 
     @field_validator("gateway_api_keys", mode="before")

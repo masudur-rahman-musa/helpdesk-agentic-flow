@@ -15,8 +15,9 @@ checkpointer together with the approval interrupt that needs one; a
 later, holding every turn's state in the process meanwhile. Pinned by
 `test_agent_turn.py::test_the_compiled_graph_carries_no_checkpointer`.
 
-`run_turn` runs both pre-checks BEFORE the graph is invoked, so an oversized
-message leaves no session row, no message row and no model call behind
+`run_turn` runs both pre-checks BEFORE the graph is invoked and before the MCP
+session is opened, so an oversized message leaves no session row, no message
+row, no model call and no handshake behind
 (a project rule, pinned by
 `test_agent_turn.py::test_a_message_one_character_over_the_cap_writes_nothing_at_all`).
 Inside a node the same check would fire after `load_session` had already
@@ -33,10 +34,16 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agent_api.graph.deps import TurnDeps
-from agent_api.graph.nodes.endings import ask_clarifying, ask_disambiguation, fail_turn
+from agent_api.graph.nodes.endings import (
+    ask_clarifying,
+    ask_disambiguation,
+    fail_turn,
+    refuse_and_ticket,
+)
 from agent_api.graph.nodes.extract_intent import FAILURE_REPLY, extract_intent
 from agent_api.graph.nodes.load_session import load_session
 from agent_api.graph.nodes.resolve_entities import resolve_entities
+from agent_api.graph.nodes.retrieve_policy import retrieve_policy
 from agent_api.graph.state import TurnOutcome, TurnState
 
 __all__ = ["FAILURE_REPLY", "TurnDeps", "build_graph", "run_turn"]
@@ -44,6 +51,8 @@ __all__ = ["FAILURE_REPLY", "TurnDeps", "build_graph", "run_turn"]
 LOAD_SESSION = "load_session"
 EXTRACT_INTENT = "extract_intent"
 RESOLVE_ENTITIES = "resolve_entities"
+RETRIEVE_POLICY = "retrieve_policy"
+REFUSE_AND_TICKET = "refuse_and_ticket"
 ASK_CLARIFYING = "ask_clarifying"
 ASK_DISAMBIGUATION = "ask_disambiguation"
 FAIL_TURN = "fail_turn"
@@ -80,6 +89,14 @@ async def _resolve_entities(state: TurnState, config: RunnableConfig) -> dict[st
     return (await resolve_entities(state, _deps(config))).model_dump()
 
 
+async def _retrieve_policy(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await retrieve_policy(state, _deps(config))).model_dump()
+
+
+async def _refuse_and_ticket(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await refuse_and_ticket(state, _deps(config))).model_dump()
+
+
 async def _ask_clarifying(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
     return (await ask_clarifying(state, _deps(config))).model_dump()
 
@@ -107,21 +124,37 @@ def _after_entities(state: TurnState) -> str:
         return ASK_CLARIFYING
     if state.outcome is TurnOutcome.DISAMBIGUATE:
         return ASK_DISAMBIGUATION
+    return RETRIEVE_POLICY
+
+
+def _after_retrieval(state: TurnState) -> str:
+    """Read `outcome`. Nothing else, and no computation (the design).
+
+    `CONTINUE` reaches `END` and that is 17c's handover point: the citations
+    ride on the state and no assistant message has been written, so the next
+    plan hangs planning, execution and the composed reply off this edge.
+    """
+    if state.outcome is TurnOutcome.FAILED:
+        return FAIL_TURN
+    if state.outcome is TurnOutcome.REFUSE:
+        return REFUSE_AND_TICKET
     return END
 
 
 def build_graph() -> CompiledStateGraph:
-    """The three nodes and the three ways the turn can stop early.
+    """The four working nodes and the four ways the turn can stop early.
 
-    `resolve_entities` reaching `END` on `CONTINUE` is the handover point:
-    an earlier change hangs retrieval, planning, execution and the composed reply off
-    exactly that edge, which is why the happy path writes no assistant message
-    here.
+    `retrieve_policy` reaching `END` on `CONTINUE` is now the handover point:
+    an earlier change hangs planning, execution and the composed reply off exactly that
+    edge, which is why a successful retrieval writes no assistant message here
+    and carries its citations on the state instead.
     """
     graph = StateGraph(TurnState)
     graph.add_node(LOAD_SESSION, _load_session)
     graph.add_node(EXTRACT_INTENT, _extract_intent)
     graph.add_node(RESOLVE_ENTITIES, _resolve_entities)
+    graph.add_node(RETRIEVE_POLICY, _retrieve_policy)
+    graph.add_node(REFUSE_AND_TICKET, _refuse_and_ticket)
     graph.add_node(ASK_CLARIFYING, _ask_clarifying)
     graph.add_node(ASK_DISAMBIGUATION, _ask_disambiguation)
     graph.add_node(FAIL_TURN, _fail_turn)
@@ -143,9 +176,19 @@ def build_graph() -> CompiledStateGraph:
         {
             ASK_CLARIFYING: ASK_CLARIFYING,
             ASK_DISAMBIGUATION: ASK_DISAMBIGUATION,
+            RETRIEVE_POLICY: RETRIEVE_POLICY,
+        },
+    )
+    graph.add_conditional_edges(
+        RETRIEVE_POLICY,
+        _after_retrieval,
+        {
+            REFUSE_AND_TICKET: REFUSE_AND_TICKET,
+            FAIL_TURN: FAIL_TURN,
             END: END,
         },
     )
+    graph.add_edge(REFUSE_AND_TICKET, END)
     graph.add_edge(ASK_CLARIFYING, END)
     graph.add_edge(ASK_DISAMBIGUATION, END)
     graph.add_edge(FAIL_TURN, END)
@@ -171,6 +214,16 @@ async def run_turn(
     caught by a test rather than by every turn refusing at once
     (`test_agent_turn.py::test_every_canonical_session_id_passes_the_session_id_pre_check`).
 
+    Both pre-checks also run BEFORE the MCP session is opened, so an oversized
+    message pays no network handshake either
+    (`::test_the_pre_checks_still_run_before_the_caller_is_opened`).
+
+    The tool caller is entered here and nowhere else:
+    one session for the whole turn, closed by the `async with` on the raising
+    path as well as the returning one, so a node that explodes cannot leak the
+    turn's connection pool
+    (`::test_the_caller_is_closed_when_a_node_raises`).
+
     Identity is passed in by the route that read the token and is never taken
     from the message or from the extracted entities.
     """
@@ -184,5 +237,6 @@ async def run_turn(
         tenant_slug=tenant_slug,
         user_message=message,
     )
-    result = await build_graph().ainvoke(state, config={"configurable": {_DEPS_KEY: deps}})
+    async with deps.tools:
+        result = await build_graph().ainvoke(state, config={"configurable": {_DEPS_KEY: deps}})
     return TurnState.model_validate(result)

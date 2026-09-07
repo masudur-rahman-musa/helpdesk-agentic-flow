@@ -15,6 +15,14 @@ dependencies = [
     # `langgraph-checkpoint-postgres` arrives with an earlier change, the row that needs
     # a checkpointer; a pin nothing exercises is an unverified pin.
     "langgraph>=1.2",
+    # the design and §5, an earlier change decision A: the agent reaches the MCP server
+    # over streamable HTTP with the official SDK's client, never a hand-rolled
+    # JSON-RPC handshake against a server that already speaks the SDK's.
+    "mcp>=2.1",
+    # The SDK's client speaks httpx2, not httpx, so the floor is declared here
+    # rather than inherited from whatever `mcp` happens to vendor; the root dev
+    # group declares the same floor for the same reason.
+    "httpx2>=2.12",
 ]
 
 [build-system]

@@ -37,10 +37,13 @@ from agent_api.graph.gates import (
     CONFIDENCE_THRESHOLD,
     MAX_DISAMBIGUATION_OPTIONS,
     REQUIRED_ENTITIES,
+    RETRIEVES_POLICY,
     candidate_outcome,
     capped_options,
     missing_required_entities,
     needs_clarification,
+    retrieval_outcome,
+    should_retrieve,
 )
 from agent_api.graph.state import Intent, IntentEntities, IntentExtraction, TurnOutcome
 
@@ -81,6 +84,25 @@ PLANNED_REQUIREMENTS: dict[str, frozenset[str]] = {
 }
 """The plan's decision table as a literal, so a requirement quietly dropped
 from the code is a red row here and not a system the agent guesses at."""
+
+PLANNED_RETRIEVAL: dict[str, bool] = {
+    "reset_password": False,
+    "unlock_account": False,
+    "request_access": True,
+    "revoke_access": False,
+    "report_mover": False,
+    "onboard": False,
+    "offboard": False,
+    "open_ticket": False,
+    "ask_policy": True,
+    "check_my_access": False,
+    "approvals": False,
+    "review": False,
+    "other": False,
+}
+"""the design step 5 as a literal: retrieval runs for exactly two of the
+thirteen intents. Written out rather than derived from a `True` set, so a row
+added to `Intent` with no answer here is a red test and not a silent default."""
 
 FULL_CONFIDENCE = 1.0
 """Used wherever the case must be decided by the ENTITY half of the gate, so
@@ -272,3 +294,68 @@ def test_the_gates_module_imports_no_framework_and_no_io() -> None:
 
     forbidden = {"langgraph", "sqlalchemy", "httpx", "redis", "qdrant_client"}
     assert imported & forbidden == set()
+
+
+# --- an earlier change: the retrieval half ---------------------------------------------
+
+
+def test_turn_outcome_carries_the_refusal_branch() -> None:
+    """Catches an implementation that reuses `CLARIFY` for a policy refusal.
+
+    The two branches store different things — a clarify writes the model's own
+    question, a refusal writes the fixed `REFUSAL_REPLY` and offers a ticket —
+    so collapsing them would answer "no policy covers this" with a question the
+    user has already answered. The VALUE is pinned as well as the member: it is
+    what a checkpointed state and a trace line are read by."""
+    assert TurnOutcome.REFUSE.value == "refuse"
+
+
+def test_retrieves_policy_covers_exactly_every_intent() -> None:
+    """Catches a table keyed only by the two intents that retrieve.
+
+    A `.get(intent, False)` lookup over a two-key map reads identically today
+    and makes every FUTURE intent silently non-retrieving, which is how a new
+    policy-answering intent ships answering from nothing. Same reasoning as
+    `REQUIRED_ENTITIES`."""
+    assert set(RETRIEVES_POLICY) == set(Intent)
+    assert len(RETRIEVES_POLICY) == 13
+
+
+@pytest.mark.parametrize(
+    ("intent_value", "expected"),
+    sorted((key, value) for key, value in PLANNED_RETRIEVAL.items()),
+)
+def test_should_retrieve_is_true_for_exactly_the_two_planned_intents(
+    intent_value: str, expected: bool
+) -> None:
+    """Catches both directions of plan §5's third risk.
+
+    A predicate returning True for everything makes eleven intents — a password
+    reset, an approvals list — pay a Qdrant round trip they never read, and one
+    returning False for `ask_policy` makes the agent answer a policy question
+    with no policy in front of it. Each row is decided by this predicate alone;
+    nothing else in `gates.py` reads an intent."""
+    assert should_retrieve(Intent(intent_value)) is expected
+
+
+def test_should_retrieve_agrees_with_the_table_it_reads() -> None:
+    """Catches a `should_retrieve` that hard-codes its two intents in an `in`
+    check instead of reading `RETRIEVES_POLICY`: the table would then be a
+    decoration the tests above pass on, and a row edited there would change
+    nothing at all."""
+    for intent in Intent:
+        assert should_retrieve(intent) is RETRIEVES_POLICY[intent]
+
+
+@pytest.mark.parametrize(
+    ("refused", "expected"),
+    [(True, TurnOutcome.REFUSE), (False, TurnOutcome.CONTINUE)],
+)
+def test_retrieval_outcome_maps_the_refusal_flag_to_its_branch(
+    refused: bool, expected: TurnOutcome
+) -> None:
+    """Catches an inverted read of the tool's `refused` flag, which would send
+    every answerable question to the refusal ending and hand every genuinely
+    unanswerable one on to 17c with an empty citation list. Decision D puts the
+    threshold in the tool, so this is the only place the flag is interpreted."""
+    assert retrieval_outcome(refused) is expected

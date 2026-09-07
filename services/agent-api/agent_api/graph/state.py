@@ -95,6 +95,7 @@ class TurnOutcome(StrEnum):
     CONTINUE = "continue"
     CLARIFY = "clarify"
     DISAMBIGUATE = "disambiguate"
+    REFUSE = "refuse"
     FAILED = "failed"
 
 
@@ -112,6 +113,31 @@ class ResolvedEntities(BaseModel):
     system_slug: str | None = None
     role_id: uuid.UUID | None = None
     role_slug: str | None = None
+
+
+class Citation(BaseModel):
+    """One cited policy chunk, exactly as `search_policy` puts it on the wire.
+
+    The seven fields and no eighth: the design's six plus `title`, which exists
+    because a citation the UI cannot render is a wrong answer (15a decision E).
+    The dense cosine the refusal threshold reads is deliberately NOT here — it
+    never crosses the tool boundary, so it can never reach a prompt.
+
+    Frozen, like everything else on the state: 17c composes a reply FROM these
+    and must not be able to edit one on the way. Pinned as an exact field set
+    against the server's own advertised output schema by
+    `test_agent_tool_catalogue.py::test_the_citation_fields_are_the_ones_the_server_returns`.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    document: str
+    title: str
+    version: str
+    heading_path: tuple[str, ...]
+    chunk_id: uuid.UUID
+    text: str
+    score: float
 
 
 class TurnState(BaseModel):
@@ -140,4 +166,5 @@ class TurnState(BaseModel):
     reply: str | None = None
     options: tuple[str, ...] = ()
     resolved: ResolvedEntities | None = None
+    citations: tuple[Citation, ...] = ()
     error_code: ErrorCode | None = None

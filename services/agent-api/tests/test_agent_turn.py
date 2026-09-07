@@ -16,6 +16,20 @@ Expected implementation surface (the implementer must provide exactly this):
 Nodes: ``load_session`` → ``extract_intent`` → ``resolve_entities``, with the
 END nodes ``ask_clarifying`` and ``ask_disambiguation``.
 
+An earlier change extends the same file. ``TurnDeps`` gains ``tools: ToolCaller``, the
+turn continues from ``resolve_entities`` into ``retrieve_policy``, and
+``refuse_and_ticket`` is a fourth END node. Every case here drives a STUB
+caller: the real MCP session is proven once, in
+``test_agent_mcp_client.py``, so nothing in this file opens a socket or
+reaches Qdrant.
+
+``agent_api.graph.nodes.retrieve_policy``
+    ``MAX_QUERY_CHARS = 1000`` · ``def query_for(message: str) -> str``
+    ``async def retrieve_policy(state, deps) -> TurnState`` — never raises.
+
+``agent_api.graph.nodes.endings``
+    ``REFUSAL_REPLY: str`` · ``async def refuse_and_ticket(state, deps)``
+
 Cost and isolation. Postgres is the compose stack's, one throwaway database
 built once for the whole module with three obviously fake
 tenants seeded into it once; per-case isolation is a namespace, a fresh
@@ -34,16 +48,21 @@ DATABASE and its schema are what the session-scoped fixture builds once.
 import asyncio
 import json
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
+from typing import Any
 
 import httpx
 import pytest
 from agent_api.graph.build import FAILURE_REPLY, TurnDeps, build_graph, run_turn
 from agent_api.graph.gates import MAX_DISAMBIGUATION_OPTIONS
-from agent_api.graph.state import Intent, TurnOutcome, TurnState
+from agent_api.graph.nodes.endings import REFUSAL_REPLY
+from agent_api.graph.nodes.retrieve_policy import MAX_QUERY_CHARS, query_for
+from agent_api.graph.state import Citation, Intent, TurnOutcome, TurnState
+from agent_api.mcp_client import RemoteInternalError, ToolCaller
 from agent_api.prompts import load_prompt
+from agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.core.repository import (
     HISTORY_LIMIT,
@@ -57,7 +76,7 @@ from helpdesk.gateway.client import ModelClient
 from helpdesk.models import Base, Department, Message, Role, Session, System, Tenant, User
 from helpdesk.models.conversation import MAX_MESSAGE_CHARS, MessageRole, MessageTooLongError
 from helpdesk.rag.naming import check_slug
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -324,6 +343,69 @@ class StagedGateway:
         return len(self.requests)
 
 
+# --- the stubbed tool caller ---------------------------------------
+
+
+class StubToolCaller:
+    """A `ToolCaller` that records every call and answers what the case says.
+
+    The recording is what makes "zero tool calls" and "exactly one" assertable
+    as counts rather than inferred from the state, and what lets the refusal
+    case prove NO ticket was created (decision E) instead of assuming it.
+
+    `entered` and `exited` are counted separately so a turn that opened the
+    session and never closed it is a red case, not an invisible leak.
+    """
+
+    def __init__(
+        self,
+        *,
+        payload: Mapping[str, Any] | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        self._payload: Mapping[str, Any] = (
+            payload if payload is not None else {"citations": [], "refused": False}
+        )
+        self._error = error
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.entered = 0
+        self.exited = 0
+
+    async def __aenter__(self) -> ToolCaller:
+        self.entered += 1
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.exited += 1
+
+    async def call_tool(self, name: str, arguments: BaseModel) -> Mapping[str, Any]:
+        self.calls.append((name, arguments.model_dump()))
+        if self._error is not None:
+            raise self._error
+        return self._payload
+
+    @property
+    def names(self) -> list[str]:
+        return [name for name, _arguments in self.calls]
+
+
+def _citation(document: str, *, score: float) -> dict[str, Any]:
+    """One citation as the tool puts it on the wire (json mode, obviously fake)."""
+    return {
+        "document": document,
+        "title": f"Fake {document.replace('-', ' ').title()} Policy",
+        "version": "v1",
+        "heading_path": ["Fake Section", "Fake Subsection"],
+        "chunk_id": str(uuid.uuid4()),
+        "text": f"Obviously fake policy text about {document}.",
+        "score": score,
+    }
+
+
+def _page(*citations: dict[str, Any], refused: bool = False) -> dict[str, Any]:
+    return {"citations": list(citations), "refused": refused}
+
+
 # --- helpers ------------------------------------------------------------------
 
 
@@ -336,8 +418,10 @@ def _run_turn(
     gateway: StagedGateway,
     user_id: uuid.UUID | None = None,
     plant: Sequence[tuple[MessageRole, str]] = (),
+    tools: StubToolCaller | None = None,
 ) -> TurnState:
     """Run one turn, optionally after planting a conversation history."""
+    caller = tools if tools is not None else StubToolCaller()
 
     async def scenario() -> TurnState:
         engine = create_engine(env.database_url)
@@ -360,7 +444,7 @@ def _run_turn(
             )
             try:
                 async with tenant_session(factory, tenant.tenant_id) as db:
-                    deps = TurnDeps(db=db, model=client, now=lambda: NOW)
+                    deps = TurnDeps(db=db, model=client, now=lambda: NOW, tools=caller)
                     return await run_turn(
                         deps=deps,
                         tenant_id=tenant.tenant_id,
@@ -444,10 +528,16 @@ def _payroll_answer(confidence: float = 0.95) -> str:
 
 def test_the_happy_path_runs_the_three_nodes_and_resolves_the_entities(turn_env: TurnEnv) -> None:
     """Catches a graph whose edges skip `resolve_entities` — the state would
-    come back `CONTINUE` with nothing resolved, and 17b would plan a tool call
-    against a system named only as free text the model produced."""
+    come back `CONTINUE` with nothing resolved, and the tool call would go out
+    against a system named only as free text the model produced.
+
+    An earlier change §8: the turn no longer ENDS after `resolve_entities`, it continues
+    into `retrieve_policy`, so the same case now also catches an
+    `_after_entities` left routing `CONTINUE` to `END` — the tool call count
+    below is what sees it. Every 17a assertion is unchanged."""
     session_id = uuid.uuid4()
     gateway = StagedGateway([_payroll_answer()])
+    tools = StubToolCaller()
 
     state = _run_turn(
         turn_env,
@@ -455,8 +545,10 @@ def test_the_happy_path_runs_the_three_nodes_and_resolves_the_entities(turn_env:
         session_id=session_id,
         message="I need payroll access",
         gateway=gateway,
+        tools=tools,
     )
 
+    assert tools.names == [SEARCH_POLICY]
     assert state.outcome is TurnOutcome.CONTINUE
     assert state.extraction is not None
     assert state.extraction.intent is Intent.REQUEST_ACCESS
@@ -743,3 +835,348 @@ def test_the_compiled_graph_carries_no_checkpointer() -> None:
     adds the Postgres checkpointer with the interrupt that needs it."""
     graph = build_graph()
     assert graph.checkpointer is None
+
+
+# --- an earlier change: retrieval, its refusal, and the query cut ----------------------
+
+
+def test_a_request_access_turn_calls_search_policy_exactly_once(turn_env: TurnEnv) -> None:
+    """Catches a node that calls the tool per candidate or per history line, and
+    one that carries the citations in a re-sorted order.
+
+    The fused order is the tool's (15a's RRF); a node that re-ranked by `score`
+    would put the second citation first here, because the payload is
+    deliberately ASCENDING in score. Only the node's own pass-through can keep
+    this order, so a sort added anywhere flips the case."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_payroll_answer()])
+    page = [
+        _citation("fake-access-policy", score=0.11),
+        _citation("fake-payroll-policy", score=0.9),
+    ]
+    tools = StubToolCaller(payload=_page(*page))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="I need payroll access",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    assert tools.names == [SEARCH_POLICY]
+    assert state.outcome is TurnOutcome.CONTINUE
+    assert list(state.citations) == [Citation.model_validate(item) for item in page]
+
+
+def test_a_retrieving_turn_writes_no_assistant_message(turn_env: TurnEnv) -> None:
+    """Criterion 7: the non-refused edge is 17c's handover point, so nothing is
+    said to the user yet. Catches a `retrieve_policy` that stores a reply of its
+    own — the user would be answered twice once 17c composes the real one — and
+    an edge routing a successful retrieval into an ending node."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_payroll_answer()])
+    tools = StubToolCaller(payload=_page(_citation("fake-access-policy", score=0.8)))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="I need payroll access",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
+    assert state.reply is None
+    assert [row.role for row in rows] == [MessageRole.USER.value]
+
+
+def test_an_ask_policy_turn_also_retrieves(turn_env: TurnEnv) -> None:
+    """The SECOND of the design step 5's two intents. Catches a
+    `should_retrieve` written for `request_access` alone: `ask_policy` names no
+    system and resolves no entity, so nothing else in the turn would notice
+    that the one intent whose whole purpose is the corpus never reads it."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_extraction_json(intent="ask_policy", confidence=0.95)])
+    tools = StubToolCaller(payload=_page(_citation("fake-expenses-policy", score=0.7)))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="what is the expenses policy",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    assert tools.names == [SEARCH_POLICY]
+    assert state.outcome is TurnOutcome.CONTINUE
+    assert len(state.citations) == 1
+
+
+def test_a_reset_password_turn_makes_no_tool_call_and_carries_no_citations(
+    turn_env: TurnEnv,
+) -> None:
+    """Criterion 4's other half, one of the eleven intents §10.1 step 5 does not
+    name. Catches a node that retrieves unconditionally: the turn would pay an
+    embedding and a vector search for a password reset, and would carry policy
+    chunks into 17c's planning for a request nobody asked a policy question
+    about. The stub would ANSWER such a call, so only the count can see it."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_extraction_json(intent="reset_password", confidence=0.95)])
+    tools = StubToolCaller(payload=_page(_citation("fake-password-policy", score=0.9)))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="I am locked out and need my password reset",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    assert tools.calls == []
+    assert state.outcome is TurnOutcome.CONTINUE
+    assert state.citations == ()
+
+
+def test_a_refused_page_ends_on_the_templated_refusal_and_creates_no_ticket(
+    turn_env: TurnEnv,
+) -> None:
+    """Criterion 6, all four halves. Catches a turn that ignores `refused` and
+    hands 17c an empty citation list as though it were an answer; one that
+    stores citations alongside the refusal, which is how chunks the threshold
+    rejected reach a reply; and — decision E — one that OPENS the ticket rather
+    than offering to. The stub records every call by name, so a `create_ticket`
+    is visible whether or not it succeeded.
+
+    The refusal reply is asserted as an exact string: it is the fixed template,
+    never the model's words."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_extraction_json(intent="ask_policy", confidence=0.95)])
+    tools = StubToolCaller(payload=_page(refused=True))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="what is the policy on renting a helicopter",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
+    assistant_rows = [row for row in rows if row.role == MessageRole.ASSISTANT.value]
+    assert state.outcome is TurnOutcome.REFUSE
+    assert state.citations == ()
+    assert state.reply == REFUSAL_REPLY
+    assert len(assistant_rows) == 1
+    assert assistant_rows[0].content == REFUSAL_REPLY
+    assert tools.names == [SEARCH_POLICY]
+    assert "create_ticket" not in tools.names
+
+
+def test_the_refusal_reply_is_a_fixed_string_offering_a_person() -> None:
+    """a project rule on a message rather than a number, and decision E in the
+    words the user reads. Catches a `REFUSAL_REPLY` that promises a ticket has
+    been opened ("I have raised a ticket"), which is a mutation the user did not
+    request and one this plan never performs — the turn would be lying about an
+    effect. Kept as a separate case from the turn above because that one pins
+    WHICH string is stored, and this one pins what the string may say."""
+    assert isinstance(REFUSAL_REPLY, str)
+    assert REFUSAL_REPLY.strip() == REFUSAL_REPLY
+    assert REFUSAL_REPLY != FAILURE_REPLY
+    lowered = REFUSAL_REPLY.lower()
+    assert "ticket" in lowered
+    assert "policy" in lowered
+
+
+def test_a_tool_error_ends_the_turn_through_fail_turn(turn_env: TurnEnv) -> None:
+    """Criterion 9. Catches a `retrieve_policy` that lets the caller's
+    `ToolError` escape — `run_turn` would raise where every other failure comes
+    back as state, so the route would have an exception to translate — and one
+    that swallows it into `CONTINUE`, which sends 17c to plan tools against a
+    corpus that answered nothing.
+
+    Exactly one assistant row proves there is no half-written state: the user
+    row plus one templated reply, not one row per attempt."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_extraction_json(intent="ask_policy", confidence=0.95)])
+    tools = StubToolCaller(error=RemoteInternalError("the policy service could not be reached"))
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="what is the travel policy",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
+    assistant_rows = [row for row in rows if row.role == MessageRole.ASSISTANT.value]
+    assert state.outcome is TurnOutcome.FAILED
+    assert state.error_code is ErrorCode.INTERNAL
+    assert state.reply == FAILURE_REPLY
+    assert state.citations == ()
+    assert len(assistant_rows) == 1
+    assert assistant_rows[0].content == FAILURE_REPLY
+
+
+# --- decision G: the query cut ------------------------------------------------
+
+
+def test_the_query_cap_is_exactly_the_planned_value() -> None:
+    """a project rule. Catches `MAX_QUERY_CHARS` set to `MAX_MESSAGE_CHARS`,
+    which would make decision G a no-op, and a cap so small that a real
+    question is cut mid-sentence. The two caps are asserted to differ, because
+    decision G only exists where they do."""
+    assert MAX_QUERY_CHARS == 1000
+    assert MAX_QUERY_CHARS < MAX_MESSAGE_CHARS
+
+
+@pytest.mark.parametrize(
+    ("length", "expected"),
+    [
+        (0, 0),
+        (999, 999),
+        (MAX_QUERY_CHARS, MAX_QUERY_CHARS),
+        (MAX_QUERY_CHARS + 1, MAX_QUERY_CHARS),
+    ],
+)
+def test_query_for_cuts_at_the_cap_inclusively(length: int, expected: int) -> None:
+    """The inclusive boundary as a pure call. Catches an off-by-one written as
+    `message[: MAX_QUERY_CHARS - 1]`, which shortens every long query by a
+    character for no reason, and a cut written as a REFUSAL, which decision G
+    rejects: a 4000-character message is legal by construction, so refusing it
+    would make two of our own caps contradict each other."""
+    assert len(query_for("x" * length)) == expected
+
+
+def test_a_message_at_the_query_cap_is_sent_whole(turn_env: TurnEnv) -> None:
+    """The same boundary through the real turn, which the pure call cannot
+    reach: catches a node that cuts twice, or that sends `state.user_message`
+    unchanged and lets the SERVER's `check_query` refuse it. Criterion 5 says
+    neither length refuses the turn, so the outcome is asserted too."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_payroll_answer()])
+    tools = StubToolCaller()
+    message = "x" * MAX_QUERY_CHARS
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message=message,
+        gateway=gateway,
+        tools=tools,
+    )
+
+    assert len(tools.calls) == 1
+    assert tools.calls[0][1]["query"] == message
+    assert state.outcome is TurnOutcome.CONTINUE
+
+
+def test_a_message_one_character_over_the_query_cap_is_cut_not_refused(
+    turn_env: TurnEnv,
+) -> None:
+    """The exclusive half, and decision G's whole point. Catches a node that
+    answers an over-long QUERY with `VALIDATION`: the message is well under
+    `MAX_MESSAGE_CHARS`, so the user was told it was allowed, and the turn must
+    still resolve. The stored message keeps every character — the cut is on the
+    query only — which is what the row-length assertion pins."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_payroll_answer()])
+    tools = StubToolCaller()
+    message = "y" * (MAX_QUERY_CHARS + 1)
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message=message,
+        gateway=gateway,
+        tools=tools,
+    )
+
+    rows = _stored_messages(turn_env, turn_env.tenant_a, session_id)
+    assert len(tools.calls) == 1
+    assert tools.calls[0][1]["query"] == "y" * MAX_QUERY_CHARS
+    assert state.outcome is TurnOutcome.CONTINUE
+    assert len(rows[0].content) == MAX_QUERY_CHARS + 1
+
+
+# --- decision B: the session is opened and closed by `run_turn` ---------------
+
+
+def test_run_turn_opens_and_closes_the_caller_exactly_once(turn_env: TurnEnv) -> None:
+    """Decision B as a count. Catches a session opened per NODE (17c makes up
+    to six calls and would pay six handshakes) and one opened per call inside
+    `McpToolCaller`, which is the same cost wearing a different hat. Also
+    catches a `run_turn` that never enters the caller at all — the stub answers
+    regardless, so nothing else in the turn would notice."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_payroll_answer()])
+    tools = StubToolCaller()
+
+    _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="I need payroll access",
+        gateway=gateway,
+        tools=tools,
+    )
+
+    assert (tools.entered, tools.exited) == (1, 1)
+
+
+def test_the_caller_is_closed_when_a_node_raises(turn_env: TurnEnv) -> None:
+    """Plan §5's fourth risk, from the graph's side. A `RuntimeError` is used
+    deliberately: `retrieve_policy` converts a `ToolError` to state, so only a
+    non-`ToolError` still escapes the graph, and that is the exact path on which
+    a `finally`-less `run_turn` would leak the turn's MCP session. Catches an
+    implementation that closes the caller after `ainvoke` returns rather than
+    with `async with deps.tools:`."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_extraction_json(intent="ask_policy", confidence=0.95)])
+    tools = StubToolCaller(error=RuntimeError("the stub caller exploded"))
+
+    with pytest.raises(RuntimeError):
+        _run_turn(
+            turn_env,
+            turn_env.tenant_a,
+            session_id=session_id,
+            message="what is the travel policy",
+            gateway=gateway,
+            tools=tools,
+        )
+
+    assert (tools.entered, tools.exited) == (1, 1)
+
+
+def test_the_pre_checks_still_run_before_the_caller_is_opened(turn_env: TurnEnv) -> None:
+    """a project rule, with a new effect to guard. Catches a `run_turn` that
+    opens the MCP session BEFORE `check_message_content`: an over-long message
+    would then pay a network handshake, and the "no effect before the check"
+    property this file already pins for the database would hold for rows and
+    not for sockets. The staged gateway has no answers, so a model call fails
+    the case too."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([])
+    tools = StubToolCaller()
+
+    with pytest.raises(MessageTooLongError):
+        _run_turn(
+            turn_env,
+            turn_env.tenant_a,
+            session_id=session_id,
+            message="x" * (MAX_MESSAGE_CHARS + 1),
+            gateway=gateway,
+            tools=tools,
+        )
+
+    assert (tools.entered, tools.exited) == (0, 0)
+    assert tools.calls == []

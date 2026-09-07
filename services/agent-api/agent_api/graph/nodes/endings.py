@@ -1,4 +1,4 @@
-"""The three END nodes: every way this half of the turn can stop early.
+"""The four END nodes: every way this half of the turn can stop early.
 
 Each does exactly one thing — store the reply the deciding node already put on
 the state as the assistant message — and none of them decides anything. The
@@ -53,6 +53,36 @@ async def ask_disambiguation(state: TurnState, deps: TurnDeps) -> TurnState:
     node neither ranks nor trims them.
     """
     return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
+
+
+REFUSAL_REPLY = (
+    "I could not find anything in the current policy documents that covers "
+    "this, so I would rather not guess. I can open a ticket so a person on "
+    "the helpdesk team answers it properly. Say the word and I will."
+)
+"""What the turn says when the corpus had no good answer (the design step 5).
+
+An OFFER, never an opened ticket (decision E): a ticket nobody asked for is a
+mutation the user did not request, and the acceptance arrives as the next
+turn's `open_ticket` intent. The wording is asserted for exactly that — it may
+not claim a ticket exists — by
+`test_agent_turn.py::test_the_refusal_reply_is_a_fixed_string_offering_a_person`.
+
+A fixed template rather than the model's words: nothing composed this reply,
+because the whole reason for it is that there was nothing to compose from.
+"""
+
+
+async def refuse_and_ticket(state: TurnState, deps: TurnDeps) -> TurnState:
+    """END: no current policy covers the question, so the turn says so and offers.
+
+    It stores no citations and calls no tool. Both matter: the chunks the
+    threshold rejected must never reach a reply (requirement #14), and the
+    ticket is offered rather than opened. Pinned by
+    `test_agent_turn.py::test_a_refused_page_ends_on_the_templated_refusal_and_creates_no_ticket`,
+    which asserts the stub caller recorded no `create_ticket`.
+    """
+    return await _store_reply(state, deps, REFUSAL_REPLY)
 
 
 async def fail_turn(state: TurnState, deps: TurnDeps) -> TurnState:

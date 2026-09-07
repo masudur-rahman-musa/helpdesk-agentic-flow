@@ -125,3 +125,86 @@ def test_load_settings_fails_when_jwt_secret_too_short(
 
     with pytest.raises(ValidationError):
         load_settings()
+
+
+# --- an earlier change: MCP_URL, validated at load (decision F) ------------------------
+#
+# `MCP_URL` is not in `ENV_NAMES`: it carries a default, so `_set_env` must not
+# clear it for the tests above. These cases clear it themselves, so a developer
+# with `MCP_URL` exported cannot make the default row pass or fail by accident.
+
+MCP_URL_DEFAULT = "http://localhost:8081/mcp"
+"""The default the field declares, written out rather than imported.
+
+a project rule: importing the constant and asserting it equals itself pins
+nothing, and this value is what every agent turn dials when the environment
+says nothing."""
+
+
+def _set_env_without_mcp_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_env(monkeypatch, VALID_ENV)
+    monkeypatch.delenv("MCP_URL", raising=False)
+
+
+def test_the_mcp_url_default_is_exactly_the_planned_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches an implementation that defaults `MCP_URL` to the gateway's port
+    (8080), to a bare origin with no `/mcp` path, or to a value only the author's
+    machine resolves: every one of those makes an unconfigured deployment open
+    its per-turn MCP session against the wrong process and fail on the first
+    tool call rather than at startup."""
+    _set_env_without_mcp_url(monkeypatch)
+
+    assert Settings(_env_file=None).mcp_url == MCP_URL_DEFAULT
+
+
+# Each rejected row is refused by exactly ONE clause of the validator, so no row
+# passes on a neighbouring check's behalf: the whitespace rows all parse as
+# perfectly good URLs with a scheme and a netloc, `ftp://` and the scheme-less
+# form both have a netloc and no whitespace, and `http:///mcp` has a legal
+# scheme and no whitespace. Accepted rows are the two shapes deployment uses.
+MCP_URL_CASES: tuple[tuple[str, str, bool], ...] = (
+    ("the default", MCP_URL_DEFAULT, True),
+    ("https with a port", "https://mcp.internal.invalid:8443/mcp", True),
+    ("trailing newline", MCP_URL_DEFAULT + "\n", False),
+    ("trailing CRLF", MCP_URL_DEFAULT + "\r\n", False),
+    ("trailing space", MCP_URL_DEFAULT + " ", False),
+    ("leading space", " " + MCP_URL_DEFAULT, False),
+    ("internal space", "http://localhost:8081/m cp", False),
+    ("a tab inside", "http://localhost:8081/m\tcp", False),
+    ("ftp scheme", "ftp://localhost:8081/mcp", False),
+    ("no scheme at all", "localhost:8081/mcp", False),
+    ("a relative path", "/mcp", False),
+    ("empty netloc", "http:///mcp", False),
+    ("empty string", "", False),
+)
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [(value, valid) for _label, value, valid in MCP_URL_CASES],
+    ids=[label for label, _value, _valid in MCP_URL_CASES],
+)
+def test_a_malformed_mcp_url_is_refused_at_settings_load(
+    monkeypatch: pytest.MonkeyPatch, value: str, valid: bool
+) -> None:
+    """Catches a validator written as `urlsplit(value)` and nothing more.
+
+    The three trailing-whitespace rows are the ones such an implementation
+    passes: `urlsplit` parses `http://localhost:8081/mcp\\n` into a scheme, a
+    netloc and a path without complaint, and the stray byte then surfaces as a
+    DNS failure on a user's first turn instead of at process start. The `ftp`,
+    scheme-less, relative and empty-netloc rows are each refused by one
+    remaining clause, so deleting any single clause turns at least one row red
+    (a project rule's rejection table, applied to a URL rather than a slug)."""
+    _set_env_without_mcp_url(monkeypatch)
+    monkeypatch.setenv("MCP_URL", value)
+
+    if valid:
+        assert Settings(_env_file=None).mcp_url == value
+    else:
+        with pytest.raises(ValidationError) as excinfo:
+            Settings(_env_file=None)
+        failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
+        assert "MCP_URL" in failed_fields
