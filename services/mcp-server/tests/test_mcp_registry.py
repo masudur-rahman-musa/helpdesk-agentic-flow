@@ -299,6 +299,11 @@ MUTATING_TOOL_NAMES = frozenset(
         # call must replay rather than be refused POLICY_BLOCKED by decision
         # C's already-decided check for a call the caller saw succeed.
         "decide_review_item",
+        # An earlier change: it revokes every live grant a request produced and closes
+        # the request, so a retried call must replay rather than be refused
+        # POLICY_BLOCKED by its own status check for a call the caller saw
+        # succeed (by then the request reads `rolled_back`).
+        "rollback_request",
     }
 )
 

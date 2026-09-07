@@ -12,6 +12,10 @@ place access is taken away, over the whole live set for a (user, role).
 `offboard_user` marks a leaver, revokes everything they hold and
 closes every request still open against them — all three through
 `execute_grant` and `revoke_role_access`, never writing a grant themselves.
+`rollback.py` is the design's undo at the REQUEST's unit: within
+24 hours of the grant it ends every live row the request produced, through
+that same one writer, and links each one back to the decision being taken
+back.
 `reviews.py` opens a periodic access review over a department or a
 system and flags every live grant in it; it decides nothing about access, and
 an earlier change's decide path is what turns a flag into a revocation.
@@ -104,11 +108,22 @@ from helpdesk.access.revoke import (
     revoke_grant_row,
     revoke_role_access,
 )
+from helpdesk.access.rollback import (
+    GRANT_ROLLED_BACK_EVENT_TYPE,
+    ROLLBACK_REVOKE_REASON,
+    ROLLBACK_WINDOW,
+    RequestNotExecutedError,
+    RollbackResult,
+    RollbackWindowExpiredError,
+    rollback_request,
+    within_rollback_window,
+)
 from helpdesk.access.snapshot import build_request_snapshot
 
 __all__ = [
     "GRANT_EXECUTED_EVENT_TYPE",
     "GRANT_REVOKED_EVENT_TYPE",
+    "GRANT_ROLLED_BACK_EVENT_TYPE",
     "GROUP_SLOTS",
     "JOINER_PRINCIPALS",
     "JOINER_STATUS",
@@ -119,6 +134,8 @@ __all__ = [
     "REVIEW_OPENED_EVENT_TYPE",
     "REVIEW_REVOKE_REASON",
     "REVOKED_GRANT_STATUS",
+    "ROLLBACK_REVOKE_REASON",
+    "ROLLBACK_WINDOW",
     "STALE_WINDOW",
     "TRANSFER_REVOKE_REASON",
     "UNUSABLE_PASSWORD_HASH",
@@ -138,9 +155,12 @@ __all__ = [
     "OnboardResult",
     "OpenReviewResult",
     "PolicyBlockedAtExecutionError",
+    "RequestNotExecutedError",
     "RequestNotPendingError",
     "ReviewAlreadyOpenError",
     "ReviewScope",
+    "RollbackResult",
+    "RollbackWindowExpiredError",
     "SameDepartmentError",
     "SimulatedDirectory",
     "SkippedRole",
@@ -176,6 +196,8 @@ __all__ = [
     "resolved_approver_ids",
     "revoke_grant_row",
     "revoke_role_access",
+    "rollback_request",
     "set_request_status",
     "transfer_user",
+    "within_rollback_window",
 ]

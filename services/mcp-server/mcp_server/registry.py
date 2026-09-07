@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
-from mcp_server.tools import access, approvals, helpdesk, lifecycle, read, reviews
+from mcp_server.tools import access, admin, approvals, helpdesk, lifecycle, read, reviews
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
 """What a read tool writes when it worked. Per-tool rather than global (plan
@@ -303,6 +303,22 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=helpdesk.UNLOCK_EVENT_TYPE,
         mutating=True,
         handler=helpdesk.unlock_own_account,
+    ),
+    ToolSpec(
+        name=rbac.Tool.ROLLBACK_REQUEST.value,
+        tool=rbac.Tool.ROLLBACK_REQUEST,
+        description=(
+            # The number comes from the domain's own constant, never a
+            # literal: a widened window must not leave the description
+            # telling an agent an older request cannot be undone.
+            f"Undo an executed access request within {admin.WINDOW_HOURS} hours: "
+            "revoke every live grant it produced and close it."
+        ),
+        input_model=admin.RollbackRequestInput,
+        output_model=admin.RollbackRequestOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=admin.rollback_request,
     ),
     ToolSpec(
         name=rbac.Tool.CREATE_TICKET.value,

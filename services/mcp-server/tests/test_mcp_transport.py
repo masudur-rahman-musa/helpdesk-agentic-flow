@@ -83,6 +83,8 @@ EXPECTED_TOOL_NAMES = {
     # change in access (a project rule: this literal is part of every diff
     # that adds a REGISTRY entry).
     "decide_review_item",
+    # An earlier change: the design's undo, the first tool of the design's Admin group.
+    "rollback_request",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")

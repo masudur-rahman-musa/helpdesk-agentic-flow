@@ -221,6 +221,19 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. the design's rollback row, the narrowest yet: TWO cells. `hr`
+    # holds one on `revoke_access` above and none here, and `auditor` reads
+    # the audit log without being able to change anything, so a row copied
+    # from either by habit fails.
+    "rollback_request": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
 }
 
 # Tools whose PERMITTED call cannot succeed on arguments alone: both deciding
@@ -251,6 +264,11 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
         "onboard_user",
         "transfer_user",
         "offboard_user",
+        # An earlier change: it runs no scope helper at all (the design gives it two
+        # `any`-scope cells), so it tests EXISTENCE first and a permitted
+        # caller sending a request id that resolves nowhere must read
+        # NOT_FOUND — a project rule's other branch.
+        "rollback_request",
     }
 )
 
@@ -299,6 +317,8 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "list_review_items",
         # An earlier change: it takes a review ITEM id, so it has one too.
         "decide_review_item",
+        # An earlier change: it takes an access REQUEST id.
+        "rollback_request",
     }
 )
 NO_ID_TOOLS: frozenset[str] = frozenset(
@@ -431,6 +451,8 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         arguments["request_id"] = str(uuid.uuid4())
         if tool_name == "reject_request":
             arguments["reason"] = f"fake matrix rejection {uuid.uuid4().hex}"
+        if tool_name == "rollback_request":
+            arguments["reason"] = f"fake matrix rollback {uuid.uuid4().hex}"
         return arguments
     return {}
 
@@ -736,6 +758,8 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
     )
     if tool_name == "reject_request":
         arguments["reason"] = f"fake cross-tenant rejection {uuid.uuid4().hex}"
+    if tool_name == "rollback_request":
+        arguments["reason"] = f"fake cross-tenant rollback {uuid.uuid4().hex}"
     return arguments
 
 

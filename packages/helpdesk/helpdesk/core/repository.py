@@ -461,6 +461,48 @@ async def lock_live_grants_for_role(
     return result.scalars().all()
 
 
+async def lock_live_grants_for_request(
+    session: AsyncSession, request_id: uuid.UUID, now: datetime
+) -> Sequence[Grant]:
+    """The bound tenant's LIVE grants produced by one request, locked for this
+    transaction.
+
+    The unit a rollback undoes is a REQUEST, not a (user, role): the design
+    says an executed request can be taken back, and one request can leave more
+    than one row — an earlier change's onboarding executes a whole template through the
+    same `execute_grant`. So the filter is `request_id`, and "live" is the same
+    three conjuncts `lock_live_grants_for_role` spells out, from
+    `_live_grant_clauses` so the two cannot drift into a rollback that revokes
+    a row every liveness read already calls gone.
+
+    `SELECT … FOR UPDATE` through the ORM, so the tenant guard still injects
+    its filter and the rows are held until the caller's transaction ends. Two
+    rollbacks of one request are already serialised a step earlier by
+    `lock_request`; this lock holds the rows against a concurrent
+    `revoke_access` on the same (user, role) for the rest of the transaction,
+    so the set a rollback revokes cannot change under it between this read and
+    the writes. Neither lock has a test that kills it on its own:
+    `test_mcp_rollback_request.py::test_two_callers_racing_the_same_rollback_undo_it_once`
+    pins the OUTCOME of two racing callers (one undo, one `POLICY_BLOCKED`,
+    one event per row) and passes with either `with_for_update()` deleted,
+    which its docstring says out loud rather than claiming a kill.
+
+    Ordered by `granted_at` then `id`, so the revoked set reads oldest first
+    and `helpdesk.access.rollback.rollback_request` — which takes `grants[0]`
+    as the instant its 24h window is measured from — reads the EARLIEST grant
+    of the request. Dropping the ORDER BY fails
+    `test_mcp_rollback_request.py::test_the_window_is_measured_from_the_earliest_grant_of_the_request`,
+    whose two rows are 25 hours and 1 hour old.
+    """
+    result = await session.execute(
+        select(Grant)
+        .where(Grant.request_id == request_id, *_live_grant_clauses(now))
+        .order_by(Grant.granted_at, Grant.id)
+        .with_for_update()
+    )
+    return result.scalars().all()
+
+
 # Set by the session/mixin, never by callers: accepting them in **fields
 # would let an update move a row across tenants behind the query guard.
 _PROTECTED_FIELDS = frozenset({"id", "tenant_id"})
