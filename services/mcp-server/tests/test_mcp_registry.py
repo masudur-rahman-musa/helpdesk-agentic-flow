@@ -304,6 +304,13 @@ MUTATING_TOOL_NAMES = frozenset(
         # POLICY_BLOCKED by its own status check for a call the caller saw
         # succeed (by then the request reads `rolled_back`).
         "rollback_request",
+        # An earlier change: `set_kill_switch` does NOT belong here (decision C). SPEC
+        # §8.2 omits the idempotency key for this tool alone, and one SET or
+        # DELETE of one Redis key is idempotent by nature: a replayed trip
+        # re-writes the same state and a replayed clear stays a no-op. The
+        # cost, stated: a retried trip refreshes `at` and `actor`, and
+        # `search_audit` shows one `killswitch.changed` per CALL, which is the
+        # truth about what was called.
     }
 )
 

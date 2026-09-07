@@ -44,13 +44,11 @@ so it is a decision and not an oversight, is that a flood of invalid tokens
 leaves no trace in the audit log.
 """
 
-import asyncio
 import enum
 import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
-from weakref import WeakKeyDictionary
 
 import mcp.types as types
 from helpdesk.audit import AuditEventInput, append_event
@@ -66,11 +64,19 @@ from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.idempotency.guard import run_once
 from helpdesk.killswitch import KillSwitch
 from pydantic import BaseModel, ValidationError
-from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
 
 from mcp_server.identity import Identity, identity_from_header
+from mcp_server.redis_client import (
+    REDIS_TIMEOUT_SECONDS as REDIS_TIMEOUT_SECONDS,  # re-exported: the old call site
+)
+from mcp_server.redis_client import (
+    _redis as _redis,  # re-exported: `test_mcp_pipeline.py` reads both from here
+)
+from mcp_server.redis_client import (
+    close_loop_clients,
+)
 from mcp_server.registry import (
     DENIED_EVENT_TYPE,
     DISABLED_EVENT_TYPE,
@@ -373,39 +379,6 @@ def _session_factory(settings: Settings) -> async_sessionmaker[AsyncSession]:
     return create_session_factory(shared_engine(settings.database_url))
 
 
-REDIS_TIMEOUT_SECONDS = 2
-"""Connect and read timeout for the kill-switch client.
-
-Without it a blackholed Redis (packets dropped rather than refused) hangs
-every tool call forever inside `KillSwitch.check`, instead of the `INTERNAL`
-the fail-closed design promises. Pinned exactly by
-`test_mcp_pipeline.py::test_the_redis_client_carries_the_pinned_timeouts`."""
-
-_SHARED_REDIS: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, Redis]] = WeakKeyDictionary()
-
-
-def _redis(settings: Settings) -> Redis:
-    """A process-shared Redis client for the running event loop.
-
-    Keyed by (event loop, URL) for the same reason `helpdesk.core.db`'s
-    `shared_engine` is: a pooled connection belongs to the loop that opened
-    it. Under a server this is one client per process; under a test that
-    drives each call through its own `asyncio.run`, it is one per loop.
-    Entries drop with their loop.
-    """
-    loop = asyncio.get_running_loop()
-    clients = _SHARED_REDIS.setdefault(loop, {})
-    client = clients.get(settings.redis_url)
-    if client is None:
-        client = Redis.from_url(
-            settings.redis_url,
-            socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
-            socket_timeout=REDIS_TIMEOUT_SECONDS,
-        )
-        clients[settings.redis_url] = client
-    return client
-
-
 async def close_shared_connections() -> None:
     """Close the running loop's pooled connections, Postgres and Redis alike.
 
@@ -414,9 +387,7 @@ async def close_shared_connections() -> None:
     every scenario, because a pool belonging to a dead loop is a connection
     nothing will ever close.
     """
-    loop = asyncio.get_running_loop()
-    for client in _SHARED_REDIS.pop(loop, {}).values():
-        await client.aclose()
+    await close_loop_clients()
     await dispose_shared_engines()
 
 

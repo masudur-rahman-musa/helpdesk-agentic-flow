@@ -337,6 +337,31 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=read.search_audit,
     ),
     ToolSpec(
+        # A non-mutating spec that WRITES: one SET or
+        # DELETE of one key is idempotent by nature, and the design omits the
+        # idempotency key for this tool alone, so it carries none and stays
+        # off `test_mcp_registry.py::MUTATING_TOOL_NAMES`.
+        #
+        # `tool.succeeded` is the SUMMARY event: `helpdesk.killswitch.change`
+        # appends `killswitch.changed` itself with the TARGET TOOL as its
+        # subject. Declaring that type here instead would file the change
+        # under `set_kill_switch` and answer nobody asking when a given tool
+        # was stopped.
+        name=rbac.Tool.SET_KILL_SWITCH.value,
+        tool=rbac.Tool.SET_KILL_SWITCH,
+        description=(
+            # The polarity in words, decision B: an agent reading this cannot
+            # get `enabled` backwards.
+            "Turn a tool's kill switch on or off. enabled=true STOPS the named tool; "
+            "enabled=false lets it run again. scope is \"global\" or your own tenant id."
+        ),
+        input_model=admin.SetKillSwitchInput,
+        output_model=admin.SetKillSwitchOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=admin.set_kill_switch,
+    ),
+    ToolSpec(
         name=rbac.Tool.CREATE_TICKET.value,
         tool=rbac.Tool.CREATE_TICKET,
         description="File a helpdesk ticket for the calling user.",

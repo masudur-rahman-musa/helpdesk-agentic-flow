@@ -247,6 +247,20 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": True,
         "platform_admin": True,
     },
+    # An earlier change. the design's kill-switch row, the NARROWEST in the matrix: ONE
+    # cell. `it_admin` holds one on `rollback_request` and none here, and
+    # `auditor` holds one on the row directly above and none here, so a row
+    # copied from either by habit fails. The platform's emergency stop is
+    # `platform_admin`'s alone.
+    "set_kill_switch": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": False,
+        "auditor": False,
+        "platform_admin": True,
+    },
 }
 
 # Tools whose PERMITTED call cannot succeed on arguments alone: both deciding
@@ -332,6 +346,10 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "decide_review_item",
         # An earlier change: it takes an access REQUEST id.
         "rollback_request",
+        # An earlier change: it takes a TENANT id as `scope` (decision A), which is the
+        # sharpest cross-tenant argument in the registry — a scope that is not
+        # the token's tenant must be refused rather than keyed on.
+        "set_kill_switch",
     }
 )
 NO_ID_TOOLS: frozenset[str] = frozenset(
@@ -459,6 +477,23 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "item_id": str(uuid.uuid4()),
             "decision": "keep",
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "set_kill_switch":
+        # An earlier change. A CLEAR of a switch no case in this suite ever trips,
+        # scoped to the caller's OWN tenant: a no-op for the one permitted
+        # principal and FORBIDDEN for the other six, so this sweep leaves no
+        # tenant with a stopped tool in the shared seeded database.
+        #
+        # The tool therefore belongs in NEITHER `ALLOW_ANSWERS_NOT_FOUND` nor
+        # `SCOPE_BEFORE_EXISTENCE_TOOLS`: a permitted call
+        # SUCCEEDS here rather than answering NOT_FOUND, and there is no
+        # narrower scope for a helper to refuse, so the plain permitted branch
+        # of this sweep is the strict assertion and the cell pins the matrix.
+        return {
+            "tool_name": "get_me",
+            "enabled": False,
+            "reason": f"fake matrix clear {uuid.uuid4().hex}",
+            "scope": str(env.tenant_a.tenant_id),
         }
     if tool_name in ALLOW_ANSWERS_NOT_FOUND:
         # Valid arguments naming a row that does not exist: a permitted
@@ -760,6 +795,18 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             ),
             "period": _matrix_period(),
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "set_kill_switch":
+        # An earlier change. The same harmless CLEAR, scoped to tenant B: a real tenant
+        # id, so the refusal has to come from the scope check against the
+        # token rather than from an id nobody could resolve. Still a clear of
+        # a switch nothing trips, so even a handler that wrongly honoured it
+        # would leave no stopped tool behind for the rest of the suite.
+        return {
+            "tool_name": "get_me",
+            "enabled": False,
+            "reason": f"fake cross-tenant clear {uuid.uuid4().hex}",
+            "scope": str(env.tenant_b.tenant_id),
         }
     if tool_name == "list_review_items":
         return {"review_id": str(_foreign_review(env))}

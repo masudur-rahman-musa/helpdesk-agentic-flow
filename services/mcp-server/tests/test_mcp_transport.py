@@ -88,6 +88,10 @@ EXPECTED_TOOL_NAMES = {
     # An earlier change: the audit log read back under a filter, the Admin group's
     # read half.
     "search_audit",
+    # An earlier change: the per-tool emergency stop, the last of the design's Admin
+    # group. Registered like any other tool, so this literal has to name it
+    # or the wire surface and the registry disagree.
+    "set_kill_switch",
 }
 
 DEPENDENCIES: tuple[str, str] = ("postgres", "redis")
