@@ -59,6 +59,8 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "review_items",  # an earlier change
     "policy_documents",  # an earlier change
     "policy_chunks",  # an earlier change
+    "sessions",  # an earlier change
+    "messages",  # an earlier change (decision B: the child table carries tenant_id too)
 )
 ALL_TABLES: tuple[str, ...] = ("tenants", *TENANT_SCOPED_TABLES)
 

@@ -94,9 +94,7 @@ class PolicyChunk(TenantScoped):
     """
 
     __tablename__ = "policy_chunks"
-    __table_args__ = (
-        Index("ix_policy_chunks_tenant_id_document_id", "tenant_id", "document_id"),
-    )
+    __table_args__ = (Index("ix_policy_chunks_tenant_id_document_id", "tenant_id", "document_id"),)
 
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("policy_documents.id"))
     chunk_index: Mapped[int] = mapped_column(Integer)

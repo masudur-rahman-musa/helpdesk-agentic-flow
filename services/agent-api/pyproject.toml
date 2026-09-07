@@ -11,6 +11,10 @@ dependencies = [
     "asyncpg>=0.30",
     "redis>=5.2",
     "qdrant-client>=1.12",
+    # the design, an earlier change decision A: the agent turn is a LangGraph StateGraph.
+    # `langgraph-checkpoint-postgres` arrives with an earlier change, the row that needs
+    # a checkpointer; a pin nothing exercises is an unverified pin.
+    "langgraph>=1.2",
 ]
 
 [build-system]

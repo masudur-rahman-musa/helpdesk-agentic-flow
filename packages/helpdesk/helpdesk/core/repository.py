@@ -14,6 +14,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import ColumnElement, CursorResult, Delete, delete, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.core.db import bound_tenant_id
@@ -21,12 +22,16 @@ from helpdesk.models import (
     Department,
     Grant,
     IdempotencyKey,
+    Message,
+    MessageRole,
     Role,
+    Session,
     System,
     Tenant,
     TenantScoped,
     User,
 )
+from helpdesk.models.conversation import SessionConflictError
 
 
 async def find_tenant_by_slug(session: AsyncSession, slug: str) -> Tenant | None:
@@ -675,3 +680,128 @@ async def purge_expired(session: AsyncSession, now: datetime) -> int:
     return await _delete_count(
         session, delete(IdempotencyKey).where(IdempotencyKey.expires_at <= now)
     )
+
+
+# --- the conversation store ---------------------------------------
+#
+# Named helpers rather than a plain `Repository` for two reasons the generic
+# API cannot express: the session row's primary key is supplied by the caller
+# (it is the token's `sid`, and `Repository.create` refuses `id` on purpose),
+# and the history window has a fixed order and a fixed size that every caller
+# must read the same way.
+
+HISTORY_LIMIT = 20
+"""How many past messages one turn sees (the design step 1).
+
+Pinned by `test_conversation_models.py::test_max_message_chars_is_exactly_the_planned_value`. It bounds a prompt, so widening it widens every turn's
+token bill; `MAX_MESSAGE_CHARS` bounds each row inside it.
+"""
+
+
+async def get_or_create_session(
+    session: AsyncSession,
+    *,
+    session_id: uuid.UUID,
+    user_id: uuid.UUID,
+    now: datetime,
+) -> Session:
+    """The bound tenant's conversation row for `session_id`, created if absent.
+
+    The id is the token's `sid` (a project rule: nothing here comes from a tool
+    argument), so it is written explicitly instead of defaulted — the value
+    the gateway sees as `X-Session` and the value this row is stored under
+    have to be one. `Repository.create` refuses `id` by design, which is why
+    this helper builds the model itself.
+
+    `started_at` is stamped once and never moved; `last_seen_at` moves on
+    every turn. Pinned by
+    `test_conversation_models.py::test_get_or_create_session_reuses_the_row_and_moves_last_seen_at`,
+    which fails both for a helper that inserts a second row and for one that
+    loads without touching `last_seen_at`.
+
+    A `session_id` that already names ANOTHER tenant's row is neither loaded
+    nor overwritten: the guarded read cannot see it, so the insert collides on
+    the primary key and becomes a typed `SessionConflictError`. That is the
+    only reachable answer — `sessions.id` is table-wide, so "create a new row
+    instead" is not something the schema allows.
+    """
+    existing = await Repository(session, Session).get(session_id)
+    if existing is not None:
+        existing.last_seen_at = now
+        await session.flush()
+        return existing
+
+    row = Session(
+        id=session_id,
+        tenant_id=bound_tenant_id(session),
+        user_id=user_id,
+        started_at=now,
+        last_seen_at=now,
+        session_metadata={},
+    )
+    session.add(row)
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        raise SessionConflictError("this session id is already in use") from exc
+    return row
+
+
+async def append_message(
+    session: AsyncSession,
+    *,
+    session_id: uuid.UUID,
+    role: MessageRole,
+    content: str,
+    tool_calls: dict[str, Any] | None = None,
+    citations: list[Any] | None = None,
+) -> Message:
+    """Store one message on the bound tenant's conversation.
+
+    The content is NOT checked here: `check_message_content` runs at the edge
+    of the turn, before any row at all is written, which is the whole point of
+    the pre-check. A caller that reaches this function with
+    an oversized string gets the column's own error, and
+    `test_agent_turn.py::test_a_message_one_character_over_the_cap_is_refused_before_any_row`
+    is what proves no such caller exists on the turn path.
+
+    `ordinal` is left to the database: it is an identity column, and a caller
+    that numbered its own rows would race every other turn on the table.
+    """
+    row = Message(
+        tenant_id=bound_tenant_id(session),
+        session_id=session_id,
+        role=role.value,
+        content=content,
+        tool_calls=tool_calls,
+        citations=citations,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def list_recent_messages(
+    session: AsyncSession, session_id: uuid.UUID, limit: int = HISTORY_LIMIT
+) -> Sequence[Message]:
+    """The last `limit` messages of this conversation, OLDEST FIRST.
+
+    Ordered by `ordinal` and by nothing else. `created_at` cannot order these
+    rows: Postgres's `now()` is transaction time, so every message one turn
+    writes carries an identical timestamp — pinned by
+    `test_conversation_models.py::test_list_recent_messages_returns_the_last_twenty_oldest_first`,
+    whose premise assertion proves the twenty-five planted rows share one
+    value before it asserts the order.
+
+    The statement takes the TAIL (descending, limited) and reverses it in
+    Python, because "the last twenty" cannot be expressed as an ascending
+    LIMIT. The session guard filters the SELECT, so another tenant's session
+    id reads as an empty window rather than as somebody else's conversation.
+    """
+    result = await session.execute(
+        select(Message)
+        .where(Message.session_id == session_id)
+        .order_by(Message.ordinal.desc())
+        .limit(limit)
+    )
+    return list(reversed(result.scalars().all()))
