@@ -63,6 +63,24 @@ async def find_tenant_by_id(session: AsyncSession, tenant_id: uuid.UUID) -> Tena
     return result.scalars().one_or_none()
 
 
+async def list_tenant_ids(session: AsyncSession) -> Sequence[uuid.UUID]:
+    """Every tenant id, oldest slug first.
+
+    The third of the tenant-root helpers, here for the same reason as its two
+    siblings: a tenant is not a tenant-scoped row, so `Repository` cannot
+    reach one and the scheduler would otherwise build the statement itself.
+    It is the ONLY read in this codebase that is deliberately not scoped to
+    one tenant — the scheduler's tick has no caller and no token, and its
+    whole job is to visit every tenant in turn and open a bound session for
+    each. Nothing tenant-scoped is read here: the ids alone.
+
+    Ordered by slug so two ticks visit the tenants in the same order, which
+    is what makes a failure in the middle of a sweep reproducible.
+    """
+    result = await session.execute(select(Tenant.id).order_by(Tenant.slug))
+    return list(result.scalars().all())
+
+
 async def find_user_by_email(session: AsyncSession, email: str) -> User | None:
     """The bound tenant's user with this email, or None.
 

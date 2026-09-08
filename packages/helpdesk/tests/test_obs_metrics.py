@@ -1,13 +1,22 @@
-"""An earlier change section 6: the five in-process metrics and the exposition they render.
+"""An earlier change section 6: the in-process metrics and the exposition they render.
+
+Widened by an earlier change (§8): `build_metrics` registers a SIXTH metric,
+`helpdesk_expiries_total`, the counter the scheduler's expiry sweep moves
+(21a decision G). This file is the schema-literal for the exposition in the
+same sense `test_models.py` is for the table list, so the plan that adds a
+metric extends the literal here — the expectation below is a snapshot of a
+deferred set, and an earlier change's own docstring named row 21 as what would land in
+it. Nothing is weakened: the assertion is still an equality over the whole
+exposition, and one more name has to be spelled exactly right for it to hold.
 
 Written before the implementation exists. Surface under test:
 
 ``helpdesk.obs.metrics``
     ``class Metrics`` — a frozen dataclass carrying ``turns_total``,
-        ``tool_calls_total``, ``tool_latency_seconds``, ``refusals_total`` and
-        ``sod_blocks_total``.
+        ``tool_calls_total``, ``tool_latency_seconds``, ``refusals_total``,
+        ``sod_blocks_total`` and ``expiries_total``.
     ``def build_metrics(registry: CollectorRegistry) -> Metrics`` — registers
-        exactly the design's five in-process metrics on the given registry, with
+        exactly the design's six event metrics on the given registry, with
         exactly the design's names and label sets.
     ``REGISTRY: CollectorRegistry`` and ``METRICS: Metrics`` — the module-level
         default pair every call site reads.
@@ -36,7 +45,7 @@ from helpdesk.obs import metrics
 from helpdesk.obs.metrics import build_metrics, render
 from prometheus_client import CollectorRegistry, generate_latest
 
-# the design's five in-process metrics, as the exposition spells them, with the
+# the design's six in-process metrics, as the exposition spells them, with the
 # type each one must be. A histogram is what makes a latency observable at all,
 # so the type is part of the name assertion and not decoration.
 SPEC_METRICS: Mapping[str, str] = {
@@ -45,6 +54,8 @@ SPEC_METRICS: Mapping[str, str] = {
     "helpdesk_tool_latency_seconds": "histogram",
     "helpdesk_refusals_total": "counter",
     "helpdesk_sod_blocks_total": "counter",
+    # An earlier change decision G: an event counter, moved by the scheduler's sweep.
+    "helpdesk_expiries_total": "counter",
 }
 
 # the design's label sets, as a literal. The field name is how the test reaches
@@ -55,6 +66,7 @@ LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("tool_latency_seconds", "helpdesk_tool_latency_seconds", ("tool",)),
     ("refusals_total", "helpdesk_refusals_total", ("tenant", "reason")),
     ("sod_blocks_total", "helpdesk_sod_blocks_total", ()),
+    ("expiries_total", "helpdesk_expiries_total", ()),
 )
 
 CONTENT_TYPE_LITERAL = "text/plain; version=1.0.0; charset=utf-8"
@@ -101,11 +113,11 @@ def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
     yield registry
 
 
-def test_build_metrics_registers_exactly_the_five_metrics() -> None:
-    """Catches a `build_metrics` that registers a sixth metric on the caller's
-    registry — the three sweep metrics decision B defers to row 21 among them —
-    or that misspells one of the design's names, either of which makes the
-    dashboard query for that name return nothing at all.
+def test_build_metrics_registers_exactly_the_six_metrics() -> None:
+    """Catches a `build_metrics` that registers a seventh metric on the
+    caller's registry — the two GAUGES an earlier change decision B defers, which plan
+    21c owns — or that misspells one of the design's names, either of which
+    makes the dashboard query for that name return nothing at all.
 
     Asserted as an equality over the whole exposition, not as five membership
     checks: a set that also contains something else must fail here, which is
@@ -117,7 +129,7 @@ def test_build_metrics_registers_exactly_the_five_metrics() -> None:
 
     assert _type_lines(generate_latest(registry).decode()) == dict(SPEC_METRICS)
 
-    # Five distinct objects: a `Metrics` whose fields alias one counter would
+    # Six distinct objects: a `Metrics` whose fields alias one counter would
     # satisfy the exposition above and then count every refusal as a turn.
     fields = [getattr(built, field) for field, _name, _labels in LABEL_CASES]
     assert len({id(metric) for metric in fields}) == len(LABEL_CASES)

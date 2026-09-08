@@ -19,6 +19,8 @@ back.
 `reviews.py` opens a periodic access review over a department or a
 system and flags every live grant in it; it decides nothing about access, and
 an earlier change's decide path is what turns a flag into a revocation.
+`expiry.py` is the scheduler's sweep: the one writer of the
+`expired` status, which is deliberately not the revocation path.
 `approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
@@ -52,6 +54,11 @@ from helpdesk.access.execute import (
     SodConflictAtExecutionError,
     execute_grant,
     reclassify,
+)
+from helpdesk.access.expiry import (
+    EXPIRED_GRANT_STATUS,
+    GRANT_EXPIRED_EVENT_TYPE,
+    expire_grants,
 )
 from helpdesk.access.lifecycle import (
     JOINER_PRINCIPALS,
@@ -121,7 +128,9 @@ from helpdesk.access.rollback import (
 from helpdesk.access.snapshot import build_request_snapshot
 
 __all__ = [
+    "EXPIRED_GRANT_STATUS",
     "GRANT_EXECUTED_EVENT_TYPE",
+    "GRANT_EXPIRED_EVENT_TYPE",
     "GRANT_REVOKED_EVENT_TYPE",
     "GRANT_ROLLED_BACK_EVENT_TYPE",
     "GROUP_SLOTS",
@@ -177,6 +186,7 @@ __all__ = [
     "decide_slot",
     "dump_slots",
     "execute_grant",
+    "expire_grants",
     "find_item",
     "find_review",
     "first_fillable_index",

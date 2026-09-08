@@ -7,6 +7,7 @@ dependencies = [
     "helpdesk",
     "agent-api",
     "mcp-server",
+    "scheduler",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
     "alembic>=1.14",
@@ -39,12 +40,18 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/helpdesk", "services/agent-api", "services/mcp-server"]
+members = [
+    "packages/helpdesk",
+    "services/agent-api",
+    "services/mcp-server",
+    "services/scheduler",
+]
 
 [tool.uv.sources]
 helpdesk = { workspace = true }
 agent-api = { workspace = true }
 mcp-server = { workspace = true }
+scheduler = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"
@@ -73,11 +80,12 @@ testpaths = [
     "packages/helpdesk/tests",
     "services/agent-api/tests",
     "services/mcp-server/tests",
+    "services/scheduler/tests",
 ]
 addopts = "-q"
 
 [tool.coverage.run]
-source = ["helpdesk", "agent_api", "mcp_server"]
+source = ["helpdesk", "agent_api", "mcp_server", "scheduler"]
 # SQLAlchemy async drives queries through greenlets; without this, coverage
 # loses the trace in any coroutine after its first awaited DB call.
 concurrency = ["greenlet"]

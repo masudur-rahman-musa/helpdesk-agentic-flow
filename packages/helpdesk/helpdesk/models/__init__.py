@@ -1,5 +1,5 @@
 """ORM models: directory core, the audit chain, the
-idempotency keys, access requests, access reviews, the policy corpus and the conversation store."""
+idempotency keys, access requests, access reviews, the policy corpus, the conversation store and the notifications table."""
 
 from helpdesk.models.access import (
     PERIOD_LENGTH,
@@ -33,10 +33,18 @@ from helpdesk.models.directory import (
     User,
 )
 from helpdesk.models.idempotency import IdempotencyKey
+from helpdesk.models.notification import (
+    NOTIFICATION_BODY_MAX_LENGTH,
+    NOTIFICATION_TITLE_MAX_LENGTH,
+    Notification,
+    NotificationKind,
+)
 from helpdesk.models.policy import PolicyChunk, PolicyDocument
 
 __all__ = [
     "MAX_MESSAGE_CHARS",
+    "NOTIFICATION_BODY_MAX_LENGTH",
+    "NOTIFICATION_TITLE_MAX_LENGTH",
     "PERIOD_LENGTH",
     "AccessRequest",
     "AccessReview",
@@ -48,6 +56,8 @@ __all__ = [
     "Message",
     "MessageRole",
     "MessageTooLongError",
+    "Notification",
+    "NotificationKind",
     "PolicyChunk",
     "PolicyDocument",
     "RequestStatus",

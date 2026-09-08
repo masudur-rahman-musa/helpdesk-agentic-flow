@@ -1,10 +1,18 @@
 """The in-process Prometheus metrics of the design, and the scrape body.
 
-Five metrics live here — the ones a request or a tool call can move on its
-own. The other three the design names (`helpdesk_grants_active`,
-`helpdesk_expiries_total`, `helpdesk_audit_chain_ok`) each need a periodic
-sweep over the database rather than an event, so they belong to the scheduler
-row and not to this module.
+Six metrics live here. Five are the ones a request or a tool call can move on
+its own; the sixth, `helpdesk_expiries_total`, arrived with the scheduler's
+expiry sweep — an EVENT counter, incremented by the job
+that expires a grant, and so a sibling of the five rather than one of an earlier change
+decision B's deferrals. The two the design names still deferred
+(`helpdesk_grants_active`, `helpdesk_audit_chain_ok`) are gauges a periodic
+sweep reads rather than events, and they belong to an earlier change.
+
+The counter is DECLARED on every service's registry and MOVED only by the
+scheduler, which is what makes it visible on that service's scrape from the
+first tick (a family with no samples still renders its `# TYPE` line). A
+scrape of agent-api or mcp-server shows it at zero for ever, which is the
+honest reading: those processes expire nothing.
 
 Nothing here reaches a network or a store, which is what keeps the promise
 `helpdesk.obs`'s docstring makes for the whole package: recording a metric is
@@ -47,10 +55,10 @@ disable_created_metrics()
 
 A library default is a decision, so it is made here rather than inherited: the gauge carries the unix time a counter was first
 observed, which nothing in the design asks for and which doubles the series a
-scrape carries. Without this the exposition names more than the five metrics
+scrape carries. Without this the exposition names more than the six metrics
 this module declares, which
-`test_obs_metrics.py::test_build_metrics_registers_exactly_the_five_metrics`
-reads as a sixth.
+`test_obs_metrics.py::test_build_metrics_registers_exactly_the_six_metrics`
+reads as a seventh.
 """
 
 TURNS_TOTAL = "helpdesk_turns_total"
@@ -58,6 +66,7 @@ TOOL_CALLS_TOTAL = "helpdesk_tool_calls_total"
 TOOL_LATENCY_SECONDS = "helpdesk_tool_latency_seconds"
 REFUSALS_TOTAL = "helpdesk_refusals_total"
 SOD_BLOCKS_TOTAL = "helpdesk_sod_blocks_total"
+EXPIRIES_TOTAL = "helpdesk_expiries_total"
 
 UNKNOWN_TENANT = "unknown"
 """What a tenant label reads when the call is outside a bound context.
@@ -78,8 +87,8 @@ Pinned as the literal by
 
 @dataclass(frozen=True)
 class Metrics:
-    """The five collectors of one registry, held together so a call site
-    cannot pick up four of them from one registry and the fifth from another.
+    """The six collectors of one registry, held together so a call site
+    cannot pick up five of them from one registry and the sixth from another.
     """
 
     turns_total: Counter
@@ -87,10 +96,11 @@ class Metrics:
     tool_latency_seconds: Histogram
     refusals_total: Counter
     sod_blocks_total: Counter
+    expiries_total: Counter
 
 
 def build_metrics(registry: CollectorRegistry) -> Metrics:
-    """Register exactly the five metrics on `registry` and return them.
+    """Register exactly the six metrics on `registry` and return them.
 
     The label sets are the design's, and they are the contract a dashboard
     queries by, so they are pinned member by member by
@@ -126,6 +136,11 @@ def build_metrics(registry: CollectorRegistry) -> Metrics:
             "Tool calls refused because of a separation-of-duties conflict.",
             registry=registry,
         ),
+        expiries_total=Counter(
+            EXPIRIES_TOTAL,
+            "Grants the scheduler's sweep marked expired.",
+            registry=registry,
+        ),
     )
 
 
@@ -145,7 +160,7 @@ def _build_default_registry() -> CollectorRegistry:
 
 
 REGISTRY = _build_default_registry()
-"""The registry both services expose. A test installs its own over it."""
+"""The registry all three services expose. A test installs its own over it."""
 
 METRICS = build_metrics(REGISTRY)
 """The instance every call site records against, read through this module.
@@ -192,6 +207,22 @@ def record_tool_call(*, tool: str, status: str, duration_seconds: float) -> None
     METRICS.tool_latency_seconds.labels(tool=tool).observe(duration_seconds)
 
 
+def record_expiries(count: int) -> None:
+    """The grants ONE sweep expired, counted once per sweep.
+
+    Takes the number rather than being called per row, because the sweep
+    knows its set: a per-row call inside the loop would count rows the
+    transaction then rolled back as expiries that happened. Called after the
+    writes, for the same reason `record_sod_block` is counted where the
+    refusal is answered. A sweep that expired nothing moves nothing, so the
+    counter's rate is the rate access actually lapses. Pinned as an absolute
+    value by
+    `test_access_expiry.py::test_the_expiry_counter_rises_by_exactly_the_number_of_grants_expired`,
+    which plants three lapsed grants beside two the filters exclude.
+    """
+    METRICS.expiries_total.inc(count)
+
+
 def record_sod_block() -> None:
     """A refusal whose code was `SOD_CONFLICT` (the design's `sod_blocks_total`).
 
@@ -203,6 +234,7 @@ def record_sod_block() -> None:
 
 
 __all__ = [
+    "EXPIRIES_TOTAL",
     "METRICS",
     "REGISTRY",
     "REFUSALS_TOTAL",
@@ -214,6 +246,7 @@ __all__ = [
     "UNKNOWN_TENANT",
     "Metrics",
     "build_metrics",
+    "record_expiries",
     "record_refusal",
     "record_sod_block",
     "record_tool_call",

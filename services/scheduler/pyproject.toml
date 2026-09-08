@@ -1,0 +1,22 @@
+[project]
+name = "scheduler"
+version = "0.1.0"
+description = "Helpdesk scheduler: the periodic jobs of SPEC §11"
+requires-python = ">=3.12"
+dependencies = [
+    "helpdesk",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "redis>=5.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "scheduler"
+module-root = ""
+
+[tool.uv.sources]
+helpdesk = { workspace = true }
