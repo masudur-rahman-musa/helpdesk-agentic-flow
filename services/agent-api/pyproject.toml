@@ -12,9 +12,16 @@ dependencies = [
     "redis>=5.2",
     "qdrant-client>=1.12",
     # the design, an earlier change decision A: the agent turn is a LangGraph StateGraph.
-    # `langgraph-checkpoint-postgres` arrives with an earlier change, the row that needs
-    # a checkpointer; a pin nothing exercises is an unverified pin.
     "langgraph>=1.2",
+    # An earlier change decision B: the checkpoint tables are LangGraph's own, created
+    # by the library's `setup()` from the migrate target, never hand-copied
+    # into an Alembic revision that drifts on every library upgrade.
+    "langgraph-checkpoint-postgres>=2.0",
+    # An earlier change decision C: `langgraph-checkpoint-postgres` is psycopg3-only
+    # while the rest of this repo is asyncpg, so psycopg is carried for the
+    # checkpointer alone, with its own small pool. `pool` is the extra that
+    # brings `psycopg_pool`, which the saver's async pool needs.
+    "psycopg[binary,pool]>=3.2",
     # the design and §5, an earlier change decision A: the agent reaches the MCP server
     # over streamable HTTP with the official SDK's client, never a hand-rolled
     # JSON-RPC handshake against a server that already speaks the SDK's.

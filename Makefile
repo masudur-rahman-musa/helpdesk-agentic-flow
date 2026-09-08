@@ -1,10 +1,12 @@
-.PHONY: help setup run test test-policy select-tests test-adjacent lint typecheck format verify eval infra-check
+.PHONY: help setup run migrate test test-policy select-tests test-adjacent lint typecheck format verify eval infra-check
 help:       ## Show all targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 setup:      ## Install dependencies and pre-commit hooks
 	uv sync && uv run pre-commit install
 run:        ## Run the project locally
 	docker compose up -d && uv run uvicorn agent_api.main:app --reload
+migrate:    ## Apply both schemas to the local compose database (hard rule 3)
+	uv run alembic upgrade head && uv run python scripts/checkpointer_setup.py
 test:       ## Run tests with the coverage gate (needs the compose Postgres: docker compose up -d)
 	COVERAGE_FILE=.coverage-baseline uv run pytest -q --cov=helpdesk --cov=agent_api --cov=mcp_server \
 	  --cov-context=test --cov-fail-under=80

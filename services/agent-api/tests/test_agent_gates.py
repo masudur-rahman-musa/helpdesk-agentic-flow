@@ -601,24 +601,33 @@ def test_validation_outcome_maps_the_rounds_verdict_to_its_branch(
 # --- an earlier change: the execution cycle's two predicates ----------------------------
 
 SPEC_OUTCOMES: frozenset[str] = frozenset(
-    {"continue", "clarify", "disambiguate", "refuse", "failed", "done"}
+    {"continue", "clarify", "disambiguate", "refuse", "failed", "done", "await_approval"}
 )
-"""Every branch a node may record, written out as a literal: SIX, counted from
-the five an earlier change fixed plus an earlier change's `DONE`."""
+"""Every branch a node may record, written out as a literal: SEVEN, counted
+from the five an earlier change fixed, plus an earlier change's `DONE` and an earlier change's
+`AWAIT_APPROVAL`."""
 
 
-def test_turn_outcome_has_exactly_the_six_members() -> None:
+def test_turn_outcome_has_exactly_the_seven_members() -> None:
     """Catches `DONE` added as a seventh spelling of an existing branch (a
     `COMPOSE` beside it), and catches it never being added at all — the empty
     round would then have to reuse `CONTINUE`, which the edge after validation
     cannot tell apart from a round with calls to execute, so a turn with
     nothing left to do would execute an empty list and plan again forever.
 
-    The VALUE is pinned as well as the member: an earlier change checkpoints this state
-    and a trace line is read by it."""
+    An earlier change §8: `AWAIT_APPROVAL` is a NEW branch, not a synonym for one of
+    the six. Catches a pause expressed by reusing `DONE` — `_after_execution`
+    would then route a paused turn to the composition, which would tell the
+    user their request was handled while nothing is waiting on the approval.
+
+    The VALUE is pinned as well as the member for both: the state is written
+    to a Postgres checkpoint, where the outcome is a bare string and a
+    renamed member is a checkpoint no later process can read
+    (`test_agent_approval_interrupt.py::test_the_paused_state_is_readable_from_a_second_checkpointer`)."""
     assert {member.value for member in TurnOutcome} == SPEC_OUTCOMES
-    assert len(TurnOutcome) == 6
+    assert len(TurnOutcome) == 7
     assert TurnOutcome.DONE.value == "done"
+    assert TurnOutcome.AWAIT_APPROVAL.value == "await_approval"
 
 
 @pytest.mark.parametrize(

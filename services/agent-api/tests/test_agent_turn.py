@@ -75,6 +75,13 @@ Two fixture changes carry the whole of an earlier change §8: every case that re
 and a turn that ran to the end now finishes on ``TurnOutcome.DONE`` with an
 assistant row rather than on ``CONTINUE`` with none.
 
+An earlier change changes one line of that surface, and nothing else in this file:
+``build_graph(checkpointer=None)`` now TAKES a saver and compiles with it, so
+the argument-free call every case here makes still carries none. The
+checkpointer's own module, the approval interrupt and the paused state live in
+``test_agent_checkpointer.py`` and ``test_agent_approval_interrupt.py``;
+nothing here opens a psycopg pool.
+
 Cost and isolation. Postgres is the compose stack's, one throwaway database
 built once for the whole module with three obviously fake
 tenants seeded into it once; per-case isolation is a namespace, a fresh
@@ -141,6 +148,7 @@ from helpdesk.gateway.client import ModelAlias, ModelClient
 from helpdesk.models import Base, Department, Message, Role, Session, System, Tenant, User
 from helpdesk.models.conversation import MAX_MESSAGE_CHARS, MessageRole, MessageTooLongError
 from helpdesk.rag.naming import check_slug
+from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
@@ -993,13 +1001,25 @@ def test_every_row_written_carries_the_callers_tenant_and_user(turn_env: TurnEnv
 # --- decision F ---------------------------------------------------------------
 
 
-def test_the_compiled_graph_carries_no_checkpointer() -> None:
-    """Catches decision F being implemented as a `MemorySaver`: a second,
-    discarded persistence story beside the conversation tables, and one that
-    holds every turn's state in the process for as long as it runs. An earlier change
-    adds the Postgres checkpointer with the interrupt that needs it."""
-    graph = build_graph()
-    assert graph.checkpointer is None
+def test_run_turn_compiles_with_the_checkpointer_it_is_given() -> None:
+    """An earlier change §8, the edit 17a's decision F asked for by name.
+
+    Two halves, and each catches something the other cannot. The
+    argument-free call catches a `build_graph` that reached for a saver of its
+    own — a `MemorySaver` default is a second, in-process persistence story
+    beside the conversation tables, and every node and turn case in this file
+    would then be checkpointing into it silently.
+
+    The passed-in half catches a `build_graph(checkpointer=...)` that accepts
+    the argument and drops it: the compiled graph would run and pause exactly
+    as before while writing nothing to Postgres, which is the failure
+    `test_agent_approval_interrupt.py::test_the_paused_state_is_readable_from_a_second_checkpointer`
+    sees from the other end. Identity, not truthiness — a graph carrying some
+    other saver passes a `is not None` check."""
+    saver = InMemorySaver()
+
+    assert build_graph().checkpointer is None
+    assert build_graph(checkpointer=saver).checkpointer is saver
 
 
 # --- an earlier change: retrieval, its refusal, and the query cut ----------------------

@@ -9,11 +9,12 @@ them computes anything. That is why `test_agent_gates.py` and
 at all, and why both of those files assert statically that no framework import
 has crept in.
 
-Compiled with no checkpointer (decision F). An earlier change adds the Postgres
-checkpointer together with the approval interrupt that needs one; a
-`MemorySaver` here would be a second persistence story, discarded a plan
-later, holding every turn's state in the process meanwhile. Pinned by
-`test_agent_turn.py::test_the_compiled_graph_carries_no_checkpointer`.
+Compiled with the checkpointer it is GIVEN, and with none when it is given
+none. The saver is built once per process in `agent_api.checkpointer`
+and handed to `run_turn`; nothing here constructs one, so this module still
+knows nothing about psycopg and every node and turn test that never asked for
+persistence keeps running against a graph that has none. Pinned both ways by
+`test_agent_turn.py::test_run_turn_compiles_with_the_checkpointer_it_is_given`.
 
 `run_turn` runs both pre-checks BEFORE the graph is invoked and before the MCP
 session is opened, so an oversized message leaves no session row, no message
@@ -25,15 +26,18 @@ written two rows.
 """
 
 import uuid
+from collections.abc import Mapping
 from typing import Any, cast
 
 from helpdesk.models.conversation import check_message_content
-from helpdesk.rag.naming import check_slug
 from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from agent_api.checkpointer import thread_config
 from agent_api.graph.deps import TurnDeps
+from agent_api.graph.nodes.await_approval import await_approval, pending_reply
 from agent_api.graph.nodes.compose_reply import compose_reply
 from agent_api.graph.nodes.endings import (
     ask_clarifying,
@@ -59,6 +63,7 @@ RETRIEVE_POLICY = "retrieve_policy"
 PLAN_TOOLS = "plan_tools"
 VALIDATE_TOOL_CALLS = "validate_tool_calls"
 EXECUTE_TOOLS = "execute_tools"
+AWAIT_APPROVAL = "await_approval"
 COMPOSE_REPLY = "compose_reply"
 REFUSE_AND_TICKET = "refuse_and_ticket"
 ASK_CLARIFYING = "ask_clarifying"
@@ -85,11 +90,39 @@ a project rule, pinned from both sides by
 _DEPS_KEY = "deps"
 """Where `TurnDeps` rides on the invocation config.
 
-Deps travel with the CALL, not with the state: the state is checkpointed in
+Deps travel with the CALL, not with the state: the state is checkpointed as of
 an earlier change, and a database session or an HTTP client is not something to write to
-Postgres. It also keeps `build_graph()` argument-free, so the graph is one
-compiled object rather than one per turn.
+Postgres — nor something a resume days later could reconstitute. It rides
+beside the thread id in the same `configurable` map, which is how one config
+carries both the per-call things and the one durable one.
 """
+
+
+_INTERRUPT_KEY = "__interrupt__"
+"""What LangGraph puts on an invocation's answer when a node paused it.
+
+A paused run does NOT raise and does not come back as a finished state: the
+value is the state as of the last committed checkpoint, with this key added.
+A `run_turn` that ignored it would answer a waiting user as though the turn
+were done, which is the plan's first risk and why
+`test_agent_approval_interrupt.py::test_a_paused_turn_returns_await_approval_and_the_request_id`
+exists.
+"""
+
+
+def _paused_state(result: Mapping[str, Any]) -> TurnState:
+    """The interrupted invocation's answer as the turn state it stands for.
+
+    The framework's own keys are dropped rather than filtered by name — every
+    one of them is dunder-shaped, and `TurnState` would refuse them anyway —
+    and the reply is rendered here because `interrupt()` discards the update of
+    the node that raised it: the message that node stored is real, but it never
+    came back with the state.
+    """
+    state = TurnState.model_validate(
+        {key: value for key, value in result.items() if not key.startswith("__")}
+    )
+    return state.model_copy(update={"reply": pending_reply(state)})
 
 
 def _deps(config: RunnableConfig) -> TurnDeps:
@@ -128,6 +161,10 @@ async def _validate_tool_calls(state: TurnState, config: RunnableConfig) -> dict
 
 async def _execute_tools(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
     return (await execute_tools(state, _deps(config))).model_dump()
+
+
+async def _await_approval(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await await_approval(state, _deps(config))).model_dump()
 
 
 async def _compose_reply(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
@@ -232,24 +269,41 @@ def _after_execution(state: TurnState) -> str:
     ends where the planner proposes nothing, or where a budget is spent, or —
     only if both of those somehow failed — at `GRAPH_RECURSION_LIMIT`.
 
+    `AWAIT_APPROVAL` is an earlier change's branch: the round filed a request that went
+    to an approval chain, so the turn pauses instead of planning again. Which
+    of the three this is was decided by `gates.approval_outcome` and written by
+    the node; this function reads `outcome` and nothing else, exactly as
+    criterion 3 requires.
+
     `FAILED` is the one tool error worth ending on: `execute_tools` writes it
-    for an `INTERNAL` alone (17d decision B), and every other code is recorded
+    for an `INTERNAL` alone (17d decision B) and for an approval decision that
+    named no usable request (18a criterion 7), and every other code is recorded
     as a result and composed over.
     """
     if state.outcome is TurnOutcome.FAILED:
         return FAIL_TURN
+    if state.outcome is TurnOutcome.AWAIT_APPROVAL:
+        return AWAIT_APPROVAL
     return PLAN_TOOLS
 
 
-def build_graph() -> CompiledStateGraph:
-    """The eight working nodes, the planning cycle and the four early stops.
+def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> CompiledStateGraph:
+    """The nine working nodes, the planning cycle, the pause and the four early stops.
 
     The cycle is `plan_tools` → `validate_tool_calls` → `execute_tools` →
     `plan_tools`, which is what the design's steps 6 and 7 describe. Three
     independent things end it, each tested alone: the round that proposes
     nothing (`DONE`, straight to `compose_reply`), any of the three budgets
     (17c's predicate, read through `gates.exhausted_outcome`), and
-    `GRAPH_RECURSION_LIMIT` as the backstop behind both.
+    `GRAPH_RECURSION_LIMIT` as the backstop behind both. An earlier change adds a fourth
+    way out of the cycle that is not an ending at all: `await_approval`, which
+    pauses the run mid-flight and leaves it in the checkpointer to be resumed.
+
+    The checkpointer is a parameter and never a default: a saver built here
+    would be a second persistence story for every test and every process that
+    asked for none, and a `MemorySaver` fallback would silently hold each
+    paused turn in one process's memory, which is precisely the failure this
+    plan exists to remove.
     """
     graph = StateGraph(TurnState)
     graph.add_node(LOAD_SESSION, _load_session)
@@ -259,6 +313,7 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node(PLAN_TOOLS, _plan_tools)
     graph.add_node(VALIDATE_TOOL_CALLS, _validate_tool_calls)
     graph.add_node(EXECUTE_TOOLS, _execute_tools)
+    graph.add_node(AWAIT_APPROVAL, _await_approval)
     graph.add_node(COMPOSE_REPLY, _compose_reply)
     graph.add_node(REFUSE_AND_TICKET, _refuse_and_ticket)
     graph.add_node(ASK_CLARIFYING, _ask_clarifying)
@@ -318,15 +373,17 @@ def build_graph() -> CompiledStateGraph:
         _after_execution,
         {
             FAIL_TURN: FAIL_TURN,
+            AWAIT_APPROVAL: AWAIT_APPROVAL,
             PLAN_TOOLS: PLAN_TOOLS,
         },
     )
+    graph.add_edge(AWAIT_APPROVAL, END)
     graph.add_edge(COMPOSE_REPLY, END)
     graph.add_edge(REFUSE_AND_TICKET, END)
     graph.add_edge(ASK_CLARIFYING, END)
     graph.add_edge(ASK_DISAMBIGUATION, END)
     graph.add_edge(FAIL_TURN, END)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
 async def run_turn(
@@ -337,13 +394,17 @@ async def run_turn(
     session_id: uuid.UUID,
     tenant_slug: str,
     message: str,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
 ) -> TurnState:
     """One turn, from a verified identity to the state a reply is rendered from.
 
     Both pre-checks run first and neither writes anything: the message against
-    `MAX_MESSAGE_CHARS`, and the session id through `check_slug` before it can
-    become the gateway's `X-Session` header. `session_id` is typed as a UUID,
-    so that second gate can only ever fail closed — it is here so a change to
+    `MAX_MESSAGE_CHARS`, and the session id through `check_slug` — which is now
+    `checkpointer.thread_config`'s own check, because the session id IS the
+    checkpoint thread id (decision A1), so the value bounded before the
+    gateway's `X-Session` header and the value bounded before a checkpoint
+    write are one check in one place. `session_id` is typed as a UUID, so that
+    second gate can only ever fail closed — it is here so a change to
     `helpdesk.rag.naming` that stopped admitting a canonical uuid string is
     caught by a test rather than by every turn refusing at once
     (`test_agent_turn.py::test_every_canonical_session_id_passes_the_session_id_pre_check`).
@@ -369,11 +430,24 @@ async def run_turn(
     rather than left to the library
     (`::test_the_recursion_limit_is_exactly_fifty_and_is_what_run_turn_passes`).
 
+    The CHECKPOINTER is optional and is whatever the caller built (an earlier change
+    decision D): one pool and one saver per process, not per turn. Given one,
+    the graph compiles with it and the invocation carries the thread config, so
+    every step of the turn is written to Postgres under the session id and a
+    paused turn survives this process
+    (`test_agent_approval_interrupt.py::test_the_paused_state_is_readable_from_a_second_checkpointer`).
+    Given none, the graph runs exactly as it did before this plan.
+
+    A paused invocation comes back with `__interrupt__` rather than a finished
+    state, and `_paused_state` maps it: the returned `TurnState` carries
+    `AWAIT_APPROVAL`, the request id the pause is waiting on and the templated
+    pending reply.
+
     Identity is passed in by the route that read the token and is never taken
     from the message or from the extracted entities.
     """
     check_message_content(message)
-    check_slug(str(session_id))
+    thread = thread_config(str(session_id))
 
     state = TurnState(
         tenant_id=tenant_id,
@@ -383,12 +457,15 @@ async def run_turn(
         user_message=message,
         started_at=deps.now(),
     )
+    configurable: dict[str, Any] = {_DEPS_KEY: deps, **thread["configurable"]}
     async with deps.tools:
-        result = await build_graph().ainvoke(
+        result = await build_graph(checkpointer).ainvoke(
             state,
             config={
-                "configurable": {_DEPS_KEY: deps},
+                "configurable": configurable,
                 "recursion_limit": GRAPH_RECURSION_LIMIT,
             },
         )
+    if _INTERRUPT_KEY in result:
+        return _paused_state(result)
     return TurnState.model_validate(result)

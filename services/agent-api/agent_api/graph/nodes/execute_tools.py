@@ -36,6 +36,21 @@ worth composing: the turn ends as state through `fail_turn`, with the templated
 reply and no further call made
 (`::test_an_internal_failure_ends_the_turn_and_makes_no_further_call`).
 
+**The approval branch is decided here, one node before the pause**.
+`gates.approval_outcome` reads the round's results and answers whether a filed
+request went to an approval chain; `awaiting_request_id` is written from the
+same payload. Both are written HERE rather than in `await_approval` because
+LangGraph discards the interrupting node's own state update, so a value written
+beside the `interrupt()` would never reach the checkpoint an earlier change resumes
+from. Pinned out of Postgres by
+`test_agent_approval_interrupt.py`'s
+`::test_the_paused_state_is_readable_from_a_second_checkpointer`.
+
+A decision with no usable request id ends the turn `FAILED` with the templated
+reply instead, because a pause nobody can address is worse than a failure
+somebody can see, in the same file's
+`::test_a_decision_with_no_request_id_ends_the_turn_and_writes_no_paused_checkpoint`.
+
 Nothing else happens here. No message row, no model call and no store of any
 kind: every other effect of the turn belongs to a node the graph's edges can
 see, and a write from inside the execution CYCLE would happen once per round
@@ -48,6 +63,7 @@ case in that file handing the node a `TurnDeps` whose `db` and `model` are
 from helpdesk.errors import ErrorCode, ToolError
 
 from agent_api.graph.deps import TurnDeps
+from agent_api.graph.gates import approval_outcome, approval_request_id
 from agent_api.graph.nodes.extract_intent import FAILURE_REPLY
 from agent_api.graph.state import ToolResult, TurnOutcome, TurnState
 from agent_api.tools.catalogue import TOOL_INPUTS
@@ -89,11 +105,15 @@ async def execute_tools(state: TurnState, deps: TurnDeps) -> TurnState:
             break
         results.append(ToolResult(tool=call.tool, ok=True, payload=dict(payload)))
 
-    return state.model_copy(
-        update={
-            "tool_results": tuple(results),
-            "tool_calls_made": state.tool_calls_made + attempted,
-            "outcome": TurnOutcome.CONTINUE,
-            "validated": (),
-        }
-    )
+    update: dict[str, object] = {
+        "tool_results": tuple(results),
+        "tool_calls_made": state.tool_calls_made + attempted,
+        "outcome": approval_outcome(results),
+        "validated": (),
+    }
+    if update["outcome"] is TurnOutcome.AWAIT_APPROVAL:
+        update["awaiting_request_id"] = approval_request_id(results)
+    elif update["outcome"] is TurnOutcome.FAILED:
+        update["error_code"] = ErrorCode.INTERNAL
+        update["reply"] = FAILURE_REPLY
+    return state.model_copy(update=update)

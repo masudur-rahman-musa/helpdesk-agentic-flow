@@ -7,15 +7,18 @@ intent extraction, clarify/continue/disambiguate after entity resolution, and
 an earlier change's pair — whether the turn retrieves at all, and what the tool's own
 refusal flag means — and an earlier change's, which end the loop: whether an accepted
 round has anything to execute, and what a spent budget means to a turn that has
-already called something. That is what makes the rule
+already called something. An earlier change adds the last one: whether a round's answers
+PAUSE the turn, and which request such a pause is waiting on. That is what
+makes the rule
 enforceable rather than a claim: every case below is tested with no graph at
 all, and `test_agent_gates.py::test_the_gates_module_imports_no_framework_and_no_io`
 parses this file to prove the property has not quietly moved.
 """
 
+import uuid
 from collections.abc import Mapping, Sequence
 
-from agent_api.graph.state import Intent, IntentExtraction, TurnOutcome
+from agent_api.graph.state import Intent, IntentExtraction, ToolResult, TurnOutcome
 
 CONFIDENCE_THRESHOLD = 0.7
 """the design step 3's gate, INCLUSIVE: exactly 0.7 proceeds.
@@ -341,3 +344,102 @@ def exhausted_outcome(result_count: int) -> TurnOutcome:
     `test_agent_gates.py::test_exhausted_outcome_refuses_only_a_turn_that_has_done_nothing`.
     """
     return TurnOutcome.DONE if result_count else TurnOutcome.REFUSE
+
+
+CREATE_ACCESS_REQUEST = "create_access_request"
+"""The one tool whose answer can pause a turn.
+
+A chain that becomes pending some other way — a seat opened later, a review
+item, a request filed by somebody else — is not this turn's business and gets
+no pause here. Naming the tool is what makes that a property rather than a
+coincidence: `classify_access_request` answers with the SAME `decision` field,
+so a gate that scanned the round for a `decision` key would pause on a
+classification that filed nothing. Pinned by that row of
+`test_agent_approval_interrupt.py::test_approval_outcome_answers_await_only_for_an_approval_decision`.
+"""
+
+APPROVAL_DECISION = "approval"
+"""The decision value the design gives a request that needs an approval chain."""
+
+
+def _approval_payload(results: Sequence[ToolResult]) -> Mapping[str, object] | None:
+    """The most recent successful `create_access_request` answer that pauses.
+
+    Most recent, not first: a turn may file more than one request, and the
+    pause belongs to the last thing that happened. A failed call carries no
+    decision at all, so `ok` is checked before `payload` is read — a gate that
+    read the payload of a refusal would find an empty dict and answer for it.
+    """
+    for result in reversed(tuple(results)):
+        if result.tool != CREATE_ACCESS_REQUEST or not result.ok:
+            continue
+        if str(result.payload.get("decision", "")) != APPROVAL_DECISION:
+            return None
+        return result.payload
+    return None
+
+
+def approval_request_id(results: Sequence[ToolResult]) -> uuid.UUID | None:
+    """The request a paused turn would wait on, or `None` if there is none.
+
+    The companion the branch needs: `approval_outcome` says WHETHER to pause
+    and this says what the pause is for, both read off the same payload by the
+    same rules, so the outcome and the id on the state cannot disagree.
+
+    Fails closed on every unusable shape — an absent key, `None`, an empty or
+    whitespace string, a value that is not a canonical uuid — because
+    `awaiting_request_id` is what an earlier change matches an approval decision
+    against, and a pause carrying anything else is one nobody could ever
+    resume. Pinned through the outcome by
+    `test_agent_approval_interrupt.py::test_approval_outcome_fails_a_decision_with_no_request_id`
+    and `::test_approval_outcome_fails_a_decision_whose_payload_omits_the_request_id`.
+    """
+    payload = _approval_payload(results)
+    if payload is None:
+        return None
+    value: object = payload.get("request_id")
+    if not isinstance(value, str):
+        return None
+    try:
+        return uuid.UUID(value.strip())
+    except ValueError:
+        return None
+
+
+def approval_seat_count(results: Sequence[ToolResult]) -> int:
+    """How many approvals the paused request is waiting for.
+
+    Read off the same payload as the branch itself, so the number a paused
+    reply states is the number the request was actually filed with rather than
+    a count the reply invented. Zero for a round that pauses nothing, and zero
+    for a payload whose `required_approvers` is missing or is not a list: the
+    reply renders "waiting for approval" either way, and a chain shape this
+    gate cannot read is not a reason to fail a request that was filed.
+    """
+    payload = _approval_payload(results)
+    if payload is None:
+        return 0
+    approvers: object = payload.get("required_approvers")
+    if not isinstance(approvers, list):
+        return 0
+    return len(approvers)
+
+
+def approval_outcome(results: Sequence[ToolResult]) -> TurnOutcome:
+    """Whether this round's answers pause the turn.
+
+    Three branches and no store: `AWAIT_APPROVAL` when a successful
+    `create_access_request` says its decision went to an approval chain and
+    named the request, `FAILED` when it says so and named nothing usable, and
+    `CONTINUE` for everything else — an auto-granted request, a blocked one, a
+    failed call, another tool's answer, an empty round.
+
+    `FAILED` rather than a pause is the unhappy path criterion 7 fixes: a
+    checkpoint claiming an approval nobody can decide would sit paused for ever
+    behind a reply telling the user a person is looking at it.
+    """
+    if _approval_payload(results) is None:
+        return TurnOutcome.CONTINUE
+    if approval_request_id(results) is None:
+        return TurnOutcome.FAILED
+    return TurnOutcome.AWAIT_APPROVAL

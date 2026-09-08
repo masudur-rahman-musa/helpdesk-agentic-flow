@@ -99,8 +99,18 @@ class TurnOutcome(StrEnum):
     reusing `CONTINUE` because the edge after validation cannot otherwise tell
     an empty round from a round with calls to execute, and a turn with nothing
     left to do would execute an empty list and plan again until the recursion
-    limit aborted it. Exactly six members, pinned by
-    `test_agent_gates.py::test_turn_outcome_has_exactly_the_six_members`.
+    limit aborted it.
+
+    `AWAIT_APPROVAL` is an earlier change's seventh member and means "this turn is
+    paused, not finished": a request the policy engine sent to an approval
+    chain is filed, nothing more can be decided in this process, and the state
+    sits in Postgres until somebody approves or rejects it. Its own member
+    rather than `DONE` because the two are opposite answers to the only
+    question the route asks — is there more to come — and because the VALUE is
+    what a later process reads back out of a checkpoint.
+
+    Exactly seven members, pinned by
+    `test_agent_gates.py::test_turn_outcome_has_exactly_the_seven_members`.
     """
 
     CONTINUE = "continue"
@@ -109,6 +119,7 @@ class TurnOutcome(StrEnum):
     REFUSE = "refuse"
     FAILED = "failed"
     DONE = "done"
+    AWAIT_APPROVAL = "await_approval"
 
 
 class ResolvedEntities(BaseModel):
@@ -257,3 +268,19 @@ class TurnState(BaseModel):
     started_at: datetime | None = None
     round_number: int = 0
     planning_prompt_version: str | None = None
+    awaiting_request_id: uuid.UUID | None = None
+    """The access request a paused turn is waiting on.
+
+    the design keys the checkpoint thread by session AND request, which cannot
+    be implemented as written: the thread id is fixed when the graph is
+    invoked, and the request id only exists after `create_access_request`
+    answers mid-run. a design note amends it — the thread is the session, and the
+    request the pause is waiting on is carried HERE, so an earlier change's resume can
+    refuse a decision whose request id does not match the paused state.
+
+    Written by `execute_tools` from `gates.approval_request_id`, before the
+    interrupt rather than by the node that raises it: LangGraph discards the
+    interrupting node's own state update, so a value written there would never
+    reach the checkpoint a resume reads. Pinned out of Postgres by
+    `test_agent_approval_interrupt.py::test_the_paused_state_is_readable_from_a_second_checkpointer`.
+    """
