@@ -431,7 +431,7 @@ def test_the_exposition_names_no_user_of_the_seeded_tenant(
 
     assert turn.status_code == 200, turn.text
     assert scrape.status_code == 200, scrape.text
-    assert scrape.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
+    assert scrape.headers["content-type"] == "text/plain; version=1.0.0; charset=utf-8"
 
     body = scrape.text
     assert str(stream_env.tenant_a.tenant_id) in body, "premise: the turn reached the exposition"

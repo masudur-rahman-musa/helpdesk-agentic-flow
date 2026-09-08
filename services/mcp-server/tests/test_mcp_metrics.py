@@ -58,7 +58,7 @@ TOOL_CALLS = "helpdesk_tool_calls_total"
 TOOL_LATENCY_COUNT = "helpdesk_tool_latency_seconds_count"
 SOD_BLOCKS = "helpdesk_sod_blocks_total"
 
-CONTENT_TYPE_LITERAL = "text/plain; version=0.0.4; charset=utf-8"
+CONTENT_TYPE_LITERAL = "text/plain; version=1.0.0; charset=utf-8"
 
 SPEC_METRIC_NAMES: tuple[str, str, str, str, str] = (
     "helpdesk_turns_total",

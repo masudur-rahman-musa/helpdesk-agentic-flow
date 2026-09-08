@@ -57,12 +57,19 @@ LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("sod_blocks_total", "helpdesk_sod_blocks_total", ()),
 )
 
-CONTENT_TYPE_LITERAL = "text/plain; version=0.0.4; charset=utf-8"
+CONTENT_TYPE_LITERAL = "text/plain; version=1.0.0; charset=utf-8"
 """Prometheus's text exposition content type, verbatim.
 
 Asserted as the string rather than as `prometheus_client.CONTENT_TYPE_LATEST`
-so an upgrade that moves the default to OpenMetrics is caught here instead of
-by a scraper that stops parsing the body.
+so an upgrade that moves the default to OpenMetrics -- or to any other format
+a scraper would stop parsing -- is caught here and not in production.
+
+The version is 1.0.0, the text format prometheus_client has answered with
+since 0.23 and the one the installed 0.26 renders. An earlier change's §1 was written
+against the older 0.0.4 default and the owner decided to take the current one
+(the project notes, a project rule); the two formats are wire-compatible for a
+scraper, and pinning the client backwards to keep an older string was the
+alternative rejected.
 """
 
 
