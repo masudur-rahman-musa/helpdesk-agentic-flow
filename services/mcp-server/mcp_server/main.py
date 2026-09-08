@@ -35,6 +35,7 @@ import mcp.types as types
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from helpdesk.errors import ToolError
+from helpdesk.obs.logging import configure_logging
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import Server
 from mcp.server.stdio import stdio_server
@@ -135,6 +136,7 @@ def create_app() -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # The session manager's task group lives for the life of the app;
         # without this the transport answers every request with a 500.
+        configure_logging()
         async with mcp_app.router.lifespan_context(mcp_app):
             yield
 
@@ -176,4 +178,5 @@ def run_stdio() -> None:
     refused `FORBIDDEN`; `tools/list` still works, which is what makes this
     useful for checking what the server advertises.
     """
+    configure_logging()
     asyncio.run(_serve_stdio())

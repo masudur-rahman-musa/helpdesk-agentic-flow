@@ -63,6 +63,7 @@ from helpdesk.core.settings import Settings, load_settings
 from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.idempotency.guard import run_once
 from helpdesk.killswitch import KillSwitch
+from helpdesk.obs.context import bind_context
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
@@ -153,32 +154,57 @@ async def dispatch(
 
     stage = _Stage.KILL_SWITCH
     scope: str | None = None
-    try:
-        await _check_switch(settings, identity, spec)
+    # Every line from here on names the tenant and session of THIS call, taken
+    # from the identity the header already produced and from nothing else
+    #. It wraps the refusal paths too: a denied or failed call is
+    # the one an operator most needs to attribute. Only the design's
+    # telemetry-safe fields are bound — the user id stays out of the context
+    # even though the identity carries it, because the context is copied onto
+    # every line.
+    with bind_context(
+        tenant_id=str(identity.tenant_id),
+        session_id=str(identity.session_id),
+        principal_kind=_principal_kind(identity),
+    ):
+        try:
+            await _check_switch(settings, identity, spec)
 
-        stage = _Stage.RBAC
-        scope = rbac.authorize(identity.claims, spec.tool).scope.value
+            stage = _Stage.RBAC
+            scope = rbac.authorize(identity.claims, spec.tool).scope.value
 
-        stage = _Stage.VALIDATION
-        args = spec.input_model.model_validate(dict(arguments))
+            stage = _Stage.VALIDATION
+            args = spec.input_model.model_validate(dict(arguments))
 
-        stage = _Stage.BODY
-        result = await _call_tool(spec, settings, identity, args, scope)
-    except ToolError as exc:
-        return await _refuse(settings, identity, spec, stage, exc.code, scope, exc)
-    except ValidationError as exc:
-        # Only the argument parse earns VALIDATION. A tool body that parses
-        # something of its own (a provider reply, a stored payload) and finds
-        # it malformed has an upstream problem, not a caller with bad
-        # arguments; calling that VALIDATION would tell the user their input
-        # was wrong and record the same lie in the audit event.
-        code = ErrorCode.VALIDATION if stage is _Stage.VALIDATION else ErrorCode.INTERNAL
-        return await _refuse(settings, identity, spec, stage, code, scope, exc)
-    except Exception as exc:
-        # asyncio.CancelledError is a BaseException in 3.12, so it passes
-        # through here untouched; that is the behaviour, not an oversight.
-        return await _refuse(settings, identity, spec, stage, ErrorCode.INTERNAL, scope, exc)
-    return result
+            stage = _Stage.BODY
+            result = await _call_tool(spec, settings, identity, args, scope)
+        except ToolError as exc:
+            return await _refuse(settings, identity, spec, stage, exc.code, scope, exc)
+        except ValidationError as exc:
+            # Only the argument parse earns VALIDATION. A tool body that parses
+            # something of its own (a provider reply, a stored payload) and finds
+            # it malformed has an upstream problem, not a caller with bad
+            # arguments; calling that VALIDATION would tell the user their input
+            # was wrong and record the same lie in the audit event.
+            code = ErrorCode.VALIDATION if stage is _Stage.VALIDATION else ErrorCode.INTERNAL
+            return await _refuse(settings, identity, spec, stage, code, scope, exc)
+        except Exception as exc:
+            # asyncio.CancelledError is a BaseException in 3.12, so it passes
+            # through here untouched; that is the behaviour, not an oversight.
+            return await _refuse(settings, identity, spec, stage, ErrorCode.INTERNAL, scope, exc)
+        return result
+
+
+def _principal_kind(identity: Identity) -> str | None:
+    """The caller's principals as one telemetry-safe field.
+
+    All of them, sorted and comma-joined: a caller can hold several, so a line
+    attributed to one of them would misdescribe the call, and sorting makes
+    the same caller read the same on every line. A principal names a role,
+    never a person.
+    """
+    if not identity.claims.principals:
+        return None
+    return ",".join(sorted(identity.claims.principals))
 
 
 def _authorization(request: Request | None) -> str | None:

@@ -6,6 +6,7 @@ API under test:
         async def check_postgres() -> bool
         async def check_redis() -> bool
         async def check_qdrant() -> bool
+        async def check_gateway() -> bool
     The /readyz route must call these via the module attribute
     (``await readiness.check_postgres()``) so monkeypatching the
     module attribute fakes the check.
@@ -13,7 +14,8 @@ API under test:
 Response shapes:
     GET /healthz -> 200, {"status": "ok"}          (no dependency checks)
     GET /readyz  -> 200, {"status": "ready",
-                          "checks": {"postgres": true, "redis": true, "qdrant": true}}
+                          "checks": {"postgres": true, "redis": true,
+                                     "qdrant": true, "gateway": true}}
     GET /readyz  -> 503 when any check is False, body:
                          {"status": "not_ready",
                           "checks": {...}}  with the failing dependency mapped to false
@@ -27,7 +29,12 @@ import pytest
 from agent_api import readiness
 from agent_api.main import app
 
-DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")
+# An earlier change section 8: FOUR dependencies. the design names the gateway as a
+# dependency of the agent's readiness, so a container reporting ready while
+# every model call fails is the failure this endpoint exists to prevent. The
+# 503 case below is parametrised over this tuple, so `gateway: False` alone
+# must fail readiness.
+DEPENDENCIES: tuple[str, ...] = ("postgres", "redis", "qdrant", "gateway")
 
 
 def _get(path: str) -> httpx.Response:
