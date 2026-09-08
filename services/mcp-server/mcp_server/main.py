@@ -33,9 +33,10 @@ from typing import Any
 
 import mcp.types as types
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from helpdesk.errors import ToolError
 from helpdesk.obs.logging import configure_logging
+from helpdesk.obs.metrics import render as render_metrics
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import Server
 from mcp.server.stdio import stdio_server
@@ -125,8 +126,11 @@ def build_server() -> Server[Any]:
 def create_app() -> FastAPI:
     """The HTTP application: health, readiness, and the MCP transport.
 
-    `/healthz` and `/readyz` are registered before the transport is mounted
-    so the mount at `/` cannot swallow them.
+    `/healthz`, `/readyz` and `/metrics` are registered before the transport
+    is mounted so the mount at `/` cannot swallow them — a mount matches every
+    path under it, so a scrape registered after it would reach the streamable
+    HTTP transport and be answered 406. Pinned by
+    `test_mcp_metrics.py::test_the_metrics_route_answers_before_the_mcp_mount`.
     """
     mcp_app = build_server().streamable_http_app(
         streamable_http_path=MCP_PATH, stateless_http=True, host=LOOPBACK_HOST
@@ -157,6 +161,12 @@ def create_app() -> FastAPI:
         ready = all(checks.values())
         body = ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)
         return JSONResponse(status_code=200 if ready else 503, content=body.model_dump())
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics() -> PlainTextResponse:
+        """The Prometheus scrape, unauthenticated."""
+        body, content_type = render_metrics()
+        return PlainTextResponse(content=body, media_type=content_type)
 
     app.mount("/", mcp_app)
     return app

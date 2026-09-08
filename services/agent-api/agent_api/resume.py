@@ -41,6 +41,7 @@ from agent_api.checkpointer import thread_config
 from agent_api.graph.build import Saver, TurnDeps, resume_graph
 from agent_api.graph.gates import decision_result
 from agent_api.graph.state import TurnOutcome, TurnState
+from agent_api.metrics import record_turn_state
 
 __all__ = ["ResumeRefusedError", "resume_turn"]
 
@@ -130,9 +131,16 @@ async def resume_turn(
             f"thread {thread_id} is not waiting on access request {request_id}"
         )
 
-    return await resume_graph(
+    resumed = await resume_graph(
         deps=deps,
         thread_id=thread_id,
         decision=decision,
         checkpointer=checkpointer,
     )
+    # The terminal of the resumed turn, counted here rather than inside the
+    # graph: LangGraph replays the interrupting node, so a counter under a node
+    # would count the pause again on every decision. A
+    # refused resume above returns nothing and counts nothing -- no run was
+    # resumed, so no turn ended.
+    record_turn_state(resumed)
+    return resumed

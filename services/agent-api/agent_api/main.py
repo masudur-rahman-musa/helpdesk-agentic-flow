@@ -17,13 +17,14 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from helpdesk.auth.jwt import TokenClaims, verify_token
 from helpdesk.core.db import create_engine, create_session_factory
 from helpdesk.core.settings import load_settings
 from helpdesk.gateway.client import ModelClient
 from helpdesk.obs.context import bind_context
 from helpdesk.obs.logging import configure_logging
+from helpdesk.obs.metrics import render as render_metrics
 from pydantic import BaseModel
 from redis.asyncio import Redis
 from starlette.datastructures import Headers
@@ -180,6 +181,20 @@ class ReadinessResponse(BaseModel):
 @app.get("/healthz")
 async def healthz() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> PlainTextResponse:
+    """The Prometheus scrape, unauthenticated like `/healthz` (20b decision D).
+
+    It is what a scrape config expects, and the body carries no identity by
+    construction: every label is a closed enum member, a registry tool name or
+    a tenant id. Pinned by
+    `test_agent_metrics.py::test_the_exposition_names_no_user_of_the_seeded_tenant`.
+    Keeping it off the public internet is the ingress's job, not the app's.
+    """
+    body, content_type = render_metrics()
+    return PlainTextResponse(content=body, media_type=content_type)
 
 
 @app.get("/readyz", response_model=ReadinessResponse)

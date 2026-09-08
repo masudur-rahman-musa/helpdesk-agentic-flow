@@ -56,6 +56,7 @@ from agent_api.graph.nodes.resolve_entities import resolve_entities
 from agent_api.graph.nodes.retrieve_policy import retrieve_policy
 from agent_api.graph.nodes.validate_tool_calls import validate_tool_calls
 from agent_api.graph.state import ToolResult, TurnOutcome, TurnState
+from agent_api.metrics import record_turn_code, record_turn_state
 from agent_api.sse import DONE, ERROR, REPLY, STEP, TOKEN, chunk_reply, encode_event
 
 __all__ = [
@@ -511,8 +512,15 @@ async def run_turn(
             role=MessageRole.ASSISTANT,
             content=pending_reply(paused),
         )
+        # A pause is a terminal of THIS turn, not a turn that never happened:
+        # the route answers it 200 and the run stops here until an approver
+        # decides, so it is counted here and the resume is counted again as
+        # its own turn.
+        record_turn_state(paused)
         return paused
-    return TurnState.model_validate(result)
+    final = TurnState.model_validate(result)
+    record_turn_state(final)
+    return final
 
 
 def _step_data(node: str, update: Mapping[str, Any], seen: int) -> tuple[dict[str, Any], int]:
@@ -669,6 +677,10 @@ async def stream_turn(
                     data, seen = _step_data(node, value, seen)
                     yield encode_event(STEP, data)
     except ToolError as exc:
+        # No state was ever produced, so the turn is counted from the code
+        # alone: it happened, and a stream that dies in the handshake is
+        # exactly the thing the turn and refusal rates exist to show.
+        record_turn_code(exc.code)
         for frame in _failure_frames(exc.code):
             yield frame
         return
@@ -676,6 +688,7 @@ async def stream_turn(
     if latest is None:
         # A graph that yielded no update at all: nothing composed anything, so
         # there is no reply to stream and no outcome to report.
+        record_turn_code(ErrorCode.INTERNAL)
         for frame in _failure_frames(ErrorCode.INTERNAL):
             yield frame
         return
@@ -690,6 +703,11 @@ async def stream_turn(
         )
     else:
         final = TurnState.model_validate(latest)
+
+    # Counted once per stream, at whichever of the two remaining terminals it
+    # reaches, and never per frame: a token event is part of one turn, not a
+    # turn of its own (§1's "one `/chat/stream` turn adds exactly one").
+    record_turn_state(final)
 
     if final.outcome is TurnOutcome.FAILED:
         for frame in _failure_frames(final.error_code or ErrorCode.INTERNAL):

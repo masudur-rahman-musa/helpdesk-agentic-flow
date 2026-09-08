@@ -13,6 +13,10 @@ dependencies = [
     # Pinned exactly: seeded Faker output must not drift between versions
     #.
     "faker==40.38.0",
+    # the design fixes prometheus as the metrics choice; the client owns the text
+    # exposition format, whose escaping rules a hand-rolled writer gets wrong
+    # at exactly the label values an earlier change cares about (decision A).
+    "prometheus-client>=0.21",
 ]
 
 [dependency-groups]

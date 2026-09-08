@@ -46,6 +46,7 @@ leaves no trace in the audit log.
 
 import enum
 import logging
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
@@ -63,6 +64,7 @@ from helpdesk.core.settings import Settings, load_settings
 from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.idempotency.guard import run_once
 from helpdesk.killswitch import KillSwitch
+from helpdesk.obs import metrics
 from helpdesk.obs.context import bind_context
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -88,6 +90,15 @@ from mcp_server.registry import (
 from mcp_server.tools.base import MutatingToolInput
 
 logger = logging.getLogger(__name__)
+
+_OK_STATUS = "ok"
+"""The `status` label of a call that returned an output.
+
+Not an `ErrorCode` value, and deliberately not one: the label's domain is the
+eight typed codes plus this word, so `status="ok"` is the only value that is
+not a refusal and a dashboard can sum the rest as the refusal rate. Pinned by
+`test_mcp_metrics.py::test_a_successful_tool_call_counts_once_and_observes_once`.
+"""
 
 _ACTOR_KIND = "user"
 _SUBJECT_TYPE = "tool"
@@ -166,6 +177,15 @@ async def dispatch(
         session_id=str(identity.session_id),
         principal_kind=_principal_kind(identity),
     ):
+        # the design's tool metrics, recorded in the `finally` below so the count
+        # and the latency observation are made once on the success path and
+        # once on every refusal path alike -- the stages have four exits and a
+        # site per exit would drift. `status` stays None until an outcome is
+        # known, which is what keeps a CANCELLED call (a `BaseException` in
+        # 3.12, so it passes through untouched) out of the numbers: it neither
+        # succeeded nor failed, exactly as it writes no audit event.
+        status: str | None = None
+        started = time.perf_counter()
         try:
             await _check_switch(settings, identity, spec)
 
@@ -177,7 +197,9 @@ async def dispatch(
 
             stage = _Stage.BODY
             result = await _call_tool(spec, settings, identity, args, scope)
+            status = _OK_STATUS
         except ToolError as exc:
+            status = exc.code.value
             return await _refuse(settings, identity, spec, stage, exc.code, scope, exc)
         except ValidationError as exc:
             # Only the argument parse earns VALIDATION. A tool body that parses
@@ -186,11 +208,26 @@ async def dispatch(
             # arguments; calling that VALIDATION would tell the user their input
             # was wrong and record the same lie in the audit event.
             code = ErrorCode.VALIDATION if stage is _Stage.VALIDATION else ErrorCode.INTERNAL
+            status = code.value
             return await _refuse(settings, identity, spec, stage, code, scope, exc)
         except Exception as exc:
             # asyncio.CancelledError is a BaseException in 3.12, so it passes
             # through here untouched; that is the behaviour, not an oversight.
+            status = ErrorCode.INTERNAL.value
             return await _refuse(settings, identity, spec, stage, ErrorCode.INTERNAL, scope, exc)
+        finally:
+            if status is not None:
+                metrics.record_tool_call(
+                    tool=spec.name,
+                    status=status,
+                    duration_seconds=time.perf_counter() - started,
+                )
+                if status == ErrorCode.SOD_CONFLICT.value:
+                    # Counted from the answered code, not from where the
+                    # conflict was classified: the policy package is pure, and
+                    # the transaction that raised may still roll back
+                    #.
+                    metrics.record_sod_block()
         return result
 
 
