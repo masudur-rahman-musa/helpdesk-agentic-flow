@@ -443,3 +443,71 @@ def approval_outcome(results: Sequence[ToolResult]) -> TurnOutcome:
     if approval_request_id(results) is None:
         return TurnOutcome.FAILED
     return TurnOutcome.AWAIT_APPROVAL
+
+
+APPROVE_REQUEST = "approve_request"
+"""The tool an approver's recorded APPROVAL stands for.
+
+The name is the contract, not a label: `compose_reply` quotes `tool_results` as
+data and `plain_errors.PLAIN_ERRORS` is keyed by code, so a resumed turn's
+decision has to read to the model exactly like a call this agent made. It did
+run — in another process, through MCP, when the approver decided — and this is
+that call's recorded output arriving late.
+"""
+
+REJECT_REQUEST = "reject_request"
+"""The same for a recorded rejection. Two names because the composition is told
+WHICH decision it is composing, and one name with a status field inside would
+put that distinction where only a reader who parses the payload finds it."""
+
+DECIDED_RESULTS: Mapping[str, tuple[str, bool]] = {
+    "approved": (APPROVE_REQUEST, True),
+    "executed": (APPROVE_REQUEST, True),
+    "rejected": (REJECT_REQUEST, True),
+    "failed": (APPROVE_REQUEST, False),
+}
+"""Every `RequestStatus` a resume may act on, and what it means (decision B).
+
+Four rows, and the other three statuses are absent on purpose. `pending` has no
+decision at all. `rolled_back` and `expired` are ENDED rather than decided: a
+run resumed on one would compose a reply about an outcome that has since been
+undone. Absence is the refusal — `decision_result` answers `None` for anything
+not listed, and `resume.resume_turn` refuses on exactly that.
+
+`failed` is decided and NOT ok: the chain completed, the fresh the design check
+refused execution and the approval was kept. Telling the
+composition that as a success would promise a grant that does not exist.
+
+The keys are the string VALUES of `helpdesk.models.access.RequestStatus`,
+written out rather than imported, because importing the ORM module here would
+end this file's framework-free property, which
+`test_agent_gates.py::test_the_gates_module_imports_no_framework_and_no_io`
+asserts.
+Pinned against the enum's own members, row by row, by
+`test_agent_approval_resume.py::test_the_decision_result_is_built_from_the_row_and_not_from_an_argument`
+and `::test_a_pending_request_maps_to_no_decision_result`, which parametrise
+over `RequestStatus` and so go red if a member is renamed here or there.
+"""
+
+
+def decision_result(*, status: str, request_id: uuid.UUID) -> ToolResult | None:
+    """A decided request as the tool result a resumed turn composes over.
+
+    Pure, and built from the ROW's status alone (decision B): a caller names a
+    request id, never an outcome, so an approval API that was wrong or lying
+    cannot turn a rejection into a grant. `None` for every status that is not a
+    recorded decision, which is what `resume.resume_turn` refuses on.
+
+    The payload's ids are STRINGS because the whole result crosses LangGraph's
+    serde as the resume value and is validated back in `await_approval`; a
+    `uuid.UUID` in there would come back as something else.
+    """
+    row = DECIDED_RESULTS.get(status)
+    if row is None:
+        return None
+    tool, ok = row
+    return ToolResult(
+        tool=tool,
+        ok=ok,
+        payload={"request_id": str(request_id), "status": status},
+    )

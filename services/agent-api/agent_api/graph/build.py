@@ -29,11 +29,13 @@ import uuid
 from collections.abc import Mapping
 from typing import Any, cast
 
-from helpdesk.models.conversation import check_message_content
+from helpdesk.core.repository import append_message
+from helpdesk.models.conversation import MessageRole, check_message_content
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from agent_api.checkpointer import thread_config
 from agent_api.graph.deps import TurnDeps
@@ -52,9 +54,27 @@ from agent_api.graph.nodes.plan_tools import plan_tools
 from agent_api.graph.nodes.resolve_entities import resolve_entities
 from agent_api.graph.nodes.retrieve_policy import retrieve_policy
 from agent_api.graph.nodes.validate_tool_calls import validate_tool_calls
-from agent_api.graph.state import TurnOutcome, TurnState
+from agent_api.graph.state import ToolResult, TurnOutcome, TurnState
 
-__all__ = ["FAILURE_REPLY", "GRAPH_RECURSION_LIMIT", "TurnDeps", "build_graph", "run_turn"]
+__all__ = [
+    "FAILURE_REPLY",
+    "GRAPH_RECURSION_LIMIT",
+    "Saver",
+    "TurnDeps",
+    "build_graph",
+    "resume_graph",
+    "run_turn",
+]
+
+type Saver = BaseCheckpointSaver[Any]
+"""The checkpointer as the rest of the package names it.
+
+An alias, so `resume.py` and `replay.py` can be typed against a saver without
+importing LangGraph — which is the whole of the design's boundary rule, and
+what `test_agent_approval_resume.py::test_resume_imports_no_framework` parses
+this package for. Nothing about the alias is a second abstraction: it IS
+`BaseCheckpointSaver`, named where the framework already lives.
+"""
 
 LOAD_SESSION = "load_session"
 EXTRACT_INTENT = "extract_intent"
@@ -116,8 +136,9 @@ def _paused_state(result: Mapping[str, Any]) -> TurnState:
     The framework's own keys are dropped rather than filtered by name — every
     one of them is dunder-shaped, and `TurnState` would refuse them anyway —
     and the reply is rendered here because `interrupt()` discards the update of
-    the node that raised it: the message that node stored is real, but it never
-    came back with the state.
+    the node that raised it, so nothing that node computed comes back with the
+    state. Since an earlier change this rendering is the ONLY one: the row is stored
+    from it, by `run_turn`, rather than by the node (decision C).
     """
     state = TurnState.model_validate(
         {key: value for key, value in result.items() if not key.startswith("__")}
@@ -299,6 +320,15 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Compile
     way out of the cycle that is not an ending at all: `await_approval`, which
     pauses the run mid-flight and leaves it in the checkpointer to be resumed.
 
+    That node's edge runs to `compose_reply`, and ONLY a resume ever traverses
+    it: on the first pass `interrupt()` does not return, so
+    the pause ends inside the node. On a resume the node has the approver's
+    recorded decision appended to `tool_results`, and the composition writes it
+    down. It does not re-enter `execute_tools`, which is what the design said
+    literally and what a design note amends — `approve_request` runs `execute_grant`
+    in the same transaction as the last filled seat, so the grant already
+    exists and re-entering execution would grant twice.
+
     The checkpointer is a parameter and never a default: a saver built here
     would be a second persistence story for every test and every process that
     asked for none, and a `MemorySaver` fallback would silently hold each
@@ -377,7 +407,7 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Compile
             PLAN_TOOLS: PLAN_TOOLS,
         },
     )
-    graph.add_edge(AWAIT_APPROVAL, END)
+    graph.add_edge(AWAIT_APPROVAL, COMPOSE_REPLY)
     graph.add_edge(COMPOSE_REPLY, END)
     graph.add_edge(REFUSE_AND_TICKET, END)
     graph.add_edge(ASK_CLARIFYING, END)
@@ -394,7 +424,7 @@ async def run_turn(
     session_id: uuid.UUID,
     tenant_slug: str,
     message: str,
-    checkpointer: BaseCheckpointSaver[Any] | None = None,
+    checkpointer: Saver | None = None,
 ) -> TurnState:
     """One turn, from a verified identity to the state a reply is rendered from.
 
@@ -441,7 +471,11 @@ async def run_turn(
     A paused invocation comes back with `__interrupt__` rather than a finished
     state, and `_paused_state` maps it: the returned `TurnState` carries
     `AWAIT_APPROVAL`, the request id the pause is waiting on and the templated
-    pending reply.
+    pending reply. That reply is STORED here, once, and
+    not by the node that paused: LangGraph replays the interrupting node from
+    its start on a resume, so a row written inside it would be written again
+    every time an approver decides
+    (`test_agent_approval_resume.py::test_a_resumed_turn_leaves_exactly_one_pending_message`).
 
     Identity is passed in by the route that read the token and is never taken
     from the message or from the extracted entities.
@@ -467,5 +501,59 @@ async def run_turn(
             },
         )
     if _INTERRUPT_KEY in result:
-        return _paused_state(result)
+        paused = _paused_state(result)
+        await append_message(
+            deps.db,
+            session_id=paused.session_id,
+            role=MessageRole.ASSISTANT,
+            content=pending_reply(paused),
+        )
+        return paused
     return TurnState.model_validate(result)
+
+
+async def resume_graph(
+    *,
+    deps: TurnDeps,
+    thread_id: str,
+    decision: ToolResult,
+    checkpointer: Saver,
+) -> TurnState:
+    """Continue a paused run on the same thread, carrying a recorded decision.
+
+    The sibling of `run_turn`, and the reason `Command` — like every other
+    LangGraph name — appears in this file and in no other (the design's
+    boundary rule): `agent_api.resume` decides WHETHER a run may be resumed and
+    with what, and this function is the only thing that knows how a resume is
+    spelled.
+
+    No state is passed. The thread's own checkpoint IS the state, and the
+    `Command` carries only the value `interrupt()` returns — as plain JSON,
+    because it crosses the checkpointer's serde on its way into the replayed
+    node. A resume that handed the graph a fresh `TurnState` would start a
+    second run over the same thread, re-extract, re-plan and file the request
+    again; that is what
+    `test_agent_approval_resume.py::test_a_recorded_approval_resumes_the_run_from_a_fresh_saver`
+    scripts an empty tool caller to catch.
+
+    The saver is a parameter for the same reason `run_turn`'s is: the process
+    that resumes a run is not the one that paused it, so the pool, the saver and
+    the deps are all whatever the resuming process built.
+
+    The recursion limit rides on the invocation exactly as it does on a fresh
+    turn: a resumed run re-enters the same graph, and the backstop behind the
+    budgets is not something a resume opts out of.
+    """
+    thread = thread_config(thread_id)
+    configurable: dict[str, Any] = {_DEPS_KEY: deps, **thread["configurable"]}
+    async with deps.tools:
+        result = await build_graph(checkpointer).ainvoke(
+            Command(resume=decision.model_dump(mode="json")),
+            config={
+                "configurable": configurable,
+                "recursion_limit": GRAPH_RECURSION_LIMIT,
+            },
+        )
+    return TurnState.model_validate(
+        {key: value for key, value in result.items() if not key.startswith("__")}
+    )
