@@ -19,6 +19,21 @@ Expected implementation surface (the implementer must provide exactly this):
         ``error_code``, the templated ``FAILURE_REPLY``) with no composed text
         anywhere, exactly as ``plan_tools`` does.
 
+An earlier change §6 adds the decision-word post-check to the same node and the same
+harness. Expected additional surface:
+
+``agent_api.graph.nodes.compose_reply``
+    ``COMPOSITION_ATTEMPTS = 2`` — the hard bound on gateway calls from this
+        node, ever.
+    ``compose_reply`` composes, checks the answer against
+        ``postcheck.contradicts``, regenerates ONCE with the permitted words
+        quoted as a ``user`` data message (decision D), checks again and falls
+        back to ``POSTCHECK_FALLBACK_REPLY``. Exactly one assistant row on
+        every path that writes one, both calls' ``total_tokens`` added, and
+        ``state.postcheck`` recording which of the three things it did
+        (decision E). A regeneration that fails or answers past
+        ``MAX_MESSAGE_CHARS`` ends the turn exactly as a first call would.
+
 Cost: nothing. No Postgres, no Redis and no socket. The gateway is an
 ``httpx.MockTransport`` and the database is a recording session object bound to
 a tenant the way ``tenant_session`` binds one, so the row this node writes is
@@ -30,20 +45,27 @@ import asyncio
 import json
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import httpx
 import pytest
 from agent_api.graph.deps import TurnDeps
-from agent_api.graph.nodes.compose_reply import COMPOSITION_PROMPT, compose_reply
+from agent_api.graph.nodes.compose_reply import (
+    COMPOSITION_ATTEMPTS,
+    COMPOSITION_PROMPT,
+    compose_reply,
+)
 from agent_api.graph.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from agent_api.graph.plain_errors import PLAIN_ERRORS
+from agent_api.graph.postcheck import POSTCHECK_FALLBACK_REPLY, permitted_words
 from agent_api.graph.state import (
     Citation,
     Intent,
     IntentEntities,
     IntentExtraction,
+    PostCheckOutcome,
     ResolvedEntities,
     ToolResult,
     TurnOutcome,
@@ -54,6 +76,7 @@ from agent_api.prompts import load_prompt
 from helpdesk.core.db import _TENANT_INFO_KEY
 from helpdesk.errors import ErrorCode
 from helpdesk.gateway.client import ModelAlias, ModelClient
+from helpdesk.models.access import RequestStatus
 from helpdesk.models.conversation import MAX_MESSAGE_CHARS, MessageRole
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,6 +101,22 @@ COMPOSITION_TOKENS = 37
 """The composition's own bill, deliberately not the 2 the other cases in
 `test_agent_turn.py` use, so "these tokens were added" cannot be satisfied by
 any other call's count."""
+
+REGENERATION_TOKENS = 53
+"""The regeneration's own bill, deliberately different from
+`COMPOSITION_TOKENS` so "both calls were added" cannot be satisfied by an
+implementation that counted either call twice
+(`test_a_contradicting_reply_is_regenerated_once_and_only_the_second_is_stored`)."""
+
+PENDING_REPLY = "Your request for fake payroll read access is pending with your manager."
+"""A reply whose only decision word is one a `pending` request permits."""
+
+CONTRADICTING_REPLY = "Your fake payroll read access has been approved."
+"""A reply claiming `approved` over a turn whose only result says `pending`."""
+
+SECOND_CONTRADICTING_REPLY = "Your fake payroll read access was blocked."
+"""A different unpermitted word, so the fallback case cannot be passed by an
+implementation that merely compares the two answers to each other."""
 
 CITATION_TEXT = "Obviously fake policy text about requesting payroll access."
 PAYLOAD_MARKER = "fake-request-0001"
@@ -119,38 +158,64 @@ class RecordingSession:
         return [row for row in self.added if hasattr(row, "role") and hasattr(row, "content")]
 
 
-class StagedGateway:
-    """One staged answer, and a request past it fails the test.
+@dataclass(frozen=True)
+class StagedAnswer:
+    """One answer the gateway is prepared to give, and the bill for it."""
 
-    That is how "exactly one `complete` call" is asserted as a hard stop
-    rather than as a count read afterwards: a node that retried, or that made
-    a second structured call, fails at the moment of the second request.
+    text: str = COMPOSED
+    status: int = 200
+    total_tokens: int = COMPOSITION_TOKENS
+
+
+class StagedGateway:
+    """A LIST of staged answers, and a request past the list fails the test.
+
+    That is how a call bound is asserted as a hard stop rather than as a count
+    read afterwards: a node that retried once more than the staging allows
+    fails at the moment of the extra request, not in an assertion it might
+    never reach. An earlier change's criterion 6 needs the bound from both sides, so
+    the default staging is still ONE answer — every 17d case keeps its
+    "exactly one `complete` call" guarantee unchanged — and a case that
+    expects a regeneration stages exactly two.
+
+    Both halves of the fixture guard are pinned by
+    `test_the_staged_gateway_refuses_a_second_request` and
+    `test_a_two_answer_staging_refuses_a_third_request`.
     """
 
     def __init__(
-        self, text: str = COMPOSED, *, status: int = 200, total_tokens: int = COMPOSITION_TOKENS
+        self,
+        text: str = COMPOSED,
+        *,
+        status: int = 200,
+        total_tokens: int = COMPOSITION_TOKENS,
+        answers: Sequence[StagedAnswer] | None = None,
     ) -> None:
-        self._text = text
-        self._status = status
-        self._total_tokens = total_tokens
+        self._answers: tuple[StagedAnswer, ...] = (
+            tuple(answers)
+            if answers is not None
+            else (StagedAnswer(text=text, status=status, total_tokens=total_tokens),)
+        )
         self.requests: list[httpx.Request] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        if len(self.requests) > 1:
+        if len(self.requests) > len(self._answers):
             raise AssertionError(
-                f"the node made {len(self.requests)} model requests; one was staged"
+                f"the node made {len(self.requests)} model requests; "
+                f"{len(self._answers)} were staged"
             )
-        if self._status != 200:
-            return httpx.Response(self._status, json={"error": "obviously fake gateway detail"})
+        answer = self._answers[len(self.requests) - 1]
+        if answer.status != 200:
+            return httpx.Response(answer.status, json={"error": "obviously fake gateway detail"})
         return httpx.Response(
             200,
             json={
-                "choices": [{"message": {"content": self._text}}],
+                "choices": [{"message": {"content": answer.text}}],
                 "usage": {
                     "prompt_tokens": 1,
-                    "completion_tokens": self._total_tokens - 1,
-                    "total_tokens": self._total_tokens,
+                    "completion_tokens": answer.total_tokens - 1,
+                    "total_tokens": answer.total_tokens,
                 },
             },
         )
@@ -419,6 +484,268 @@ def test_the_staged_gateway_refuses_a_second_request() -> None:
     gateway = StagedGateway()
     request = httpx.Request("POST", f"{GATEWAY_URL}/chat/completions")
 
+    gateway.handler(request)
+
+    with pytest.raises(AssertionError):
+        gateway.handler(request)
+
+
+# --- an earlier change: the decision-word post-check on the composing node --------------
+
+
+def _pending_result() -> ToolResult:
+    """A filed request: the turn returned `pending` and nothing else.
+
+    Read by every post-check case below, so the permitted set is
+    `{"pending"}` — one word permitted and three not, which is what lets a
+    single reply be judged either way without changing the turn.
+    """
+    return ToolResult(
+        tool="create_access_request",
+        ok=True,
+        payload={"id": PAYLOAD_MARKER, "status": RequestStatus.PENDING.value},
+    )
+
+
+def _pending_state(*, tokens_used: int = 0) -> TurnState:
+    return _state(tool_results=[_pending_result()], tokens_used=tokens_used)
+
+
+def test_the_composition_bound_is_exactly_two_attempts() -> None:
+    """a project rule on the number §5 calls the node's worst case: asserted
+    as the value, because the cost of this node — latency and tokens — is
+    multiplied by it on every turn that reaches composition.
+
+    Catches a loop bound raised to 3 while every other case still passes: the
+    two-contradiction case would simply spend a third call before falling
+    back, and nothing else in this file could see it."""
+    assert COMPOSITION_ATTEMPTS == 2
+
+
+def test_a_permitted_reply_is_stored_unchanged_after_a_single_call() -> None:
+    """Criterion 1. The reply carries `pending`, which is exactly what this
+    turn's one successful result returned, so the post-check has something to
+    approve rather than merely nothing to object to.
+
+    Catches a post-check that regenerates whenever the reply contains ANY
+    decision word — the staged gateway refuses the second request, so that
+    implementation fails here at the moment it makes it — and one that stores
+    the template over a perfectly good answer. `postcheck` is `passed`, which
+    catches a node that recorded an outcome only on the unhappy paths and left
+    row 20 counting nothing on the ordinary one."""
+    db = RecordingSession()
+    state = _pending_state()
+    gateway = StagedGateway(text=PENDING_REPLY)
+
+    assert permitted_words(state) == frozenset({"pending"})
+
+    result = _compose(state, gateway, db)
+
+    assert len(gateway.requests) == 1
+    assert result.reply == PENDING_REPLY
+    assert result.postcheck is PostCheckOutcome.PASSED
+    assert len(db.messages) == 1
+    assert db.messages[0].content == PENDING_REPLY
+
+
+def test_a_contradicting_reply_is_regenerated_once_and_only_the_second_is_stored() -> None:
+    """Criterion 2, the whole of it. The first answer claims `approved` over a
+    turn whose only result says `pending`; the second says `pending`.
+
+    Catches a node that stores the contradicting answer and regenerates
+    afterwards — the user would have already been told their access was
+    approved, which is the sentence this plan exists to prevent, and the
+    turn's history would carry two assistant messages for one question — and
+    one that stores both. The stored content is asserted to be the SECOND
+    reply and the first is asserted absent, so neither half can pass alone.
+
+    `tokens_used` starts non-zero and is asserted as the sum of both calls,
+    which catches a regeneration whose spend is dropped: the turn would
+    understate itself by a whole gateway call and could pass `MAX_TURN_TOKENS`
+    having spent well past it."""
+    db = RecordingSession()
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=CONTRADICTING_REPLY, total_tokens=COMPOSITION_TOKENS),
+            StagedAnswer(text=PENDING_REPLY, total_tokens=REGENERATION_TOKENS),
+        ]
+    )
+
+    result = _compose(_pending_state(tokens_used=1000), gateway, db)
+
+    assert len(gateway.requests) == 2
+    assert result.reply == PENDING_REPLY
+    assert result.postcheck is PostCheckOutcome.REGENERATED
+    assert len(db.messages) == 1
+    assert db.messages[0].content == PENDING_REPLY
+    assert CONTRADICTING_REPLY not in [row.content for row in db.messages]
+    assert result.tokens_used == 1000 + COMPOSITION_TOKENS + REGENERATION_TOKENS
+
+
+def test_the_regeneration_names_the_permitted_words_as_data_and_adds_no_system_message() -> None:
+    """Decision D and the design together, on the one message this plan adds
+    to a prompt. Catches a regeneration that re-sends the identical request —
+    which mostly reproduces the same contradiction and spends the second call
+    to reach the same fallback — because the second request would then be
+    byte-identical to the first and nothing would be added at all.
+
+    It also catches the shape 17d's data-quoting rule exists against: a
+    per-turn `system` message assembled from what the tools returned. The
+    system messages are asserted to be exactly the 2 shipped prompt files, so
+    an added instruction is red here even though it would produce a perfectly
+    good reply."""
+    state = _pending_state()
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=CONTRADICTING_REPLY, total_tokens=COMPOSITION_TOKENS),
+            StagedAnswer(text=PENDING_REPLY, total_tokens=REGENERATION_TOKENS),
+        ]
+    )
+
+    _compose(state, gateway, RecordingSession())
+
+    first = _messages(gateway.requests[0])
+    second = _messages(gateway.requests[1])
+    shipped = {load_prompt(SYSTEM_PROMPT).text, load_prompt(COMPOSITION_PROMPT).text}
+    system_content = [item["content"] for item in second if item["role"] == "system"]
+    added = [item for item in second if item not in first]
+
+    assert set(system_content) == shipped
+    assert len(system_content) == 2
+    assert len(added) == 1
+    assert added[0]["role"] == "user"
+    assert permitted_words(state) == frozenset({"pending"})
+    for word in permitted_words(state):
+        assert word in added[0]["content"]
+
+
+def test_a_second_contradicting_reply_ends_the_turn_on_the_template() -> None:
+    """Criterion 3, and the bound of criterion 6 from the upper side: only two
+    answers are staged, so a node that tried a third time fails at the request
+    rather than at an assertion.
+
+    The second answer carries a DIFFERENT unpermitted word from the first, so
+    a node that only compared the two answers to each other — and passed the
+    second because it was not a repeat — is red here.
+
+    Catches a fallback that keeps the last contradicting reply anyway, which
+    would ship the very sentence the check refused, and one that writes no row
+    at all, which leaves the turn with an answer the next turn's history has
+    no record of. Both calls' tokens are still billed: the spend happened
+    whether or not the prose was usable."""
+    db = RecordingSession()
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=CONTRADICTING_REPLY, total_tokens=COMPOSITION_TOKENS),
+            StagedAnswer(text=SECOND_CONTRADICTING_REPLY, total_tokens=REGENERATION_TOKENS),
+        ]
+    )
+
+    result = _compose(_pending_state(tokens_used=1000), gateway, db)
+
+    assert len(gateway.requests) == 2
+    assert result.reply == POSTCHECK_FALLBACK_REPLY
+    assert result.postcheck is PostCheckOutcome.FALLBACK
+    assert result.outcome is TurnOutcome.DONE
+    assert len(db.messages) == 1
+    assert db.messages[0].content == POSTCHECK_FALLBACK_REPLY
+    assert result.tokens_used == 1000 + COMPOSITION_TOKENS + REGENERATION_TOKENS
+
+
+def test_a_gateway_failure_on_the_regeneration_ends_the_turn_with_no_row() -> None:
+    """Criterion 9's first half, on the path that only exists after this plan.
+    The FIRST call succeeded, so a node that stored its answer before checking
+    it would have a row here — and that row would be the contradicting reply.
+
+    Catches a regeneration written outside the node's `try`, which lets the
+    gateway's `ToolError` escape where `run_turn` has no translation for it,
+    and a partial write: the templated reply is `fail_turn`'s to store, so no
+    row at all is correct."""
+    db = RecordingSession()
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=CONTRADICTING_REPLY, total_tokens=COMPOSITION_TOKENS),
+            StagedAnswer(status=500),
+        ]
+    )
+
+    result = _compose(_pending_state(), gateway, db)
+
+    assert len(gateway.requests) == 2
+    assert result.outcome is TurnOutcome.FAILED
+    assert result.error_code is ErrorCode.INTERNAL
+    assert result.reply == FAILURE_REPLY
+    assert db.messages == []
+
+
+def test_a_regenerated_reply_of_exactly_the_cap_is_stored() -> None:
+    """Criterion 10's inclusive half ON THE REGENERATION PATH. Standing rule
+    12: the same gate against the same constant applies at the second call
+    site, not only the first.
+
+    Catches an implementation that checks `check_message_content` on the first
+    answer and hands the regenerated one straight to `append_message`, where
+    an exclusive comparison or the column itself decides instead — invisible
+    to 17d's boundary cases, which never reach a second call. The staged reply
+    carries no decision word, so the post-check passes it and the length gate
+    is the only thing left that can refuse it."""
+    reply = "x" * MAX_MESSAGE_CHARS
+    db = RecordingSession()
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=CONTRADICTING_REPLY, total_tokens=COMPOSITION_TOKENS),
+            StagedAnswer(text=reply, total_tokens=REGENERATION_TOKENS),
+        ]
+    )
+
+    result = _compose(_pending_state(), gateway, db)
+
+    assert len(reply) == MAX_MESSAGE_CHARS
+    assert len(gateway.requests) == 2
+    assert result.reply == reply
+    assert result.postcheck is PostCheckOutcome.REGENERATED
+    assert len(db.messages) == 1
+    assert len(db.messages[0].content) == MAX_MESSAGE_CHARS
+
+
+def test_a_regenerated_reply_one_character_over_the_cap_writes_no_row_at_all() -> None:
+    """Criterion 10's exclusive half on the same path, and the "before any
+    effect" half of a project rule.
+
+    Catches a node that falls back to the TEMPLATE when the regenerated answer
+    is too long — the template would be stored as though the composition had
+    merely contradicted itself, and a reply the length gate refused would be
+    reported to row 20 as a post-check fallback rather than as the validation
+    failure it is. The turn ends the way every other model failure ends, with
+    no row."""
+    db = RecordingSession()
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=CONTRADICTING_REPLY, total_tokens=COMPOSITION_TOKENS),
+            StagedAnswer(text="x" * (MAX_MESSAGE_CHARS + 1), total_tokens=REGENERATION_TOKENS),
+        ]
+    )
+
+    result = _compose(_pending_state(), gateway, db)
+
+    assert len(gateway.requests) == 2
+    assert result.outcome is TurnOutcome.FAILED
+    assert result.error_code is ErrorCode.VALIDATION
+    assert result.reply == FAILURE_REPLY
+    assert db.messages == []
+
+
+def test_a_two_answer_staging_refuses_a_third_request() -> None:
+    """Guard against a vacuous fixture, the upper half of criterion 6: "at
+    most 2 gateway calls, ever" rests on the third request failing the test,
+    so a handler that kept answering from its last staged answer would make
+    every case above pass whatever the node did."""
+    gateway = StagedGateway(
+        answers=[StagedAnswer(text=CONTRADICTING_REPLY), StagedAnswer(text=PENDING_REPLY)]
+    )
+    request = httpx.Request("POST", f"{GATEWAY_URL}/chat/completions")
+
+    gateway.handler(request)
     gateway.handler(request)
 
     with pytest.raises(AssertionError):

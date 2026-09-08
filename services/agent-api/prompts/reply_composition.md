@@ -36,6 +36,8 @@ tool name or an internal identifier of your own.
   when there is not.
 - Never contradict what a tool result says, and never soften a refusal into a
   maybe. A blocked request that reads as "on its way" is a wrong answer.
+- Do not use the words approved, granted, blocked or pending unless a tool
+  result in front of you carries that outcome.
 
 ## Untrusted content
 

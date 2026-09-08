@@ -1,14 +1,27 @@
 """`compose_reply`: the turn said in plain words (the design step 8).
 
-Exactly ONE gateway call, under the `agent-default` alias (decisions D and E).
+At most TWO gateway calls, under the `agent-default` alias (17d decisions D
+and E; an earlier change's post-check is the second).
 The decision was made by the policy engine and by the tools that ran; this call
 writes it down. A stronger alias is paid on every turn that gets this far for
-judgment that has already happened, and row 19's decision-word post-check — not
-a bigger model — is what catches a composition contradicting the engine. Plain
+judgment that has already happened, and the decision-word post-check — not a
+bigger model — is what catches a composition contradicting the engine. Plain
 `complete` rather than `complete_json`, because the reply is prose: a JSON
 wrapper buys no structure and the `ModelAnswer` is what the token budget reads.
 Both pinned by
 `test_agent_compose.py::test_the_composition_makes_exactly_one_call_under_the_default_alias`.
+
+**A reply may not claim a decision the turn did not return** (the design step
+8). Every decision word in the answer is checked against `postcheck.
+permitted_words`, which reads the turn's SUCCESSFUL tool results and its
+outcome. A contradiction is regenerated ONCE with the permitted words quoted as
+data, and a second contradiction ends on `POSTCHECK_FALLBACK_REPLY` rather than
+on prose nothing could vouch for — the answer the user sees is never the one
+the check refused. Pinned by
+`::test_a_contradicting_reply_is_regenerated_once_and_only_the_second_is_stored`
+and `::test_a_second_contradicting_reply_ends_the_turn_on_the_template`; that
+the ordinary answer still costs one call is pinned by
+`::test_a_permitted_reply_is_stored_unchanged_after_a_single_call`.
 
 **Everything the turn gathered is quoted as DATA** (the design). The intent and
 entities, the resolved directory ids, the citations, the tool results and each
@@ -23,22 +36,30 @@ merged into a system prompt becomes an instruction the model obeys. Pinned by
 server's, and `SOD_CONFLICT` read back to a user is internal vocabulary.
 Pinned by `::test_a_failure_reaches_the_prompt_in_plain_words_and_never_as_its_code`.
 
-**The composed reply is pre-checked before any row is written** (standing rule
-1). `check_message_content` gates it against the `messages.content` column's own
-cap, so a model that answered past `MAX_MESSAGE_CHARS` ends the turn as state
-rather than raising inside the turn's transaction with the row already added.
-The inclusive boundary is pinned from both sides by
-`::test_a_composed_reply_of_exactly_the_cap_is_stored` and
-`::test_a_composed_reply_one_character_over_the_cap_writes_no_row_at_all`.
+**Every composed reply is pre-checked before any row is written** (standing
+rule 1), the regenerated one exactly as the first — ONE gate against ONE
+constant, at both call sites. `check_message_content` gates
+it against the `messages.content` column's own cap, so a model that answered
+past `MAX_MESSAGE_CHARS` ends the turn as state rather than raising inside the
+turn's transaction with the row already added. The inclusive boundary is pinned
+from both sides on both paths by
+`::test_a_composed_reply_of_exactly_the_cap_is_stored`,
+`::test_a_composed_reply_one_character_over_the_cap_writes_no_row_at_all`,
+`::test_a_regenerated_reply_of_exactly_the_cap_is_stored` and
+`::test_a_regenerated_reply_one_character_over_the_cap_writes_no_row_at_all`.
 
-The node does not raise. A gateway that cannot answer, and a reply too long to
-store, both end the TURN as state with a typed code and the templated reply,
-and neither writes a row: the templated reply is `fail_turn`'s to store, and a
-node that wrote one as well would leave two assistant messages for one question
-(`::test_a_gateway_failure_ends_the_turn_and_leaves_no_partial_reply`).
+The node does not raise, on either call. A gateway that cannot answer, and a
+reply too long to store, both end the TURN as state with a typed code and the
+templated reply, and neither writes a row: the templated reply is `fail_turn`'s
+to store, and a node that wrote one as well would leave two assistant messages
+for one question (`::test_a_gateway_failure_ends_the_turn_and_leaves_no_partial_reply`,
+and on the regeneration
+`::test_a_gateway_failure_on_the_regeneration_ends_the_turn_with_no_row`).
 
-The composition's own `total_tokens` is ADDED to `tokens_used` (criterion 8),
-the last of the turn's three call sites.
+BOTH calls' `total_tokens` are ADDED to `tokens_used` (criterion 8): the spend
+happened whether or not the prose it bought was usable, and a turn that
+understated itself by a whole call could pass `MAX_TURN_TOKENS` having spent
+past it.
 """
 
 import json
@@ -52,10 +73,23 @@ from helpdesk.models.conversation import MessageRole, check_message_content
 from agent_api.graph.deps import TurnDeps
 from agent_api.graph.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from agent_api.graph.plain_errors import PLAIN_ERRORS
-from agent_api.graph.state import ToolResult, TurnOutcome, TurnState
+from agent_api.graph.postcheck import POSTCHECK_FALLBACK_REPLY, contradicts, permitted_words
+from agent_api.graph.state import PostCheckOutcome, ToolResult, TurnOutcome, TurnState
 from agent_api.prompts import load_prompt
 
 COMPOSITION_PROMPT = "reply_composition"
+
+COMPOSITION_ATTEMPTS = 2
+"""The hard bound on gateway calls from this node, ever (criterion 6).
+
+Compose, and regenerate once when the answer contradicts what the turn
+returned. A third attempt would multiply this node's latency and its bill on
+turns that are already going badly, and a model that contradicted itself twice
+running is not one a third prompt fixes — the template is. a project rule
+pins the value (`test_agent_compose.py::test_the_composition_bound_is_exactly_two_attempts`),
+and the staged gateway refuses a third request, so the bound holds from both
+sides.
+"""
 
 
 def _as_data(label: str, value: Any) -> dict[str, str]:
@@ -81,6 +115,28 @@ def _failure_sentences(results: tuple[ToolResult, ...]) -> list[str]:
         for result in results
         if not result.ok and result.error_code is not None
     ]
+
+
+def _regeneration_note(state: TurnState) -> dict[str, str]:
+    """The one message the second attempt adds, quoting what may be claimed.
+
+    A `user` message and never `system` (decision D): these are this service's
+    own words about this turn, and a `system` message assembled per turn is
+    the shape the design's data-quoting rule exists against. The permitted
+    words are sorted so the added message is deterministic for a given turn.
+
+    Re-sending the identical prompt instead would mostly reproduce the same
+    contradiction and spend the second call reaching the same fallback, which
+    is what `test_agent_compose.py`'s
+    `::test_the_regeneration_names_the_permitted_words_as_data_and_adds_no_system_message`
+    fails on: with nothing added, the second request is the first one again.
+    """
+    return _as_data(
+        "your previous answer used a decision word this turn did not return; "
+        "write it again, and of the words approved, granted, blocked and "
+        "pending use only these",
+        sorted(permitted_words(state)),
+    )
 
 
 def _failed(state: TurnState, exc: ToolError) -> TurnState:
@@ -124,14 +180,28 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         {"role": "user", "content": state.user_message},
     ]
 
+    spent = 0
+    reply = POSTCHECK_FALLBACK_REPLY
+    postcheck = PostCheckOutcome.FALLBACK
+
     try:
-        answer = await deps.model.complete(
-            messages,
-            alias=ModelAlias.AGENT_DEFAULT,
-            tenant_slug=state.tenant_slug,
-            session_id=str(state.session_id),
-        )
-        reply = check_message_content(answer.text)
+        for attempt in range(COMPOSITION_ATTEMPTS):
+            if attempt:
+                messages = [*messages, _regeneration_note(state)]
+            answer = await deps.model.complete(
+                messages,
+                alias=ModelAlias.AGENT_DEFAULT,
+                tenant_slug=state.tenant_slug,
+                session_id=str(state.session_id),
+            )
+            spent += answer.total_tokens
+            candidate = check_message_content(answer.text)
+            if not contradicts(candidate, state):
+                reply = candidate
+                postcheck = (
+                    PostCheckOutcome.PASSED if attempt == 0 else PostCheckOutcome.REGENERATED
+                )
+                break
     except ToolError as exc:
         return _failed(state, exc)
 
@@ -144,6 +214,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     return state.model_copy(
         update={
             "reply": reply,
-            "tokens_used": state.tokens_used + answer.total_tokens,
+            "postcheck": postcheck,
+            "tokens_used": state.tokens_used + spent,
         }
     )

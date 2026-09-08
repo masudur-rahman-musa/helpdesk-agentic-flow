@@ -122,6 +122,24 @@ class TurnOutcome(StrEnum):
     AWAIT_APPROVAL = "await_approval"
 
 
+class PostCheckOutcome(StrEnum):
+    """What the decision-word post-check made the composition do.
+
+    Recorded so a fallback is countable without reading the reply: row 20's
+    metrics need a number for "compositions that contradicted the engine", and
+    prose is not something to grep at runtime.
+
+    The VALUE is what crosses the checkpointer's serde, so a member renamed
+    after a checkpoint was written is a state nothing can read back. Exactly
+    three members, pinned by value by
+    `test_agent_postcheck.py::test_post_check_outcome_has_exactly_the_three_members_by_value`.
+    """
+
+    PASSED = "passed"
+    REGENERATED = "regenerated"
+    FALLBACK = "fallback"
+
+
 class ResolvedEntities(BaseModel):
     """The directory rows the user's wording actually named.
 
@@ -255,6 +273,15 @@ class TurnState(BaseModel):
     extraction: IntentExtraction | None = None
     prompt_version: str | None = None
     outcome: TurnOutcome = TurnOutcome.CONTINUE
+    postcheck: PostCheckOutcome = PostCheckOutcome.PASSED
+    """What the composition's decision-word check did.
+
+    Defaults to `PASSED` so that every state constructed before composition —
+    which is every state on every path that never gets there — reads as "no
+    contradiction", and no existing construction has to move. Pinned by
+    `test_agent_postcheck.py::test_a_turn_records_a_passed_post_check_until_something_says_otherwise`.
+    """
+
     reply: str | None = None
     options: tuple[str, ...] = ()
     resolved: ResolvedEntities | None = None
