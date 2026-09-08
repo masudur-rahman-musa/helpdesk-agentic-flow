@@ -52,7 +52,7 @@ from pydantic import BaseModel
 from agent_api.graph.build import run_turn, stream_turn
 from agent_api.graph.deps import TurnDeps
 from agent_api.graph.state import TurnOutcome, TurnState
-from agent_api.mcp_client import McpToolCaller, ToolCaller
+from agent_api.mcp_client import McpToolCaller, ToolCaller, TracingToolCaller
 from agent_api.ratelimit import RateLimitExceededError, check_rate_limit
 from agent_api.sse import DONE, ERROR, encode_event
 
@@ -131,8 +131,15 @@ def build_tool_caller(settings: Settings, bearer_token: str) -> ToolCaller:
 
     The caller's own bearer is forwarded verbatim: the agent
     signs nothing, and the MCP server decides what that person may do.
+
+    Wrapped in the tracing decorator here, which is the only place the
+    concrete caller is built: every call the turn makes
+    then opens its `tool:{name}` span under the node that made it, and the MCP
+    client itself learns nothing about tracing. Pinned by
+    `test_agent_tracing.py::test_the_route_builds_the_tracing_caller_around_the_mcp_one`,
+    which is what catches a wrapper that exists and is never wired.
     """
-    return McpToolCaller(url=settings.mcp_url, bearer_token=bearer_token)
+    return TracingToolCaller(McpToolCaller(url=settings.mcp_url, bearer_token=bearer_token))
 
 
 def _typed(code: ErrorCode) -> JSONResponse:

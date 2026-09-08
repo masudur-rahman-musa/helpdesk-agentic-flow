@@ -17,6 +17,10 @@ dependencies = [
     # exposition format, whose escaping rules a hand-rolled writer gets wrong
     # at exactly the label values an earlier change cares about (decision A).
     "prometheus-client>=0.21",
+    # the design fixes Langfuse as the trace store. v3 embeds the OpenTelemetry
+    # SDK, so the design's separate `opentelemetry-sdk` pin is not needed
+    #.
+    "langfuse>=3",
 ]
 
 [dependency-groups]

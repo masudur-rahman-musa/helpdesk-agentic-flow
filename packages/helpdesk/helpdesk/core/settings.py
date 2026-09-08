@@ -65,6 +65,36 @@ class Settings(BaseSettings):
     `test_rag_gateway.py::test_a_tenant_with_no_configured_key_is_refused_before_any_request`.
     """
 
+    langfuse_public_key: str | None = None
+    """The Langfuse project's public key, or `None` when tracing is off.
+
+    Optional, unlike the four backing services above: a trace is a record of a
+    turn and never a condition of one, so a deployment
+    with no Langfuse account serves turns and traces nothing rather than
+    refusing to start.
+    """
+
+    langfuse_secret_key: str | None = None
+    """The other half of the credential. BOTH are needed or neither is used.
+
+    `helpdesk.obs.tracing.configure_tracing` builds no client unless both are
+    set: half a credential is an exporter that can only retry a 401 behind
+    every turn. Pinned by
+    `test_obs_tracing.py::test_a_half_configured_deployment_builds_no_client`.
+    """
+
+    langfuse_host: str = "https://cloud.langfuse.com"
+    """Where the traces go. Langfuse Cloud's EU endpoint by default.
+
+    A default rather than a required field so the two keys alone configure the
+    common case, and explicit rather than left to the SDK:
+    a self-hosted deployment sets this, and a facade that ignored it would
+    ship its traces to a service nobody configured. Pinned by
+    `test_obs_tracing.py::test_the_three_langfuse_settings_carry_exactly_the_planned_defaults`
+    and asserted on the CONSTRUCTED client by
+    `::test_both_keys_configured_build_exactly_one_client_on_the_configured_host`.
+    """
+
     qdrant_timeout_seconds: float = 30.0
     """The timeout every Qdrant client this project builds carries.
 

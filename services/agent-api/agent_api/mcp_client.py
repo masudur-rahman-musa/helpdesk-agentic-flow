@@ -41,6 +41,7 @@ from typing import Any, Protocol, Self, runtime_checkable
 
 import httpx2
 from helpdesk.errors import ErrorCode, ToolError
+from helpdesk.obs.tracing import span
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import BaseModel
@@ -286,6 +287,65 @@ class McpToolCaller:
         return structured
 
 
+TOOL_SPAN_PREFIX = "tool:"
+"""What a tool span's name begins with, so it reads apart from a node's.
+
+One constant rather than an f-string at the call site: the prefix is what
+separates `tool:search_policy` from a node named `search_policy` in a
+Langfuse view, and a bare tool name would collide with one. a project rule,
+pinned by
+`test_agent_tracing.py::test_the_tool_span_prefix_is_exactly_the_planned_value`.
+"""
+
+
+class TracingToolCaller:
+    """A `ToolCaller` that opens one span per call around whichever it wraps.
+
+    A decorator over the PROTOCOL rather than a span inside
+    `McpToolCaller.call_tool`: it covers every call made
+    through the protocol — `retrieve_policy`'s `search_policy` included — and
+    it is testable against the same stub every node test already uses, with no
+    session and no socket.
+
+    The span wraps the CALL and not the session. `__aenter__` and `__aexit__`
+    are forwarded untraced, so the span sits under the node that made the call
+    rather than under the turn, which is the only question a tool span answers
+    (`test_agent_tracing.py::test_the_tool_call_opens_a_span_under_the_node_that_made_it`).
+
+    **No argument reaches the span** (decision G). `search_policy`'s argument
+    is a query derived from the user's message, so a wrapper capturing inputs
+    would publish that message as metadata; the span carries the tool's name
+    and nothing else, pinned by
+    `::test_no_tool_argument_reaches_the_span_that_wraps_the_call`.
+    """
+
+    def __init__(self, inner: ToolCaller) -> None:
+        self.inner = inner
+
+    async def __aenter__(self) -> "TracingToolCaller":
+        await self.inner.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: pytypes.TracebackType | None,
+    ) -> None:
+        await self.inner.__aexit__(exc_type, exc, tb)
+
+    async def call_tool(self, name: str, arguments: BaseModel) -> Mapping[str, Any]:
+        """The inner caller's answer, verbatim, inside one `tool:{name}` span.
+
+        The answer is returned unchanged and a `ToolError` still propagates:
+        every node reads the mapping the tool returned, so a wrapper reshaping
+        it would break the turn where no span assertion could see it
+        (`test_agent_tracing.py::test_the_tracing_caller_returns_the_inner_callers_answer`).
+        """
+        with span(f"{TOOL_SPAN_PREFIX}{name}"):
+            return await self.inner.call_tool(name, arguments)
+
+
 def _first_text(content: object) -> str:
     """The text of an errored result's first content block, or the empty string.
 
@@ -305,6 +365,7 @@ __all__ = [
     "MCP_CONNECT_TIMEOUT_SECONDS",
     "MCP_READ_TIMEOUT_SECONDS",
     "REMOTE_ERRORS",
+    "TOOL_SPAN_PREFIX",
     "TRANSPORT_FAILURE_MESSAGE",
     "McpToolCaller",
     "RemoteForbiddenError",
@@ -317,5 +378,6 @@ __all__ = [
     "RemoteToolError",
     "RemoteValidationError",
     "ToolCaller",
+    "TracingToolCaller",
     "error_for",
 ]

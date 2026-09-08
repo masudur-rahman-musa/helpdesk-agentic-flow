@@ -5,11 +5,16 @@ agent turn that already holds a trace hands it down rather than starting a
 second one; `traceparent_for` is that choice in one function, and an earlier change
 decision C is why it is not "always mint".
 
-`traceparent_for` is also the seam row 20 replaces with the active span's
-context. Everything downstream asserts the header's SHAPE against
+`traceparent_for` is the seam an earlier change takes: with a Langfuse span active it
+derives the header from that span instead of minting, so the console records
+the model call under the same trace as the turn that made it (the design).
+Everything downstream asserts the header's SHAPE against
 `TRACEPARENT_PATTERN`, which stays true whichever source produces the value.
 
-Pure: `os.urandom` and `re`, no I/O and no models. The pattern is matched with
+Pure: `os.urandom`, `re` and the tracing facade's two id readers — no I/O and
+no models. `helpdesk.obs.tracing` never raises and never blocks (an earlier change
+decision C), so reading it costs this module none of its own guarantees. The
+pattern is matched with
 `re.fullmatch`, so a value ending in a newline, a CRLF or a
 space is a refusal rather than a header-injection shape going onto the wire;
 the rejection table is
@@ -22,6 +27,7 @@ import os
 import re
 
 from helpdesk.errors import ErrorCode, ToolError
+from helpdesk.obs.tracing import current_span_id, current_trace_id
 
 TRACE_ID_BYTES = 16
 """Bytes of trace id, rendered as 32 hex characters, as W3C fixes them.
@@ -89,7 +95,7 @@ def check_traceparent(value: str) -> str:
 
 
 def traceparent_for(value: str | None) -> str:
-    """Propagate the caller's header, or mint one when the caller has none.
+    """Propagate the caller's header, derive it from the active span, or mint.
 
     A malformed caller value is refused rather than replaced: minting over it
     would hide the caller's bug behind a trace that joins nothing, which is
@@ -97,7 +103,28 @@ def traceparent_for(value: str | None) -> str:
     `test_gateway_traceparent.py::test_a_valid_caller_value_is_returned_verbatim`,
     `::test_no_caller_value_mints_a_fresh_header` and
     `::test_a_malformed_caller_value_is_refused_rather_than_replaced`.
+
+    With no caller value and a Langfuse span active, the header names THAT
+    span: the trace id joins the console's record to
+    this turn's, and the span id makes the gateway's span a child of the node
+    that called it rather than a root hanging off nothing. Pinned by
+    `::test_an_active_span_makes_the_header_carry_that_trace_and_that_span`.
+
+    Both ids or neither. A trace id with a random parent would file the call
+    under the right trace with no caller, which is worse than a clean mint —
+    and with tracing unconfigured, or after the turn's trace has closed, both
+    are `None` and this mints exactly as it did before this plan
+    (`::test_with_the_trace_closed_the_header_is_minted_fresh_again`).
+
+    A caller's own value still wins over an active span: it is a parent from
+    another process, and re-parenting it onto this
+    service loses the join the caller asked for
+    (`::test_a_caller_value_still_wins_over_an_active_span`).
     """
-    if value is None:
+    if value is not None:
+        return check_traceparent(value)
+    trace_id = current_trace_id()
+    span_id = current_span_id()
+    if trace_id is None or span_id is None:
         return new_traceparent()
-    return check_traceparent(value)
+    return f"00-{trace_id}-{span_id}-{TRACE_FLAGS}"

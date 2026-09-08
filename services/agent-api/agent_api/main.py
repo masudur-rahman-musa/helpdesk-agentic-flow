@@ -25,6 +25,8 @@ from helpdesk.gateway.client import ModelClient
 from helpdesk.obs.context import bind_context
 from helpdesk.obs.logging import configure_logging
 from helpdesk.obs.metrics import render as render_metrics
+from helpdesk.obs.tracing import configure_tracing
+from helpdesk.obs.tracing import flush as flush_traces
 from pydantic import BaseModel
 from redis.asyncio import Redis
 from starlette.datastructures import Headers
@@ -139,6 +141,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     configure_logging()
     settings = load_settings()
+    # Built once per process, from the settings alone: with no Langfuse keys
+    # configured this constructs nothing and every span in the service is a
+    # no-op.
+    configure_tracing(settings=settings)
     engine = create_engine(settings.database_url)
     pool = build_pool(psycopg_dsn(settings.database_url))
     await pool.open()
@@ -156,6 +162,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # Flushed at shutdown and never on the request path (an earlier change's first
+        # risk): this is what gets the last turns' spans out of the exporter's
+        # batch, and an export awaited inside a turn would put a network round
+        # trip between a user and their reply.
+        flush_traces()
         await app.state.redis.aclose()
         await app.state.model.aclose()
         await app.state.checkpointer_pool.close()

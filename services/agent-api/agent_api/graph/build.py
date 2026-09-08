@@ -26,12 +26,23 @@ written two rows.
 """
 
 import uuid
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import contextmanager
+from functools import wraps
 from typing import Any, cast
 
 from helpdesk.core.repository import append_message
 from helpdesk.errors import ErrorCode, ToolError
+from helpdesk.gateway.client import ModelAlias
 from helpdesk.models.conversation import MessageRole, check_message_content
+from helpdesk.obs.context import bind_context, current_context
+from helpdesk.obs.tracing import (
+    current_trace_id,
+    set_trace_attributes,
+    span,
+    tracing_enabled,
+    turn_trace,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -41,7 +52,7 @@ from langgraph.types import Command
 from agent_api.checkpointer import thread_config
 from agent_api.graph.deps import TurnDeps
 from agent_api.graph.nodes.await_approval import await_approval, pending_reply
-from agent_api.graph.nodes.compose_reply import compose_reply
+from agent_api.graph.nodes.compose_reply import COMPOSITION_PROMPT, compose_reply
 from agent_api.graph.nodes.endings import (
     ask_clarifying,
     ask_disambiguation,
@@ -49,14 +60,19 @@ from agent_api.graph.nodes.endings import (
     refuse_and_ticket,
 )
 from agent_api.graph.nodes.execute_tools import execute_tools
-from agent_api.graph.nodes.extract_intent import FAILURE_REPLY, extract_intent
+from agent_api.graph.nodes.extract_intent import (
+    EXTRACTION_PROMPT,
+    FAILURE_REPLY,
+    extract_intent,
+)
 from agent_api.graph.nodes.load_session import load_session
-from agent_api.graph.nodes.plan_tools import plan_tools
+from agent_api.graph.nodes.plan_tools import PLANNING_PROMPT, plan_tools
 from agent_api.graph.nodes.resolve_entities import resolve_entities
 from agent_api.graph.nodes.retrieve_policy import retrieve_policy
 from agent_api.graph.nodes.validate_tool_calls import validate_tool_calls
 from agent_api.graph.state import ToolResult, TurnOutcome, TurnState
-from agent_api.metrics import record_turn_code, record_turn_state
+from agent_api.metrics import record_turn_code, record_turn_state, trace_attributes
+from agent_api.prompts import load_prompt
 from agent_api.sse import DONE, ERROR, REPLY, STEP, TOKEN, chunk_reply, encode_event
 
 __all__ = [
@@ -212,6 +228,109 @@ async def _fail_turn(state: TurnState, config: RunnableConfig) -> dict[str, Any]
     return (await fail_turn(state, _deps(config))).model_dump()
 
 
+_NODE_MODEL_ALIASES: dict[str, ModelAlias] = {
+    EXTRACT_INTENT: ModelAlias.AGENT_DEFAULT,
+    PLAN_TOOLS: ModelAlias.AGENT_STRONG,
+    COMPOSE_REPLY: ModelAlias.AGENT_DEFAULT,
+}
+"""The three nodes that call the model, and which alias each calls (the design).
+
+Here rather than inside the nodes because decision D keeps telemetry out of
+them: a node states its alias at the call site, and this is the same fact read
+where the spans are opened. The two must agree, which is what
+`test_agent_tracing.py::test_the_node_model_alias_table_is_exactly_the_three_model_calling_nodes`
+and `::test_the_model_and_prompt_attributes_ride_only_the_nodes_that_use_them`
+assert from the constant and from a real turn's spans respectively.
+"""
+
+_NODE_PROMPTS: dict[str, str] = {
+    EXTRACT_INTENT: EXTRACTION_PROMPT,
+    PLAN_TOOLS: PLANNING_PROMPT,
+    COMPOSE_REPLY: COMPOSITION_PROMPT,
+}
+"""The three nodes that load a prompt, and which prompt each loads.
+
+The span carries the DIGEST `prompts.py` computes over the file's bytes, never
+a hand-written version string: `prompt_version` is what ties a bad turn back
+to the exact text that was sent (the design), and a label somebody typed
+answers nothing. Pinned by
+`test_agent_tracing.py::test_the_node_prompt_table_is_exactly_the_three_prompt_loading_nodes`.
+"""
+
+
+def _node_attributes(node: str) -> dict[str, Any]:
+    """What a node's span carries beyond its name, or an empty map.
+
+    Computed only when a client is installed: `load_prompt` reads a file at
+    call time (it is deliberately not cached, so an operator editing a prompt
+    is not serving a stale digest), and an unconfigured deployment must pay
+    nothing at all for a facility it is not using.
+    """
+    if not tracing_enabled():
+        return {}
+    attributes: dict[str, Any] = {}
+    alias = _NODE_MODEL_ALIASES.get(node)
+    if alias is not None:
+        attributes["model_alias"] = alias.value
+    prompt = _NODE_PROMPTS.get(node)
+    if prompt is not None:
+        attributes["prompt_version"] = load_prompt(prompt).sha256
+    return attributes
+
+
+type _Node = Callable[[TurnState, RunnableConfig], Awaitable[dict[str, Any]]]
+
+
+def _traced(name: str, node: _Node) -> _Node:
+    """The node, wrapped in one span named for it (decision D).
+
+    Applied where the nodes are REGISTERED and nowhere else, which is what
+    makes thirteen nodes instrumented by one line each and a fourteenth
+    instrumented by construction. `wraps` is not decoration: LangGraph reads
+    the callable's signature to decide whether to pass the config, and an
+    unwrapped closure would be called with the state alone.
+
+    Nothing about the node's answer passes through here — no state, no update,
+    no exception (`span` re-raises the body's). A node that raises still
+    raises, and its span is closed with the failure.
+    """
+
+    @wraps(node)
+    async def run(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+        with span(name, attributes=_node_attributes(name)):
+            return await node(state, config)
+
+    return run
+
+
+@contextmanager
+def _turn_telemetry() -> Any:
+    """Open one turn's trace and bind its id onto every line of that turn.
+
+    The bind REBINDS all four fields rather than the trace id alone:
+    `bind_context` replaces rather than merges, so a bind naming
+    only the trace would silently unbind the tenant and the session the
+    request's middleware put there, for the whole turn. The other three are
+    read back off the context that is already bound, which is why this reads
+    `current_context()` before it binds. Pinned by
+    `test_logging_wiring.py::test_a_record_logged_inside_a_traced_turn_carries_that_turns_trace_id`.
+
+    Used by all three turn drivers, so `run_turn`, `stream_turn` and
+    `resume_graph` cannot disagree about what a turn's trace is called or
+    about what a line inside one carries — the same reasoning an earlier change
+    decision E applied to the counters.
+    """
+    with turn_trace():
+        context = current_context()
+        with bind_context(
+            tenant_id=context.tenant_id,
+            session_id=context.session_id,
+            trace_id=current_trace_id(),
+            principal_kind=context.principal_kind,
+        ):
+            yield
+
+
 def _after_intent(state: TurnState) -> str:
     """Read `outcome`. Nothing else, and no computation (the design)."""
     if state.outcome is TurnOutcome.FAILED:
@@ -340,19 +459,19 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Compile
     plan exists to remove.
     """
     graph = StateGraph(TurnState)
-    graph.add_node(LOAD_SESSION, _load_session)
-    graph.add_node(EXTRACT_INTENT, _extract_intent)
-    graph.add_node(RESOLVE_ENTITIES, _resolve_entities)
-    graph.add_node(RETRIEVE_POLICY, _retrieve_policy)
-    graph.add_node(PLAN_TOOLS, _plan_tools)
-    graph.add_node(VALIDATE_TOOL_CALLS, _validate_tool_calls)
-    graph.add_node(EXECUTE_TOOLS, _execute_tools)
-    graph.add_node(AWAIT_APPROVAL, _await_approval)
-    graph.add_node(COMPOSE_REPLY, _compose_reply)
-    graph.add_node(REFUSE_AND_TICKET, _refuse_and_ticket)
-    graph.add_node(ASK_CLARIFYING, _ask_clarifying)
-    graph.add_node(ASK_DISAMBIGUATION, _ask_disambiguation)
-    graph.add_node(FAIL_TURN, _fail_turn)
+    graph.add_node(LOAD_SESSION, _traced(LOAD_SESSION, _load_session))
+    graph.add_node(EXTRACT_INTENT, _traced(EXTRACT_INTENT, _extract_intent))
+    graph.add_node(RESOLVE_ENTITIES, _traced(RESOLVE_ENTITIES, _resolve_entities))
+    graph.add_node(RETRIEVE_POLICY, _traced(RETRIEVE_POLICY, _retrieve_policy))
+    graph.add_node(PLAN_TOOLS, _traced(PLAN_TOOLS, _plan_tools))
+    graph.add_node(VALIDATE_TOOL_CALLS, _traced(VALIDATE_TOOL_CALLS, _validate_tool_calls))
+    graph.add_node(EXECUTE_TOOLS, _traced(EXECUTE_TOOLS, _execute_tools))
+    graph.add_node(AWAIT_APPROVAL, _traced(AWAIT_APPROVAL, _await_approval))
+    graph.add_node(COMPOSE_REPLY, _traced(COMPOSE_REPLY, _compose_reply))
+    graph.add_node(REFUSE_AND_TICKET, _traced(REFUSE_AND_TICKET, _refuse_and_ticket))
+    graph.add_node(ASK_CLARIFYING, _traced(ASK_CLARIFYING, _ask_clarifying))
+    graph.add_node(ASK_DISAMBIGUATION, _traced(ASK_DISAMBIGUATION, _ask_disambiguation))
+    graph.add_node(FAIL_TURN, _traced(FAIL_TURN, _fail_turn))
 
     graph.add_edge(START, LOAD_SESSION)
     graph.add_edge(LOAD_SESSION, EXTRACT_INTENT)
@@ -496,31 +615,36 @@ async def run_turn(
         started_at=deps.now(),
     )
     configurable: dict[str, Any] = {_DEPS_KEY: deps, **thread["configurable"]}
-    async with deps.tools:
-        result = await build_graph(checkpointer).ainvoke(
-            state,
-            config={
-                "configurable": configurable,
-                "recursion_limit": GRAPH_RECURSION_LIMIT,
-            },
-        )
-    if _INTERRUPT_KEY in result:
-        paused = _paused_state(result)
-        await append_message(
-            deps.db,
-            session_id=paused.session_id,
-            role=MessageRole.ASSISTANT,
-            content=pending_reply(paused),
-        )
-        # A pause is a terminal of THIS turn, not a turn that never happened:
-        # the route answers it 200 and the run stops here until an approver
-        # decides, so it is counted here and the resume is counted again as
-        # its own turn.
-        record_turn_state(paused)
-        return paused
-    final = TurnState.model_validate(result)
-    record_turn_state(final)
-    return final
+    with _turn_telemetry():
+        async with deps.tools:
+            result = await build_graph(checkpointer).ainvoke(
+                state,
+                config={
+                    "configurable": configurable,
+                    "recursion_limit": GRAPH_RECURSION_LIMIT,
+                },
+            )
+        if _INTERRUPT_KEY in result:
+            paused = _paused_state(result)
+            await append_message(
+                deps.db,
+                session_id=paused.session_id,
+                role=MessageRole.ASSISTANT,
+                content=pending_reply(paused),
+            )
+            # A pause is a terminal of THIS turn, not a turn that never
+            # happened: the route answers it 200 and the run stops here until
+            # an approver decides, so it is counted here and the resume is
+            # counted again as its own turn (an earlier change,
+            # `test_a_resumed_turn_counts_exactly_one`). The trace closes here
+            # for the same reason, and the resume opens its own.
+            record_turn_state(paused)
+            set_trace_attributes(trace_attributes(paused))
+            return paused
+        final = TurnState.model_validate(result)
+        record_turn_state(final)
+        set_trace_attributes(trace_attributes(final))
+        return final
 
 
 def _step_data(node: str, update: Mapping[str, Any], seen: int) -> tuple[dict[str, Any], int]:
@@ -658,66 +782,72 @@ async def stream_turn(
     latest: Mapping[str, Any] | None = None
     paused = False
     seen = 0
-    try:
-        async with deps.tools:
-            updates = build_graph(checkpointer).astream(
-                state,
-                config={
-                    "configurable": configurable,
-                    "recursion_limit": GRAPH_RECURSION_LIMIT,
-                },
-                stream_mode="updates",
+    with _turn_telemetry():
+        try:
+            async with deps.tools:
+                updates = build_graph(checkpointer).astream(
+                    state,
+                    config={
+                        "configurable": configurable,
+                        "recursion_limit": GRAPH_RECURSION_LIMIT,
+                    },
+                    stream_mode="updates",
+                )
+                async for update in updates:
+                    for node, value in update.items():
+                        if node == _INTERRUPT_KEY:
+                            paused = True
+                            continue
+                        latest = value
+                        data, seen = _step_data(node, value, seen)
+                        yield encode_event(STEP, data)
+        except ToolError as exc:
+            # No state was ever produced, so the turn is counted from the code
+            # alone: it happened, and a stream that dies in the handshake is
+            # exactly the thing the turn and refusal rates exist to show. There
+            # is no state to describe the trace with either, so it closes
+            # carrying only the spans that ran.
+            record_turn_code(exc.code)
+            for frame in _failure_frames(exc.code):
+                yield frame
+            return
+
+        if latest is None:
+            # A graph that yielded no update at all: nothing composed anything,
+            # so there is no reply to stream and no outcome to report.
+            record_turn_code(ErrorCode.INTERNAL)
+            for frame in _failure_frames(ErrorCode.INTERNAL):
+                yield frame
+            return
+
+        if paused:
+            final = _paused_state(latest)
+            await append_message(
+                deps.db,
+                session_id=final.session_id,
+                role=MessageRole.ASSISTANT,
+                content=pending_reply(final),
             )
-            async for update in updates:
-                for node, value in update.items():
-                    if node == _INTERRUPT_KEY:
-                        paused = True
-                        continue
-                    latest = value
-                    data, seen = _step_data(node, value, seen)
-                    yield encode_event(STEP, data)
-    except ToolError as exc:
-        # No state was ever produced, so the turn is counted from the code
-        # alone: it happened, and a stream that dies in the handshake is
-        # exactly the thing the turn and refusal rates exist to show.
-        record_turn_code(exc.code)
-        for frame in _failure_frames(exc.code):
-            yield frame
-        return
+        else:
+            final = TurnState.model_validate(latest)
 
-    if latest is None:
-        # A graph that yielded no update at all: nothing composed anything, so
-        # there is no reply to stream and no outcome to report.
-        record_turn_code(ErrorCode.INTERNAL)
-        for frame in _failure_frames(ErrorCode.INTERNAL):
-            yield frame
-        return
+        # Counted once per stream, at whichever of the two remaining terminals
+        # it reaches, and never per frame: a token event is part of one turn,
+        # not a turn of its own (§1's "one `/chat/stream` turn adds exactly
+        # one"). The trace's attributes are written at the same terminals, from
+        # the same state, so the two records of one turn cannot disagree.
+        record_turn_state(final)
+        set_trace_attributes(trace_attributes(final))
 
-    if paused:
-        final = _paused_state(latest)
-        await append_message(
-            deps.db,
-            session_id=final.session_id,
-            role=MessageRole.ASSISTANT,
-            content=pending_reply(final),
-        )
-    else:
-        final = TurnState.model_validate(latest)
+        if final.outcome is TurnOutcome.FAILED:
+            for frame in _failure_frames(final.error_code or ErrorCode.INTERNAL):
+                yield frame
+            return
 
-    # Counted once per stream, at whichever of the two remaining terminals it
-    # reaches, and never per frame: a token event is part of one turn, not a
-    # turn of its own (§1's "one `/chat/stream` turn adds exactly one").
-    record_turn_state(final)
-
-    if final.outcome is TurnOutcome.FAILED:
-        for frame in _failure_frames(final.error_code or ErrorCode.INTERNAL):
-            yield frame
-        return
-
-    for chunk in chunk_reply(final.reply or ""):
-        yield encode_event(TOKEN, {"text": chunk})
-    yield encode_event(REPLY, _reply_data(final))
-    yield encode_event(DONE, {})
+        for chunk in chunk_reply(final.reply or ""):
+            yield encode_event(TOKEN, {"text": chunk})
+        yield encode_event(REPLY, _reply_data(final))
+        yield encode_event(DONE, {})
 
 
 async def resume_graph(
@@ -754,14 +884,20 @@ async def resume_graph(
     """
     thread = thread_config(thread_id)
     configurable: dict[str, Any] = {_DEPS_KEY: deps, **thread["configurable"]}
-    async with deps.tools:
-        result = await build_graph(checkpointer).ainvoke(
-            Command(resume=decision.model_dump(mode="json")),
-            config={
-                "configurable": configurable,
-                "recursion_limit": GRAPH_RECURSION_LIMIT,
-            },
+    with _turn_telemetry():
+        async with deps.tools:
+            result = await build_graph(checkpointer).ainvoke(
+                Command(resume=decision.model_dump(mode="json")),
+                config={
+                    "configurable": configurable,
+                    "recursion_limit": GRAPH_RECURSION_LIMIT,
+                },
+            )
+        final = TurnState.model_validate(
+            {key: value for key, value in result.items() if not key.startswith("__")}
         )
-    return TurnState.model_validate(
-        {key: value for key, value in result.items() if not key.startswith("__")}
-    )
+        # A resume is its own turn, so it is its own trace, closed here with
+        # the decision the resumed run reached. `agent_api.resume`
+        # counts it separately for the same reason.
+        set_trace_attributes(trace_attributes(final))
+        return final

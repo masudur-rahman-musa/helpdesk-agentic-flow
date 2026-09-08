@@ -17,23 +17,61 @@ emitted INSIDE the request, at a point every guard before it has really run.
 The line is captured through a `JsonFormatter` handler attached here rather
 than through the service's own handler: what is under test is the BIND, and
 `test_obs_logging.py` already owns the formatter.
+
+An earlier change ADDS the case at the bottom and moves nothing above it. The
+surface it expects: ``run_turn`` opens the turn's trace and REBINDS the
+telemetry context for the turn — ``tenant_id``, ``session_id`` and
+``principal_kind`` read back off ``current_context()``, ``trace_id`` from
+``helpdesk.obs.tracing.current_trace_id()`` — so every line emitted inside the
+turn carries that turn's trace id and a line emitted outside one still carries
+``null``. Both halves are one case, because a turn's trace id and the absence
+of one after it are the same bind seen from two sides. It rides
+``test_agent_turn.py``'s seeded database and stubbed gateway, so it is the
+only case in this file that needs the compose stack.
 """
 
 import asyncio
 import io
 import json
 import logging
+import sys
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from agent_api import admin_routes
+from agent_api.graph import build as build_module
+from agent_api.graph.build import TurnDeps
+from agent_api.graph.nodes.load_session import load_session as real_load_session
+from agent_api.graph.state import TurnState
 from agent_api.main import app
 from helpdesk.auth.jwt import TokenClaims, issue_token
+from helpdesk.obs import configure_tracing
+from helpdesk.obs.context import bind_context
 from helpdesk.obs.logging import FORBIDDEN_KEYS, REDACTED, JsonFormatter
+
+# The recording fake lives with the facade's own tests; its directory is only
+# on `sys.path` while that suite is being collected.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "packages" / "helpdesk" / "tests"))
+
+from test_agent_turn import (
+    COMPOSED_REPLY,
+    EMPTY_PLAN,
+    StagedGateway,
+    StubToolCaller,
+    TurnEnv,
+    _citation,
+    _page,
+    _payroll_answer,
+    _run_turn,
+    pg,  # noqa: F401
+    turn_env,  # noqa: F401
+)
+from test_obs_tracing import TRACE_ID_PATTERN, FakeTraceClient
 
 # Obviously fake, tests only; >= 32 bytes so the settings length gate passes.
 TEST_JWT_SECRET = "logging-wiring-test-jwt-secret-0123456789"
@@ -124,3 +162,91 @@ def test_a_record_logged_during_a_request_carries_that_call_s_tenant_and_session
         assert line[key] == REDACTED
     assert str(user_id) not in raw
     assert PROBE_EMAIL not in raw
+
+
+# --- an earlier change: the turn's trace id on every line of that turn -----------------
+
+
+TRACE_LOGGER_NAME = "test.wiring.agent_api.tracing"
+INSIDE_MARKER = "a record emitted inside the traced turn"
+OUTSIDE_MARKER = "a record emitted outside any turn"
+
+
+def test_a_record_logged_inside_a_traced_turn_carries_that_turns_trace_id(
+    turn_env: TurnEnv,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a `run_turn` that opens the trace but never rebinds the
+    telemetry context: the trace and the logs would then be two records of the
+    same turn with nothing joining them, which is the one question an
+    on-call reader asks of both ("show me the logs of this trace").
+
+    It also catches a rebind that keeps the trace id and DROPS the rest.
+    `bind_context` REPLACES rather than merges, so an implementation calling
+    it with the trace id alone silently unbinds the tenant and the session for
+    the whole turn — the outer bind here is what makes that visible, and no
+    other case in the tree binds a context around a turn.
+
+    The record is emitted from a stand-in for `load_session`, the FIRST node,
+    so it is inside the graph invocation and inside whatever the turn bound;
+    a trace opened around only part of the turn fails here."""
+    fake = FakeTraceClient()
+    outer_tenant = str(turn_env.tenant_a.tenant_id)
+    session_id = uuid.uuid4()
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonFormatter())
+    logger = logging.getLogger(TRACE_LOGGER_NAME)
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+
+    async def _logging_load_session(state: TurnState, deps: TurnDeps) -> TurnState:
+        logger.info(INSIDE_MARKER)
+        return await real_load_session(state, deps)
+
+    monkeypatch.setattr(build_module, "load_session", _logging_load_session)
+    configure_tracing(client=fake)
+    try:
+        with bind_context(
+            tenant_id=outer_tenant,
+            session_id=str(session_id),
+            principal_kind="employee",
+        ):
+            state = _run_turn(
+                turn_env,
+                turn_env.tenant_a,
+                session_id=session_id,
+                message="I need payroll access",
+                gateway=StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY]),
+                tools=StubToolCaller(payload=_page(_citation("fake-access-policy", score=0.9))),
+            )
+        logger.info(OUTSIDE_MARKER)
+    finally:
+        configure_tracing()
+        logger.removeHandler(handler)
+        handler.close()
+
+    # Premise, read off the turn and off the fake: one turn ran, and it opened
+    # exactly one trace, so "that turn's trace id" names one value.
+    assert state.session_id == session_id
+    assert len(fake.roots) == 1
+
+    lines: list[dict[str, Any]] = [
+        json.loads(raw) for raw in stream.getvalue().splitlines() if raw.strip()
+    ]
+    inside = [line for line in lines if line["message"] == INSIDE_MARKER]
+    outside = [line for line in lines if line["message"] == OUTSIDE_MARKER]
+    assert len(inside) == 1
+    assert len(outside) == 1
+
+    assert inside[0]["trace_id"] == fake.roots[0].trace_id
+    assert TRACE_ID_PATTERN.fullmatch(inside[0]["trace_id"]) is not None
+    assert inside[0]["tenant_id"] == outer_tenant
+    assert inside[0]["session_id"] == str(session_id)
+    assert inside[0]["principal_kind"] == "employee"
+
+    # The line outside every turn: the field is present and null, never a
+    # stale id left bound by the turn that has ended.
+    assert outside[0]["trace_id"] is None

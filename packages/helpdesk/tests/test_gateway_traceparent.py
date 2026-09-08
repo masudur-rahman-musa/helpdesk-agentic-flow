@@ -19,16 +19,42 @@ Expected implementation surface (the implementer must provide exactly this):
 Pure: no I/O, no socket, no backing service. `os.urandom` is the only
 non-determinism, which is why the mint is asserted against the pattern and
 against a second mint, never against a literal.
+
+An earlier change takes the seam this file's docstring reserved, and ADDS the three
+cases at the bottom; nothing above them moves (the plan's §8 says so, and
+``test_no_caller_value_mints_a_fresh_header`` is named there as the green
+that proves the change is additive). Expected implementation surface:
+
+``helpdesk.gateway.traceparent.traceparent_for(None)`` returns
+``f"00-{current_trace_id()}-{current_span_id()}-{TRACE_FLAGS}"`` when BOTH are
+available from ``helpdesk.obs.tracing``, and mints exactly as today when
+either is ``None``. A caller-supplied valid value still wins verbatim, and the
+signature does not change.
+
+The active span is produced by the same recording fake ``test_obs_tracing.py``
+drives, imported rather than copied so one fake defines what "active" means;
+still no network and no backing service.
 """
+
+from collections.abc import Iterator
 
 import pytest
 from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.gateway.traceparent import (
+    TRACE_FLAGS,
     TRACEPARENT_PATTERN,
     check_traceparent,
     new_traceparent,
     traceparent_for,
 )
+from helpdesk.obs.tracing import (
+    configure_tracing,
+    current_span_id,
+    current_trace_id,
+    span,
+    turn_trace,
+)
+from test_obs_tracing import FakeTraceClient
 
 VALID = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 """The W3C specification's own example header, unsampled flag included."""
@@ -155,3 +181,75 @@ def test_a_malformed_caller_value_is_refused_rather_than_replaced() -> None:
         traceparent_for(VALID + "\n")
 
     assert excinfo.value.code is ErrorCode.VALIDATION
+
+
+# --- an earlier change: the active span the header joins -------------------------------
+
+
+@pytest.fixture
+def traced() -> Iterator[FakeTraceClient]:
+    """A recording trace client installed for one case, and removed after it.
+
+    Not autouse: every case above this line must keep running with tracing
+    exactly as it is at rest — unconfigured — which is what makes the mint
+    case the plan's proof that the seam is additive.
+    """
+    client = FakeTraceClient()
+    configure_tracing(client=client)
+    try:
+        yield client
+    finally:
+        configure_tracing()
+
+
+def test_an_active_span_makes_the_header_carry_that_trace_and_that_span(
+    traced: FakeTraceClient,
+) -> None:
+    """Catches a `traceparent_for` that still mints from `os.urandom` when a
+    trace is active: the console would record the model call under a trace id
+    this process has never heard of, and the design's two-service join would
+    silently be two disconnected traces that both look healthy.
+
+    The span id half is asserted too, and it is the one a "trace id only"
+    implementation fails: a header carrying the right trace and a random
+    parent hangs the gateway's span off nothing, so the call shows in the
+    trace with no caller."""
+    with turn_trace(), span("a-node"):
+        header = traceparent_for(None)
+        trace_id = current_trace_id()
+        span_id = current_span_id()
+
+    # Premise, read off the facade: this case only means something while a
+    # span really is active.
+    assert trace_id is not None
+    assert span_id is not None
+
+    assert TRACEPARENT_PATTERN.fullmatch(header) is not None
+    assert header == f"00-{trace_id}-{span_id}-{TRACE_FLAGS}"
+
+
+def test_a_caller_value_still_wins_over_an_active_span(traced: FakeTraceClient) -> None:
+    """Catches a seam that OVERWRITES the caller's header with the local span
+    once tracing is on. The caller's value is a parent from another process; replacing it re-parents the call onto this service
+    and loses the join the caller was asking for — and this is the only case
+    where both a caller value and an active span exist at once, so nothing
+    else can decide it."""
+    with turn_trace():
+        assert traceparent_for(VALID) == VALID
+
+
+def test_with_the_trace_closed_the_header_is_minted_fresh_again(
+    traced: FakeTraceClient,
+) -> None:
+    """Catches a seam that caches the last trace it saw (a module global set
+    inside `turn_trace`): a call made after the turn ended — a background
+    ingest, a health probe — would be filed under that finished turn's trace
+    forever. The client here is still installed, so only the "no ACTIVE span"
+    branch can produce the mint."""
+    with turn_trace():
+        traced_header = traceparent_for(None)
+
+    minted = traceparent_for(None)
+
+    assert TRACEPARENT_PATTERN.fullmatch(minted) is not None
+    assert minted.split("-")[1] != traced_header.split("-")[1]
