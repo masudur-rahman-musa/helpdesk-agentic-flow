@@ -1,0 +1,297 @@
+"""POST /chat and GET /chat/messages: the front door of the agent (the design).
+
+The door and the counter, and nothing else. Every decision a turn makes was
+made by an earlier change; this module verifies who is knocking, counts the
+knock against the design's limit, hands `run_turn` a tenant-bound session, and
+renders what comes back.
+
+**Identity comes from the token and from nowhere else**. The
+tenant, the user AND the session are the verified claims' `tenant_id`, `sub`
+and `sid`; the body carries a message and nothing that names a person or a
+conversation (decision A1). A client-chosen session id would be worse than a
+client-chosen user id, because the session id IS the checkpoint thread (ADR
+0012), so it would address another turn's checkpoints. Unknown body keys are
+therefore IGNORED rather than refused: a body naming another user must be
+ACCEPTED and change nothing, which is what
+`test_chat_route.py::test_identity_comes_from_the_token_and_not_from_the_body`
+asserts by reading the rows back.
+
+**Every refusal is a typed body from `helpdesk.errors`** — the same eight codes
+the tools answer with, so a chat client and a tool client do not have to learn
+two vocabularies. That includes the failures a turn reports rather than raises:
+a turn that ended `FAILED` is answered as its own error code and carries NO
+reply, because a templated failure sentence rendered as an ordinary 200 is
+prose about a turn nothing decided
+(`::test_an_unreachable_gateway_answers_a_typed_code_and_no_partial_reply`).
+
+The process-lifetime resources are read off `app.state` per request (decision
+B), never captured at import: a test drives its own gateway and its own Redis
+by replacing them after startup.
+"""
+
+import uuid
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import APIRouter, Header, Request
+from fastapi.responses import JSONResponse
+from helpdesk.auth.jwt import TokenClaims, TokenVerificationError, verify_token
+from helpdesk.core.db import tenant_session
+from helpdesk.core.repository import find_tenant_by_id, list_recent_messages
+from helpdesk.core.settings import Settings, load_settings
+from helpdesk.errors import ErrorCode, ToolError
+from pydantic import BaseModel
+
+from agent_api.graph.build import run_turn
+from agent_api.graph.deps import TurnDeps
+from agent_api.graph.state import TurnOutcome, TurnState
+from agent_api.mcp_client import McpToolCaller, ToolCaller
+from agent_api.ratelimit import RateLimitExceededError, check_rate_limit
+
+router = APIRouter()
+
+_TOO_MANY_REQUESTS = 429
+
+STATUS_FOR_CODE: Mapping[ErrorCode, int] = {
+    ErrorCode.VALIDATION: 400,
+    ErrorCode.FORBIDDEN: 401,
+    ErrorCode.NOT_FOUND: 404,
+    ErrorCode.POLICY_BLOCKED: _TOO_MANY_REQUESTS,
+}
+"""The HTTP status each typed code this route can answer with is dressed in.
+
+Only the codes this surface actually produces. Everything else — an
+`INTERNAL` from an unreachable gateway, MCP server or Redis, and any code a
+future turn learns to fail with — falls through to 500, which is the right
+answer for a failure the caller cannot act on. `POLICY_BLOCKED` is 429 here
+because the only thing on this route that raises it is the rate limit
+(`ratelimit.RateLimitExceededError`); a tool-level `POLICY_BLOCKED` never
+escapes `run_turn`, it becomes a composed reply.
+"""
+
+
+class ChatRequest(BaseModel):
+    """One message. Deliberately NOT `extra="forbid"`.
+
+    A body naming a user, a tenant or a session must be accepted and must
+    change nothing: refusing it would answer 422 and prove nothing about where
+    identity came from. Pinned by
+    `test_chat_route.py::test_identity_comes_from_the_token_and_not_from_the_body`,
+    which reads the stored rows rather than the status.
+
+    The message is not length-checked here either: `run_turn` runs
+    `check_message_content` before any row, any model call and any MCP
+    handshake, and a second cap on this model would be a second number to
+    drift from `MAX_MESSAGE_CHARS` (a project rule's "one gate, one
+    constant").
+    """
+
+    message: str
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatHistoryResponse(BaseModel):
+    messages: list[ChatMessage]
+
+
+class ChatResponse(BaseModel):
+    """What one turn answers with, paused or finished.
+
+    `request_id` is the access request a PAUSED turn is waiting on, and None on
+    every other outcome: it is what lets a client show the user what they are
+    waiting for without reading a checkpoint (decision E1).
+    """
+
+    reply: str | None
+    outcome: str
+    citations: list[dict[str, Any]]
+    request_id: str | None
+
+
+def build_tool_caller(settings: Settings, bearer_token: str) -> ToolCaller:
+    """The turn's MCP caller, built per turn and never held on the app.
+
+    A tool session's lifetime is one turn and `run_turn`
+    is what enters and exits it, so this is deliberately not a lifespan
+    resource. Called through the MODULE attribute below — the seam
+    `agent_api.readiness` already uses — so the route's tests drive the
+    scripted stub of 17b and open no socket.
+
+    The caller's own bearer is forwarded verbatim: the agent
+    signs nothing, and the MCP server decides what that person may do.
+    """
+    return McpToolCaller(url=settings.mcp_url, bearer_token=bearer_token)
+
+
+def _typed(code: ErrorCode) -> JSONResponse:
+    """One typed body, dressed in this code's status. Never free text."""
+    return JSONResponse(status_code=STATUS_FOR_CODE.get(code, 500), content={"code": code.value})
+
+
+def _bearer(authorization: str | None) -> str | None:
+    if authorization is None:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    return token
+
+
+def _claims(token: str | None, secret: str) -> TokenClaims | None:
+    if token is None:
+        return None
+    try:
+        return verify_token(token, secret, datetime.now(UTC))
+    except TokenVerificationError:
+        return None
+
+
+class _Identity(BaseModel):
+    """The three ids one request acts under, all read off the verified token."""
+
+    tenant_id: uuid.UUID
+    user_id: uuid.UUID
+    session_id: uuid.UUID
+
+
+def _identity(claims: TokenClaims) -> _Identity:
+    """The claims as ids, or `ValueError` for a claim that is not a uuid.
+
+    A separate step because the failure is a typed `VALIDATION` rather than a
+    401: the token verified, so the caller proved who they are; what is
+    malformed is a claim inside it.
+    """
+    return _Identity(
+        tenant_id=uuid.UUID(claims.tenant_id),
+        user_id=uuid.UUID(claims.sub),
+        session_id=uuid.UUID(claims.sid),
+    )
+
+
+def _rendered(state: TurnState) -> JSONResponse:
+    """The finished (or paused) turn as a response, or its failure as a code.
+
+    A paused turn is a 200 with a body, not a 202 (decision E1): the turn
+    produced a reply and stored it, so the pause is state the client renders,
+    not a deferral of the request that was just made.
+    """
+    if state.outcome is TurnOutcome.FAILED:
+        return _typed(state.error_code or ErrorCode.INTERNAL)
+    body = ChatResponse(
+        reply=state.reply,
+        outcome=state.outcome.value,
+        citations=[citation.model_dump(mode="json") for citation in state.citations],
+        request_id=None if state.awaiting_request_id is None else str(state.awaiting_request_id),
+    )
+    return JSONResponse(content=body.model_dump())
+
+
+@router.post("/chat")
+async def chat(
+    request: Request, body: ChatRequest, authorization: str | None = Header(default=None)
+) -> JSONResponse:
+    """One message in, one stored turn out.
+
+    The ORDER is the whole of this function's content, and every step of it is
+    asserted: the token is verified before anything else, the rate limit is
+    counted before the turn is started, and the turn is what writes rows.
+    A limiter checked after the turn would bill a model call and store two
+    rows for a message it then refuses, which is what
+    `::test_an_unreachable_redis_refuses_the_turn_and_starts_none` catches by
+    staging a gateway with nothing and reading the rows back.
+
+    `now` is stamped once and passed as the turn's clock as well as the
+    window's, so the message counted and the message stored are judged against
+    one reading.
+    """
+    settings = load_settings()
+    token = _bearer(authorization)
+    claims = _claims(token, settings.jwt_secret)
+    if claims is None or token is None:
+        return _typed(ErrorCode.FORBIDDEN)
+
+    now = datetime.now(UTC)
+    try:
+        identity = _identity(claims)
+    except ValueError:
+        return _typed(ErrorCode.VALIDATION)
+
+    try:
+        await check_rate_limit(
+            request.app.state.redis,
+            tenant_id=identity.tenant_id,
+            session_id=claims.sid,
+            now=now,
+        )
+    except RateLimitExceededError:
+        return _typed(ErrorCode.POLICY_BLOCKED)
+    except ToolError as exc:
+        return _typed(exc.code)
+
+    tools = build_tool_caller(settings, token)
+    try:
+        async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
+            tenant = await find_tenant_by_id(db, identity.tenant_id)
+            if tenant is None:
+                # A verified token for a tenant that no longer exists: nothing
+                # the caller can act on, and not a 404 either — the row they
+                # asked about is their own tenant.
+                return _typed(ErrorCode.INTERNAL)
+            state = await run_turn(
+                deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
+                tenant_id=identity.tenant_id,
+                user_id=identity.user_id,
+                session_id=identity.session_id,
+                tenant_slug=tenant.slug,
+                message=body.message,
+                checkpointer=request.app.state.checkpointer,
+            )
+    except ToolError as exc:
+        # The pre-checks and the MCP handshake raise OUTSIDE every node, so
+        # nothing on the turn path converts them into state: without this an
+        # oversized message and an unreachable MCP server both reach the client
+        # as FastAPI's untyped 500 with a stack trace.
+        return _typed(exc.code)
+    return _rendered(state)
+
+
+@router.get("/chat/messages")
+async def chat_messages(
+    request: Request, authorization: str | None = Header(default=None)
+) -> JSONResponse:
+    """This session's messages, oldest first, and this tenant's only.
+
+    The session read is the token's `sid` and the read is bound to the token's
+    tenant, so a token whose `sid` names another tenant's conversation reads an
+    empty window rather than somebody else's chat
+    (`::test_the_history_route_cannot_read_another_tenants_session`). The order
+    is `list_recent_messages`'s own — by `ordinal`, never by `created_at`,
+    which is transaction time and identical across one turn's rows.
+
+    No rate limit: the design bounds messages, and refusing a client its own
+    transcript during a window it has spent would hide the very turns it is
+    asking about.
+    """
+    settings = load_settings()
+    claims = _claims(_bearer(authorization), settings.jwt_secret)
+    if claims is None:
+        return _typed(ErrorCode.FORBIDDEN)
+    try:
+        identity = _identity(claims)
+    except ValueError:
+        return _typed(ErrorCode.VALIDATION)
+
+    try:
+        async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
+            rows = await list_recent_messages(db, identity.session_id)
+            body = ChatHistoryResponse(
+                messages=[ChatMessage(role=row.role, content=row.content) for row in rows]
+            )
+    except ToolError as exc:
+        return _typed(exc.code)
+    return JSONResponse(content=body.model_dump())
