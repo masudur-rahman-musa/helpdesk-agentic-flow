@@ -26,10 +26,11 @@ written two rows.
 """
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from typing import Any, cast
 
 from helpdesk.core.repository import append_message
+from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.models.conversation import MessageRole, check_message_content
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -55,6 +56,7 @@ from agent_api.graph.nodes.resolve_entities import resolve_entities
 from agent_api.graph.nodes.retrieve_policy import retrieve_policy
 from agent_api.graph.nodes.validate_tool_calls import validate_tool_calls
 from agent_api.graph.state import ToolResult, TurnOutcome, TurnState
+from agent_api.sse import DONE, ERROR, REPLY, STEP, TOKEN, chunk_reply, encode_event
 
 __all__ = [
     "FAILURE_REPLY",
@@ -64,6 +66,7 @@ __all__ = [
     "build_graph",
     "resume_graph",
     "run_turn",
+    "stream_turn",
 ]
 
 type Saver = BaseCheckpointSaver[Any]
@@ -510,6 +513,193 @@ async def run_turn(
         )
         return paused
     return TurnState.model_validate(result)
+
+
+def _step_data(node: str, update: Mapping[str, Any], seen: int) -> tuple[dict[str, Any], int]:
+    """One `step` event's payload, and how many tool results have been seen.
+
+    Decision C, as a FIXED key set — `node`, `round` and `tools` — so a client
+    parses one shape whatever node it came from. `tools` is the results of THIS
+    round alone, sliced off the state's accumulated `tool_results` by the
+    running count, which is why the count travels with the payload: a step
+    reporting the whole accumulation would show a UI the second round making
+    three calls when it made one.
+
+    `tools` is a LIST rather than the plan's singular tool name because
+    `MAX_CALLS_PER_ROUND` is three: one round can execute three calls, and a
+    single `tool` key could only name one of them (recorded in the plan's
+    Deviations).
+
+    Nothing else crosses. No arguments, no payload, no resolved entities and no
+    history — the same data the design keeps out of telemetry — asserted as the
+    exact key set AND as a substring sweep by
+    `test_turn_stream.py::test_a_step_carries_no_arguments_no_payload_and_no_entities`,
+    which plants all four in the turn's state first so their absence means
+    something.
+    """
+    results = update.get("tool_results") or ()
+    tools = [
+        {
+            "tool": str(result["tool"]),
+            "ok": bool(result["ok"]),
+            "error_code": None
+            if result["error_code"] is None
+            else ErrorCode(result["error_code"]).value,
+        }
+        for result in list(results)[seen:]
+    ]
+    data = {"node": node, "round": int(update.get("round_number") or 0), "tools": tools}
+    return data, len(list(results))
+
+
+def _reply_data(state: TurnState) -> dict[str, Any]:
+    """The terminal `reply` event: the same body `/chat` answers this turn with.
+
+    Deliberately the same four keys as `chat_routes.ChatResponse` (19a decision
+    E1), paused turn included, so a streaming client and a non-streaming one
+    read one shape and a turn can be replayed through either route. It is built
+    here rather than imported from `chat_routes` because the route imports this
+    module; the two are held together by
+    `test_chat_stream.py::test_both_routes_store_the_same_rows_for_one_message`,
+    which runs one message through both and compares what was stored.
+    """
+    return {
+        "reply": state.reply,
+        "outcome": state.outcome.value,
+        "citations": [citation.model_dump(mode="json") for citation in state.citations],
+        "request_id": None if state.awaiting_request_id is None else str(state.awaiting_request_id),
+    }
+
+
+def _failure_frames(code: ErrorCode) -> tuple[str, str]:
+    """A failure after the first byte: one typed `error` event, then `done`.
+
+    Decision E1. The status line is already 200 by the time anything here can
+    fail, so a refusal has to arrive inside the stream — and an aborted socket
+    (E2) is indistinguishable from a dropped one, which is the single thing a
+    typed vocabulary exists to prevent. No `token` and no `reply` event
+    accompanies it: a templated failure sentence streamed as tokens is prose
+    about a turn nothing decided
+    (`test_turn_stream.py::test_a_gateway_failure_mid_stream_is_one_typed_error_event_then_done`).
+    """
+    return encode_event(ERROR, {"code": code.value}), encode_event(DONE, {})
+
+
+async def stream_turn(
+    *,
+    deps: TurnDeps,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    tenant_slug: str,
+    message: str,
+    checkpointer: Saver | None = None,
+) -> AsyncIterator[str]:
+    """The same turn as `run_turn`, watched: encoded SSE frames as it happens.
+
+    A second VIEW of one turn and never a second turn (§1). It takes the same
+    arguments, runs the same two pre-checks in the same order and before the
+    MCP session is opened, enters the same tool caller, and invokes the same
+    graph with the same config and the same recursion limit. The one difference
+    is `astream(stream_mode="updates")` in place of `ainvoke`: one update per
+    node, which IS the step vocabulary a UI needs, so no node writes an event
+    and no node learns that a client is watching (decision A1). Pinned against
+    `/chat` by
+    `test_chat_stream.py::test_both_routes_store_the_same_rows_for_one_message`.
+
+    **What streams as tokens is the reply the post-check has already passed**
+    (decision B, a design note). Composition happens inside `compose_reply`, so by
+    the time a `token` event exists the regeneration of the design step 8 has
+    already happened or not happened; a contradicting first attempt reaches no
+    frame at all
+    (`test_turn_stream.py::test_no_token_is_emitted_before_the_composition_returns`).
+
+    Each update's value is the node's whole state dump, so the LAST one is the
+    finished state — there is no second invocation to read it from. A paused
+    run is the exception LangGraph forces: `interrupt()` discards the
+    interrupting node's update, so the state as of the pause is the update
+    BEFORE it, which is `execute_tools`' — the node that wrote both
+    `AWAIT_APPROVAL` and `awaiting_request_id` for exactly this reason. The
+    pending reply is rendered and stored here, once, precisely as `run_turn`
+    stores it, which is why a paused turn streamed leaves one assistant row and
+    not two
+    (`::test_a_paused_turn_stores_exactly_one_assistant_row`).
+
+    A `ToolError` raised outside every node — the MCP handshake, or the
+    pre-checks on a caller that skipped the route — is caught OUTSIDE the
+    `async with`, so the turn's tool session is closed before the `error` frame
+    is written and a failed stream cannot leak it
+    (`::test_the_turns_session_is_closed_when_the_stream_ends_on_a_failure`).
+
+    Identity is passed in by the route that read the token and is never taken
+    from the message or from the extracted entities.
+    """
+    check_message_content(message)
+    thread = thread_config(str(session_id))
+
+    state = TurnState(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        session_id=session_id,
+        tenant_slug=tenant_slug,
+        user_message=message,
+        started_at=deps.now(),
+    )
+    configurable: dict[str, Any] = {_DEPS_KEY: deps, **thread["configurable"]}
+
+    latest: Mapping[str, Any] | None = None
+    paused = False
+    seen = 0
+    try:
+        async with deps.tools:
+            updates = build_graph(checkpointer).astream(
+                state,
+                config={
+                    "configurable": configurable,
+                    "recursion_limit": GRAPH_RECURSION_LIMIT,
+                },
+                stream_mode="updates",
+            )
+            async for update in updates:
+                for node, value in update.items():
+                    if node == _INTERRUPT_KEY:
+                        paused = True
+                        continue
+                    latest = value
+                    data, seen = _step_data(node, value, seen)
+                    yield encode_event(STEP, data)
+    except ToolError as exc:
+        for frame in _failure_frames(exc.code):
+            yield frame
+        return
+
+    if latest is None:
+        # A graph that yielded no update at all: nothing composed anything, so
+        # there is no reply to stream and no outcome to report.
+        for frame in _failure_frames(ErrorCode.INTERNAL):
+            yield frame
+        return
+
+    if paused:
+        final = _paused_state(latest)
+        await append_message(
+            deps.db,
+            session_id=final.session_id,
+            role=MessageRole.ASSISTANT,
+            content=pending_reply(final),
+        )
+    else:
+        final = TurnState.model_validate(latest)
+
+    if final.outcome is TurnOutcome.FAILED:
+        for frame in _failure_frames(final.error_code or ErrorCode.INTERNAL):
+            yield frame
+        return
+
+    for chunk in chunk_reply(final.reply or ""):
+        yield encode_event(TOKEN, {"text": chunk})
+    yield encode_event(REPLY, _reply_data(final))
+    yield encode_event(DONE, {})
 
 
 async def resume_graph(
