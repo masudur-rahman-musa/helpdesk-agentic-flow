@@ -109,22 +109,30 @@ def test_the_notifications_table_carries_the_composite_tenant_index() -> None:
     assert composite, "notifications needs a composite index led by tenant_id"
 
 
-def test_the_notification_kind_enum_has_exactly_the_two_planned_members() -> None:
-    """An earlier change §8 widens 21a's set: `grant_expiring` joins it because 21b is
-    the plan that writes it.
+def test_the_notification_kind_enum_has_exactly_the_four_planned_members() -> None:
+    """An earlier change §8 widens 21b's set: `review_overdue` and `review_escalated`
+    join it because 21c is the plan whose `send_review_reminders` writes them.
 
     Still pinned as an exact set, and still 21a decision F's claim: catches
     the rest of the lifecycle vocabulary landing early — a member no code path
     writes is a value no test can reach, and a stored row could then carry a
-    kind nothing renders. Also catches either value drifting from the literals
-    `expire_grants` and `warn_expiring_grants` write and row 23's route reads;
-    `grant_expiring` is additionally what the warning sweep's own anti-join
-    matches on, so a drift there silently disables the dedupe.
+    kind nothing renders. Also catches any of the four values drifting from
+    the literals `expire_grants`, `warn_expiring_grants` and
+    `send_review_reminders` write and row 23's route reads; `grant_expiring`
+    is additionally what the warning sweep's own anti-join matches on, so a
+    drift there silently disables the dedupe.
     """
     assert issubclass(NotificationKind, StrEnum)
-    assert {kind.value for kind in NotificationKind} == {"grant_expired", "grant_expiring"}
+    assert {kind.value for kind in NotificationKind} == {
+        "grant_expired",
+        "grant_expiring",
+        "review_overdue",
+        "review_escalated",
+    }
     assert NotificationKind.GRANT_EXPIRED.value == "grant_expired"
     assert NotificationKind.GRANT_EXPIRING.value == "grant_expiring"
+    assert NotificationKind.REVIEW_OVERDUE.value == "review_overdue"
+    assert NotificationKind.REVIEW_ESCALATED.value == "review_escalated"
 
 
 def test_the_length_caps_are_exactly_the_planned_values() -> None:

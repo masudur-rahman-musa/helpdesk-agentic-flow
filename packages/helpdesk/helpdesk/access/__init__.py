@@ -26,6 +26,10 @@ fortnight before that happens and writes nothing but a notification.
 `leavers.py` is the third daily job: it answers who is overdue to
 leave and hands each of them to `offboard_user` as the `system` actor, deciding
 nothing else itself.
+`review_schedule.py` is the last pair: `generate_reviews` answers
+which scopes are due a review this quarter and hands each to `open_review` as
+that same `system` actor, and `send_review_reminders` tells a late reviewer and,
+after a fortnight, every `it_admin`. Neither decides anything about access.
 `approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
@@ -100,21 +104,35 @@ from helpdesk.access.requests import (
     resolved_approver_ids,
     set_request_status,
 )
+from helpdesk.access.review_schedule import (
+    GENERATED_SYSTEM_SENSITIVITIES,
+    REVIEW_DUE_DAYS,
+    REVIEW_ESCALATION_DAYS,
+    REVIEW_GENERATION_ACTOR_REF,
+    generate_reviews,
+    send_review_reminders,
+)
 from helpdesk.access.reviews import (
+    PERIOD_LENGTH,
     REVIEW_ITEM_DECIDED_EVENT_TYPE,
     REVIEW_OPENED_EVENT_TYPE,
+    REVIEW_PERIOD_PATTERN,
     REVIEW_REVOKE_REASON,
     STALE_WINDOW,
     DecideItemResult,
+    InvalidPeriodError,
     ItemAlreadyDecidedError,
     OpenReviewResult,
     ReviewAlreadyOpenError,
     ReviewScope,
+    UnassignableReviewError,
+    check_period,
     decide_item,
     find_item,
     find_review,
     list_items,
     open_review,
+    quarter_period,
 )
 from helpdesk.access.revoke import (
     GRANT_REVOKED_EVENT_TYPE,
@@ -142,6 +160,7 @@ from helpdesk.access.snapshot import build_request_snapshot
 __all__ = [
     "EXPIRED_GRANT_STATUS",
     "EXPIRY_WARNING_HORIZON_DAYS",
+    "GENERATED_SYSTEM_SENSITIVITIES",
     "GRANT_EXECUTED_EVENT_TYPE",
     "GRANT_EXPIRED_EVENT_TYPE",
     "GRANT_REVOKED_EVENT_TYPE",
@@ -152,9 +171,14 @@ __all__ = [
     "LEAVER_STATUS",
     "LEAVER_SWEEP_ACTOR_REF",
     "OFFBOARD_REVOKE_REASON",
+    "PERIOD_LENGTH",
     "REQUEST_REJECTED_EVENT_TYPE",
+    "REVIEW_DUE_DAYS",
+    "REVIEW_ESCALATION_DAYS",
+    "REVIEW_GENERATION_ACTOR_REF",
     "REVIEW_ITEM_DECIDED_EVENT_TYPE",
     "REVIEW_OPENED_EVENT_TYPE",
+    "REVIEW_PERIOD_PATTERN",
     "REVIEW_REVOKE_REASON",
     "REVOKED_GRANT_STATUS",
     "ROLLBACK_REVOKE_REASON",
@@ -173,6 +197,7 @@ __all__ = [
     "DirectoryReader",
     "DuplicateEmailError",
     "GrantNotActiveError",
+    "InvalidPeriodError",
     "ItemAlreadyDecidedError",
     "LeaverTransferError",
     "MissingActorError",
@@ -194,10 +219,12 @@ __all__ = [
     "SlotState",
     "SodConflictAtExecutionError",
     "TransferResult",
+    "UnassignableReviewError",
     "append_request_rejected",
     "approval_slots",
     "build_request_snapshot",
     "chain_is_complete",
+    "check_period",
     "create_access_request",
     "decide_item",
     "decide_slot",
@@ -207,6 +234,7 @@ __all__ = [
     "find_item",
     "find_review",
     "first_fillable_index",
+    "generate_reviews",
     "is_rejected",
     "list_items",
     "list_pending_for_approver",
@@ -218,6 +246,7 @@ __all__ = [
     "onboard_user",
     "open_review",
     "parse_slots",
+    "quarter_period",
     "reclassify",
     "request_in_scope",
     "resolve_actor_ref",
@@ -225,6 +254,7 @@ __all__ = [
     "revoke_grant_row",
     "revoke_role_access",
     "rollback_request",
+    "send_review_reminders",
     "set_request_status",
     "sweep_leavers",
     "transfer_user",

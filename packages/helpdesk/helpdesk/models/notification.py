@@ -47,15 +47,17 @@ reads; pinned by the same test as the title."""
 class NotificationKind(StrEnum):
     """What happened, as a closed vocabulary row 23's route renders by.
 
-    Exactly two members, one per sweep that writes one (an earlier change decision F,
-    an earlier change decision F): a member nothing writes is a value no test can
-    reach, so 21c's review reminders add theirs when the code that writes them
-    lands, and 21b's leaver sweep adds none at all. Pinned as a set by
-    `test_notification_models.py::test_the_notification_kind_enum_has_exactly_the_two_planned_members`.
+    Exactly four members, one per thing a job actually tells somebody about: a member nothing
+    writes is a value no test can reach, which is why 21b's leaver sweep added
+    none and why 21c adds no "a review opened" kind — row 23's UI lists a
+    reviewer's open reviews without one. Pinned as a set by
+    `test_notification_models.py::test_the_notification_kind_enum_has_exactly_the_four_planned_members`.
     """
 
     GRANT_EXPIRED = "grant_expired"
     GRANT_EXPIRING = "grant_expiring"
+    REVIEW_OVERDUE = "review_overdue"
+    REVIEW_ESCALATED = "review_escalated"
 
 
 class Notification(TenantScoped):

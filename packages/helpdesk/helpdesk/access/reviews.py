@@ -49,6 +49,7 @@ Everything runs in the caller's transaction. The review, its items and its
 afterwards takes all three with it.
 """
 
+import re
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -58,7 +59,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.access.directory import DirectoryProvider, DirectoryReader
-from helpdesk.access.revoke import revoke_grant_row
+from helpdesk.access.revoke import USER_ACTOR_KIND, resolve_actor_ref, revoke_grant_row
 from helpdesk.audit import AuditEventInput, append_event
 from helpdesk.core.db import bound_tenant_id
 from helpdesk.core.repository import (
@@ -82,6 +83,7 @@ from helpdesk.models import (
     ReviewStatus,
     SodRule,
 )
+from helpdesk.models.access import PERIOD_LENGTH
 from helpdesk.policy.sod import held_conflicts
 from helpdesk.policy.types import SodRuleSnapshot
 
@@ -125,6 +127,86 @@ the design's own number. The comparison is INCLUSIVE — an expiry at exactly
 days", and a grant expiring on the boundary day is the one a reviewer most
 needs to see. Pinned to the exact value, and inclusively at both ends, by
 `test_access_reviews.py::test_the_stale_boundary_is_inclusive_at_fourteen_days`."""
+
+REVIEW_PERIOD_PATTERN = r"[0-9]{4}-Q[1-4]"
+"""What an `access_reviews.period` may look like, matched with `re.fullmatch`.
+
+`re.match` and a Pydantic `Field(pattern=...)` anchor only at the start, so
+both accept `"2026-Q1\\n"` — a period that reads identically to the real one in
+a list and compares UNEQUAL to it everywhere, which is exactly the value
+`_refuse_if_open` would fail to recognise as the quarter already open. The rejection table, with its trailing newline, CRLF and
+space rows, is
+`test_access_review_generation.py::test_check_period_refuses_these`.
+
+The NARROWER of the two gates: this fixes seven characters, where
+`PERIOD_LENGTH` admits sixteen, so the inclusive boundary criterion is written
+against the pattern and the length is the column's backstop (standing
+rule 32)."""
+
+_PERIOD_RE = re.compile(REVIEW_PERIOD_PATTERN)
+
+
+class InvalidPeriodError(ToolError):
+    """A period that cannot be stored, or that no two runs would agree on.
+
+    `VALIDATION`, the the design code for an input to be fixed rather than
+    retried. Raised before anything is read or written; pinned as a typed
+    refusal with its code by the rejection table above and by
+    `::test_check_period_refuses_a_period_longer_than_the_column`.
+    """
+
+    code = ErrorCode.VALIDATION
+
+
+class UnassignableReviewError(ToolError):
+    """A scope with no owner, opened by a caller with no id.
+
+    `VALIDATION`, because `access_reviews.reviewer_user_id` is not nullable and
+    the pair names nobody to review the scope. Deliberately not reachable from
+    any registered caller — see `_reviewer_for` — so it exists to make the
+    impossible pair a typed refusal instead of an `IntegrityError` from a null
+    column, and no test names it.
+    """
+
+    code = ErrorCode.VALIDATION
+
+
+def check_period(value: str) -> str:
+    """The accepted period, or a typed refusal.
+
+    The length first and the shape second, so an enormous string is refused
+    without being run through a regex — `check_job_name`'s order, for its
+    reason. `PERIOD_LENGTH` is imported from `models/access.py` rather than
+    written again here, so the pre-check and the column it guards stay one
+    number by construction.
+    """
+    if len(value) > PERIOD_LENGTH:
+        raise InvalidPeriodError(
+            f"a period longer than {PERIOD_LENGTH} characters cannot be stored: {len(value)}"
+        )
+    if _PERIOD_RE.fullmatch(value) is None:
+        raise InvalidPeriodError(
+            f"{value!r} is not a review period: it must match {REVIEW_PERIOD_PATTERN}"
+        )
+    return value
+
+
+def quarter_period(now: datetime) -> str:
+    """The calendar quarter `now` falls in, as `YYYY-Qn`.
+
+    The label every review of one scheduler tick is filed under, and therefore
+    the whole of decision A's idempotence: the generator runs daily and opens
+    only what this string has no review for yet. Derived from the month alone
+    — no locale, no fiscal offset — so two runs a day apart inside one quarter
+    answer the same string and the second opens nothing.
+
+    `now` is the caller's instant, never a clock read here, so every scope of
+    one run lands in one quarter. The boundary is pinned to the
+    microsecond by
+    `test_access_review_generation.py::test_the_last_microsecond_of_a_quarter_and_the_first_of_the_next_differ`.
+    """
+    return f"{now.year}-Q{(now.month - 1) // 3 + 1}"
+
 
 _ACTOR_KIND = "user"
 _SUBJECT_TYPE = "access_review"
@@ -373,9 +455,10 @@ async def open_review(
     department_id: uuid.UUID | None,
     system_id: uuid.UUID | None,
     period: str,
-    opened_by_user_id: uuid.UUID,
+    opened_by_user_id: uuid.UUID | None,
     due_at: datetime | None = None,
     actor_ref: str | None = None,
+    actor_kind: str = USER_ACTOR_KIND,
     session_id: uuid.UUID | None = None,
     now: datetime,
 ) -> OpenReviewResult:
@@ -416,7 +499,24 @@ async def open_review(
     grant from the only person who can review it, the same reasoning that
     left `list_pending_for_approver`'s read unbounded; it is recorded as a
     known issue rather than fixed with a limit.
+
+    `opened_by_user_id` is nullable and `actor_kind` defaults to
+    `USER_ACTOR_KIND`: an earlier change's
+    quarterly generator has no caller at all, and the alternative — a `user`
+    kind carrying a system-shaped ref — would file an automatic sweep among
+    people's decisions. The DEFAULT is what keeps that honest, and it is
+    pinned rather than assumed by
+    `test_access_review_generation.py::test_open_review_with_an_opener_id_and_no_actor_kind_still_writes_the_user_actor`,
+    because no case before this plan read `actor_kind` off this event at all.
+
+    Both are resolved through `revoke.resolve_actor_ref` — one implementation,
+    so this engine and the two lifecycle ones cannot drift on what counts as
+    an actor — and it refuses `VALIDATION` when the id and the ref are BOTH
+    absent, before anything is read or written, so no `review.opened` can name
+    an actor called `None`
+    (`::test_open_review_with_neither_an_opener_id_nor_an_actor_ref_is_refused`).
     """
+    resolved_actor_ref = resolve_actor_ref(actor_ref, opened_by_user_id)
     scope = await _resolve_scope(session, department_id=department_id, system_id=system_id)
     await _refuse_if_open(session, scope, period)
 
@@ -435,9 +535,7 @@ async def open_review(
     # "who holds what here", not an unfinished one.
     empty = not grants
     review = await Repository(session, AccessReview).create(
-        reviewer_user_id=scope.owner_user_id
-        if scope.owner_user_id is not None
-        else opened_by_user_id,
+        reviewer_user_id=_reviewer_for(scope, opened_by_user_id),
         department_id=scope.department_id,
         system_id=scope.system_id,
         period=period,
@@ -465,11 +563,31 @@ async def open_review(
         period=period,
         item_count=len(items),
         flag_counts=counts,
-        actor_ref=actor_ref if actor_ref is not None else str(opened_by_user_id),
+        actor_kind=actor_kind,
+        actor_ref=resolved_actor_ref,
         session_id=session_id,
         now=now,
     )
     return OpenReviewResult(review=review, items=items, flag_counts=counts)
+
+
+def _reviewer_for(scope: ReviewScope, opened_by_user_id: uuid.UUID | None) -> uuid.UUID:
+    """The scope's owner, or the caller when it names nobody (decision F).
+
+    `access_reviews.reviewer_user_id` is not nullable, so a scope with no owner
+    opened by a caller with no id has nobody to review it. No registered caller
+    produces that pair: every MCP call passes an opener, and an earlier change's
+    generator skips an ownerless scope before it ever calls here (decision C),
+    which is why this raises rather than inventing a reviewer and why no case
+    reaches the branch.
+    """
+    if scope.owner_user_id is not None:
+        return scope.owner_user_id
+    if opened_by_user_id is None:  # pragma: no cover - no caller produces this pair
+        raise UnassignableReviewError(
+            "a scope with no owner needs an opener to be reviewed by somebody"
+        )
+    return opened_by_user_id
 
 
 def _checked(system_id: uuid.UUID | None) -> uuid.UUID:
@@ -551,6 +669,7 @@ async def _append_opened(
     period: str,
     item_count: int,
     flag_counts: Mapping[str, int],
+    actor_kind: str,
     actor_ref: str,
     session_id: uuid.UUID | None,
     now: datetime,
@@ -565,13 +684,22 @@ async def _append_opened(
     rather than looking like a truncated record. Pinned, subject and every
     key, by
     `test_access_reviews.py::test_review_opened_names_the_review_and_carries_exactly_seven_keys`.
+
+    `actor_kind` is passed in rather than fixed to `_ACTOR_KIND` (an earlier change
+    decision D): this is the ONLY event `open_review` composes (standing rule
+    52), so it is also the only place a review opened by the quarterly
+    generator can be told apart from one a manager asked for. Pinned on both
+    sides by
+    `test_access_review_generation.py::test_every_review_opened_event_the_generator_causes_carries_the_system_actor`
+    and its default twin
+    `::test_open_review_with_an_opener_id_and_no_actor_kind_still_writes_the_user_actor`.
     """
     await append_event(
         session,
         bound_tenant_id(session),
         AuditEventInput(
             occurred_at=now,
-            actor_kind=_ACTOR_KIND,
+            actor_kind=actor_kind,
             actor_ref=actor_ref,
             session_id=session_id,
             trace_id=None,
