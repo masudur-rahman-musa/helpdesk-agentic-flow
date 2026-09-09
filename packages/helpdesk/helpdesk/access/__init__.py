@@ -19,8 +19,13 @@ back.
 `reviews.py` opens a periodic access review over a department or a
 system and flags every live grant in it; it decides nothing about access, and
 an earlier change's decide path is what turns a flag into a revocation.
-`expiry.py` is the scheduler's sweep: the one writer of the
-`expired` status, which is deliberately not the revocation path.
+`expiry.py` holds the scheduler's two expiry jobs: `expire_grants`,
+the one writer of the `expired` status, which is deliberately not the
+revocation path, and `warn_expiring_grants`, which tells a holder a
+fortnight before that happens and writes nothing but a notification.
+`leavers.py` is the third daily job: it answers who is overdue to
+leave and hands each of them to `offboard_user` as the `system` actor, deciding
+nothing else itself.
 `approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
@@ -57,9 +62,12 @@ from helpdesk.access.execute import (
 )
 from helpdesk.access.expiry import (
     EXPIRED_GRANT_STATUS,
+    EXPIRY_WARNING_HORIZON_DAYS,
     GRANT_EXPIRED_EVENT_TYPE,
     expire_grants,
+    warn_expiring_grants,
 )
+from helpdesk.access.leavers import LEAVER_SWEEP_ACTOR_REF, sweep_leavers
 from helpdesk.access.lifecycle import (
     JOINER_PRINCIPALS,
     JOINER_STATUS,
@@ -111,7 +119,11 @@ from helpdesk.access.reviews import (
 from helpdesk.access.revoke import (
     GRANT_REVOKED_EVENT_TYPE,
     REVOKED_GRANT_STATUS,
+    SYSTEM_ACTOR_KIND,
+    USER_ACTOR_KIND,
     GrantNotActiveError,
+    MissingActorError,
+    resolve_actor_ref,
     revoke_grant_row,
     revoke_role_access,
 )
@@ -129,6 +141,7 @@ from helpdesk.access.snapshot import build_request_snapshot
 
 __all__ = [
     "EXPIRED_GRANT_STATUS",
+    "EXPIRY_WARNING_HORIZON_DAYS",
     "GRANT_EXECUTED_EVENT_TYPE",
     "GRANT_EXPIRED_EVENT_TYPE",
     "GRANT_REVOKED_EVENT_TYPE",
@@ -137,6 +150,7 @@ __all__ = [
     "JOINER_PRINCIPALS",
     "JOINER_STATUS",
     "LEAVER_STATUS",
+    "LEAVER_SWEEP_ACTOR_REF",
     "OFFBOARD_REVOKE_REASON",
     "REQUEST_REJECTED_EVENT_TYPE",
     "REVIEW_ITEM_DECIDED_EVENT_TYPE",
@@ -146,8 +160,10 @@ __all__ = [
     "ROLLBACK_REVOKE_REASON",
     "ROLLBACK_WINDOW",
     "STALE_WINDOW",
+    "SYSTEM_ACTOR_KIND",
     "TRANSFER_REVOKE_REASON",
     "UNUSABLE_PASSWORD_HASH",
+    "USER_ACTOR_KIND",
     "USER_OFFBOARDED_EVENT_TYPE",
     "USER_ONBOARDED_EVENT_TYPE",
     "USER_TRANSFERRED_EVENT_TYPE",
@@ -159,6 +175,7 @@ __all__ = [
     "GrantNotActiveError",
     "ItemAlreadyDecidedError",
     "LeaverTransferError",
+    "MissingActorError",
     "NotAnApproverError",
     "OffboardResult",
     "OnboardResult",
@@ -203,11 +220,14 @@ __all__ = [
     "parse_slots",
     "reclassify",
     "request_in_scope",
+    "resolve_actor_ref",
     "resolved_approver_ids",
     "revoke_grant_row",
     "revoke_role_access",
     "rollback_request",
     "set_request_status",
+    "sweep_leavers",
     "transfer_user",
+    "warn_expiring_grants",
     "within_rollback_window",
 ]

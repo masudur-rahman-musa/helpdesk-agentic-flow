@@ -6,9 +6,11 @@ must provide exactly this):
 ``helpdesk.models.notification`` (re-exported from ``helpdesk.models``)
     ``NOTIFICATION_TITLE_MAX_LENGTH = 200``
     ``NOTIFICATION_BODY_MAX_LENGTH = 2000``
-    ``class NotificationKind(StrEnum)`` — exactly one member,
-        ``GRANT_EXPIRED = "grant_expired"`` (decision F: a member nothing
-        writes is a value no test can reach; 21b and 21c add theirs).
+    ``class NotificationKind(StrEnum)`` — exactly two members after an earlier change
+        (§8), ``GRANT_EXPIRED = "grant_expired"`` and
+        ``GRANT_EXPIRING = "grant_expiring"`` (21a decision F: a member
+        nothing writes is a value no test can reach, so each plan adds its
+        own when the code that writes it lands; 21c adds the review kinds).
     ``class Notification(TenantScoped)`` — ``__tablename__ = "notifications"``;
         columns ``user_id`` (FK ``users.id``), ``kind``, ``title``, ``body``,
         ``subject_type``, ``subject_id`` and a nullable ``read_at``.
@@ -107,15 +109,22 @@ def test_the_notifications_table_carries_the_composite_tenant_index() -> None:
     assert composite, "notifications needs a composite index led by tenant_id"
 
 
-def test_the_notification_kind_enum_has_exactly_the_one_planned_member() -> None:
-    """Decision F, pinned as a set: catches the whole lifecycle vocabulary
-    landing early — a member no code path writes is a value no test can
-    reach, and a stored row could then carry a kind nothing renders. Also
-    catches the value drifting from the literal `grant_expired` that
-    `expire_grants` writes and row 23's route reads."""
+def test_the_notification_kind_enum_has_exactly_the_two_planned_members() -> None:
+    """An earlier change §8 widens 21a's set: `grant_expiring` joins it because 21b is
+    the plan that writes it.
+
+    Still pinned as an exact set, and still 21a decision F's claim: catches
+    the rest of the lifecycle vocabulary landing early — a member no code path
+    writes is a value no test can reach, and a stored row could then carry a
+    kind nothing renders. Also catches either value drifting from the literals
+    `expire_grants` and `warn_expiring_grants` write and row 23's route reads;
+    `grant_expiring` is additionally what the warning sweep's own anti-join
+    matches on, so a drift there silently disables the dedupe.
+    """
     assert issubclass(NotificationKind, StrEnum)
-    assert {kind.value for kind in NotificationKind} == {"grant_expired"}
+    assert {kind.value for kind in NotificationKind} == {"grant_expired", "grant_expiring"}
     assert NotificationKind.GRANT_EXPIRED.value == "grant_expired"
+    assert NotificationKind.GRANT_EXPIRING.value == "grant_expiring"
 
 
 def test_the_length_caps_are_exactly_the_planned_values() -> None:

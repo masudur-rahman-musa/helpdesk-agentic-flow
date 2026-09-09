@@ -74,7 +74,12 @@ from helpdesk.access.requests import (
     lock_open_requests_for_target,
     set_request_status,
 )
-from helpdesk.access.revoke import GrantNotActiveError, revoke_role_access
+from helpdesk.access.revoke import (
+    USER_ACTOR_KIND,
+    GrantNotActiveError,
+    resolve_actor_ref,
+    revoke_role_access,
+)
 from helpdesk.audit import AuditEventInput, append_event
 from helpdesk.auth.rbac import Principal
 from helpdesk.core.db import bound_tenant_id
@@ -642,8 +647,9 @@ async def offboard_user(
     *,
     user_id: uuid.UUID,
     end_date: date,
-    offboarded_by_user_id: uuid.UUID,
+    offboarded_by_user_id: uuid.UUID | None,
     actor_ref: str | None = None,
+    actor_kind: str = USER_ACTOR_KIND,
     session_id: uuid.UUID | None = None,
     now: datetime,
 ) -> OffboardResult:
@@ -694,14 +700,23 @@ async def offboard_user(
     Everything runs in the caller's transaction, so the status, the
     revocations, the closures and every event commit or roll back together
     (pinned by `::test_the_offboard_and_its_events_roll_back_together`).
+
+    `actor_kind` defaults to `USER_ACTOR_KIND` and the actor id is nullable
+    only so an earlier change's leaver sweep can offboard as `system` with no person to
+    name (decision D). Every existing caller passes an id and no kind, so its
+    events read exactly as they did (pinned by
+    `test_access_leavers.py::test_an_offboard_with_an_actor_id_and_no_actor_kind_still_writes_the_user_actor`);
+    a call with neither an id nor a ref is refused `VALIDATION` before the
+    lock, so nothing is written for an event nobody could be named on.
     """
+    resolved_actor = resolve_actor_ref(actor_ref, offboarded_by_user_id)
+
     user = await lock_user(session, user_id)
     if user is None:
         raise NotFoundError("no such user in this tenant")
     if user.status == LEAVER_STATUS:
         raise AlreadyLeaverError("that user has already been offboarded")
 
-    resolved_actor = actor_ref if actor_ref is not None else str(offboarded_by_user_id)
     # Both sets are read at this one instant, before any write, so nothing the
     # loop below does can add to what it is walking. Sorted, so two runs over
     # the same rows write their events in the same order.
@@ -722,6 +737,7 @@ async def offboard_user(
                 reason=OFFBOARD_REVOKE_REASON,
                 revoked_by_user_id=offboarded_by_user_id,
                 actor_ref=resolved_actor,
+                actor_kind=actor_kind,
                 session_id=session_id,
                 now=now,
             )
@@ -741,6 +757,7 @@ async def offboard_user(
             request,
             reason=OFFBOARD_REVOKE_REASON,
             actor_ref=resolved_actor,
+            actor_kind=actor_kind,
             session_id=session_id,
             now=now,
         )
@@ -754,6 +771,7 @@ async def offboard_user(
         revoked_grant_count=revoked_grant_count,
         closed_request_ids=closed_request_ids,
         actor_ref=resolved_actor,
+        actor_kind=actor_kind,
         session_id=session_id,
         now=now,
     )
@@ -774,10 +792,16 @@ async def _append_offboarded(
     revoked_grant_count: int,
     closed_request_ids: list[uuid.UUID],
     actor_ref: str,
+    actor_kind: str,
     session_id: uuid.UUID | None,
     now: datetime,
 ) -> None:
     """the design's departure record, subject the leaver, five keys exactly.
+
+    `actor_kind` is the caller's, which is `user` for
+    everybody but the leaver sweep: a nightly job's departures have to be
+    separable from a person's in the log, pinned by
+    `test_access_leavers.py::test_every_event_the_sweep_causes_carries_the_system_actor_and_its_ref`.
 
     `revoked_grant_count` is carried beside `revoked_role_ids` rather than
     left to be inferred from it: the two differ whenever one role was held
@@ -791,7 +815,7 @@ async def _append_offboarded(
         bound_tenant_id(session),
         AuditEventInput(
             occurred_at=now,
-            actor_kind=_ACTOR_KIND,
+            actor_kind=actor_kind,
             actor_ref=actor_ref,
             session_id=session_id,
             trace_id=None,

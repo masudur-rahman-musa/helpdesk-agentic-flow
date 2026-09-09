@@ -224,6 +224,7 @@ async def append_request_rejected(
     *,
     reason: str,
     actor_ref: str,
+    actor_kind: str = _ACTOR_KIND,
     session_id: uuid.UUID | None,
     now: datetime,
 ) -> None:
@@ -236,13 +237,20 @@ async def append_request_rejected(
     offboard passes its fixed `OFFBOARD_REVOKE_REASON`. Subject and payload
     pinned by `test_access_offboard.py::
     test_the_pending_and_approved_requests_targeting_the_user_are_rejected`.
+
+    `actor_kind` defaults to `user` and moves only with the offboard that
+    called it: an earlier change's leaver sweep closes a departing person's open
+    requests as `system`, and a closure filed as a person's decision inside an
+    otherwise-automatic departure is the one event that would contradict the
+    other two. Named in that plan's Deviations, because its §1 enumerated only
+    `user.offboarded` and `grant.revoked`.
     """
     await append_event(
         session,
         bound_tenant_id(session),
         AuditEventInput(
             occurred_at=now,
-            actor_kind=_ACTOR_KIND,
+            actor_kind=actor_kind,
             actor_ref=actor_ref,
             session_id=session_id,
             trace_id=None,

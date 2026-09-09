@@ -63,12 +63,58 @@ plus a summary event") is the precedent, and the pipeline's `tool.succeeded`
 is the summary. Pinned, with the subject and every payload key, by
 `test_access_revoke.py::test_one_event_per_revoked_row_names_the_grant_and_the_reason`."""
 
-_ACTOR_KIND = "user"
-"""Unlike `execute_grant`, a revocation is always somebody's call: the design
-gives `revoke_access` five principals, and the scheduler's expiry sweep (row
-21) expires grants rather than revoking them."""
+USER_ACTOR_KIND = "user"
+"""A revocation somebody decided, which is what all but one caller is.
+
+the design gives `revoke_access` five principals, and both lifecycle engines act
+for the person who called them, so this is the DEFAULT of `actor_kind` on
+every function below — the guard that keeps an earlier change's widening from
+relabelling every human revocation in the log as an automatic one. Pinned by
+`test_access_leavers.py::test_a_revocation_with_an_actor_id_and_no_actor_kind_still_writes_the_user_actor`
+and `::test_an_offboard_with_an_actor_id_and_no_actor_kind_still_writes_the_user_actor`."""
+
+SYSTEM_ACTOR_KIND = "system"
+"""A revocation nobody decided: the scheduler's leaver sweep, and only it.
+
+`expire_grants` does not use this — an expiry is not a revocation at all and
+has its own event type — so the one caller passing it today is
+`access/leavers.py`. Pinned on both event types the sweep writes by
+`test_access_leavers.py::test_every_event_the_sweep_causes_carries_the_system_actor_and_its_ref`."""
 
 _SUBJECT_TYPE = "grant"
+
+
+class MissingActorError(ToolError):
+    """Neither an actor id nor an `actor_ref`: nobody to file the event under.
+
+    `VALIDATION`, the the design code for an input that has to be fixed rather
+    than retried. It exists because an earlier change widened the actor id to
+    `uuid.UUID | None` so a system caller could omit it: without this check
+    `str(None)` renders the literal `"None"` into `actor_ref`, and the audit
+    log gains events attributed to a person called None. Raised before
+    anything is read or written, on both engines, pinned by
+    `test_access_leavers.py::test_a_revocation_with_neither_an_actor_id_nor_an_actor_ref_is_refused`
+    and `::test_an_offboard_with_neither_an_actor_id_nor_an_actor_ref_is_refused`.
+    """
+
+    code = ErrorCode.VALIDATION
+
+
+def resolve_actor_ref(actor_ref: str | None, actor_id: uuid.UUID | None) -> str:
+    """What `audit_events.actor_ref` reads, or a typed refusal.
+
+    An explicit `actor_ref` wins over the id, which is how every lifecycle
+    engine already passes its own caller down through a revocation, and how
+    the leaver sweep names itself with no id at all. Lives here rather than in
+    `lifecycle.py` because `lifecycle` imports this module and not the other
+    way round: one implementation, so the two engines cannot drift on what
+    counts as an actor.
+    """
+    if actor_ref is not None:
+        return actor_ref
+    if actor_id is None:
+        raise MissingActorError("an audit event needs an actor: pass an actor id or an actor_ref")
+    return str(actor_id)
 
 
 class GrantNotActiveError(ToolError):
@@ -91,8 +137,9 @@ async def revoke_role_access(
     user_id: uuid.UUID,
     role_id: uuid.UUID,
     reason: str,
-    revoked_by_user_id: uuid.UUID,
+    revoked_by_user_id: uuid.UUID | None,
     actor_ref: str | None = None,
+    actor_kind: str = USER_ACTOR_KIND,
     session_id: uuid.UUID | None = None,
     now: datetime,
 ) -> list[Grant]:
@@ -113,7 +160,14 @@ async def revoke_role_access(
     to end by
     `test_mcp_revoke_access.py::test_two_callers_racing_the_same_revocation_write_one_event_per_row`,
     where the loser is refused `POLICY_BLOCKED` by the empty set below.
+
+    `actor_kind` defaults to `USER_ACTOR_KIND` and the actor id is nullable
+    only so an earlier change's leaver sweep can name itself instead (decision D). The
+    actor is resolved FIRST, before the lock and before any row is stamped, so
+    a call with neither an id nor a ref refuses without touching the set
+    (`test_access_leavers.py::test_a_revocation_with_neither_an_actor_id_nor_an_actor_ref_is_refused`).
     """
+    resolved_actor = resolve_actor_ref(actor_ref, revoked_by_user_id)
     grants = await lock_live_grants_for_role(session, user_id, role_id, now)
     if not grants:
         raise GrantNotActiveError(
@@ -128,7 +182,8 @@ async def revoke_role_access(
             grant=grant,
             reason=reason,
             revoked_by_user_id=revoked_by_user_id,
-            actor_ref=actor_ref,
+            actor_ref=resolved_actor,
+            actor_kind=actor_kind,
             session_id=session_id,
             revoked_count=len(grants),
             now=now,
@@ -143,8 +198,9 @@ async def revoke_grant_row(
     *,
     grant: Grant,
     reason: str,
-    revoked_by_user_id: uuid.UUID,
+    revoked_by_user_id: uuid.UUID | None,
     actor_ref: str | None = None,
+    actor_kind: str = USER_ACTOR_KIND,
     session_id: uuid.UUID | None = None,
     revoked_count: int,
     now: datetime,
@@ -179,6 +235,7 @@ async def revoke_grant_row(
     named above and at the set's size by
     `::test_one_event_per_revoked_row_names_the_grant_and_the_reason`.
     """
+    resolved_actor = resolve_actor_ref(actor_ref, revoked_by_user_id)
     # The request the grant came from is read off the ROW, not passed in:
     # two live rows for one role can come from two different requests, and
     # copying one onto both would misfile which decision ended.
@@ -191,8 +248,8 @@ async def revoke_grant_row(
         bound_tenant_id(session),
         AuditEventInput(
             occurred_at=now,
-            actor_kind=_ACTOR_KIND,
-            actor_ref=actor_ref if actor_ref is not None else str(revoked_by_user_id),
+            actor_kind=actor_kind,
+            actor_ref=resolved_actor,
             session_id=session_id,
             trace_id=None,
             event_type=GRANT_REVOKED_EVENT_TYPE,
@@ -213,7 +270,11 @@ async def revoke_grant_row(
 __all__ = [
     "GRANT_REVOKED_EVENT_TYPE",
     "REVOKED_GRANT_STATUS",
+    "SYSTEM_ACTOR_KIND",
+    "USER_ACTOR_KIND",
     "GrantNotActiveError",
+    "MissingActorError",
+    "resolve_actor_ref",
     "revoke_grant_row",
     "revoke_role_access",
 ]

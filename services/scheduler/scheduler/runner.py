@@ -12,13 +12,18 @@ released. One key answers both questions a scheduler has ("is this job due"
 and "is another instance already on it"), so two runners in one window run the
 job once, and the next window opens when Redis expires the key. The trade is
 written down rather than discovered: a job cannot be forced early, and a run
-that outlives its own cadence can overlap the next one — harmless for
-`expire_grants`, whose row lock and `status = 'active'` test make the second
-run a no-op.
+that outlives its own cadence can overlap the next one — harmless for all
+three registered jobs, because each is idempotent: `expire_grants` has its row
+lock and its `status = 'active'` test, `leaver_sweep` the same pair over
+`users`, and `expiry_warnings` its anti-join against the notification it
+already wrote.
 
 Decision C is the other half: a job that RAISES has its key deleted, so a
 transient Postgres blip costs one tick (60 seconds) instead of a full cadence
-(300). A job that merely fails for one tenant still counts as raising for this
+— 300 seconds for the expiry sweep, and a whole day for either job registered
+at `DAILY_CADENCE_SECONDS`, which is what makes deleting the key matter more
+for them than for the job 21a shipped. A job that merely fails for one tenant
+still counts as raising for this
 purpose; the other tenants' work is already committed by then, because each
 tenant gets its own transaction.
 
@@ -67,6 +72,23 @@ what makes the next window open — so a job whose declared cadence and whose
 lock TTL disagreed would either run every tick or never again. Pinned by the
 constants case and, on the real registry, by
 `::test_a_due_job_runs_and_leaves_its_lock_key_with_the_cadence_ttl`."""
+
+DAILY_CADENCE_SECONDS = 86400
+"""the design's "daily", and the `PX` of both daily jobs' lock keys.
+
+One number for the cadence and the TTL, for the reason
+`EXPIRE_GRANTS_CADENCE_SECONDS` is: the key's expiry IS what opens the next
+window. A job whose declared cadence and lock TTL disagreed would run every
+tick or never again — at 3600 the leaver sweep would offboard 24 times a day
+and the warning sweep would lean entirely on its dedupe. Pinned exactly by
+`test_scheduler_daily_jobs.py::test_the_daily_job_constants_are_exactly_the_planned_values`
+and, on the real registry, by `::test_a_tick_leaves_both_daily_keys_with_a_one_day_ttl`.
+
+Decision H of an earlier change: a daily job therefore runs at whatever clock time it
+first claimed its key, drifting by up to one tick a day rather than at a fixed
+hour. Both jobs are idempotent, so the hour changes nothing an auditor reads,
+and a fixed hour would need the last-run state 21a decision B deliberately
+does not keep."""
 
 JOB_LOCK_PREFIX = "helpdesk:joblock:"
 """The namespace every job lock lives under, so an operator can see them all
@@ -150,8 +172,29 @@ EXPIRE_GRANTS_JOB = Job(
     run=jobs.run_expire_grants,
 )
 
-REGISTRY: dict[str, Job] = {EXPIRE_GRANTS_JOB.name: EXPIRE_GRANTS_JOB}
-"""The jobs this service runs. 21a registers exactly one."""
+EXPIRY_WARNINGS_JOB = Job(
+    name=check_job_name(jobs.EXPIRY_WARNINGS_JOB_NAME),
+    cadence_seconds=DAILY_CADENCE_SECONDS,
+    run=jobs.run_expiry_warnings,
+)
+
+LEAVER_SWEEP_JOB = Job(
+    name=check_job_name(jobs.LEAVER_SWEEP_JOB_NAME),
+    cadence_seconds=DAILY_CADENCE_SECONDS,
+    run=jobs.run_leaver_sweep,
+)
+
+REGISTRY: dict[str, Job] = {
+    job.name: job for job in (EXPIRE_GRANTS_JOB, EXPIRY_WARNINGS_JOB, LEAVER_SWEEP_JOB)
+}
+"""The jobs this service runs: 21a's five-minute sweep and 21b's daily pair.
+
+Every name goes through `check_job_name` at construction, so a name that could
+not safely become a Redis key segment fails at import rather than inside a
+`SET` at three in the morning. Pinned per job by
+`test_scheduler_daily_jobs.py::test_each_new_job_is_registered_at_the_daily_cadence_under_a_valid_name`,
+and as a whole — three distinct names, the older job still present — by
+`::test_the_registry_still_holds_the_five_minute_sweep_beside_the_daily_pair`."""
 
 
 async def _claim(redis: Redis, job: Job) -> bool:
@@ -240,6 +283,7 @@ async def run_loop() -> None:
 
 
 __all__ = [
+    "DAILY_CADENCE_SECONDS",
     "EXPIRE_GRANTS_CADENCE_SECONDS",
     "JOB_LOCK_PREFIX",
     "JOB_NAME_MAX_LENGTH",
