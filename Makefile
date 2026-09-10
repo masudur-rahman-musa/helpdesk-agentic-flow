@@ -1,4 +1,4 @@
-.PHONY: help setup run migrate test test-policy select-tests test-adjacent lint typecheck format verify eval infra-check
+.PHONY: help setup run migrate test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check
 help:       ## Show all targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 setup:      ## Install dependencies and pre-commit hooks
@@ -28,7 +28,10 @@ typecheck:  ## Static types
 	uv run mypy
 format:     ## Auto-format
 	uv run ruff format .
-verify: format lint typecheck test test-policy   ## The full gate, in order
+web-verify: ## The web gate: types, lint, unit tests, production build
+	pnpm -C web install --frozen-lockfile && pnpm -C web typecheck && pnpm -C web lint \
+	  && pnpm -C web test && pnpm -C web build
+verify: format lint typecheck test test-policy web-verify   ## The full gate, in order
 eval:       ## Project evals: golden set vs project-evals/baseline.json
 	echo 'golden set is run by the companion console: see project-evals/README.md'
 infra-check: ## Validate infrastructure as code (no apply)

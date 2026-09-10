@@ -14,7 +14,11 @@ __pycache__/
 htmlcov/
 .cache/
 node_modules/
+web/node_modules/
 .next/
+web/.next/
+web/coverage/
+web/next-env.d.ts
 dist/
 build/
 
