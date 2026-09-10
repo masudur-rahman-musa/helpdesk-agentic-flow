@@ -21,6 +21,18 @@ import { clearSessionCookie, readSessionToken } from "@/lib/session";
 /** Ten seconds: a login does one argon2 verification and three short queries. */
 export const AGENT_API_TIMEOUT_MS = 10_000;
 
+/**
+ * Two minutes, for a streamed turn alone.
+ *
+ * `AbortSignal.timeout` bounds the WHOLE response, its body included, so the
+ * ten seconds above would abort an ordinary turn part-way through its own
+ * reply and look exactly like a dropped socket. a project rule still holds —
+ * the stream carries a timeout, it is just a different number — and the value
+ * is pinned, and its signal traced onto the outgoing call, by
+ * `tests/chat-stream-route.test.ts`.
+ */
+export const AGENT_API_STREAM_TIMEOUT_MS = 120_000;
+
 export type LoginResult = { ok: true; token: string } | { ok: false };
 
 function baseUrl(): string {
@@ -79,13 +91,22 @@ export async function requestToken(input: LoginInput): Promise<LoginResult> {
  * revoked or forged, so keeping it would make every later call fail the same
  * way with nothing telling the user why.
  *
- * This plan adds no proxied call of its own — `/login` and `/logout` are the
- * only two route handlers, and neither carries a bearer — so there is no caller
- * yet. An earlier change's chat route is the first one, and routing it through here is
- * what keeps the expiry path in one place. Pinned by
- * `tests/agent-api-proxy.test.ts`; recorded in 22a's Deviations.
+ * An earlier change's chat routes are the first callers, and routing them through here
+ * is what keeps the expiry path in one place. Pinned by
+ * `tests/agent-api-proxy.test.ts` and, for the streamed caller, by
+ * `tests/chat-stream-route.test.ts`'s 401 case.
+ *
+ * `timeoutMs` is a PARAMETER rather than the constant this function used to
+ * hardcode: the signal is set after the `...init` spread — deliberately, so a
+ * caller cannot proxy an untimed call — which left a streaming caller unable
+ * to ask for anything but ten seconds. The default is
+ * unchanged, so every existing caller is bounded exactly as before.
  */
-export async function proxyAgentApi(path: string, init: RequestInit = {}): Promise<NextResponse> {
+export async function proxyAgentApi(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs: number = AGENT_API_TIMEOUT_MS,
+): Promise<NextResponse> {
   const token = await readSessionToken();
   if (token === null) {
     return unauthenticated();
@@ -100,7 +121,7 @@ export async function proxyAgentApi(path: string, init: RequestInit = {}): Promi
       ...init,
       headers,
       cache: "no-store",
-      signal: AbortSignal.timeout(AGENT_API_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     return NextResponse.json({ code: "UPSTREAM_UNAVAILABLE" }, { status: 502 });

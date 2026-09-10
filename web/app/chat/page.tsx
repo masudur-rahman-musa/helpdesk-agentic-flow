@@ -1,19 +1,20 @@
 import { AppShell } from "@/components/app-shell";
+import { ChatPanel } from "@/components/chat/chat-panel";
 
 /**
- * Placeholder. An earlier change replaces this with the chat surface — streaming, tool
- * steps, decision cards, citations. What it proves today is the authenticated
- * shell: reaching this page at all means the session cookie was present and the
- * middleware let the request through.
+ * The chat route. A thin server wrapper: everything it shows comes from the
+ * two route handlers `ChatPanel` calls, so the page has nothing of its own to
+ * fetch and the whole surface is testable without rendering a server
+ * component (`tests/chat-page.test.tsx` renders the panel directly).
+ *
+ * Reaching this page at all means the session cookie was present — the
+ * middleware refuses it otherwise — and the panel's own calls are
+ * what discover a cookie whose token has since expired.
  */
 export default function ChatPage() {
   return (
     <AppShell>
-      <h1 className="text-lg font-semibold">Chat</h1>
-      <p className="mt-2 max-w-prose text-sm text-muted-foreground">
-        The assistant arrives with the next change. You are signed in, which is what this page is
-        here to show.
-      </p>
+      <ChatPanel />
     </AppShell>
   );
 }
