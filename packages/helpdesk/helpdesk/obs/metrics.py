@@ -1,18 +1,26 @@
 """The in-process Prometheus metrics of the design, and the scrape body.
 
-Six metrics live here. Five are the ones a request or a tool call can move on
-its own; the sixth, `helpdesk_expiries_total`, arrived with the scheduler's
-expiry sweep — an EVENT counter, incremented by the job
-that expires a grant, and so a sibling of the five rather than one of an earlier change
-decision B's deferrals. The two the design names still deferred
-(`helpdesk_grants_active`, `helpdesk_audit_chain_ok`) are gauges a periodic
-sweep reads rather than events, and they belong to an earlier change.
+Eight metrics live here, in TWO factories, and which factory a metric belongs
+to is itself a decision.
 
-The counter is DECLARED on every service's registry and MOVED only by the
+`build_metrics` registers six on every service. Five are the ones a request or
+a tool call can move on its own; the sixth, `helpdesk_expiries_total`, arrived
+with the scheduler's expiry sweep — an EVENT counter,
+incremented by the job that expires a grant, and so a sibling of the five.
+
+That counter is DECLARED on every service's registry and MOVED only by the
 scheduler, which is what makes it visible on that service's scrape from the
 first tick (a family with no samples still renders its `# TYPE` line). A
 scrape of agent-api or mcp-server shows it at zero for ever, which is the
 honest reading: those processes expire nothing.
+
+`install_sweep_gauges` registers the design's remaining two,
+`helpdesk_grants_active` and `helpdesk_audit_chain_ok`, and ONLY the process
+that moves them calls it. The asymmetry is the point: a
+counter at zero reads as "nothing happened here", but a GAUGE carries a sample
+from the moment it is registered, so an unlabelled `helpdesk_audit_chain_ok`
+declared everywhere would report `0` — a tampered audit log — on two services
+that never verify anything.
 
 Nothing here reaches a network or a store, which is what keeps the promise
 `helpdesk.obs`'s docstring makes for the whole package: recording a metric is
@@ -36,12 +44,15 @@ default it could only assert a delta, which passes just as happily when the
 wrong site did the incrementing.
 """
 
+from collections.abc import MutableMapping
 from dataclasses import dataclass
+from weakref import WeakKeyDictionary
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     CollectorRegistry,
     Counter,
+    Gauge,
     Histogram,
     disable_created_metrics,
     generate_latest,
@@ -56,8 +67,8 @@ disable_created_metrics()
 A library default is a decision, so it is made here rather than inherited: the gauge carries the unix time a counter was first
 observed, which nothing in the design asks for and which doubles the series a
 scrape carries. Without this the exposition names more than the six metrics
-this module declares, which
-`test_obs_metrics.py::test_build_metrics_registers_exactly_the_six_metrics`
+`build_metrics` declares, which
+`test_obs_metrics.py::test_build_metrics_still_registers_exactly_the_six_metrics`
 reads as a seventh.
 """
 
@@ -233,20 +244,141 @@ def record_sod_block() -> None:
     METRICS.sod_blocks_total.inc()
 
 
+GRANTS_ACTIVE = "helpdesk_grants_active"
+AUDIT_CHAIN_OK = "helpdesk_audit_chain_ok"
+
+
+@dataclass(frozen=True)
+class SweepGauges:
+    """the design's two gauges, held together for the reason `Metrics` is.
+
+    A pair whose two fields aliased one gauge would satisfy the exposition and
+    then let a tenant's grant count overwrite the chain verdict, so
+    `helpdesk_audit_chain_ok` would read 3 whenever three grants were live.
+    Pinned by
+    `test_obs_metrics.py::test_install_sweep_gauges_registers_exactly_the_two_spec_gauges`.
+    """
+
+    grants_active: Gauge
+    audit_chain_ok: Gauge
+
+
+_INSTALLED_SWEEP_GAUGES: MutableMapping[CollectorRegistry, SweepGauges] = WeakKeyDictionary()
+"""What `install_sweep_gauges` has already put on each registry.
+
+Weak keys, so a test's throwaway registry is collected with its gauges rather
+than kept alive by this module for the life of the process."""
+
+
+def install_sweep_gauges(registry: CollectorRegistry) -> SweepGauges:
+    """Register the design's two remaining gauges on `registry`, once.
+
+    Separate from `build_metrics` by an earlier change decision F. A prometheus gauge
+    carries a sample from the moment it is registered, so an unlabelled
+    `helpdesk_audit_chain_ok` declared on every service would render `0` for
+    ever on agent-api's and mcp-server's exposition — a healthy deployment
+    reporting a tampered audit log. These two are therefore declared by the
+    process that MOVES them and by no other: `scheduler.jobs` calls this at
+    import, which is the module that holds the sweep.
+
+    Idempotent per registry, returning the SAME pair: the alternative is
+    prometheus's bare duplicate-registration `ValueError` at the second import
+    of the calling module. Pinned by
+    `test_obs_metrics.py::test_installing_the_sweep_gauges_twice_on_one_registry_returns_the_same_pair`,
+    and the label sets by `::test_each_sweep_gauge_declares_exactly_its_spec_labels`.
+    """
+    installed = _INSTALLED_SWEEP_GAUGES.get(registry)
+    if installed is not None:
+        return installed
+    gauges = SweepGauges(
+        grants_active=Gauge(
+            GRANTS_ACTIVE,
+            "Grants that are live right now, by tenant.",
+            labelnames=("tenant",),
+            registry=registry,
+        ),
+        audit_chain_ok=Gauge(
+            AUDIT_CHAIN_OK,
+            "1 while every tenant this process verified has an intact audit chain.",
+            registry=registry,
+        ),
+    )
+    _INSTALLED_SWEEP_GAUGES[registry] = gauges
+    return gauges
+
+
+SWEEP_GAUGES: SweepGauges | None = None
+"""The pair the two recorders move, or None in a process that never sweeps.
+
+None rather than an eagerly built instance: a process that has not installed
+these has nothing to move, and a recorder called there is a bug worth a loud
+error rather than a number nobody scrapes. `scheduler.jobs` binds it at
+import; a test installs its own over it, which is what lets every gauge
+assertion in `test_access_gauges.py` and `test_audit_health.py` be an
+ABSOLUTE value.
+"""
+
+
+def _sweep_gauges() -> SweepGauges:
+    """The installed pair, or a loud failure.
+
+    Reads the module global at CALL time — never captured at import — so
+    replacing `SWEEP_GAUGES` in a test reaches every recorder.
+    """
+    if SWEEP_GAUGES is None:
+        raise RuntimeError(
+            "the sweep gauges are not installed in this process; "
+            "call install_sweep_gauges(REGISTRY) where the sweep runs"
+        )
+    return SWEEP_GAUGES
+
+
+def record_grants_active(*, tenant: str, count: int) -> None:
+    """One tenant's live-grant count, SET rather than incremented.
+
+    A gauge answers "how many right now", so the sweep's number replaces the
+    last one: `.inc(count)` — the shape every counter recorder above uses, and
+    so the natural mistake — would double the reported access every cadence
+    with nothing downstream to flag it. Pinned by
+    `test_access_gauges.py::test_two_sweeps_over_an_unchanged_tenant_leave_the_same_value`.
+
+    `tenant` is the bound tenant's uuid rendered by the caller, never client
+    text: the label's cardinality is the tenant count.
+    """
+    _sweep_gauges().grants_active.labels(tenant=tenant).set(count)
+
+
+def record_audit_chain_ok(ok: bool) -> None:
+    """The audit chain verdict for this whole process (the design, an earlier change).
+
+    Unlabelled by the design and by decision D, which is why the AND across
+    tenants is worked out in `helpdesk.audit.health` before it reaches here:
+    this function records a verdict, it does not combine them.
+    """
+    _sweep_gauges().audit_chain_ok.set(1 if ok else 0)
+
+
 __all__ = [
+    "AUDIT_CHAIN_OK",
     "EXPIRIES_TOTAL",
+    "GRANTS_ACTIVE",
     "METRICS",
-    "REGISTRY",
     "REFUSALS_TOTAL",
+    "REGISTRY",
     "SOD_BLOCKS_TOTAL",
+    "SWEEP_GAUGES",
     "TOOL_CALLS_TOTAL",
     "TOOL_LATENCY_SECONDS",
     "TURNS_TOTAL",
     "UNKNOWN_INTENT",
     "UNKNOWN_TENANT",
     "Metrics",
+    "SweepGauges",
     "build_metrics",
+    "install_sweep_gauges",
+    "record_audit_chain_ok",
     "record_expiries",
+    "record_grants_active",
     "record_refusal",
     "record_sod_block",
     "record_tool_call",

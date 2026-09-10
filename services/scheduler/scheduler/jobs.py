@@ -1,26 +1,48 @@
 """The jobs themselves, each a thin adaptation of an engine in the library.
 
 Nothing here decides anything. A job takes the tenant-bound session the runner
-opened and the instant the runner is answering for, and calls one function in
-`helpdesk`; each sweep's rules, its audit events and its notifications belong
-to `helpdesk.access.expiry` or `helpdesk.access.leavers`, so they can be
-exercised with a session and a fixed `now` and no scheduler anywhere near the
-test.
+opened and the instant the runner is answering for, and calls into `helpdesk`;
+each sweep's rules, its audit events and its notifications belong to a module
+of the library — `helpdesk.access.expiry`, `helpdesk.access.leavers`,
+`helpdesk.access.review_schedule`, `helpdesk.access.gauges`,
+`helpdesk.audit.health` — so they can be exercised with a session and a fixed
+`now` and no scheduler anywhere near the test. One wrapper calls TWO of them
+(`run_metrics_sweep`, an earlier change decision A) and still decides nothing: it takes
+two readings that belong on one scrape at one age.
 
 21a registered one job; 21b adds the two DAILY ones, the expiry warnings and
-the leaver sweep. 21c takes the last pair, the quarterly review generation and
-its daily reminders, both registered daily: the generation is quarterly by its
-PERIOD and not by its cadence (21c decision A), so a missed run is made good on
-the next tick rather than in three months.
+the leaver sweep. 21c takes the design's last pair, the quarterly review
+generation and its daily reminders, both registered daily: the generation is
+quarterly by its PERIOD and not by its cadence (21c decision A), so a missed
+run is made good on the next tick rather than in three months. 21d adds the
+sixth, which is not one of the design's jobs at all — §11 lists the jobs that
+CHANGE access, and `metrics_sweep` changes nothing: it takes the design's two
+gauge readings, because a reading needs something to take it.
 """
 
 from datetime import datetime
 
 from helpdesk.access.directory import SimulatedDirectory
 from helpdesk.access.expiry import expire_grants, warn_expiring_grants
+from helpdesk.access.gauges import refresh_active_grants_gauge
 from helpdesk.access.leavers import sweep_leavers
 from helpdesk.access.review_schedule import generate_reviews, send_review_reminders
+from helpdesk.audit.health import refresh_chain_gauge
+from helpdesk.obs import metrics
 from sqlalchemy.ext.asyncio import AsyncSession
+
+metrics.SWEEP_GAUGES = metrics.install_sweep_gauges(metrics.REGISTRY)
+"""Declare the design's two gauges HERE, in the module that holds the sweep.
+
+An earlier change decision F. `build_metrics`' six are registered on every service
+because a counter reading zero on a process that never moves it is the honest
+answer; a GAUGE is not like that. An unlabelled `helpdesk_audit_chain_ok`
+declared by agent-api would render `0` on its exposition from start-up — a
+tampered audit log, on a service that verifies nothing — so the two gauges
+exist only where something can move them. Importing this module is what a
+process does to run the jobs, which makes it the one honest place to install
+them. Asserted from the other side by
+`test_obs_metrics.py::test_build_metrics_still_registers_exactly_the_six_metrics`."""
 
 EXPIRE_GRANTS_JOB_NAME = "expire_grants"
 """the design's name for the sweep, and the segment of its Redis lock key.
@@ -119,3 +141,36 @@ async def run_review_reminders(session: AsyncSession, now: datetime) -> None:
     `::test_the_review_reminders_wrapper_hands_its_session_and_now_to_the_engine`.
     """
     await send_review_reminders(session, now=now)
+
+
+METRICS_SWEEP_JOB_NAME = "metrics_sweep"
+"""The name of the gauge sweep, and the segment of its lock key.
+
+Not one of the design's five jobs: §11 lists the jobs that CHANGE access, and
+this one changes nothing at all. It is here because the design's two gauges are
+readings rather than events, and a reading needs something to take it. Pinned
+together with the key it produces by
+`test_scheduler_metrics_job.py::test_the_metrics_job_constants_are_exactly_the_planned_values`."""
+
+
+async def run_metrics_sweep(session: AsyncSession, now: datetime) -> None:
+    """Refresh both of the design's gauges for the bound tenant.
+
+    One job for both readings (decision A): one lock key means the grant count
+    and the chain verdict on a scrape are always the same age, where two
+    cadence gates would let a dashboard show a fresh number beside a verdict
+    from an hour ago with nothing on the page to say so.
+
+    `now` is the tick's instant, handed straight down: it is the boundary that
+    decides which grants are live (`expires_at > now`) and the exact complement
+    of the expiry sweep's `<= now`, so a clock read here would let two jobs of
+    one tick disagree about a grant lapsing between them. The chain verdict
+    takes no `now` — it is about the rows that exist, not about an instant.
+
+    Both return values are dropped, for the reason every other wrapper here
+    drops its own: the gauges are the record. Pinned by
+    `test_scheduler_metrics_job.py::test_the_metrics_sweep_wrapper_hands_its_session_and_now_to_both_engines`,
+    which asserts both call lists, so dropping either engine fails.
+    """
+    await refresh_active_grants_gauge(session, now=now)
+    await refresh_chain_gauge(session)

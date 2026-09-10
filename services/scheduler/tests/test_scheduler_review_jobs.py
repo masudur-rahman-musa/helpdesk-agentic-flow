@@ -169,7 +169,7 @@ def test_each_review_job_is_registered_at_the_daily_cadence_under_a_valid_name(
     assert job_lock_key(job.name) == lock_key
 
 
-def test_the_registry_holds_all_five_jobs_under_five_distinct_names() -> None:
+def test_the_registry_holds_all_six_jobs_under_six_distinct_names() -> None:
     """Catches a registration that REPLACES the registry rather than extending
     it — a `REGISTRY = {...}` rebuilt from this plan's two jobs, which
     silently stops 21a's expiry sweep and 21b's daily pair and would show up
@@ -177,9 +177,9 @@ def test_the_registry_holds_all_five_jobs_under_five_distinct_names() -> None:
     under one name, which a per-job case cannot see: a dict keyed by name
     loses one of them without complaining.
 
-    Five is counted off the code, not carried over from 21b's row (standing
-    rule 6): `expire_grants`, `expiry_warnings`, `leaver_sweep`, and this
-    plan's two.
+    Six is counted off the code, not carried over from 21b's row (standing
+    rule 6): `expire_grants`, `expiry_warnings`, `leaver_sweep`, this plan's
+    two, and an earlier change's `metrics_sweep`.
     """
     assert {
         "expire_grants",
@@ -187,9 +187,10 @@ def test_the_registry_holds_all_five_jobs_under_five_distinct_names() -> None:
         "leaver_sweep",
         "review_generation",
         "review_reminders",
+        "metrics_sweep",
     } <= set(REGISTRY)
     assert len({job.name for job in REGISTRY.values()}) == len(REGISTRY)
-    assert len(REGISTRY) == 5
+    assert len(REGISTRY) == 6
 
 
 # --- the cadence gate on the real registry (21a decision B) ------------------

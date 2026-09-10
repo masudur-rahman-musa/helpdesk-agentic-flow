@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import ColumnElement, CursorResult, Delete, delete, or_, select
+from sqlalchemy import ColumnElement, CursorResult, Delete, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -365,6 +365,38 @@ def _live_grant_clauses(now: datetime) -> tuple[Any, ...]:
     grant is gone — is still ahead, so the comparison is strict.
     """
     return (*_granted_clauses(), or_(Grant.expires_at.is_(None), Grant.expires_at > now))
+
+
+async def count_live_grants(session: AsyncSession, now: datetime) -> int:
+    """How many grants the bound tenant holds live as of `now`.
+
+    A COUNT rather than a listing: the caller is
+    `helpdesk.access.gauges.refresh_active_grants_gauge`, which wants one
+    number every 300 seconds and would otherwise load every grant of every
+    tenant into Python to call `len` on it.
+
+    The filter is `_live_grant_clauses`, the same three conjuncts every other
+    liveness read here spells out, which is what stops a fourth definition of
+    "live" drifting into the number a dashboard shows. Its expiry test is
+    strict, the exact complement of `access/expiry.py`'s `expires_at <= now`; the pair is pinned by
+    `test_access_gauges.py::test_a_grant_expiring_at_exactly_now_is_not_counted`
+    and `::test_a_grant_expiring_one_microsecond_after_now_is_counted`.
+
+    The tenant clause is written OUT rather than left to the session guard.
+    The guard injects its criteria through `with_loader_criteria`, which
+    applies to the ENTITIES a statement loads, and this statement loads none —
+    so relying on it here would be relying on an aggregate's mapper being
+    detected. `bound_tenant_id` raises with no tenant bound, so the unbound
+    case stays a loud failure rather than a full-table count, and the scoping
+    is pinned by
+    `test_access_gauges.py::test_another_tenants_live_grants_do_not_move_this_tenants_gauge`.
+    """
+    result = await session.execute(
+        select(func.count(Grant.id)).where(
+            Grant.tenant_id == bound_tenant_id(session), *_live_grant_clauses(now)
+        )
+    )
+    return int(result.scalar_one())
 
 
 async def _list_scoped_grants(

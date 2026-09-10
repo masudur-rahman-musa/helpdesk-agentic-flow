@@ -12,12 +12,14 @@ released. One key answers both questions a scheduler has ("is this job due"
 and "is another instance already on it"), so two runners in one window run the
 job once, and the next window opens when Redis expires the key. The trade is
 written down rather than discovered: a job cannot be forced early, and a run
-that outlives its own cadence can overlap the next one — harmless for four of
-the five registered jobs, because each is idempotent: `expire_grants` has its
+that outlives its own cadence can overlap the next one — harmless for five of
+the six registered jobs, because each is idempotent: `expire_grants` has its
 row lock and its `status = 'active'` test, `leaver_sweep` the same pair over
 `users`, `expiry_warnings` its anti-join against the notification it already
-wrote, and `review_generation` its per-period scope check
-(21c decision A). `review_reminders` is the exception and deliberately so:
+wrote, `review_generation` its per-period scope check
+(21c decision A), and `metrics_sweep` writes nothing at all — it takes a
+reading and sets two gauges, so an overlap costs one repeated measurement.
+`review_reminders` is the exception and deliberately so:
 21c decision E has no dedupe at all, because the daily cadence gate IS the
 dedupe, so an overlap there costs one duplicate bell entry and nothing else.
 
@@ -99,6 +101,22 @@ reads; the reminder sweep writes one notification per run by design (21c
 decision E), so the hour is the only thing deciding when a reviewer is told.
 A fixed hour would need the last-run state 21a decision B deliberately does not
 keep."""
+
+METRICS_SWEEP_CADENCE_SECONDS = 300
+"""How often the design's two gauges are re-read, and the `PX` of their key.
+
+One number for the cadence and the TTL, for the reason
+`EXPIRE_GRANTS_CADENCE_SECONDS` is: the key's expiry IS what opens the next
+window. An earlier change decision C chose 300 over reusing `DAILY_CADENCE_SECONDS`,
+because a gauge is read as "how many right now" — a daily refresh makes
+`helpdesk_grants_active` a WRONG number for 23 hours rather than a missing
+one, and reports a chain nobody has walked since yesterday as verified. The
+trade is that the sweep walks every audit event of every tenant every five
+minutes; the cost grows with the log, and this constant is the lever. Pinned
+exactly by
+`test_scheduler_metrics_job.py::test_the_metrics_job_constants_are_exactly_the_planned_values`
+and, on the real registry, by
+`::test_a_tick_leaves_the_metrics_key_with_a_three_hundred_second_ttl`."""
 
 JOB_LOCK_PREFIX = "helpdesk:joblock:"
 """The namespace every job lock lives under, so an operator can see them all
@@ -206,6 +224,12 @@ REVIEW_REMINDERS_JOB = Job(
     run=jobs.run_review_reminders,
 )
 
+METRICS_SWEEP_JOB = Job(
+    name=check_job_name(jobs.METRICS_SWEEP_JOB_NAME),
+    cadence_seconds=METRICS_SWEEP_CADENCE_SECONDS,
+    run=jobs.run_metrics_sweep,
+)
+
 REGISTRY: dict[str, Job] = {
     job.name: job
     for job in (
@@ -214,21 +238,23 @@ REGISTRY: dict[str, Job] = {
         LEAVER_SWEEP_JOB,
         REVIEW_GENERATION_JOB,
         REVIEW_REMINDERS_JOB,
+        METRICS_SWEEP_JOB,
     )
 }
-"""The five jobs this service runs: 21a's five-minute sweep, 21b's daily pair
-and 21c's.
+"""The six jobs this service runs: 21a's five-minute sweep, 21b's daily pair,
+21c's pair, and 21d's gauge sweep.
 
 Every name goes through `check_job_name` at construction, so a name that could
 not safely become a Redis key segment fails at import rather than inside a
 `SET` at three in the morning. Pinned per job by
 `test_scheduler_daily_jobs.py::test_each_new_job_is_registered_at_the_daily_cadence_under_a_valid_name`
-and, for this plan's pair,
-`test_scheduler_review_jobs.py::test_each_review_job_is_registered_at_the_daily_cadence_under_a_valid_name`;
-and as a whole — five distinct names, every older job still present — by
+`test_scheduler_review_jobs.py::test_each_review_job_is_registered_at_the_daily_cadence_under_a_valid_name`
+and
+`test_scheduler_metrics_job.py::test_the_metrics_job_is_registered_at_its_cadence_under_a_valid_name`;
+and as a whole — six distinct names, every older job still present — by
 `test_scheduler_daily_jobs.py::test_the_registry_still_holds_the_five_minute_sweep_beside_the_daily_pair`
 and
-`test_scheduler_review_jobs.py::test_the_registry_holds_all_five_jobs_under_five_distinct_names`."""
+`test_scheduler_metrics_job.py::test_the_registry_holds_all_six_jobs_under_six_distinct_names`."""
 
 
 async def _claim(redis: Redis, job: Job) -> bool:
@@ -322,6 +348,7 @@ __all__ = [
     "JOB_LOCK_PREFIX",
     "JOB_NAME_MAX_LENGTH",
     "JOB_NAME_PATTERN",
+    "METRICS_SWEEP_CADENCE_SECONDS",
     "REGISTRY",
     "TICK_SECONDS",
     "InvalidJobNameError",

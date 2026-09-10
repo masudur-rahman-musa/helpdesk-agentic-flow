@@ -22,6 +22,13 @@ Written before the implementation exists. Surface under test:
         default pair every call site reads.
     ``def render() -> tuple[str, str]`` — ``(body, content_type)`` off the
         module-level ``REGISTRY``, read at CALL time.
+    ``class SweepGauges`` — a frozen dataclass carrying ``grants_active`` and
+        ``audit_chain_ok``.
+    ``def install_sweep_gauges(registry: CollectorRegistry) -> SweepGauges`` —
+        registers the design's two remaining gauges, ``helpdesk_grants_active``
+        (label ``tenant``) and ``helpdesk_audit_chain_ok`` (no labels), and is
+        IDEMPOTENT per registry: a second call returns the same pair rather
+        than raising prometheus's duplicate-registration ``ValueError``.
 ``helpdesk.obs`` re-exports ``Metrics``, ``build_metrics``, ``render`` and
 ``METRICS``.
 
@@ -42,7 +49,7 @@ from typing import Any
 
 import pytest
 from helpdesk.obs import metrics
-from helpdesk.obs.metrics import build_metrics, render
+from helpdesk.obs.metrics import build_metrics, install_sweep_gauges, render
 from prometheus_client import CollectorRegistry, generate_latest
 
 # the design's six in-process metrics, as the exposition spells them, with the
@@ -68,6 +75,14 @@ LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("sod_blocks_total", "helpdesk_sod_blocks_total", ()),
     ("expiries_total", "helpdesk_expiries_total", ()),
 )
+
+# the design's two remaining gauges, installed by an earlier change's SEPARATE factory
+# (decision F) and NOT by `build_metrics`. Same shape as `SPEC_METRICS` above:
+# the exposition's spelling, with the type each one must be.
+SWEEP_METRICS: Mapping[str, str] = {
+    "helpdesk_grants_active": "gauge",
+    "helpdesk_audit_chain_ok": "gauge",
+}
 
 CONTENT_TYPE_LITERAL = "text/plain; version=1.0.0; charset=utf-8"
 """Prometheus's text exposition content type, verbatim.
@@ -113,11 +128,20 @@ def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
     yield registry
 
 
-def test_build_metrics_registers_exactly_the_six_metrics() -> None:
+def test_build_metrics_still_registers_exactly_the_six_metrics() -> None:
     """Catches a `build_metrics` that registers a seventh metric on the
-    caller's registry — the two GAUGES an earlier change decision B defers, which plan
-    21c owns — or that misspells one of the design's names, either of which
-    makes the dashboard query for that name return nothing at all.
+    caller's registry, or that misspells one of the design's names, either of
+    which makes the dashboard query for that name return nothing at all.
+
+    The two remaining the design gauges are deliberately NOT here. An earlier change
+    decision F installs them through `install_sweep_gauges`, which only the
+    process that MOVES them calls: an unlabelled gauge has a sample from the
+    moment it is registered, so `helpdesk_audit_chain_ok` declared by
+    `build_metrics` would render `0` for ever on agent-api's and mcp-server's
+    exposition — indistinguishable from a tampered chain. So this case is now
+    also the one that fails if that factory's two gauges are folded back in
+    here; `test_install_sweep_gauges_registers_exactly_the_two_spec_gauges`
+    is where they are pinned instead.
 
     Asserted as an equality over the whole exposition, not as five membership
     checks: a set that also contains something else must fail here, which is
@@ -217,3 +241,87 @@ def test_a_metric_with_no_observation_still_appears_in_the_exposition(
         assert f"# TYPE {name} {SPEC_METRICS[name]}" in body, name
 
     assert render()[0] == body, "an exposition with no observations is stable between scrapes"
+
+
+# --- an earlier change: the two sweep gauges and their separate factory ----------------
+
+
+def test_install_sweep_gauges_registers_exactly_the_two_spec_gauges() -> None:
+    """Catches a factory that registers something other than the design's two
+    remaining names — a third metric smuggled in beside them, a counter where
+    the spec says gauge (a counter cannot go DOWN, so a grant count that fell
+    when access was revoked would be read by `rate()` as a counter reset), or
+    a misspelling, which makes the dashboard query return nothing at all.
+
+    Also catches a `SweepGauges` whose two fields alias ONE gauge: that would
+    satisfy the exposition above and then let a tenant's grant count overwrite
+    the chain verdict, so `helpdesk_audit_chain_ok` would read 3 whenever three
+    grants were live.
+
+    Asserted on a registry of this case's own, so "exactly" means exactly: the
+    process-wide registry already carries `build_metrics`'s six.
+    """
+    registry = CollectorRegistry()
+
+    gauges = install_sweep_gauges(registry)
+
+    assert _type_lines(generate_latest(registry).decode()) == dict(SWEEP_METRICS)
+    assert gauges.grants_active is not gauges.audit_chain_ok
+
+
+def test_each_sweep_gauge_declares_exactly_its_spec_labels() -> None:
+    """Catches a label set that is not the design's, in either direction.
+
+    `helpdesk_grants_active` without its `tenant` label collapses two tenants'
+    counts into one series, so the last sweep of the tick decides what the
+    whole deployment shows. With an EXTRA label it is the cardinality leak
+    an earlier change's second risk names — the only values left to fill it with are
+    ones nobody declared a closed set for.
+
+    `helpdesk_audit_chain_ok` is the boundary row, and its unlabelled shape is
+    decision D rather than an oversight: a `tenant` label would make the
+    process-wide AND unexpressible, so the gauge must refuse `.labels()`
+    outright and move directly.
+
+    Driven through `.labels()` rather than read off a private attribute, so it
+    fails on the behaviour a call site actually gets.
+    """
+    registry = CollectorRegistry()
+    gauges = install_sweep_gauges(registry)
+    grants_active: Any = gauges.grants_active
+    audit_chain_ok: Any = gauges.audit_chain_ok
+
+    grants_active.labels(tenant="fake-tenant").set(3)
+    assert registry.get_sample_value("helpdesk_grants_active", {"tenant": "fake-tenant"}) == 3.0
+    with pytest.raises(ValueError):
+        grants_active.labels(tenant="fake-tenant", unexpected="fake-value")
+    with pytest.raises(ValueError):
+        grants_active.labels()
+
+    with pytest.raises(ValueError):
+        audit_chain_ok.labels(tenant="fake-tenant")
+    audit_chain_ok.set(1)
+    assert registry.get_sample_value("helpdesk_audit_chain_ok") == 1.0
+
+
+def test_installing_the_sweep_gauges_twice_on_one_registry_returns_the_same_pair() -> None:
+    """Catches a factory that just constructs two `Gauge`s every call.
+
+    prometheus refuses a duplicate registration with a bare `ValueError`, so
+    the second call would raise — and the scheduler installs at IMPORT of
+    `scheduler.jobs`, which means the process would die at start-up the first
+    time anything imported that module twice under different names, or the
+    first time a test installed over the same registry. Returning a NEW pair
+    each time would be just as wrong in the other direction: the recorders
+    would then move gauges nobody is scraping.
+
+    The exposition is re-asserted after the second call, so a factory that
+    "succeeds" by registering under a suffixed name fails here too.
+    """
+    registry = CollectorRegistry()
+
+    first = install_sweep_gauges(registry)
+    second = install_sweep_gauges(registry)
+
+    assert second is first
+    assert _type_lines(generate_latest(registry).decode()) == dict(SWEEP_METRICS)
