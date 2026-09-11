@@ -11,8 +11,10 @@ identifier the model is free to reuse across two DIFFERENT requests, which is
 
 An earlier change adds the second caller: a decision the WEB initiates carries no turn,
 so `derive_decision_key` takes the approver, the request and the verb instead.
-Two derivations, one namespace and one separator, in one module — which is the
-whole reason it lives here rather than beside the routes.
+An earlier change adds the third, `derive_review_decision_key`, over the reviewer, the
+review item and the decision word. Three derivations, one namespace and one
+separator, in one module — which is the whole reason it lives here rather than
+beside the routes.
 
 Pure, and its own module so it stays that way: nothing here reads a clock, a
 store or a random source, which is what
@@ -34,7 +36,7 @@ resumed request a second time.
 """
 
 _SEPARATOR = "\x1f"
-"""ASCII unit separator, joining the five values.
+"""ASCII unit separator, joining the values of every derivation above.
 
 A character no session id, tool name or user message can contain, so
 `("a", "bc")` and `("ab", "c")` cannot join to the same string — two different
@@ -112,6 +114,39 @@ def derive_decision_key(*, approver_user_id: uuid.UUID, request_id: uuid.UUID, v
     return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
 
 
+def derive_review_decision_key(
+    *, reviewer_user_id: uuid.UUID, item_id: uuid.UUID, decision: str
+) -> str:
+    """The key one web-initiated review decision goes out with.
+
+    A sibling of `derive_decision_key` above rather than a reuse of it
+    (decision B): the material has the same shape, but an approval's parameter
+    names would lie about what is being digested — a review item is not a
+    request, and the decision WORD is not a verb of this router's invention but
+    a `ReviewDecision` member the tool declares.
+
+    All three values are in the digest, under the same namespace and separator
+    as every other key this module makes. Without the reviewer two reviewers
+    deciding one item would share a key and the second would replay the first's
+    answer; without the item one reviewer's second decision would replay their
+    first on a DIFFERENT item; without the decision word a reviewer changing
+    their mind would arrive under the Keep's key and be handed the stored Keep
+    back as if the Revoke had worked, instead of meeting the tool's own
+    re-decision refusal. Pinned one value at a time by
+    `test_review_routes.py::test_changing_any_one_of_the_three_values_changes_the_key`,
+    and against the namespace and the separator by
+    `::test_the_key_is_the_uuid5_of_the_three_values_under_the_modules_namespace`.
+
+    The same reviewer, item and decision derive the same key every time
+    (`::test_the_same_reviewer_item_and_decision_derive_the_same_key_every_time`),
+    which is what makes a double-clicked Keep a replay rather than a second
+    decision. The result is a canonical uuid string, length-checked before it
+    can reach the wire (`::test_the_derived_key_fits_the_column_it_is_stored_in`).
+    """
+    material = _SEPARATOR.join([str(reviewer_user_id), str(item_id), decision])
+    return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
+
+
 def check_idempotency_key(value: str) -> str:
     """The key back, or a typed refusal before it can reach the wire.
 
@@ -139,4 +174,5 @@ __all__ = [
     "check_idempotency_key",
     "derive_decision_key",
     "derive_idempotency_key",
+    "derive_review_decision_key",
 ]
