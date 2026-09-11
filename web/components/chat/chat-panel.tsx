@@ -20,6 +20,7 @@ import {
   readToken,
 } from "@/components/chat/types";
 import { failureMessage } from "@/lib/chat-errors";
+import { readAsk } from "@/lib/chat-prefill";
 import { chatMessageSchema } from "@/lib/chat-schema";
 import { createSseParser } from "@/lib/sse";
 
@@ -49,6 +50,16 @@ import { createSseParser } from "@/lib/sse";
  * assistant message was not an option: every message the history read supplies
  * would have a blank one.
  *
+ * The composer is seeded once, on mount, from `?ask=` — the parameter a
+ * `/access` renewal link carries. It is read off
+ * `window.location.search` rather than through `useSearchParams`, which would
+ * oblige a router context and a Suspense boundary this surface's tests have no
+ * reason to grow, and `readAsk` refuses anything `chatMessageSchema` would, so
+ * the box never starts holding a message Send would then reject. Nothing is
+ * sent: the user still presses Send, asserted as a call count by
+ * `tests/chat-page.test.tsx`'s `::starts the composer carrying the ask and
+ * sends nothing until Send is pressed`.
+ *
  * The turn's own failures are typed codes, never sentences: `FAILURE_MESSAGES`
  * turns a code into the one sentence the app shows for it, and the alert
  * region holds exactly one at a time.
@@ -62,6 +73,9 @@ export function ChatPanel() {
   const [decision, setDecision] = useState<DecisionCardData | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const streaming = useRef(false);
+  // Read once, at mount: a later render must not put text back in a box the
+  // user has since emptied.
+  const [prefill] = useState(() => readAsk(window.location.search) ?? "");
 
   const messages = [...(history.data ?? []), ...turn];
 
@@ -196,7 +210,11 @@ export function ChatPanel() {
       <ToolSteps steps={steps} />
       <Citations citations={citations} />
 
-      <Composer onSend={(message) => void send(message)} onRefuse={setFailure} />
+      <Composer
+        onSend={(message) => void send(message)}
+        onRefuse={setFailure}
+        initialValue={prefill}
+      />
     </div>
   );
 }

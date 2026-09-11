@@ -37,6 +37,29 @@ export const approvalSlotSchema = z.object({
   user_id: z.string().nullable(),
 });
 
+/**
+ * One stored citation of a request's decision.
+ *
+ * This is `mcp_server.tools.access.Citation` as WRITTEN, not the chat
+ * citation: `heading_path` is a STRING here, and there is no `text` and no
+ * `score`, because a request row stores what the decision cited and never the
+ * prose it cited from. Copying the chat shape would refuse every payload the
+ * tool answers correctly, which is what `tests/access-schema.test.ts`'s
+ * "rejects a citation whose heading_path is a list" exists to catch.
+ *
+ * All five fields are required — `/requests` names the title and the version
+ * per source, and a blank one is a source that says nothing — and the element
+ * is not `.strict()`, so a citation stored with a sixth key still parses
+ * ("accepts a citation carrying an unknown sixth key").
+ */
+export const requestCitationSchema = z.object({
+  document_slug: z.string(),
+  title: z.string(),
+  version: z.string(),
+  heading_path: z.string(),
+  chunk_id: z.string(),
+});
+
 /** One request row: the nineteen fields of an earlier change §1. */
 export const myRequestSchema = z.object({
   request_id: z.string(),
@@ -54,7 +77,7 @@ export const myRequestSchema = z.object({
   system_name: z.string(),
   target_display_name: z.string(),
   decision_reasons: z.array(z.string()),
-  citations: z.array(z.unknown()),
+  citations: z.array(requestCitationSchema),
   approvals: z.array(approvalSlotSchema),
   grant_id: z.string().nullable(),
   expires_at: z.string().nullable(),
@@ -80,5 +103,6 @@ export const myAccessSchema = z.object({
   grants: z.array(myGrantSchema),
 });
 
+export type RequestCitation = z.infer<typeof requestCitationSchema>;
 export type MyRequest = z.infer<typeof myRequestSchema>;
 export type MyGrant = z.infer<typeof myGrantSchema>;

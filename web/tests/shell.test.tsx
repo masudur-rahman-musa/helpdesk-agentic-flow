@@ -118,3 +118,52 @@ describe("AppShell — theme toggle", () => {
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
   });
 });
+
+/**
+ * An earlier change §6 additions: the two nav links this plan stops being 404s, and the
+ * routes it deliberately does NOT link to (decision E). Additions only —
+ * nothing above this comment is edited.
+ *
+ * The nav is reached through `AppShell` rather than by rendering `MainNav`
+ * directly, so a link that exists but is dropped from the shell (the `showNav`
+ * branch) fails here too.
+ */
+describe("MainNav — the routes it links to", () => {
+  const LINKS = [
+    { name: "Chat", href: "/chat" },
+    { name: "My requests", href: "/requests" },
+    { name: "My access", href: "/access" },
+  ] as const;
+
+  it.each(LINKS)("links $name to $href", ({ name, href }) => {
+    // Catches a nav that names the destination but points elsewhere — a link
+    // labelled "My access" going to `/chat` is invisible to every other case in
+    // this file — and catches a label written as the route (`/requests` at the
+    // user). `Chat` rides along so a rearranged nav that loses the existing
+    // link while adding two is red here rather than at a user.
+    render(
+      <AppShell>
+        <p>hello</p>
+      </AppShell>,
+    );
+
+    expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+  });
+
+  const NOT_YET = ["/approvals", "/reviews", "/admin/audit", "/admin/rules", "/notifications"];
+
+  it.each(NOT_YET)("carries no link to %s, which does not exist yet", (href) => {
+    // 22a's rule, and the reason decision E adds exactly two links: a link to a
+    // route no page serves is worse than no link, because the user pays a 404
+    // to find out. Catches a nav written ahead of rows 23c–24 — the shape a
+    // "finish the nav while we are here" edit produces, which nothing else in
+    // this file would notice.
+    const { container } = render(
+      <AppShell>
+        <p>hello</p>
+      </AppShell>,
+    );
+
+    expect(container.querySelector(`a[href="${href}"]`)).toBeNull();
+  });
+});

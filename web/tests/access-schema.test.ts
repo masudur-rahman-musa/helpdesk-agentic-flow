@@ -163,3 +163,72 @@ describe("myAccessSchema", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * An earlier change §6 additions: `citations` as the typed five-field object rather than
+ * `z.array(z.unknown())`. Additions only — nothing above this comment is
+ * edited, and the existing request fixture's `citations: []` still parses.
+ *
+ * The element shape is `mcp_server.tools.access.Citation` as STORED:
+ * `{document_slug, title, version, heading_path, chunk_id}`, five fields, with
+ * `heading_path` a STRING. It is NOT the chat citation of
+ * `graph/state.py::Citation`, which carries `text` and `score` the request row
+ * has never held and a `heading_path` that is a list.
+ */
+describe("myRequestSchema — citations", () => {
+  const CITATION: Record<string, unknown> = {
+    document_slug: "fake-access-policy",
+    title: "Fake Access Policy",
+    version: "v3",
+    heading_path: "Fake Section › Fake Subsection",
+    chunk_id: "99999999-9999-5999-8999-999999999999",
+  };
+
+  function withCitation(citation: unknown): { requests: unknown[] } {
+    return { requests: [{ ...REQUEST_ROW, citations: [citation] }] };
+  }
+
+  it("accepts the five-field citation", () => {
+    // The premise the rejection rows below rest on: a schema refusing the
+    // complete citation would make every one of them pass while `/requests`
+    // rendered an alert for a payload that is exactly on contract.
+    expect(myRequestsSchema.safeParse(withCitation(CITATION)).success).toBe(true);
+  });
+
+  const MISSING = ["document_slug", "title", "version", "heading_path", "chunk_id"] as const;
+
+  it.each(MISSING)("rejects a citation with no %s", (field) => {
+    // Catches the `z.array(z.unknown())` this plan replaces: every row here
+    // passes under it, and `/requests` then renders a source with a blank
+    // title or a version it cannot show — the two fields §6 requires it to
+    // name. `chunk_id` in particular is the field a hand-written citation
+    // forgets, and it is what ties a source back to the text it came from.
+    const citation = { ...CITATION };
+    delete citation[field];
+
+    expect(myRequestsSchema.safeParse(withCitation(citation)).success).toBe(false);
+  });
+
+  it("rejects a citation whose heading_path is a list", () => {
+    // Decision B, pinned on the field the two citation shapes disagree about.
+    // Catches a schema copied from the CHAT citation (`heading_path:
+    // z.array(z.string())`, plus `text` and `score`): it would refuse every
+    // stored request citation on the wire, so the page would alert on a row the
+    // tool answered correctly. Nothing else in this file distinguishes the two
+    // shapes.
+    expect(
+      myRequestsSchema.safeParse(withCitation({ ...CITATION, heading_path: ["Fake Section"] }))
+        .success,
+    ).toBe(false);
+  });
+
+  it("accepts a citation carrying an unknown sixth key", () => {
+    // Catches a `.strict()` element schema. The Python model forbids extras
+    // TODAY, but rows already stored are JSONB read back as they were written,
+    // and a page that refuses a widened citation breaks on a deploy that
+    // changed nothing it reads — the same reason the row schema is not strict.
+    expect(
+      myRequestsSchema.safeParse(withCitation({ ...CITATION, relevance: "later" })).success,
+    ).toBe(true);
+  });
+});

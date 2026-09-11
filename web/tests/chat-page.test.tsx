@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { QueryProvider } from "@/components/query-provider";
 import { FAILURE_MESSAGES } from "@/lib/chat-errors";
+import { CHAT_PREFILL_PARAM } from "@/lib/chat-prefill";
+import { MAX_MESSAGE_CHARS } from "@/lib/chat-schema";
 import { reasonSentence } from "@/lib/decision-labels";
 
 /**
@@ -679,5 +681,93 @@ describe("ChatPanel — the decision card", () => {
     });
 
     second.close();
+  });
+});
+
+/**
+ * An earlier change §6 additions: the composer's prefill from `/access`' renewal link.
+ * Additions only — nothing above this comment is edited.
+ *
+ * Shapes this file fixes that 23b left open (a project rule and 55; these
+ * belong in 23b's Deviations):
+ * - the panel reads `window.location.search` once on mount (§2, decision C),
+ *   so the parameter is set here with `history.replaceState` — no router
+ *   context, no Suspense boundary and no navigation, which is exactly the cost
+ *   `useSearchParams` would have added to every case above.
+ * - the prefilled text is the textarea's VALUE, not a placeholder: a
+ *   placeholder is not sent when the user presses Send, which would make the
+ *   link look like it worked and send nothing.
+ */
+describe("ChatPanel — the renewal prefill", () => {
+  const ASK = "Can I renew Fake Payroll Read on Fake Payroll?";
+
+  function setSearch(search: string): void {
+    window.history.replaceState({}, "", `/chat${search}`);
+  }
+
+  function composer(): Promise<HTMLElement> {
+    return screen.findByRole("textbox", { name: "Message" });
+  }
+
+  afterEach(() => {
+    setSearch("");
+  });
+
+  it("starts the composer carrying the ask and sends nothing until Send is pressed", async () => {
+    // Two kills in one arrangement. The value assertion catches a panel that
+    // ignores `?ask=` altogether — `/access`' renewal link then lands on an
+    // empty composer and the user retypes the sentence, which is the whole of
+    // decision C. The `streamCalls === 0` assertion is the load-bearing one: it
+    // catches a panel that SENDS the prefill on mount, which would let a link
+    // in an email open a turn the person never asked for (a project rule's
+    // boundary is the mutation, but the turn is still theirs to start). The
+    // body assertion afterwards catches a prefill rendered as a PLACEHOLDER:
+    // the text is on screen, Send posts an empty message, and the user sees a
+    // VALIDATION refusal for a sentence they can read in front of them.
+    setSearch(`?${CHAT_PREFILL_PARAM}=${encodeURIComponent(ASK)}`);
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+
+    await waitFor(async () => {
+      expect(await composer()).toHaveValue(ASK);
+    });
+    expect(streamCalls).toBe(0);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => {
+      expect(streamCalls).toBe(1);
+    });
+
+    const streamCall = fetchStub.mock.calls.find(([input]) =>
+      String(input).includes("/api/chat/stream"),
+    );
+    expect(JSON.parse(String(streamCall?.[1]?.body ?? "{}"))).toEqual({ message: ASK });
+
+    stream.close();
+  });
+
+  const EMPTY_STARTS = [
+    { name: "no ask parameter at all", search: "" },
+    { name: "another parameter", search: "?ref=email" },
+    { name: "an empty ask", search: `?${CHAT_PREFILL_PARAM}=` },
+    {
+      name: "an ask one character over the cap",
+      search: `?${CHAT_PREFILL_PARAM}=${"a".repeat(MAX_MESSAGE_CHARS + 1)}`,
+    },
+  ] as const;
+
+  it.each(EMPTY_STARTS)("starts empty with $name", async ({ search }) => {
+    // The first two rows catch a prefill that leaks a default — a remembered
+    // draft or a sample question seeded into every visit to `/chat`, which
+    // makes the composer's own emptiness unreliable. The last two are §1's
+    // refusal, and they are the rows that fail for a panel skipping
+    // `chatMessageSchema`: an oversized `ask` would seed a message the composer
+    // itself refuses, so Send answers VALIDATION over text the app put there.
+    setSearch(search);
+    renderPanel();
+
+    expect(await composer()).toHaveValue("");
+    expect(streamCalls).toBe(0);
   });
 });
