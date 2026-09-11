@@ -46,8 +46,10 @@ Deviations:
 2. A ``token`` event's data is ``{"text": <chunk>}``.
 3. The terminal ``reply`` event's data is exactly the body ``/chat`` answers a
    finished or paused turn with (19a decision E1):
-   ``{"reply", "outcome", "citations", "request_id"}``. One shape for both
-   routes, so a streaming client and a non-streaming one read the same turn.
+   ``{"reply", "outcome", "citations", "request_id", "decision"}``, whose
+   ``decision`` is the turn's decision card or ``null``. One shape
+   for both routes, so a streaming client and a non-streaming one read the
+   same turn.
 4. An in-stream failure is ONE ``error`` event whose data is the body ``/chat``
    answers a failed turn with — ``{"code": "INTERNAL"}``,
    ``ErrorCode.INTERNAL`` (decision E1) — followed by ``done``, with no
@@ -754,7 +756,7 @@ def test_the_events_are_steps_then_tokens_then_reply_then_done(stream_env: Strea
     assert _streamed_text(frames) == COMPOSED_REPLY
 
     final = _of(frames, REPLY)[0]
-    assert set(final.data) == {"reply", "outcome", "citations", "request_id"}
+    assert set(final.data) == {"reply", "outcome", "citations", "request_id", "decision"}
     assert final.data["reply"] == COMPOSED_REPLY
     assert final.data["outcome"] == TurnOutcome.DONE.value
     assert [citation["document"] for citation in final.data["citations"]] == [CITED_DOCUMENT]

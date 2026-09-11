@@ -50,6 +50,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from agent_api.checkpointer import thread_config
+from agent_api.decision_card import decision_card
 from agent_api.graph.deps import TurnDeps
 from agent_api.graph.nodes.await_approval import await_approval, pending_reply
 from agent_api.graph.nodes.compose_reply import COMPOSITION_PROMPT, compose_reply
@@ -687,19 +688,27 @@ def _step_data(node: str, update: Mapping[str, Any], seen: int) -> tuple[dict[st
 def _reply_data(state: TurnState) -> dict[str, Any]:
     """The terminal `reply` event: the same body `/chat` answers this turn with.
 
-    Deliberately the same four keys as `chat_routes.ChatResponse` (19a decision
+    Deliberately the same five keys as `chat_routes.ChatResponse` (19a decision
     E1), paused turn included, so a streaming client and a non-streaming one
     read one shape and a turn can be replayed through either route. It is built
     here rather than imported from `chat_routes` because the route imports this
     module; the two are held together by
     `test_chat_stream.py::test_both_routes_store_the_same_rows_for_one_message`,
-    which runs one message through both and compares what was stored.
+    which runs one message through both and compares what was stored — and
+    compares this event's `decision` against the other route's, which is what
+    catches the fifth key landing on one shape and not the other.
+
+    `decision` is the card as JSON, not as the model: this dict is encoded
+    into an SSE frame, and a uuid or a datetime is not something that survives
+    the encoder.
     """
+    card = decision_card(state)
     return {
         "reply": state.reply,
         "outcome": state.outcome.value,
         "citations": [citation.model_dump(mode="json") for citation in state.citations],
         "request_id": None if state.awaiting_request_id is None else str(state.awaiting_request_id),
+        "decision": None if card is None else card.model_dump(mode="json"),
     }
 
 

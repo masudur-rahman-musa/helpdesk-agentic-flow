@@ -33,7 +33,9 @@ import { FAILURE_MESSAGES } from "@/lib/chat-errors";
  *
  * The wire shapes are agent-api's as BUILT, not as remembered:
  * `step` → `{node, round, tools:[{tool, ok, error_code}]}` (`graph/build.py::_step_data`),
- * `reply` → `{reply, outcome, citations, request_id}` (`::_reply_data`),
+ * `reply` → `{reply, outcome, citations, request_id, decision}` (`::_reply_data`);
+ * `decision` is the turn's decision card or null, which nothing
+ * here reads until an earlier change renders it,
  * `error` → `{code}` (`::_failure_frames`), citations → `{document, title,
  * version, heading_path, chunk_id, text, score}` (`graph/state.py::Citation`),
  * history → `{messages:[{role, content}]}` (`chat_routes.ChatHistoryResponse`).

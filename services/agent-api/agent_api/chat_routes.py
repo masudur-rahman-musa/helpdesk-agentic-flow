@@ -49,6 +49,7 @@ from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.models.conversation import check_message_content
 from pydantic import BaseModel
 
+from agent_api.decision_card import decision_card
 from agent_api.graph.build import run_turn, stream_turn
 from agent_api.graph.deps import TurnDeps
 from agent_api.graph.state import TurnOutcome, TurnState
@@ -112,12 +113,18 @@ class ChatResponse(BaseModel):
     `request_id` is the access request a PAUSED turn is waiting on, and None on
     every other outcome: it is what lets a client show the user what they are
     waiting for without reading a checkpoint (decision E1).
+
+    `decision` is this turn's decision card, or null where the turn decided
+    nothing about access. It rides as the card's own
+    JSON rather than as the model, because the body below is dumped in python
+    mode and a uuid or a datetime is not something `JSONResponse` can write.
     """
 
     reply: str | None
     outcome: str
     citations: list[dict[str, Any]]
     request_id: str | None
+    decision: dict[str, Any] | None
 
 
 def build_tool_caller(settings: Settings, bearer_token: str) -> ToolCaller:
@@ -193,14 +200,21 @@ def _rendered(state: TurnState) -> JSONResponse:
     A paused turn is a 200 with a body, not a 202 (decision E1): the turn
     produced a reply and stored it, so the pause is state the client renders,
     not a deferral of the request that was just made.
+
+    A FAILED turn answers its typed code and no body at all, so it carries no
+    decision card either — pinned, with the card's two other shapes, by
+    `test_chat_route.py::test_a_filed_request_answers_its_decision_card` and
+    `::test_a_turn_with_no_access_tool_answers_a_null_decision`.
     """
     if state.outcome is TurnOutcome.FAILED:
         return _typed(state.error_code or ErrorCode.INTERNAL)
+    card = decision_card(state)
     body = ChatResponse(
         reply=state.reply,
         outcome=state.outcome.value,
         citations=[citation.model_dump(mode="json") for citation in state.citations],
         request_id=None if state.awaiting_request_id is None else str(state.awaiting_request_id),
+        decision=None if card is None else card.model_dump(mode="json"),
     )
     return JSONResponse(content=body.model_dump())
 

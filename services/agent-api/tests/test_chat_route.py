@@ -23,7 +23,9 @@ Expected implementation surface (the implementer must provide exactly this):
         IGNORED (Pydantic's default, deliberately not ``extra="forbid"``:
         §1 requires a body naming another user to be accepted and to change
         nothing). 200 ->
-        ``{"reply": str, "outcome": str, "citations": [...], "request_id": str | None}``.
+        ``{"reply": str, "outcome": str, "citations": [...],
+        "request_id": str | None, "decision": {...} | None}`` — the fifth key
+        is the turn's decision card, ``null`` when there is none.
     ``GET /chat/messages`` — this session's messages oldest first, as
         ``{"messages": [{"role": str, "content": str}, ...]}``.
 
@@ -76,7 +78,9 @@ from helpdesk.core.settings import Settings, load_settings
 from helpdesk.errors import ErrorCode
 from helpdesk.gateway.client import ModelClient
 from helpdesk.models import Base, Department, Message, Role, Session, System, Tenant, User
+from helpdesk.models.access import RequestStatus
 from helpdesk.models.conversation import MAX_MESSAGE_CHARS, MessageRole
+from helpdesk.policy.types import ApproverSlot, Decision, ReasonCode, RiskClass
 from pydantic import BaseModel, ValidationError
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -99,6 +103,13 @@ GATEWAY_API_KEYS = ",".join(f"{slug}:{key}" for slug, key in API_KEYS.items())
 
 CREATE_REQUEST = "create_access_request"
 REQUEST_ID = uuid.UUID("66666666-6666-5666-8666-666666666666")
+
+# The decision card the filed request projects. Obviously fake.
+CARD_APPROVER_ID = uuid.UUID("99999999-9999-5999-8999-999999999999")
+CARD_RISK_CLASS = RiskClass.PRIVILEGED.value
+CARD_FIRST_SLOT = ApproverSlot.DEPARTMENT_MANAGER.value
+CARD_EXPIRY_DAYS = 30
+CARD_EXPIRES_AT = "2026-07-02T10:15:00Z"
 
 MESSAGE = "Please give me read access to fake payroll."
 COMPOSED_REPLY = "I have asked for fake payroll read access on your behalf."
@@ -437,6 +448,33 @@ def _approval_payload() -> dict[str, Any]:
         "decision": "approval",
         "status": "pending",
         "required_approvers": ["manager", "system_owner"],
+    }
+
+
+def _card_payload() -> dict[str, Any]:
+    """The same approval answer, with every field a decision card projects.
+
+    `_approval_payload` carries only what the PAUSE gate reads, so a card
+    projected off it would be `None` for a missing key rather than for the
+    route dropping the key. This one is the tool's whole output:
+    one seat the engine resolved, one group seat it never can.
+    """
+    return {
+        "request_id": str(REQUEST_ID),
+        "status": RequestStatus.PENDING.value,
+        "risk_class": CARD_RISK_CLASS,
+        "decision": Decision.APPROVAL.value,
+        "reasons": [ReasonCode.PRIVILEGE_ADMIN.value],
+        "required_approvers": [
+            {"slot": CARD_FIRST_SLOT, "user_id": str(CARD_APPROVER_ID)},
+            {"slot": ApproverSlot.IT_ADMIN.value, "user_id": None},
+        ],
+        "approver_user_ids": [str(CARD_APPROVER_ID)],
+        "effective_expiry_days": CARD_EXPIRY_DAYS,
+        "sod_conflicts": [],
+        "policy_refs": ["FAKE-POL-001 §4"],
+        "grant_id": None,
+        "expires_at": CARD_EXPIRES_AT,
     }
 
 
@@ -849,6 +887,90 @@ def test_a_paused_turn_answers_with_the_pending_reply_and_the_request_id(
     assert body["reply"].startswith(PENDING_APPROVAL_REPLY.split("{")[0])
     assert gateway.call_count == 2
     assert tools.names == [SEARCH_POLICY, CREATE_REQUEST]
+
+
+# --- the decision card on the wire --------------------------------------------
+
+
+def test_a_filed_request_answers_its_decision_card(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a route that files a request and answers nothing about WHY: the
+    fifth key is read off the JSON body as a nested object — `body["decision"]`
+    with `risk_class` and `approvers[0]["slot"]` inside it — so a route that
+    flattened the card into the envelope, or that carries the tool's payload
+    through unprojected, fails here rather than at 22d's rendering.
+
+    The same turn shape as the paused case above and the same staging: two
+    gateway answers (extraction, planning; the pause composes from a template)
+    and two tool calls (the retrieval this turn always makes, then the create),
+    so a route that ran an extra call fails inside the stub. The payload is the
+    tool's whole output, so a `None` card here is the route's doing and not a
+    missing key's.
+    """
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_extraction_answer(), _request_plan(chat_env)])
+    tools = ScriptedToolCaller(_page(), _card_payload())
+
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, session_id),
+        body={"message": MESSAGE},
+        gateway_handler=gateway.handler,
+        tools=tools,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == TurnOutcome.AWAIT_APPROVAL.value
+
+    card = body["decision"]
+    assert card is not None
+    assert card["risk_class"] == CARD_RISK_CLASS
+    assert card["decision"] == Decision.APPROVAL.value
+    assert card["request_id"] == str(REQUEST_ID)
+    assert card["status"] == RequestStatus.PENDING.value
+    assert card["approvers"][0]["slot"] == CARD_FIRST_SLOT
+    assert card["approvers"][0]["resolved"] is True
+    assert card["effective_expiry_days"] == CARD_EXPIRY_DAYS
+    assert card["expires_at"] == CARD_EXPIRES_AT
+    assert str(CARD_APPROVER_ID) not in json.dumps(card)
+
+    assert gateway.call_count == 2
+    assert tools.names == [SEARCH_POLICY, CREATE_REQUEST]
+
+
+def test_a_turn_with_no_access_tool_answers_a_null_decision(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a route that always builds a card — one projected off whatever
+    the last tool answered, or an empty object standing in for "no decision":
+    this turn only retrieved policy, so a client shown a card here would read a
+    verdict the engine never made.
+
+    The key must be PRESENT and null rather than absent, which is what the
+    subscript asserts: a client branching on the key needs one shape for both
+    turns (19c decision G1).
+    """
+    session_id = uuid.uuid4()
+    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
+    tools = ScriptedToolCaller(_page())
+
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, session_id),
+        body={"message": MESSAGE},
+        gateway_handler=gateway.handler,
+        tools=tools,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == TurnOutcome.DONE.value
+    assert body["decision"] is None
+    # Three staged answers (extraction, planning, composition), one tool call.
+    assert gateway.call_count == 3
+    assert tools.names == [SEARCH_POLICY]
 
 
 # --- the history route --------------------------------------------------------

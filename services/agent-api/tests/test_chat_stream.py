@@ -673,6 +673,7 @@ def test_both_routes_store_the_same_rows_for_one_message(
     assert final.data["outcome"] == body["outcome"]
     assert final.data["citations"] == body["citations"]
     assert final.data["request_id"] == body["request_id"]
+    assert final.data["decision"] == body["decision"]
 
     plain_rows = _stored_messages(stream_env, plain_session)
     stream_rows = _stored_messages(stream_env, stream_session)
