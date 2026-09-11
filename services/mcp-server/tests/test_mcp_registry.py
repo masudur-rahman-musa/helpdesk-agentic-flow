@@ -304,6 +304,13 @@ MUTATING_TOOL_NAMES = frozenset(
         # POLICY_BLOCKED by its own status check for a call the caller saw
         # succeed (by then the request reads `rolled_back`).
         "rollback_request",
+        # An earlier change: `mark_notification_read` stamps `read_at` on one row, so
+        # it rides the idempotency guard and a retried click replays the
+        # stored response instead of re-reading the row. `list_notifications`
+        # is a READ and must stay off this list: a key demanded for a bell
+        # nobody can clear without minting one would make the notifications
+        # page unable to list anything.
+        "mark_notification_read",
         # An earlier change: `set_kill_switch` does NOT belong here (decision C). SPEC
         # §8.2 omits the idempotency key for this tool alone, and one SET or
         # DELETE of one Redis key is idempotent by nature: a replayed trip
@@ -448,6 +455,55 @@ def test_the_review_opened_event_type_is_exactly_the_spec_string() -> None:
     produce an event type nothing in the audit UI or the golden set knows,
     with every other test still green because they read the same constant."""
     assert reviews_domain.REVIEW_OPENED_EVENT_TYPE == "review.opened"
+
+
+# --- the notification tools -----------------------------------------
+
+
+NOTIFICATION_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
+    # A READ: it writes nothing at all, so it declares the generic success
+    # event and stays OFF `MUTATING_TOOL_NAMES` above.
+    ("list_notifications", rbac.Tool.LIST_NOTIFICATIONS, registry.SUCCESS_EVENT_TYPE, False),
+    # A MUTATION that declares the GENERIC success event on purpose (decision
+    # D): "a person opened their own bell" answers no auditor's question, and
+    # a dedicated event type would put one row in the hash chain per UI
+    # interaction.
+    (
+        "mark_notification_read",
+        rbac.Tool.MARK_NOTIFICATION_READ,
+        registry.SUCCESS_EVENT_TYPE,
+        True,
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "tool", "event_type", "mutating"),
+    NOTIFICATION_TOOL_EXPECTATIONS,
+    ids=[name for name, _, _, _ in NOTIFICATION_TOOL_EXPECTATIONS],
+)
+def test_each_notification_tool_is_registered_once_under_its_matrix_name(
+    name: str, tool: rbac.Tool, event_type: str, mutating: bool
+) -> None:
+    """Catches the list declared as mutating — which would demand an
+    idempotency key for a call the guard never protects, so the bell could not
+    be read without minting one — and the stamp declared as a read, which
+    skips the guard entirely so a double-clicked bell runs the effect twice.
+    It also catches either spec pointed at the other's matrix member, whose
+    the design rows are identical (`self_only` for all seven principals), so no
+    permission test anywhere would notice.
+
+    The names are written out literally rather than derived from the registry:
+    reading the value under test back out of the code under test would assert
+    nothing.
+    """
+    spec = REGISTRY[name]
+
+    assert spec.name == name == tool.value
+    assert spec.tool is tool
+    assert spec.event_type == event_type
+    assert spec.mutating is mutating
+    assert name not in registry.WIRE_NAME_ALIASES
 
 
 def test_the_review_item_bounds_are_exactly_one_fifty_and_two_hundred() -> None:

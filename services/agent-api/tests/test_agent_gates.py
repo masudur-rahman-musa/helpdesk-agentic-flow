@@ -427,10 +427,11 @@ PLANNER_TOOLS: frozenset[str] = frozenset(
 """The eighteen tools a planner may propose, as a literal.
 
 `TOOL_INPUTS`' nineteen minus `search_policy`, counted from the server's own
-registry: twenty-three registered, less the three row 24 owns (`search_audit`,
+registry: twenty-five registered, less the three row 24 owns (`search_audit`,
 `set_kill_switch`, `rollback_request`), less `list_reviews`, which an earlier change
-deliberately leaves out of the catalogue (decision C), less the one the agent
-never plans."""
+deliberately leaves out of the catalogue (decision C), less the two
+notification tools an earlier change leaves out for the same reason (decision E), less
+the one the agent never plans."""
 
 PLANNED_INTENT_TOOLS: dict[str, frozenset[str]] = {
     "reset_password": frozenset({"reset_own_password", "create_ticket"}),

@@ -47,6 +47,8 @@ from helpdesk.models import (
     AccessRequest,
     AccessReview,
     Grant,
+    Notification,
+    NotificationKind,
     RequestStatus,
     ReviewFlag,
     ReviewItem,
@@ -287,6 +289,15 @@ MATRIX: dict[str, dict[str, bool]] = {
     # reach (a project rule: this literal is part of every diff adding a
     # REGISTRY entry).
     "search_policy": dict.fromkeys(PRINCIPALS, True),
+    # An earlier change: the design gives `/notifications` to every
+    # principal, and a notification is addressed to ONE person and read by
+    # that person — so both rows are `self_only` for all seven, the shape
+    # `list_my_access` and `list_my_requests` already have. A single False
+    # here would be a person who cannot read (or cannot clear) their own bell
+    # (a project rule: this literal is part of every diff adding a REGISTRY
+    # entry or changing an RBAC cell).
+    "list_notifications": dict.fromkeys(PRINCIPALS, True),
+    "mark_notification_read": dict.fromkeys(PRINCIPALS, True),
 }
 
 # Tools whose PERMITTED call cannot succeed on arguments alone: both deciding
@@ -322,6 +333,17 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
         # caller sending a request id that resolves nowhere must read
         # NOT_FOUND — a project rule's other branch.
         "rollback_request",
+        # An earlier change. It runs no scope helper at all (the design gives it seven
+        # `self_only` cells, so there is no denial cell and no
+        # permitted-but-out-of-scope caller to confuse a refusal with —
+        # a project rule keeps it OUT of `SCOPE_BEFORE_EXISTENCE_TOOLS`).
+        # The id it is sent below is a REAL notification belonging to ANOTHER
+        # user of the caller's own tenant, which decision G answers NOT_FOUND:
+        # the read is filtered by the token's user, so a permitted caller must
+        # get past RBAC and be refused by that filter rather than by the
+        # matrix. A row of the caller's OWN would succeed instead and the cell
+        # would pin nothing about existence.
+        "mark_notification_read",
     }
 )
 
@@ -376,6 +398,9 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         # sharpest cross-tenant argument in the registry — a scope that is not
         # the token's tenant must be refused rather than keyed on.
         "set_kill_switch",
+        # An earlier change: the stamp takes a NOTIFICATION id, so it has a
+        # cross-tenant call to make.
+        "mark_notification_read",
     }
 )
 NO_ID_TOOLS: frozenset[str] = frozenset(
@@ -412,6 +437,18 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # is an answer, never a refusal — so the plain permitted branch of the
         # sweep is the strict assertion and the cell pins the matrix.
         "list_reviews",
+        # An earlier change: `list_notifications` takes a page size and a bool and
+        # nothing else — whose bell it answers comes from the TOKEN, so there
+        # is no id for a cross-tenant call to carry. That
+        # isolation is pinned instead by `test_mcp_notifications.py::
+        # test_another_tenants_notifications_are_invisible_to_every_principal`,
+        # which plants a REAL unread row in the other tenant. It belongs in
+        # neither `ALLOW_ANSWERS_NOT_FOUND` nor `SCOPE_BEFORE_EXISTENCE_TOOLS`
+        # either: a permitted caller SUCCEEDS here — an
+        # empty bell is an answer, never a refusal (criterion 10) — so the
+        # plain permitted branch of the sweep is the strict assertion and the
+        # cell pins the matrix.
+        "list_notifications",
     }
 )
 # The five decision G names explicitly: everything they answer is decided by
@@ -546,6 +583,26 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "enabled": False,
             "reason": f"fake matrix clear {uuid.uuid4().hex}",
             "scope": str(env.tenant_a.tenant_id),
+        }
+    if tool_name == "list_notifications":
+        # An earlier change. No arguments at all: the list takes no id, and both of
+        # its optional arguments have defaults, so a permitted caller reaches
+        # the handler and SUCCEEDS with whatever their own bell holds (an
+        # empty page for a seeded caller with no notification — criterion 10).
+        # Written out rather than left to the fallthrough so the tool's
+        # classification is a decision on the page: an id forced onto it would
+        # test the argument parser and not the matrix.
+        return {}
+    if tool_name == "mark_notification_read":
+        # An earlier change. A REAL notification belonging to ANOTHER user of the
+        # caller's own tenant, so a permitted principal is refused NOT_FOUND
+        # by the user filter (decision G) rather than stamping their own bell
+        # read per matrix cell. A random uuid would be refused the same way
+        # whether that filter exists or not; a row of the caller's own would
+        # SUCCEED and this tool is in `ALLOW_ANSWERS_NOT_FOUND`.
+        return {
+            "notification_id": str(_colleagues_notification(env)),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "search_policy":
         # An earlier change. A `query` is required, so without this row a permitted
@@ -798,6 +855,57 @@ def _foreign_review_item(env: SeededMcp) -> uuid.UUID:
 
 
 @cache
+def _colleagues_notification(env: SeededMcp) -> uuid.UUID:
+    """One real, unread `notifications` row belonging to ANOTHER user of the
+    caller's OWN tenant, planted once for the sweep.
+
+    The sweep's token is minted for `env.tenant_a`; this row is addressed to
+    `env.probe`, who the fixture seeded in the SAME tenant. Decision G makes
+    that `NOT_FOUND` — the stamp reads the row filtered by the token's user
+    before anything else — which is the answer `ALLOW_ANSWERS_NOT_FOUND`
+    asserts for every permitted principal. A random uuid would be refused
+    identically whether the user filter exists or not, and the caller's own
+    row would succeed instead.
+    """
+    assert env.probe.tenant_id == env.tenant_a.tenant_id, (
+        "the premise: both users are in the tenant the sweep's token names"
+    )
+    assert env.probe.user_id != env.tenant_a.user_id
+    return _plant_notification(env, tenant_id=env.probe.tenant_id, user_id=env.probe.user_id)
+
+
+@cache
+def _foreign_notification(env: SeededMcp) -> uuid.UUID:
+    """One real, unread `notifications` row in the OTHER tenant, planted once.
+
+    Same reason as `_foreign_review`: a random uuid answers NOT_FOUND whether
+    the tenant guard exists or not, so the id the cross-tenant sweep sends has
+    to be a row that really exists somewhere else — and be UNREAD, so a stamp
+    that escaped the guard would leave a visible mark.
+    """
+    return _plant_notification(env, tenant_id=env.tenant_b.tenant_id, user_id=env.tenant_b.user_id)
+
+
+def _plant_notification(env: SeededMcp, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> uuid.UUID:
+    notification_id = uuid.uuid4()
+    _write(
+        env.database_url,
+        insert(Notification).values(
+            id=notification_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            kind=NotificationKind.GRANT_EXPIRED.value,
+            title="fake matrix notification",
+            body="fake matrix notification body",
+            subject_type="grant",
+            subject_id=None,
+            read_at=None,
+        ),
+    )
+    return notification_id
+
+
+@cache
 def _live_grant_id(database_url: str, tenant_id: uuid.UUID) -> uuid.UUID:
     """A grant the seed already wrote in the named tenant."""
     rows = _fetch(
@@ -886,6 +994,14 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "enabled": False,
             "reason": f"fake cross-tenant clear {uuid.uuid4().hex}",
             "scope": str(env.tenant_b.tenant_id),
+        }
+    if tool_name == "mark_notification_read":
+        # An earlier change. Tenant B's notification, a real unread row there: the
+        # refusal has to come from the tenant guard rather than from an id
+        # nobody could resolve anyway.
+        return {
+            "notification_id": str(_foreign_notification(env)),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "list_review_items":
         return {"review_id": str(_foreign_review(env))}

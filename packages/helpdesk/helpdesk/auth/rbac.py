@@ -57,6 +57,8 @@ class Tool(StrEnum):
     SEARCH_AUDIT = "search_audit"
     ROLLBACK_REQUEST = "rollback_request"
     SET_KILL_SWITCH = "set_kill_switch"
+    LIST_NOTIFICATIONS = "list_notifications"
+    MARK_NOTIFICATION_READ = "mark_notification_read"
 
 
 class Principal(StrEnum):
@@ -145,6 +147,13 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.RESET_OWN_PASSWORD: _all(Scope.SELF_ONLY),
         Tool.UNLOCK_OWN_ACCOUNT: _all(Scope.SELF_ONLY),
         Tool.CREATE_ACCESS_REQUEST_SELF: _all(Scope.SELF_ONLY),
+        # An earlier change, a design note: a notification is addressed to ONE person,
+        # so reading the bell and clearing one entry are both `self_only`
+        # for every principal. the design gives `/notifications` to all seven,
+        # and an absent principal on either row would be somebody who
+        # cannot read — or cannot clear — their own messages.
+        Tool.LIST_NOTIFICATIONS: _all(Scope.SELF_ONLY),
+        Tool.MARK_NOTIFICATION_READ: _all(Scope.SELF_ONLY),
         Tool.SEARCH_POLICY: _all(Scope.ANY),
         Tool.CREATE_TICKET: _all(Scope.ANY),
         Tool.CLASSIFY_ACCESS_REQUEST: _all(Scope.ANY),

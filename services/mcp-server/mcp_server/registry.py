@@ -21,7 +21,17 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mcp_server.identity import Identity
-from mcp_server.tools import access, admin, approvals, helpdesk, lifecycle, policy, read, reviews
+from mcp_server.tools import (
+    access,
+    admin,
+    approvals,
+    helpdesk,
+    lifecycle,
+    notifications,
+    policy,
+    read,
+    reviews,
+)
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
 """What a read tool writes when it worked. Per-tool rather than global (plan
@@ -390,6 +400,40 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
         handler=policy.search_policy,
+    ),
+    ToolSpec(
+        # An earlier change: a READ, so it carries no idempotency key and the generic
+        # `tool.succeeded` is the whole record it leaves — reading your own
+        # bell changes nothing an auditor could ask about.
+        name=rbac.Tool.LIST_NOTIFICATIONS.value,
+        tool=rbac.Tool.LIST_NOTIFICATIONS,
+        description=(
+            "List the calling user's own notifications, newest first, with their unread total."
+        ),
+        input_model=notifications.ListNotificationsInput,
+        output_model=notifications.ListNotificationsOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=notifications.list_notifications,
+    ),
+    ToolSpec(
+        # MUTATING, so the pipeline's `run_once` covers a retried click, and
+        # the generic `tool.succeeded` is the DECLARED type rather than a
+        # `notification.read` of its own: the audit log
+        # records who got access to what and who decided it, and one row in
+        # the hash chain per UI interaction would be noise in a table whose
+        # whole value is that every row matters.
+        name=rbac.Tool.MARK_NOTIFICATION_READ.value,
+        tool=rbac.Tool.MARK_NOTIFICATION_READ,
+        description=(
+            "Mark one of the calling user's own notifications read; "
+            "an already-read one answers the moment it was first seen."
+        ),
+        input_model=notifications.MarkNotificationReadInput,
+        output_model=notifications.MarkNotificationReadOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=notifications.mark_notification_read,
     ),
     ToolSpec(
         name=rbac.Tool.CREATE_TICKET.value,

@@ -99,6 +99,13 @@ EXPECTED_TOOL_NAMES = {
     # rule 27: this literal is the wire surface, and it is part of every diff
     # adding a REGISTRY entry).
     "list_reviews",
+    # An earlier change: the mailbox row 21 has been filling gets a door — the
+    # person's own list and the stamp that marks one read. Twenty-three names
+    # become twenty-five, one read and one mutation (a project rule: this
+    # literal is the wire surface, and it is part of every diff adding a
+    # REGISTRY entry).
+    "list_notifications",
+    "mark_notification_read",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

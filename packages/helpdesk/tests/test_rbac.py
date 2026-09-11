@@ -61,6 +61,13 @@ MATRIX: dict[str, dict[str, str | None]] = {
     "reset_own_password": dict.fromkeys(PRINCIPALS, "self_only"),
     "unlock_own_account": dict.fromkeys(PRINCIPALS, "self_only"),
     "create_access_request_self": dict.fromkeys(PRINCIPALS, "self_only"),
+    # An earlier change: a notification is addressed to ONE person and read
+    # and cleared by that person, so both rows join the self-scoped block
+    # above rather than the review rows they arrive beside. the design gives
+    # `/notifications` to every principal, so a None in either row would be
+    # somebody who cannot read — or cannot clear — their own bell.
+    "list_notifications": dict.fromkeys(PRINCIPALS, "self_only"),
+    "mark_notification_read": dict.fromkeys(PRINCIPALS, "self_only"),
     # Allowed for all seven principals with scope any.
     "search_policy": dict.fromkeys(PRINCIPALS, "any"),
     "create_ticket": dict.fromkeys(PRINCIPALS, "any"),
