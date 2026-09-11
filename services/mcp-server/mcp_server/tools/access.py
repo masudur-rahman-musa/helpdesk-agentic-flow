@@ -48,7 +48,6 @@ from helpdesk.access import (
     approval_slots,
     build_request_snapshot,
     execute_grant,
-    list_requests_for_requester,
     request_in_scope,
     resolved_approver_ids,
     revoke_role_access,
@@ -58,7 +57,11 @@ from helpdesk.access import (
 )
 from helpdesk.audit import AuditEventInput, append_event
 from helpdesk.auth import rbac
-from helpdesk.core.repository import Repository, is_live_grant
+from helpdesk.core.repository import (
+    Repository,
+    is_live_grant,
+    list_requests_with_context_for_requester,
+)
 from helpdesk.errors import NotFoundError
 from helpdesk.models import Grant, RequestStatus, Role, System
 from helpdesk.policy.engine import classify
@@ -116,6 +119,21 @@ class ClassifyAccessRequestOutput(BaseModel):
     policy_refs: list[str]
 
 
+REQUESTS_LIMIT_MIN = 1
+REQUESTS_LIMIT_DEFAULT = 50
+REQUESTS_LIMIT_MAX = 200
+"""How many requests one `list_my_requests` call may return.
+
+The same trio `tools/read.py` gives `search_audit`, and here for the same
+reason: `access_requests` only grows, so an unbounded read is one a long-lived
+tenant eventually cannot render. All three are pinned exactly by
+`test_mcp_access_read_tools.py::test_the_request_limit_constants_are_exactly_their_planned_values`,
+the default again through the model by
+`::test_the_default_request_limit_is_read_off_the_input_model`, and the
+inclusive ends by `::test_the_request_limit_boundary_is_inclusive_at_1_and_200`,
+whose accepted rows also prove the validated bound reaches the query."""
+
+
 class ListMyRequestsInput(BaseModel):
     model_config = _IGNORE_EXTRAS
 
@@ -125,8 +143,35 @@ class ListMyRequestsInput(BaseModel):
     refused (a project rule's shape), pinned by
     `test_mcp_access_read_tools.py::test_a_status_outside_the_enum_is_refused_validation`."""
 
+    limit: int = Field(
+        default=REQUESTS_LIMIT_DEFAULT, ge=REQUESTS_LIMIT_MIN, le=REQUESTS_LIMIT_MAX
+    )
+    """Refused by the INPUT MODEL, so `0` and `201` answer `VALIDATION`
+    before any DB access at all."""
+
 
 class AccessRequestSummary(BaseModel):
+    """One request as a reader sees it: nineteen fields, ids and names both.
+
+    Widened by an earlier change from the nine stored columns it began as (decision B):
+    the browser has no directory lookup and must never gain one, so the role,
+    the system and the target are NAMED here rather than left as uuids for a
+    second read. The names are resolved from the rows the ids point at, never
+    echoed from the request row, pinned by
+    `test_mcp_access_read_tools.py::test_the_names_come_from_the_directory_and_not_from_the_request_row`.
+
+    `approvals` is the stored `SlotState` chain rendered BY SLOT (decision D):
+    no seat's user id is resolved to a display name, because that is a second
+    directory read per row for a label the slot already carries.
+
+    `grant_id` and `expires_at` come off the grant the request produced, not
+    from `requested_expiry_days` (decision E), which the engine may have
+    capped. Both are `None` when nothing was granted. Pinned by
+    `::test_the_grant_join_is_null_when_pending_and_carries_the_grant_when_executed`,
+    and the exact field set by
+    `::test_the_widened_row_carries_exactly_the_nineteen_planned_fields`.
+    """
+
     request_id: uuid.UUID
     target_user_id: uuid.UUID
     role_id: uuid.UUID
@@ -136,6 +181,16 @@ class AccessRequestSummary(BaseModel):
     decision: str
     status: str
     created_at: datetime
+    role_slug: str
+    role_name: str
+    system_slug: str
+    system_name: str
+    target_display_name: str
+    decision_reasons: list[Any]
+    citations: list[Any]
+    approvals: list[Any]
+    grant_id: uuid.UUID | None
+    expires_at: datetime | None
 
 
 class ListMyRequestsOutput(BaseModel):
@@ -619,20 +674,41 @@ async def revoke_access(
 async def list_my_requests(
     session: AsyncSession, identity: Identity, args: ListMyRequestsInput
 ) -> ListMyRequestsOutput:
-    """The requests the token user has filed, optionally by status."""
-    rows = await list_requests_for_requester(session, identity.user_id, args.status)
+    """The requests the token user has filed, optionally by status.
+
+    Requester-scoped off the token, never off an argument: the
+    input declares no user field and drops an extra one. The join behind it
+    resolves every name in one statement rather than one read per row; see
+    `list_requests_with_context_for_requester`.
+    """
+    rows = await list_requests_with_context_for_requester(
+        session,
+        identity.user_id,
+        None if args.status is None else args.status.value,
+        args.limit,
+    )
     return ListMyRequestsOutput(
         requests=[
             AccessRequestSummary(
-                request_id=row.id,
-                target_user_id=row.target_user_id,
-                role_id=row.role_id,
-                justification=row.justification,
-                requested_expiry_days=row.requested_expiry_days,
-                risk_class=row.risk_class,
-                decision=row.decision,
-                status=row.status,
-                created_at=row.created_at,
+                request_id=row.request.id,
+                target_user_id=row.request.target_user_id,
+                role_id=row.request.role_id,
+                justification=row.request.justification,
+                requested_expiry_days=row.request.requested_expiry_days,
+                risk_class=row.request.risk_class,
+                decision=row.request.decision,
+                status=row.request.status,
+                created_at=row.request.created_at,
+                role_slug=row.role_slug,
+                role_name=row.role_name,
+                system_slug=row.system_slug,
+                system_name=row.system_name,
+                target_display_name=row.target_display_name,
+                decision_reasons=list(row.request.decision_reasons),
+                citations=list(row.request.citations),
+                approvals=list(row.request.approvals),
+                grant_id=row.grant_id,
+                expires_at=row.expires_at,
             )
             for row in rows
         ]

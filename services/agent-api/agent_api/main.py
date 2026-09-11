@@ -37,6 +37,7 @@ from agent_api.admin_routes import router as admin_router
 from agent_api.auth_routes import router as auth_router
 from agent_api.chat_routes import router as chat_router
 from agent_api.checkpointer import build_checkpointer, build_pool, psycopg_dsn
+from agent_api.me_routes import router as me_router
 
 REDIS_CONNECT_TIMEOUT_SECONDS = 5.0
 """How long the rate limiter waits to reach Redis at all.
@@ -178,6 +179,7 @@ app.add_middleware(TelemetryContextMiddleware)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(chat_router)
+app.include_router(me_router)
 
 
 class HealthResponse(BaseModel):

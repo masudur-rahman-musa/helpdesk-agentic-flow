@@ -32,12 +32,13 @@ No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from helpdesk.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.core.repository import Repository
-from helpdesk.models import AccessRequest, RequestStatus
+from helpdesk.models import AccessRequest, Grant, RequestStatus
 from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,
@@ -51,6 +52,7 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
+from mcp_server.tools import access
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -541,3 +543,463 @@ def test_a_user_with_no_requests_gets_an_empty_list(
     payload = _structured(call_tool(bearer(token_for(mcp_env.tenant_b)), LIST_MY_REQUESTS, {}))
 
     assert payload["requests"] == []
+
+
+# --- an earlier change: the widened row, its grant join and its limit -------------------
+#
+# Surface under test (written before it exists; every case below is red on one
+# of these names until step 1 lands):
+#
+# ``mcp_server.tools.access``
+#     ``REQUESTS_LIMIT_MIN = 1``, ``REQUESTS_LIMIT_DEFAULT = 50``,
+#     ``REQUESTS_LIMIT_MAX = 200`` — 23a §1's three constants, the trio
+#     ``tools/read.py`` already carries for ``search_audit``.
+#     ``ListMyRequestsInput.limit`` — ``ge=REQUESTS_LIMIT_MIN``,
+#     ``le=REQUESTS_LIMIT_MAX``, defaulting to ``REQUESTS_LIMIT_DEFAULT``.
+#     ``AccessRequestSummary`` — the nine fields it carries today plus
+#     ``role_slug``, ``role_name``, ``system_slug``, ``system_name``,
+#     ``target_display_name``, ``decision_reasons``, ``citations``,
+#     ``approvals``, ``grant_id`` and ``expires_at``: NINETEEN, asserted as an
+#     exact set.
+#
+# Shapes this file fixes that the plan left open (a project rule and 55;
+# these belong in 23a's Deviations):
+# - ``approvals`` renders each stored ``SlotState`` as an OBJECT carrying at
+#   least ``slot`` and ``user_id``; decision D is slot-only, so no display name
+#   is resolved. The case below reads those two keys and nothing else, because
+#   whether ``SlotState``'s four decision fields are dumped as explicit nulls
+#   is the implementer's call and pinning invented keys would be a test only
+#   this file could satisfy.
+# - ``decision_reasons`` and ``citations`` come back as the JSONB columns hold
+#   them, unchanged: a list of strings and a list of objects.
+# - ``grant_id`` is a string uuid and ``expires_at`` an ISO instant, the way
+#   every other uuid and datetime on this wire already is.
+#
+# Isolation is the existing namespace: the session-scoped
+# ``mcp_env`` schema, planted rows carrying a per-case ``uuid4`` prefix in
+# their justification, and no new fixture of any kind.
+
+# The nineteen fields of §1, written out rather than derived: a set built by
+# comprehension over the model would agree with any implementation.
+EXPECTED_SUMMARY_FIELDS = frozenset(
+    {
+        "request_id",
+        "target_user_id",
+        "role_id",
+        "justification",
+        "requested_expiry_days",
+        "risk_class",
+        "decision",
+        "status",
+        "created_at",
+        "role_slug",
+        "role_name",
+        "system_slug",
+        "system_name",
+        "target_display_name",
+        "decision_reasons",
+        "citations",
+        "approvals",
+        "grant_id",
+        "expires_at",
+    }
+)
+
+EXPECTED_REQUESTS_LIMIT_MIN = 1
+EXPECTED_REQUESTS_LIMIT_DEFAULT = 50
+EXPECTED_REQUESTS_LIMIT_MAX = 200
+
+# Fixed instants, never offsets from "now": a grant whose expiry depends on
+# when the suite runs is a flaky row, not a fixture (mcp_fixtures' own rule).
+PLANTED_GRANTED_AT = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
+PLANTED_EXPIRES_AT = datetime(2099, 3, 1, 12, 0, tzinfo=UTC)
+
+PLANTED_REASONS = ["IN_TEMPLATE", "EXPIRY_CAPPED"]
+PLANTED_CITATION = {
+    "document_slug": "fake-access-policy",
+    "title": "Fake Access Policy",
+    "version": "v1",
+    "heading_path": "Fake Section",
+    "chunk_id": "fake-chunk-0001",
+}
+
+PLANTED_SLOT = "department_manager"
+
+
+def _insert_wide_request(
+    database_url: str,
+    caller: SeededUser,
+    *,
+    justification: str,
+    status: RequestStatus,
+    role_id: uuid.UUID,
+    target_user_id: uuid.UUID,
+    approvals: list[dict[str, Any]],
+    requested_expiry_days: int | None = None,
+) -> uuid.UUID:
+    """One `access_requests` row with every column the widened row renders.
+
+    A second helper rather than more keyword arguments on `_insert_request`:
+    the cases above own that one, and a default changed there would change
+    what they plant.
+    """
+
+    async def scenario() -> uuid.UUID:
+        engine = create_engine(database_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, caller.tenant_id) as session:
+                row = await Repository(session, AccessRequest).create(
+                    requester_user_id=caller.user_id,
+                    target_user_id=target_user_id,
+                    role_id=role_id,
+                    justification=justification,
+                    requested_expiry_days=requested_expiry_days,
+                    risk_class="elevated",
+                    decision="approval",
+                    decision_reasons=list(PLANTED_REASONS),
+                    citations=[dict(PLANTED_CITATION)],
+                    status=status.value,
+                    approver_user_ids=[],
+                    approvals=approvals,
+                    session_id=None,
+                    trace_id=None,
+                    idempotency_key=None,
+                )
+                return row.id
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(scenario())
+
+
+def _insert_grant_for_request(
+    database_url: str,
+    caller: SeededUser,
+    *,
+    user_id: uuid.UUID,
+    role_id: uuid.UUID,
+    request_id: uuid.UUID,
+    expires_at: datetime | None,
+) -> uuid.UUID:
+    """One live `grants` row pointing back at the request it came from."""
+
+    async def scenario() -> uuid.UUID:
+        engine = create_engine(database_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, caller.tenant_id) as session:
+                row = await Repository(session, Grant).create(
+                    user_id=user_id,
+                    role_id=role_id,
+                    request_id=request_id,
+                    granted_by_user_id=caller.user_id,
+                    granted_at=PLANTED_GRANTED_AT,
+                    expires_at=expires_at,
+                    revoked_at=None,
+                    revoke_reason=None,
+                    status="active",
+                )
+                return row.id
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(scenario())
+
+
+def _directory_names(database_url: str, role_id: uuid.UUID) -> tuple[str, str, str, str]:
+    """`(role_slug, role_name, system_slug, system_name)` off the directory rows."""
+    rows = _rows(
+        database_url,
+        "SELECT r.slug, r.name, s.slug, s.name FROM roles r"
+        " JOIN systems s ON s.id = r.system_id WHERE r.id = :role",
+        {"role": role_id},
+    )
+    assert len(rows) == 1, "fixture premise: the planted request names a real role"
+    return (str(rows[0][0]), str(rows[0][1]), str(rows[0][2]), str(rows[0][3]))
+
+
+def _display_name(database_url: str, user_id: uuid.UUID) -> str:
+    rows = _rows(database_url, "SELECT display_name FROM users WHERE id = :id", {"id": user_id})
+    assert len(rows) == 1, "fixture premise: the planted request names a real user"
+    return str(rows[0][0])
+
+
+def _row_for(payload: dict[str, Any], justification: str) -> dict[str, Any]:
+    matches = [item for item in payload["requests"] if item["justification"] == justification]
+    assert len(matches) == 1, f"expected one row for {justification!r}, got {len(matches)}"
+    row: dict[str, Any] = matches[0]
+    return row
+
+
+def test_the_widened_row_carries_exactly_the_nineteen_planned_fields(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches a widening that drops one of §1's ten new fields AND one that
+    carries a spare (a `requester_user_id`, the raw `approver_user_ids`, a
+    `system_id`): the key set is asserted as an exact set, so both directions
+    fail. Per-field assertions — which every case above uses — cannot see the
+    spare field, and the spare field is the one publishing a column nobody
+    decided to publish."""
+    caller = mcp_env.tenant_a
+    justification = f"fake wide row {uuid.uuid4().hex}"
+    _insert_wide_request(
+        mcp_env.database_url,
+        caller,
+        justification=justification,
+        status=RequestStatus.PENDING,
+        role_id=_role_in_callers_tenant(caller),
+        target_user_id=caller.user_id,
+        approvals=[],
+    )
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(caller)), LIST_MY_REQUESTS, {"limit": EXPECTED_REQUESTS_LIMIT_MAX}
+        )
+    )
+
+    assert len(EXPECTED_SUMMARY_FIELDS) == 19
+    assert set(_row_for(payload, justification)) == EXPECTED_SUMMARY_FIELDS
+
+
+def test_the_names_come_from_the_directory_and_not_from_the_request_row(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches the four name fields and `target_display_name` being filled
+    from anything but the rows their ids point at.
+
+    Three kills in one shape, none of them decidable by another guard:
+    `role_name`/`system_name` echoed from the matching SLUG fails, because the
+    premise reads both off the directory and asserts they differ;
+    `target_display_name` taken from the TOKEN's user fails, because the
+    planted request targets a colleague in the SAME tenant
+    whose display name differs from the caller's; a row that resolves nothing
+    fails on all five.
+
+    The stored chain, reasons and citations are read back here too: they are
+    columns rather than lookups, so dropping them is the other half of
+    "rendered by slot" (decision D).
+    """
+    caller = mcp_env.tenant_a
+    target = mcp_env.probe
+    assert caller.tenant_id == target.tenant_id, "the point of this test (standing rule 9)"
+    assert caller.display_name != target.display_name
+    role_id = _role_in_callers_tenant(caller)
+    role_slug, role_name, system_slug, system_name = _directory_names(mcp_env.database_url, role_id)
+    assert role_name != role_slug, "fixture premise: the seeded role's name is not its slug"
+    assert system_name != system_slug, "fixture premise: the seeded system's name is not its slug"
+    approver_id = caller.user_id
+    justification = f"fake named row {uuid.uuid4().hex}"
+    _insert_wide_request(
+        mcp_env.database_url,
+        caller,
+        justification=justification,
+        status=RequestStatus.PENDING,
+        role_id=role_id,
+        target_user_id=target.user_id,
+        approvals=[{"slot": PLANTED_SLOT, "user_id": str(approver_id)}],
+    )
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(caller)), LIST_MY_REQUESTS, {"limit": EXPECTED_REQUESTS_LIMIT_MAX}
+        )
+    )
+
+    row = _row_for(payload, justification)
+    assert row["role_slug"] == role_slug
+    assert row["role_name"] == role_name
+    assert row["system_slug"] == system_slug
+    assert row["system_name"] == system_name
+    assert row["target_display_name"] == _display_name(mcp_env.database_url, target.user_id)
+    assert row["target_display_name"] != caller.display_name
+
+    assert row["decision_reasons"] == PLANTED_REASONS
+    assert row["citations"] == [PLANTED_CITATION]
+    assert [slot["slot"] for slot in row["approvals"]] == [PLANTED_SLOT]
+    assert row["approvals"][0]["user_id"] == str(approver_id)
+
+
+def test_the_grant_join_is_null_when_pending_and_carries_the_grant_when_executed(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches `grant_id`/`expires_at` that are always null (no join at all),
+    and catches `expires_at` computed from `requested_expiry_days` instead of
+    read off the grant: the planted request asks for 7 days and the planted
+    grant expires in 2099, which decision E is precisely about — the requested
+    days are not the expiry once the engine capped them.
+
+    The pending half is the other kill: an INNER join drops the ungranted
+    request entirely, so a row missing there fails nothing else.
+    """
+    caller = mcp_env.tenant_a
+    role_id = _role_in_callers_tenant(caller)
+    prefix = f"fake grant join {uuid.uuid4().hex}"
+    _insert_wide_request(
+        mcp_env.database_url,
+        caller,
+        justification=f"{prefix} pending",
+        status=RequestStatus.PENDING,
+        role_id=role_id,
+        target_user_id=caller.user_id,
+        approvals=[],
+        requested_expiry_days=7,
+    )
+    executed_id = _insert_wide_request(
+        mcp_env.database_url,
+        caller,
+        justification=f"{prefix} executed",
+        status=RequestStatus.EXECUTED,
+        role_id=role_id,
+        target_user_id=caller.user_id,
+        approvals=[],
+        requested_expiry_days=7,
+    )
+    grant_id = _insert_grant_for_request(
+        mcp_env.database_url,
+        caller,
+        user_id=caller.user_id,
+        role_id=role_id,
+        request_id=executed_id,
+        expires_at=PLANTED_EXPIRES_AT,
+    )
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(caller)), LIST_MY_REQUESTS, {"limit": EXPECTED_REQUESTS_LIMIT_MAX}
+        )
+    )
+
+    pending = _row_for(payload, f"{prefix} pending")
+    assert pending["grant_id"] is None
+    assert pending["expires_at"] is None
+
+    executed = _row_for(payload, f"{prefix} executed")
+    assert executed["grant_id"] == str(grant_id)
+    assert executed["expires_at"] is not None
+    assert datetime.fromisoformat(str(executed["expires_at"])) == PLANTED_EXPIRES_AT
+
+
+def test_several_requests_come_back_once_each_despite_the_grant_join(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches a join that multiplies rows (§5's second risk): three requests
+    are planted for one caller, one of them granted, and the answer must carry
+    three rows with exactly one `grant_id` filled.
+
+    Only this case can fail for that reason — every other case reads one row
+    by its unique justification through `_row_for`, which is indifferent to how
+    many other rows the join produced.
+    """
+    caller = mcp_env.tenant_a
+    role_id = _role_in_callers_tenant(caller)
+    prefix = f"fake join count {uuid.uuid4().hex}"
+    planted = [
+        _insert_wide_request(
+            mcp_env.database_url,
+            caller,
+            justification=f"{prefix} {index}",
+            status=RequestStatus.PENDING,
+            role_id=role_id,
+            target_user_id=caller.user_id,
+            approvals=[],
+        )
+        for index in range(3)
+    ]
+    _insert_grant_for_request(
+        mcp_env.database_url,
+        caller,
+        user_id=caller.user_id,
+        role_id=role_id,
+        request_id=planted[1],
+        expires_at=PLANTED_EXPIRES_AT,
+    )
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(caller)), LIST_MY_REQUESTS, {"limit": EXPECTED_REQUESTS_LIMIT_MAX}
+        )
+    )
+
+    mine = [
+        item for item in payload["requests"] if str(item["justification"]).startswith(f"{prefix} ")
+    ]
+    assert len(mine) == 3
+    assert {str(item["request_id"]) for item in mine} == {str(row_id) for row_id in planted}
+    assert [item["grant_id"] for item in mine].count(None) == 2
+
+
+def test_the_request_limit_constants_are_exactly_their_planned_values() -> None:
+    """Catches a widened `limit` (an unbounded response over a table that only
+    grows), a drifted default (every caller who omits `limit` silently gets a
+    different page), and a lower bound of 0 (an empty page a client would read
+    as "you have filed nothing"). a project rule wants the values, not a
+    band."""
+    assert access.REQUESTS_LIMIT_MIN == EXPECTED_REQUESTS_LIMIT_MIN == 1
+    assert access.REQUESTS_LIMIT_DEFAULT == EXPECTED_REQUESTS_LIMIT_DEFAULT == 50
+    assert access.REQUESTS_LIMIT_MAX == EXPECTED_REQUESTS_LIMIT_MAX == 200
+
+
+def test_the_default_request_limit_is_read_off_the_input_model() -> None:
+    """Catches the constant and the model disagreeing: a `Field(default=100)`
+    beside a `REQUESTS_LIMIT_DEFAULT` of 50 leaves the case above green while
+    every caller who omits `limit` receives a different page size than §1
+    promises. Both fields stay optional, so the model constructs with no
+    arguments at all — which is what pins that an unfiltered, unpaged call is
+    still legal."""
+    assert access.ListMyRequestsInput().limit == access.REQUESTS_LIMIT_DEFAULT
+
+
+REQUEST_LIMIT_CASES: tuple[tuple[str, int, bool], ...] = (
+    ("limit-0-refused", 0, False),
+    ("limit-1-ok", EXPECTED_REQUESTS_LIMIT_MIN, True),
+    ("limit-200-ok", EXPECTED_REQUESTS_LIMIT_MAX, True),
+    ("limit-201-refused", EXPECTED_REQUESTS_LIMIT_MAX + 1, False),
+)
+
+
+@pytest.mark.parametrize(
+    ("limit", "accepted"),
+    [case[1:] for case in REQUEST_LIMIT_CASES],
+    ids=[case[0] for case in REQUEST_LIMIT_CASES],
+)
+def test_the_request_limit_boundary_is_inclusive_at_1_and_200(
+    mcp_env: SeededMcp,  # noqa: F811
+    limit: int,
+    accepted: bool,
+) -> None:
+    """§1's `limit`, both sides of both ends.
+
+    A one-sided assertion cannot tell an inclusive bound from an exclusive
+    one: `gt=1` accepts 200 and refuses 1, `lt=200` accepts 1 and refuses 200,
+    so both accepted rows are needed to pin `ge`/`le`. Two rows are planted
+    first, so the `limit=1` row returning exactly one of them also catches a
+    bound that validates and is then never passed to the query — the failure a
+    boundary table alone cannot see.
+
+    The refusals are VALIDATION from the INPUT MODEL, before any DB access:
+    nothing is planted for them to read, so a handler validating after the
+    query would answer 200 here.
+    """
+    caller = mcp_env.tenant_a
+    role_id = _role_in_callers_tenant(caller)
+    prefix = f"fake limit probe {uuid.uuid4().hex}"
+    for index in range(2):
+        _insert_wide_request(
+            mcp_env.database_url,
+            caller,
+            justification=f"{prefix} {index}",
+            status=RequestStatus.PENDING,
+            role_id=role_id,
+            target_user_id=caller.user_id,
+            approvals=[],
+        )
+
+    result = call_tool(bearer(token_for(caller)), LIST_MY_REQUESTS, {"limit": limit})
+
+    if not accepted:
+        assert error_code(result) == "VALIDATION"
+        return
+    payload = _structured(result)
+    assert 1 <= len(payload["requests"]) <= limit

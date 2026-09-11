@@ -41,19 +41,20 @@ from typing import Any
 
 from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from helpdesk.auth.jwt import TokenClaims, TokenVerificationError, verify_token
+from helpdesk.auth.jwt import TokenClaims
 from helpdesk.core.db import tenant_session
 from helpdesk.core.repository import find_tenant_by_id, list_recent_messages
-from helpdesk.core.settings import Settings, load_settings
+from helpdesk.core.settings import load_settings
 from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.models.conversation import check_message_content
 from pydantic import BaseModel
 
+from agent_api import deps
 from agent_api.decision_card import decision_card
 from agent_api.graph.build import run_turn, stream_turn
 from agent_api.graph.deps import TurnDeps
 from agent_api.graph.state import TurnOutcome, TurnState
-from agent_api.mcp_client import McpToolCaller, ToolCaller, TracingToolCaller
+from agent_api.mcp_client import ToolCaller
 from agent_api.ratelimit import RateLimitExceededError, check_rate_limit
 from agent_api.sse import DONE, ERROR, encode_event
 
@@ -127,49 +128,24 @@ class ChatResponse(BaseModel):
     decision: dict[str, Any] | None
 
 
-def build_tool_caller(settings: Settings, bearer_token: str) -> ToolCaller:
-    """The turn's MCP caller, built per turn and never held on the app.
+build_tool_caller = deps.build_tool_caller
+"""The turn's MCP caller, `agent_api.deps`' since an earlier change (decision C).
 
-    A tool session's lifetime is one turn and `run_turn`
-    is what enters and exits it, so this is deliberately not a lifespan
-    resource. Called through the MODULE attribute below — the seam
-    `agent_api.readiness` already uses — so the route's tests drive the
-    scripted stub of 17b and open no socket.
+Kept as a MODULE GLOBAL here, and called through the module attribute below,
+for two reasons: it is the seam `agent_api.readiness` already uses, and the
+route's tests replace it with the scripted stub of 17b so a turn opens no
+socket. Moving the definition without leaving this name behind would rebind
+none of those `monkeypatch.setattr(chat_routes, "build_tool_caller", …)`
+sites and every one of them would quietly start dialling a real MCP server.
+"""
 
-    The caller's own bearer is forwarded verbatim: the agent
-    signs nothing, and the MCP server decides what that person may do.
-
-    Wrapped in the tracing decorator here, which is the only place the
-    concrete caller is built: every call the turn makes
-    then opens its `tool:{name}` span under the node that made it, and the MCP
-    client itself learns nothing about tracing. Pinned by
-    `test_agent_tracing.py::test_the_route_builds_the_tracing_caller_around_the_mcp_one`,
-    which is what catches a wrapper that exists and is never wired.
-    """
-    return TracingToolCaller(McpToolCaller(url=settings.mcp_url, bearer_token=bearer_token))
+_bearer = deps.bearer
+_claims = deps.claims
 
 
 def _typed(code: ErrorCode) -> JSONResponse:
     """One typed body, dressed in this code's status. Never free text."""
     return JSONResponse(status_code=STATUS_FOR_CODE.get(code, 500), content={"code": code.value})
-
-
-def _bearer(authorization: str | None) -> str | None:
-    if authorization is None:
-        return None
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        return None
-    return token
-
-
-def _claims(token: str | None, secret: str) -> TokenClaims | None:
-    if token is None:
-        return None
-    try:
-        return verify_token(token, secret, datetime.now(UTC))
-    except TokenVerificationError:
-        return None
 
 
 class _Identity(BaseModel):
