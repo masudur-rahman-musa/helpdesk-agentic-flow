@@ -212,6 +212,22 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. the design's `list_reviews` row, the same five cells as the three
+    # review rows above: the queue is reachable by exactly the
+    # principals who may open a review, read its items and decide one, and by
+    # no one else. `auditor` is the cell that matters — it holds one on the
+    # audit row and none here, so a row copied from `search_audit` by habit
+    # fails (a project rule: this literal is the design, and it is part of every
+    # diff that adds a tool or changes a cell).
+    "list_reviews": {
+        "employee": False,
+        "manager": True,
+        "system_owner": True,
+        "hr": True,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # An earlier change. the design's revoke row, written out literally rather than
     # derived from `_MATRIX`: five cells, and `hr` DOES hold one here (unlike
     # the approval rows above), so a row copied from `approve_request` by
@@ -385,6 +401,17 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # collection name, which no argument can reach, and it is pinned end
         # to end against the real store by `test_mcp_policy_isolation.py`.
         "search_policy",
+        # An earlier change: `list_reviews` takes a page size and an optional status and
+        # nothing else — the scope it answers comes from the TOKEN, so there is
+        # no id for a cross-tenant call to carry. That isolation is pinned
+        # instead by `test_mcp_reviews.py::
+        # test_another_tenants_review_is_invisible_to_an_any_scope_caller`,
+        # which plants a REAL review in the other tenant. It belongs in neither
+        # `ALLOW_ANSWERS_NOT_FOUND` nor `SCOPE_BEFORE_EXISTENCE_TOOLS` either
+        #: a permitted caller SUCCEEDS here — an empty queue
+        # is an answer, never a refusal — so the plain permitted branch of the
+        # sweep is the strict assertion and the cell pins the matrix.
+        "list_reviews",
     }
 )
 # The five decision G names explicitly: everything they answer is decided by
@@ -483,6 +510,15 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         }
     if tool_name == "list_review_items":
         return {"review_id": str(uuid.uuid4())}
+    if tool_name == "list_reviews":
+        # An earlier change. No arguments at all: the queue takes no id, and both of its
+        # optional arguments have defaults, so a permitted caller reaches the
+        # handler and SUCCEEDS with whatever their own scope reaches (an empty
+        # list for a seeded caller with no review). Written out rather than
+        # left to the fallthrough so the tool's classification is a decision on
+        # the page: an id forced onto it would test the argument parser and not
+        # the matrix.
+        return {}
     if tool_name == "decide_review_item":
         # An item id that resolves nowhere, so no principal ends anybody's
         # access per matrix cell in the shared seeded database. A scoped

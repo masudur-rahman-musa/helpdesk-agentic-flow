@@ -166,6 +166,20 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
+    # An earlier change: the review QUEUE carries the same cell as the three
+    # rows above. A manager reads their own department's reviews, a system
+    # owner their own systems', and the three `any` principals every one in the
+    # tenant; `employee` and `auditor` hold nothing, so neither can learn which
+    # scopes are under review and how far along each one is.
+    "list_reviews": {
+        "employee": None,
+        "manager": "own_department",
+        "system_owner": "own_systems",
+        "hr": "any",
+        "it_admin": "any",
+        "auditor": None,
+        "platform_admin": "any",
+    },
     "search_audit": {
         "employee": None,
         "manager": "own_department",

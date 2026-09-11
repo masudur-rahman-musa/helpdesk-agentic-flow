@@ -253,6 +253,19 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=reviews.list_review_items,
     ),
     ToolSpec(
+        # An earlier change: a read, so the generic `tool.succeeded` is the WHOLE
+        # record — nothing here appends an event of its own, because reading a
+        # queue changes nothing an auditor could ask about.
+        name=rbac.Tool.LIST_REVIEWS.value,
+        tool=rbac.Tool.LIST_REVIEWS,
+        description="List the access reviews the calling user's scope reaches, oldest due first.",
+        input_model=reviews.ListReviewsInput,
+        output_model=reviews.ListReviewsOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=reviews.list_reviews,
+    ),
+    ToolSpec(
         name=rbac.Tool.LIST_PENDING_APPROVALS.value,
         tool=rbac.Tool.LIST_PENDING_APPROVALS,
         description="List the access requests waiting on the calling user's approval.",
@@ -327,9 +340,7 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         # switch key and the audit subject are one string by construction.
         name=rbac.Tool.SEARCH_AUDIT.value,
         tool=rbac.Tool.SEARCH_AUDIT,
-        description=(
-            "Search this tenant's audit log, newest first, within the caller's scope."
-        ),
+        description=("Search this tenant's audit log, newest first, within the caller's scope."),
         input_model=read.SearchAuditInput,
         output_model=read.SearchAuditOutput,
         event_type=SUCCESS_EVENT_TYPE,
@@ -353,7 +364,7 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
             # The polarity in words, decision B: an agent reading this cannot
             # get `enabled` backwards.
             "Turn a tool's kill switch on or off. enabled=true STOPS the named tool; "
-            "enabled=false lets it run again. scope is \"global\" or your own tenant id."
+            'enabled=false lets it run again. scope is "global" or your own tenant id.'
         ),
         input_model=admin.SetKillSwitchInput,
         output_model=admin.SetKillSwitchOutput,

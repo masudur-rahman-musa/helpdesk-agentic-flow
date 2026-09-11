@@ -396,7 +396,7 @@ def test_an_unregistered_wire_name_touches_no_redis_key(
     assert _redis_keys(mcp_redis_url, f"*{UNREGISTERED_NAME}*") == []
 
 
-# --- the two review tools --------------------------------------------
+# --- the review tools ---------------------------------------
 
 
 REVIEW_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
@@ -406,6 +406,12 @@ REVIEW_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
     # called a tool and not what was reviewed.
     ("open_access_review", rbac.Tool.OPEN_ACCESS_REVIEW, registry.SUCCESS_EVENT_TYPE, True),
     ("list_review_items", rbac.Tool.LIST_REVIEW_ITEMS, registry.SUCCESS_EVENT_TYPE, False),
+    # An earlier change: the queue. A READ — it writes nothing at all — so it declares
+    # the generic success event and stays OFF `MUTATING_TOOL_NAMES` above; a
+    # `True` here would demand an idempotency key for a call the guard never
+    # protects, and the web's `/reviews` page would be unable to list anything
+    # without minting one.
+    ("list_reviews", rbac.Tool.LIST_REVIEWS, registry.SUCCESS_EVENT_TYPE, False),
 )
 
 

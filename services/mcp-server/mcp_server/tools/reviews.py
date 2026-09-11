@@ -50,14 +50,23 @@ from helpdesk.access import (
     decide_item,
     find_item,
     find_review,
-    list_items,
+    list_items_with_context,
+    list_owned_system_ids,
+    list_reviews_for_scope,
     open_review,
     request_in_scope,
 )
 from helpdesk.auth import rbac
 from helpdesk.core.repository import Repository
 from helpdesk.errors import NotFoundError
-from helpdesk.models import PERIOD_LENGTH, AccessReview, ReviewDecision, ReviewFlag, System
+from helpdesk.models import (
+    PERIOD_LENGTH,
+    AccessReview,
+    ReviewDecision,
+    ReviewFlag,
+    ReviewStatus,
+    System,
+)
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -168,18 +177,92 @@ class ListReviewItemsInput(BaseModel):
 
 
 class ReviewItemOutput(BaseModel):
-    """One item as a reviewer sees it, before anybody has decided it."""
+    """One item as a reviewer sees it, with the grant behind it named.
+
+    The six context fields arrived with an earlier change (decision B), widened in
+    place rather than added as a second tool: every caller of the item list
+    needs them, because a reviewer cannot decide a `grant_id`, and a second
+    tool would be a second call on every page load and a second scope check to
+    keep in step. Each one is read from the row its id points at, off the same
+    joined read — pinned by
+    `test_mcp_reviews.py::test_list_review_items_answers_eleven_keys_naming_the_grant_behind_the_item`,
+    whose grant holder carries a name no other row in that file has.
+    """
 
     item_id: uuid.UUID
     grant_id: uuid.UUID
     flag: ReviewFlag
     decision: str | None
     decided_at: datetime | None
+    target_display_name: str
+    role_name: str
+    system_name: str
+    privilege: str
+    granted_at: datetime
+    expires_at: datetime | None
 
 
 class ListReviewItemsOutput(BaseModel):
     review_id: uuid.UUID
     items: list[ReviewItemOutput]
+
+
+class ListReviewsInput(BaseModel):
+    """The queue's whole input: a page size and an optional status.
+
+    No user and no tenant argument at all — both are the token's (hard rule
+    6) — so there is nothing here for a caller to name somebody else with.
+    Extras are ignored rather than forbidden, the read tool's contract.
+
+    `status` is the `ReviewStatus` StrEnum itself and not a `str` with a
+    validator (decision E): the enum IS the pre-check, so `"OPEN"`, a member
+    with a trailing newline, one with a trailing space and an unknown word are
+    each refused as `VALIDATION` at argument parsing, before any read. That is
+    why no `re.fullmatch` validator appears here as it does on `period` —
+    there is no pattern to get wrong. An absent `status` answers every status,
+    never an implicit `open`: a completed review is most of the table after
+    two quarters, and a page that cannot ask for one cannot show a reviewer
+    what they already did. Pinned by
+    `test_mcp_reviews.py::test_the_status_filter_is_an_exact_enum_member_or_refused_before_any_read`
+    and `::test_each_status_answers_only_its_own_rows_and_an_absent_status_answers_both`.
+    """
+
+    model_config = _IGNORE_EXTRAS
+
+    status: ReviewStatus | None = None
+    limit: int = Field(default=LIMIT_DEFAULT, ge=LIMIT_MIN, le=LIMIT_MAX)
+    """The same three constants the item list reads, never a second copy of
+    the numbers, so the two page sizes cannot drift apart.
+    Pinned by `::test_the_queue_reads_the_same_three_limit_constants_as_the_item_list`
+    and `::test_the_queue_limit_boundary_is_inclusive_at_1_and_200`."""
+
+
+class ReviewQueueRow(BaseModel):
+    """One review of the queue: its scope, its reviewer, and its progress.
+
+    Exactly one of the two id/name pairs is non-null on any row, because
+    `access_reviews`' own check constraint allows exactly one scope id. The
+    two counts are the design's "progress", carried ON the row so a page of
+    fifty reviews needs no second call per review (decision D).
+    """
+
+    review_id: uuid.UUID
+    period: str
+    status: str
+    due_at: datetime | None
+    completed_at: datetime | None
+    department_id: uuid.UUID | None
+    department_name: str | None
+    system_id: uuid.UUID | None
+    system_name: str | None
+    reviewer_user_id: uuid.UUID
+    reviewer_display_name: str
+    item_count: int
+    decided_count: int
+
+
+class ListReviewsOutput(BaseModel):
+    reviews: list[ReviewQueueRow]
 
 
 class DecideReviewItemInput(MutatingToolInput):
@@ -363,19 +446,96 @@ async def list_review_items(
     if review is None:
         raise NotFoundError("no such access review in this tenant")
 
-    items = await list_items(session, review.id, limit=args.limit)
+    items = await list_items_with_context(session, review.id, limit=args.limit)
     return ListReviewItemsOutput(
         review_id=review.id,
         items=[
             ReviewItemOutput(
-                item_id=item.id,
-                grant_id=item.grant_id,
-                flag=ReviewFlag(item.flag),
-                decision=item.decision,
-                decided_at=item.decided_at,
+                item_id=row.item.id,
+                grant_id=row.item.grant_id,
+                flag=ReviewFlag(row.item.flag),
+                decision=row.item.decision,
+                decided_at=row.item.decided_at,
+                target_display_name=row.target_display_name,
+                role_name=row.role_name,
+                system_name=row.system_name,
+                privilege=row.privilege,
+                granted_at=row.granted_at,
+                expires_at=row.expires_at,
             )
-            for item in items
+            for row in items
         ],
+    )
+
+
+async def list_reviews(
+    session: AsyncSession, identity: Identity, args: ListReviewsInput
+) -> ListReviewsOutput:
+    """The reviews this caller's the design scope reaches, oldest due first.
+
+    The queue the other three review tools never had: each of them
+    takes an id, and nothing answered which ids a reviewer may act on. What it
+    answers is decided by the design's own row — a `manager` their department's
+    reviews, a `system_owner` those of the systems they own, an `any`-scope
+    principal every one in the tenant — and never by a `reviewer_user_id`
+    filter, because a department's review belongs to the manager who inherited
+    the department as much as to the person named on it (decision A).
+
+    The scope is resolved HERE, from `rbac` and the directory, and handed to
+    `list_reviews_for_scope` already decided: nothing in `helpdesk/access/`
+    reads a token. `rbac.authorize` is what refuses a principal holding no
+    cell on this row, so the pipeline's matrix stage has no independent kill
+    on this tool and that is a property of the code rather than a gap — the same shape 12c's two tools carry.
+
+    The caller's department comes from the DIRECTORY, never from the token's
+    `department_id` claim: a manager transferred after their token was issued
+    must not keep the queue of the department they left.
+
+    There is no `NOT_FOUND` here at all, and that is the point of criterion 11:
+    the queue takes no id, so nothing can be missing, and a scope reaching no
+    review answers an EMPTY list. An empty queue is a fact about the tenant —
+    "nothing is waiting on you" — and a page that read it as a refusal would
+    show a manager a failure instead. Pinned by
+    `::test_a_scope_that_reaches_nothing_answers_an_empty_queue_and_never_not_found`.
+    """
+    scopes = rbac.authorize(identity.claims, rbac.Tool.LIST_REVIEWS).scopes
+    caller = await SimulatedDirectory(session).lookup_user(identity.user_id)
+    department_id = (
+        caller.department_id if rbac.Scope.OWN_DEPARTMENT in scopes and caller is not None else None
+    )
+    system_ids = (
+        await list_owned_system_ids(session, identity.user_id)
+        if rbac.Scope.OWN_SYSTEMS in scopes
+        else frozenset()
+    )
+
+    rows = await list_reviews_for_scope(
+        session,
+        department_id=department_id,
+        system_ids=system_ids,
+        any_scope=rbac.Scope.ANY in scopes,
+        status=args.status,
+        limit=args.limit,
+    )
+    return ListReviewsOutput(
+        reviews=[
+            ReviewQueueRow(
+                review_id=row.review.id,
+                period=row.review.period,
+                status=row.review.status,
+                due_at=row.review.due_at,
+                completed_at=row.review.completed_at,
+                department_id=row.review.department_id,
+                department_name=row.department_name,
+                system_id=row.review.system_id,
+                system_name=row.system_name,
+                reviewer_user_id=row.review.reviewer_user_id,
+                reviewer_display_name=row.reviewer_display_name,
+                item_count=row.item_count,
+                decided_count=row.decided_count,
+            )
+            for row in rows
+        ]
     )
 
 
@@ -479,11 +639,15 @@ __all__ = [
     "ItemAlreadyDecidedError",
     "ListReviewItemsInput",
     "ListReviewItemsOutput",
+    "ListReviewsInput",
+    "ListReviewsOutput",
     "OpenAccessReviewInput",
     "OpenAccessReviewOutput",
     "ReviewAlreadyOpenError",
     "ReviewItemOutput",
+    "ReviewQueueRow",
     "decide_review_item",
     "list_review_items",
+    "list_reviews",
     "open_access_review",
 ]

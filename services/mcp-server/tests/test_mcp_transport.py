@@ -94,6 +94,11 @@ EXPECTED_TOOL_NAMES = {
     "set_kill_switch",
     # An earlier change: the policy corpus read, and the only tool that reaches Qdrant.
     "search_policy",
+    # An earlier change: the review QUEUE — the read that answers "which reviews are
+    # waiting on me", which the three id-taking review tools cannot (standing
+    # rule 27: this literal is the wire surface, and it is part of every diff
+    # adding a REGISTRY entry).
+    "list_reviews",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

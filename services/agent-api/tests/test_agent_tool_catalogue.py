@@ -111,9 +111,12 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
 )
 """Every tool the agent may reach, as a literal: nineteen.
 
-Counted from the server's own `REGISTRY` — twenty-two specs — less the three
-in `ADMIN_TOOLS`. Written out rather than read off `tools/list`, so a tool
-DROPPED on both sides at once is still a red row here."""
+Counted from the server's own `REGISTRY` — twenty-three specs — less the three
+in `ADMIN_TOOLS` and `list_reviews`, which row 23e deliberately leaves out
+(decision C): a tool the model may call is model-driven behaviour and owes
+golden cases before it merges, and the `/reviews` page asks the wire directly.
+Written out rather than read off `tools/list`, so a tool DROPPED on both sides
+at once is still a red row here."""
 
 MUTATING_TOOLS: frozenset[str] = frozenset(
     {

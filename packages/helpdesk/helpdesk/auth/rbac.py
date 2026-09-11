@@ -52,6 +52,7 @@ class Tool(StrEnum):
     OFFBOARD_USER = "offboard_user"
     OPEN_ACCESS_REVIEW = "open_access_review"
     LIST_REVIEW_ITEMS = "list_review_items"
+    LIST_REVIEWS = "list_reviews"
     DECIDE_REVIEW_ITEM = "decide_review_item"
     SEARCH_AUDIT = "search_audit"
     ROLLBACK_REQUEST = "rollback_request"
@@ -215,6 +216,17 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
         Tool.LIST_REVIEW_ITEMS: {
+            Principal.MANAGER: Scope.OWN_DEPARTMENT,
+            Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
+            Principal.HR: Scope.ANY,
+            Principal.IT_ADMIN: Scope.ANY,
+            Principal.PLATFORM_ADMIN: Scope.ANY,
+        },
+        # An earlier change: the queue that answers "which reviews are waiting on me",
+        # carrying the same cell as the three tools above it. A queue wider
+        # than the tools it feeds would name scopes, reviewers and progress to
+        # a caller who may not open the reviews themselves.
+        Tool.LIST_REVIEWS: {
             Principal.MANAGER: Scope.OWN_DEPARTMENT,
             Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
             Principal.HR: Scope.ANY,

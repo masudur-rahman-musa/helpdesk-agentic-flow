@@ -61,6 +61,8 @@ from helpdesk.access.reviews import (
     decide_item,
     find_item,
     list_items,
+    list_items_with_context,
+    list_reviews_for_scope,
     open_review,
 )
 from helpdesk.core.db import create_engine, create_session_factory, tenant_session
@@ -71,6 +73,7 @@ from helpdesk.models import (
     Grant,
     ReviewDecision,
     ReviewFlag,
+    ReviewItem,
     ReviewStatus,
     Role,
     RoleTemplate,
@@ -1770,3 +1773,546 @@ def test_find_item_answers_nothing_for_another_tenants_item(
     assert in_tenant(access_db_url, work) == items[0].item_id
     assert in_tenant(access_db_url, work, tenant_id=OTHER_TENANT_ROWS.tenant_id) is None
     assert in_tenant(access_db_url, missing) is None
+
+
+# =================================================================================
+# An earlier change, sections 1 and 6: the queue read and the widened item read.
+#
+# Surface under test (written before it exists):
+#
+# ``helpdesk.access.reviews``
+#     ``async def list_reviews_for_scope(session, *, department_id, system_ids,
+#     any_scope, status, limit) -> Sequence[ReviewWithCounts]`` — the reviews one
+#     caller's the design scope reaches, `due_at` oldest first with the review id
+#     breaking a tie, at most `limit` of them. The scope arrives DECIDED (a
+#     department id, a set of owned system ids, or `any_scope=True`): nothing in
+#     `helpdesk/access/` reads a token, exactly as `list_items` takes no scope.
+#     Each answered row carries ``.review`` (the ORM row), ``.department_name``,
+#     ``.system_name``, ``.reviewer_display_name``, ``.item_count`` and
+#     ``.decided_count``, the last two from ONE grouped aggregate over
+#     `review_items` (decision D).
+#     ``async def list_items_with_context(session, review_id, *, limit) ->
+#     Sequence[ReviewItemWithContext]`` — 23c's widened twin: ``.item`` plus the
+#     grant's ``.target_display_name``, ``.role_name``, ``.system_name``,
+#     ``.privilege``, ``.granted_at`` and ``.expires_at``, off one joined read.
+#     ``list_items`` becomes a pure PROJECTION of it, so the
+#     cases above this line keep unpacking `Sequence[ReviewItem]`.
+#
+# a project rule: the same session-scoped seeded database, the same per-test
+# namespace (a freshly planted department, system, cast and period). The rows
+# these cases read are planted with RAW SQL rather than opened through
+# `open_review`, because the queue's contract is about `due_at`, `status` and
+# the item counts — three columns no tool sets today, and ids the ordering case
+# has to choose rather than discover.
+# =================================================================================
+
+
+DUE_EARLY = datetime(2026, 4, 1, 9, 0, tzinfo=UTC)
+DUE_LATE = datetime(2026, 7, 1, 9, 0, tzinfo=UTC)
+COMPLETED_AT = datetime(2026, 5, 5, 9, 0, tzinfo=UTC)
+
+
+def plant_review(
+    url: str,
+    *,
+    reviewer_user_id: uuid.UUID,
+    review_id: uuid.UUID | None = None,
+    tenant_id: uuid.UUID | None = None,
+    department_id: uuid.UUID | None = None,
+    system_id: uuid.UUID | None = None,
+    status: str = ReviewStatus.OPEN.value,
+    due_at: datetime | None = None,
+    completed_at: datetime | None = None,
+) -> uuid.UUID:
+    """One committed `access_reviews` row, written around the engine."""
+    new_id = uuid.uuid4() if review_id is None else review_id
+    _execute(
+        url,
+        "INSERT INTO access_reviews (id, tenant_id, reviewer_user_id, department_id, system_id,"
+        " period, status, due_at, completed_at, created_at, updated_at)"
+        " VALUES (:id, :tenant, :reviewer, :department, :system, :period, :status, :due_at,"
+        " :completed_at, now(), now())",
+        {
+            "id": new_id,
+            "tenant": ROWS.tenant_id if tenant_id is None else tenant_id,
+            "reviewer": reviewer_user_id,
+            "department": department_id,
+            "system": system_id,
+            "period": period(),
+            "status": status,
+            # `datetime` objects, never strings: asyncpg binds by type.
+            "due_at": due_at,
+            "completed_at": completed_at,
+        },
+    )
+    return new_id
+
+
+def plant_item(
+    url: str,
+    *,
+    review_id: uuid.UUID,
+    grant_id: uuid.UUID,
+    tenant_id: uuid.UUID | None = None,
+    decision: str | None = None,
+) -> uuid.UUID:
+    """One committed `review_items` row, written around the engine."""
+    item_id = uuid.uuid4()
+    _execute(
+        url,
+        "INSERT INTO review_items (id, tenant_id, review_id, grant_id, flag, decision,"
+        " decided_at, created_at, updated_at)"
+        " VALUES (:id, :tenant, :review, :grant, :flag, :decision, :decided_at, now(), now())",
+        {
+            "id": item_id,
+            "tenant": ROWS.tenant_id if tenant_id is None else tenant_id,
+            "review": review_id,
+            "grant": grant_id,
+            "flag": ReviewFlag.OK.value,
+            "decision": decision,
+            "decided_at": None if decision is None else OPENED_AT,
+        },
+    )
+    return item_id
+
+
+def _other_tenant_grant_id(url: str) -> uuid.UUID:
+    """An active grant the seed already wrote in the OTHER tenant."""
+    rows = _rows(
+        url,
+        "SELECT id FROM grants WHERE tenant_id = :tenant AND status = :status ORDER BY id LIMIT 1",
+        {"tenant": OTHER_TENANT_ROWS.tenant_id, "status": ACTIVE_GRANT_STATUS},
+    )
+    assert rows, "premise: the seed leaves at least one live grant in the other tenant"
+    return uuid.UUID(str(rows[0][0]))
+
+
+@dataclass(frozen=True)
+class QueueRow:
+    """One answered queue row, copied out before its session closes."""
+
+    review_id: uuid.UUID
+    status: str
+    due_at: datetime | None
+    completed_at: datetime | None
+    department_id: uuid.UUID | None
+    department_name: str | None
+    system_id: uuid.UUID | None
+    system_name: str | None
+    reviewer_user_id: uuid.UUID
+    reviewer_display_name: str
+    item_count: int
+    decided_count: int
+
+
+def read_queue(
+    url: str,
+    *,
+    department_id: uuid.UUID | None = None,
+    system_ids: frozenset[uuid.UUID] = frozenset(),
+    any_scope: bool = False,
+    status: ReviewStatus | None = None,
+    limit: int = 50,
+    tenant_id: uuid.UUID | None = None,
+) -> list[QueueRow]:
+    """The queue one resolved scope answers, as plain values."""
+
+    async def work(session: AsyncSession) -> list[QueueRow]:
+        rows = await list_reviews_for_scope(
+            session,
+            department_id=department_id,
+            system_ids=system_ids,
+            any_scope=any_scope,
+            status=status,
+            limit=limit,
+        )
+        return [
+            QueueRow(
+                review_id=row.review.id,
+                status=row.review.status,
+                due_at=row.review.due_at,
+                completed_at=row.review.completed_at,
+                department_id=row.review.department_id,
+                department_name=row.department_name,
+                system_id=row.review.system_id,
+                system_name=row.system_name,
+                reviewer_user_id=row.review.reviewer_user_id,
+                reviewer_display_name=row.reviewer_display_name,
+                item_count=row.item_count,
+                decided_count=row.decided_count,
+            )
+            for row in rows
+        ]
+
+    return in_tenant(url, work, tenant_id=tenant_id)
+
+
+# --- what a resolved scope answers (criterion 2) ---------------------------------
+
+
+def test_a_department_scope_answers_its_own_reviews_and_not_another_departments(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Catches a read that ignores the department it was handed and answers the
+    tenant's reviews.
+
+    Both departments are real rows in the CALLER's own tenant and both reviews
+    are `open`, so neither the tenant guard nor the status filter can hide the
+    second one: dropping the department predicate is the only change that puts
+    it in the answer. The own-department review is asserted PRESENT in the same
+    case, so a read that answers nothing to everybody fails too.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    other = plant_scope(access_db_url, members=1)
+    mine = plant_review(
+        access_db_url, reviewer_user_id=scope.manager_id, department_id=scope.department_id
+    )
+    theirs = plant_review(
+        access_db_url, reviewer_user_id=other.manager_id, department_id=other.department_id
+    )
+
+    answered = [
+        row.review_id for row in read_queue(access_db_url, department_id=scope.department_id)
+    ]
+
+    assert mine in answered
+    assert theirs not in answered
+
+
+def test_a_system_scope_answers_only_the_owned_systems_reviews(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """The `own_systems` half, which the department case cannot reach: catches a
+    read that applies the department predicate and leaves the system one
+    answering True for every system.
+
+    Both systems exist in the caller's own tenant and both reviews are `open`,
+    so only the owned-system predicate can separate them. The owned review is
+    asserted present in the same case, so a read answering nothing cannot pass.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    other = plant_scope(access_db_url, members=1)
+    mine = plant_review(access_db_url, reviewer_user_id=scope.owner_id, system_id=scope.system_id)
+    theirs = plant_review(access_db_url, reviewer_user_id=other.owner_id, system_id=other.system_id)
+
+    answered = [
+        row.review_id for row in read_queue(access_db_url, system_ids=frozenset({scope.system_id}))
+    ]
+
+    assert mine in answered
+    assert theirs not in answered
+
+
+def test_an_any_scope_answers_both_the_department_and_the_system_review(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Catches the `any` caller falling through the two narrow predicates into
+    an empty answer — the `if not predicates: return []` shape an earlier change's queue
+    read uses for a caller whose scopes resolve to nothing.
+
+    `any_scope` is handed no department and no system ids at all, so a read that
+    builds its WHERE clause only from those two arguments answers nothing here
+    while passing both cases above; a read that honours `any_scope` answers both
+    reviews, which are deliberately of DIFFERENT scope kinds.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    # An explicit `due_at` on both: they then sort ahead of every NULL-`due_at`
+    # review the rest of this file opens, so an `any`-scope page cannot depend
+    # on how many reviews the suite happened to write first.
+    departmental = plant_review(
+        access_db_url,
+        reviewer_user_id=scope.manager_id,
+        department_id=scope.department_id,
+        due_at=DUE_EARLY,
+    )
+    systemic = plant_review(
+        access_db_url,
+        reviewer_user_id=scope.owner_id,
+        system_id=scope.system_id,
+        due_at=DUE_EARLY,
+    )
+
+    answered = [row.review_id for row in read_queue(access_db_url, any_scope=True, limit=200)]
+
+    assert departmental in answered
+    assert systemic in answered
+
+
+def test_the_queue_orders_by_due_at_oldest_first_with_the_review_id_breaking_the_tie(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Criterion 2's order as an exact sequence, both halves of it.
+
+    The two tied reviews share one `due_at` and are INSERTED highest-id first,
+    so a read ordered by `created_at` (which is what `list_items` orders by, the
+    obvious copy) answers them the other way round and fails; the third review
+    is inserted LAST with the earliest `due_at`, so a read ordered by the id
+    alone — or by insertion — puts it in the wrong place. Only "due_at, then
+    id" answers this sequence.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    low, high = sorted([uuid.uuid4(), uuid.uuid4()])
+    plant_review(
+        access_db_url,
+        review_id=high,
+        reviewer_user_id=scope.manager_id,
+        department_id=scope.department_id,
+        due_at=DUE_LATE,
+    )
+    plant_review(
+        access_db_url,
+        review_id=low,
+        reviewer_user_id=scope.manager_id,
+        department_id=scope.department_id,
+        due_at=DUE_LATE,
+    )
+    earliest = plant_review(
+        access_db_url,
+        reviewer_user_id=scope.manager_id,
+        department_id=scope.department_id,
+        due_at=DUE_EARLY,
+    )
+
+    answered = [
+        row.review_id for row in read_queue(access_db_url, department_id=scope.department_id)
+    ]
+
+    assert answered == [earliest, low, high]
+
+
+# --- the two counts (criterion 4, decision D) ------------------------------------
+
+
+def test_a_review_with_three_items_one_decided_reads_three_and_one(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Catches `decided_count` counting every item (or every decision equal to
+    `revoke`), and `item_count` counting the reviews rather than their items.
+
+    Three items, exactly one of them carrying a decision, so a count that
+    answers 3 and 3, 3 and 0, or 1 and 1 each fails on its own number. The
+    neighbouring review in the same department holds a decided item of its own,
+    so an aggregate that forgets to group by review answers 4 and 2 here.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    member = scope.members[0]
+    grants = [
+        plant_grant(access_db_url, user_id=member, role_id=role_id)
+        for role_id in (scope.template_role_id, scope.extra_role_id, scope.conflict_role_id)
+    ]
+    review = plant_review(
+        access_db_url, reviewer_user_id=scope.manager_id, department_id=scope.department_id
+    )
+    plant_item(access_db_url, review_id=review, grant_id=grants[0])
+    plant_item(access_db_url, review_id=review, grant_id=grants[1])
+    plant_item(
+        access_db_url, review_id=review, grant_id=grants[2], decision=ReviewDecision.KEEP.value
+    )
+    neighbour = plant_review(
+        access_db_url, reviewer_user_id=scope.manager_id, department_id=scope.department_id
+    )
+    plant_item(
+        access_db_url,
+        review_id=neighbour,
+        grant_id=plant_grant(access_db_url, user_id=member, role_id=scope.partner_role_id),
+        decision=ReviewDecision.REVOKE.value,
+    )
+
+    answered = {
+        row.review_id: row for row in read_queue(access_db_url, department_id=scope.department_id)
+    }
+
+    assert answered[review].item_count == 3
+    assert answered[review].decided_count == 1
+    assert answered[neighbour].item_count == 1
+    assert answered[neighbour].decided_count == 1
+
+
+def test_a_review_with_no_items_reads_zero_and_zero_rather_than_being_absent(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Decision D's join direction: catches the counts arriving through an INNER
+    join, which drops exactly the review that has nothing to show.
+
+    A review with no items is the one `open_review` writes for a clean scope
+    (decision J), so a queue that hides it hides every completed-on-arrival
+    review in the product. The review with one item is planted in the same
+    department, so a read that answers nothing at all cannot pass instead.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    empty = plant_review(
+        access_db_url,
+        reviewer_user_id=scope.manager_id,
+        department_id=scope.department_id,
+        status=ReviewStatus.COMPLETED.value,
+        completed_at=COMPLETED_AT,
+    )
+    populated = plant_review(
+        access_db_url, reviewer_user_id=scope.manager_id, department_id=scope.department_id
+    )
+    plant_item(
+        access_db_url,
+        review_id=populated,
+        grant_id=plant_grant(
+            access_db_url, user_id=scope.members[0], role_id=scope.template_role_id
+        ),
+    )
+
+    answered = {
+        row.review_id: row for row in read_queue(access_db_url, department_id=scope.department_id)
+    }
+
+    assert empty in answered
+    assert answered[empty].item_count == 0
+    assert answered[empty].decided_count == 0
+    assert answered[empty].completed_at == COMPLETED_AT
+    assert answered[populated].item_count == 1
+
+
+def test_another_tenants_review_contributes_neither_a_row_nor_a_count(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """An earlier change §5's leak, both halves: catches a queue read outside the tenant
+    guard, and an aggregate written as a hand-rolled `count()` that the ORM
+    guard never filters.
+
+    The foreign review is a REAL row with its own item, so its absence has to
+    come from the guard rather than from an id nobody could resolve. The second
+    half is the sharper one: a `review_items` row belonging to the OTHER tenant
+    but pointing at THIS tenant's review is what an unscoped aggregate adds to
+    this caller's `item_count` and `decided_count`, and nothing about the row
+    set would show it. The own review is asserted present with the counts its
+    own items justify, so a read answering nothing to everybody cannot pass.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    # Both carry a `due_at`, so both sort ahead of the NULL-`due_at` tail and
+    # the foreign row's absence is the guard's doing rather than the page size.
+    mine = plant_review(
+        access_db_url,
+        reviewer_user_id=scope.manager_id,
+        department_id=scope.department_id,
+        due_at=DUE_EARLY,
+    )
+    plant_item(
+        access_db_url,
+        review_id=mine,
+        grant_id=plant_grant(
+            access_db_url, user_id=scope.members[0], role_id=scope.template_role_id
+        ),
+    )
+    foreign_review = plant_review(
+        access_db_url,
+        tenant_id=OTHER_TENANT_ROWS.tenant_id,
+        reviewer_user_id=OTHER_TENANT_ROWS.users_by_department["Engineering"][0].id,
+        department_id=OTHER_TENANT_ROWS.department_ids["Engineering"],
+        due_at=DUE_EARLY,
+    )
+    foreign_grant = _other_tenant_grant_id(access_db_url)
+    plant_item(
+        access_db_url,
+        review_id=foreign_review,
+        grant_id=foreign_grant,
+        tenant_id=OTHER_TENANT_ROWS.tenant_id,
+    )
+    # The rogue child row: another tenant's item hanging off THIS tenant's
+    # review, which only a tenant-scoped aggregate refuses to count.
+    plant_item(
+        access_db_url,
+        review_id=mine,
+        grant_id=foreign_grant,
+        tenant_id=OTHER_TENANT_ROWS.tenant_id,
+        decision=ReviewDecision.KEEP.value,
+    )
+
+    answered = {row.review_id: row for row in read_queue(access_db_url, any_scope=True, limit=200)}
+
+    assert foreign_review not in answered
+    assert answered[mine].item_count == 1
+    assert answered[mine].decided_count == 0
+
+
+# --- the widened item read and its projection (criterion 7) ----------------------
+
+
+def test_list_items_with_context_carries_the_grants_six_context_fields(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Decision B. Catches a read that answers the item alone, or one that
+    echoes the item's own columns under context names.
+
+    A reviewer cannot decide a `grant_id`: the six fields name the PERSON, the
+    role, the system, the privilege and the two dates, each read from the row
+    its id points at. Every value asserted here is planted by this case and by
+    nothing else in the file, so a join to the wrong row (the reviewer instead
+    of the grant holder, the review's system instead of the role's) answers a
+    different name rather than a plausible one.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    plant_grant(
+        access_db_url,
+        user_id=scope.members[0],
+        role_id=scope.template_role_id,
+        expires_at=FAR_EXPIRY,
+    )
+    review = open_one(access_db_url, department_id=scope.department_id)
+
+    async def work(session: AsyncSession) -> list[dict[str, Any]]:
+        rows = await list_items_with_context(session, review.review_id, limit=50)
+        return [
+            {
+                "item_id": row.item.id,
+                "grant_id": row.item.grant_id,
+                "target_display_name": row.target_display_name,
+                "role_name": row.role_name,
+                "system_name": row.system_name,
+                "privilege": row.privilege,
+                "granted_at": row.granted_at,
+                "expires_at": row.expires_at,
+            }
+            for row in rows
+        ]
+
+    answered = in_tenant(access_db_url, work)
+
+    assert len(answered) == 1
+    assert answered[0]["item_id"] in item_ids_of(access_db_url, review.review_id)
+    assert answered[0]["target_display_name"] == "Fake Reviewee"
+    assert answered[0]["role_name"] == "Fake Review Role"
+    assert answered[0]["system_name"] == "Fake Review System"
+    assert answered[0]["privilege"] == "read"
+    assert answered[0]["granted_at"] == GRANTED_AT
+    assert answered[0]["expires_at"] == FAR_EXPIRY
+
+
+def test_list_items_answers_the_same_orm_rows_as_the_widened_read(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """a project rule's projection, pinned from the narrow side.
+
+    Catches `list_items` rewritten to answer the widened rows (its existing
+    callers unpack `Sequence[ReviewItem]` and would break on `.flag`), and
+    catches the projection re-querying with its own order or its own limit
+    instead of projecting: the two reads are compared as ORDERED sequences over
+    a review with three items, so a projection that sorts differently fails
+    while a set comparison would not.
+    """
+    scope = plant_scope(access_db_url, members=1)
+    member = scope.members[0]
+    for role_id in (scope.template_role_id, scope.extra_role_id, scope.conflict_role_id):
+        plant_grant(access_db_url, user_id=member, role_id=role_id)
+    review = open_one(access_db_url, department_id=scope.department_id)
+
+    async def work(session: AsyncSession) -> tuple[list[uuid.UUID], list[uuid.UUID], list[bool]]:
+        narrow = list(await list_items(session, review.review_id, limit=50))
+        widened = await list_items_with_context(session, review.review_id, limit=50)
+        return (
+            [row.id for row in narrow],
+            [row.item.id for row in widened],
+            [isinstance(row, ReviewItem) for row in narrow],
+        )
+
+    narrow_ids, widened_ids, are_orm_rows = in_tenant(access_db_url, work)
+
+    assert len(narrow_ids) == 3
+    assert narrow_ids == widened_ids
+    assert are_orm_rows == [True, True, True]
