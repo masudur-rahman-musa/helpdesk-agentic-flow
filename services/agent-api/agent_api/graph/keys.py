@@ -12,9 +12,10 @@ identifier the model is free to reuse across two DIFFERENT requests, which is
 An earlier change adds the second caller: a decision the WEB initiates carries no turn,
 so `derive_decision_key` takes the approver, the request and the verb instead.
 An earlier change adds the third, `derive_review_decision_key`, over the reviewer, the
-review item and the decision word. Three derivations, one namespace and one
-separator, in one module — which is the whole reason it lives here rather than
-beside the routes.
+review item and the decision word, and an earlier change the fourth,
+`derive_notification_read_key`, over the reader and the notification alone.
+Four derivations, one namespace and one separator, in one module — which is
+the whole reason it lives here rather than beside the routes.
 
 Pure, and its own module so it stays that way: nothing here reads a clock, a
 store or a random source, which is what
@@ -147,6 +148,37 @@ def derive_review_decision_key(
     return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
 
 
+def derive_notification_read_key(*, reader_user_id: uuid.UUID, notification_id: uuid.UUID) -> str:
+    """The key one web-initiated read stamp goes out with.
+
+    A sibling of the two above rather than a reuse of either (decision B), and
+    over TWO values with no verb: there is exactly one verb on this surface, so
+    a verb in the material would be a constant pretending to be a variable, and
+    `derive_decision_key`'s parameter names would lie about what is digested.
+
+    Both values are in the digest, under the same namespace and separator as
+    every other key this module makes. Without the reader two people stamping
+    their own copy of one notification would share a key and the second would
+    be handed the first's answer; without the notification id one reader's
+    second stamp would replay their first on a DIFFERENT row. Pinned one value
+    at a time by
+    `test_notification_routes.py::test_changing_either_of_the_two_values_changes_the_key`,
+    and against the namespace and the separator by
+    `::test_the_key_is_the_uuid5_of_the_two_values_under_the_modules_namespace`.
+
+    The same reader and notification derive the same key every time
+    (`::test_the_same_reader_and_notification_derive_the_same_key_every_time`),
+    so a double-clicked bell replays the stored response rather than filing a
+    second call. The tool's already-read branch (23ga decision A) answers the
+    STORED timestamp either way; the key is what keeps the second click from
+    being a second call at all. The result is a canonical uuid string,
+    length-checked before it can reach the wire
+    (`::test_the_derived_key_fits_the_column_it_is_stored_in`).
+    """
+    material = _SEPARATOR.join([str(reader_user_id), str(notification_id)])
+    return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
+
+
 def check_idempotency_key(value: str) -> str:
     """The key back, or a typed refusal before it can reach the wire.
 
@@ -174,5 +206,6 @@ __all__ = [
     "check_idempotency_key",
     "derive_decision_key",
     "derive_idempotency_key",
+    "derive_notification_read_key",
     "derive_review_decision_key",
 ]
