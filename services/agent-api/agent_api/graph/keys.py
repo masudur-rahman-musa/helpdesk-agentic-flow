@@ -9,6 +9,11 @@ the tool name — so the SAME turn, replanned in this process or resumed by plan
 identifier the model is free to reuse across two DIFFERENT requests, which is
 `IDEMPOTENCY_CONFLICT` taken by accident.
 
+An earlier change adds the second caller: a decision the WEB initiates carries no turn,
+so `derive_decision_key` takes the approver, the request and the verb instead.
+Two derivations, one namespace and one separator, in one module — which is the
+whole reason it lives here rather than beside the routes.
+
 Pure, and its own module so it stays that way: nothing here reads a clock, a
 store or a random source, which is what
 `test_agent_planning.py::test_the_same_five_values_derive_the_same_key_every_time`
@@ -78,6 +83,35 @@ def derive_idempotency_key(
     return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
 
 
+def derive_decision_key(*, approver_user_id: uuid.UUID, request_id: uuid.UUID, verb: str) -> str:
+    """The key one web-initiated approval decision goes out with.
+
+    A pure function of exactly three values, taken under the SAME namespace
+    and separator as the turn's own keys above: agent-api has one module that
+    makes idempotency keys, and a second derivation under this namespace is
+    the drift a project rule is about.
+
+    All three are in the digest and each one matters: without the approver two
+    approvers deciding one request would share a key and the second would
+    replay the first's answer; without the request id one approver's second
+    decision would replay their first on a DIFFERENT request; without the verb
+    an Approve and a Reject on one row would collapse into whichever was filed
+    first. Pinned one value at a time by
+    `test_approval_routes.py::test_changing_any_one_of_the_three_values_changes_the_key`,
+    and against the namespace and the separator by
+    `::test_the_key_is_the_uuid5_of_the_three_values_under_the_modules_namespace`.
+
+    The comment and the reason are deliberately NOT in the material (decision
+    B): a double-clicked Approve then replays the stored response rather than
+    filing a second decision, which is what
+    `::test_two_approvals_of_one_request_with_different_comments_send_one_key`
+    asserts. The result is a canonical uuid string, length-checked before it
+    can reach the wire (`::test_the_derived_key_fits_the_column_it_is_stored_in`).
+    """
+    material = _SEPARATOR.join([str(approver_user_id), str(request_id), verb])
+    return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
+
+
 def check_idempotency_key(value: str) -> str:
     """The key back, or a typed refusal before it can reach the wire.
 
@@ -103,5 +137,6 @@ __all__ = [
     "KEY_NAMESPACE",
     "InvalidIdempotencyKeyError",
     "check_idempotency_key",
+    "derive_decision_key",
     "derive_idempotency_key",
 ]

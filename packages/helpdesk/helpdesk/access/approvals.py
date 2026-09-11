@@ -40,6 +40,7 @@ narrowing an earlier change recorded, re-owed by an earlier change). Pinned by
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -47,6 +48,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import ColumnElement, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from helpdesk.access.directory import DirectoryProvider
 from helpdesk.auth.rbac import Principal, Scope
@@ -357,7 +359,32 @@ def _scope_predicate(
     return None
 
 
-async def list_pending_for_approver(
+@dataclass(frozen=True)
+class PendingWithContext:
+    """One pending request, the seat this caller may fill, and the names.
+
+    A frozen dataclass around the ORM row rather than a Pydantic model
+    repeating its columns, exactly as an earlier change's `RequestWithContext` is: the
+    wire shape is `mcp_server.tools.approvals.PendingApproval`, which SPEC
+    §8.2 owns, and a second twenty-field model here would be two contracts to
+    keep in step. What this carries beside the row is what the JOIN answered
+    and the row cannot — the role's and the system's names, and the display
+    names of the two PEOPLE the request is about, resolved from the rows their
+    ids point at rather than echoed from the request. Pinned by
+    `test_mcp_approvals.py::test_the_queue_names_come_from_the_directory_rows_the_ids_point_at`.
+    """
+
+    request: AccessRequest
+    slot: SlotState
+    role_slug: str
+    role_name: str
+    system_slug: str
+    system_name: str
+    target_display_name: str
+    requester_display_name: str
+
+
+async def list_pending_with_context_for_approver(
     session: AsyncSession,
     directory: DirectoryProvider,
     *,
@@ -365,8 +392,8 @@ async def list_pending_for_approver(
     scopes: frozenset[Scope],
     principals: frozenset[Principal],
     limit: int,
-) -> list[tuple[AccessRequest, SlotState]]:
-    """What is waiting for THIS caller: pending, in scope, and theirs to fill.
+) -> list[PendingWithContext]:
+    """What is waiting for THIS caller: pending, in scope, theirs to fill, named.
 
     Decision G — a queue of rows only somebody else can move is not a queue.
     Two independent filters, and each has a case the other cannot decide: the scope predicate is the only thing that hides a
@@ -383,17 +410,26 @@ async def list_pending_for_approver(
     row that survives it, so the queue and the deciding tools answer the scope
     question through one function rather than two that can drift.
 
+    FOUR joins in one statement: the role, the role's system, the
+    target and — through an ALIAS, because both people are rows of `users` —
+    the requester. All four are inner joins, since every pending request names
+    all four rows, and the tenant guard reaches the alias too
+    (`with_loader_criteria(..., include_aliases=True)` in `helpdesk.core.db`).
+    One row per pending request, never multiplied by the joins, pinned by
+    `test_mcp_approvals.py::test_several_pending_seats_come_back_once_each_despite_the_joins`.
+
     Ordering is oldest first so the longest-waiting request is worked first,
     and `limit` (decision H) is applied after the seat filter, so the answer
     is `limit` rows the caller can actually act on rather than `limit` rows
     of which some are theirs.
 
-    KNOWN LIMIT, recorded rather than fixed: the seat filter
-    runs in Python, so the read is bounded by "pending rows in scope", not by
-    `limit`. A tenant with tens of thousands of pending requests loads them
-    all on every call. Capping the SQL instead would silently hide a request
-    from the only person who can approve it, which is worse than a large read;
-    a keyset-paginated queue belongs with the web rows that need paging.
+    KNOWN LIMIT, recorded rather than fixed:
+    the seat filter runs in Python, so the read is bounded by "pending rows in
+    scope", not by `limit`. A tenant with tens of thousands of pending
+    requests loads them all on every call. Capping the SQL instead would
+    silently hide a request from the only person who can approve it, which is
+    worse than a large read; a keyset-paginated queue belongs with the web
+    rows that need paging.
     """
     approver = await directory.lookup_user(approver_user_id)
     approver_department_id = None if approver is None else approver.department_id
@@ -412,23 +448,25 @@ async def list_pending_for_approver(
     if not predicates:
         return []
 
+    requester = aliased(User)
     result = await session.execute(
-        select(AccessRequest, User.department_id, System.owner_user_id)
+        select(AccessRequest, Role, System, User, requester)
         .join(User, User.id == AccessRequest.target_user_id)
         .join(Role, Role.id == AccessRequest.role_id)
         .join(System, System.id == Role.system_id)
+        .join(requester, requester.id == AccessRequest.requester_user_id)
         .where(AccessRequest.status == RequestStatus.PENDING.value, or_(*predicates))
         .order_by(AccessRequest.created_at, AccessRequest.id)
     )
 
-    queue: list[tuple[AccessRequest, SlotState]] = []
-    for request, target_department_id, system_owner_user_id in result.all():
+    queue: list[PendingWithContext] = []
+    for request, role, system, target, requester_row in result.all():
         if not request_in_scope(
             scopes,
             approver_user_id=approver_user_id,
             approver_department_id=approver_department_id,
-            target_department_id=target_department_id,
-            system_owner_user_id=system_owner_user_id,
+            target_department_id=target.department_id,
+            system_owner_user_id=system.owner_user_id,
         ):
             continue
         slots = parse_slots(request.approvals)
@@ -441,15 +479,56 @@ async def list_pending_for_approver(
         )
         if index is None:
             continue
-        queue.append((request, slots[index]))
+        queue.append(
+            PendingWithContext(
+                request=request,
+                slot=slots[index],
+                role_slug=role.slug,
+                role_name=role.name,
+                system_slug=system.slug,
+                system_name=system.name,
+                target_display_name=target.display_name,
+                requester_display_name=requester_row.display_name,
+            )
+        )
         if len(queue) == limit:
             break
     return queue
 
 
+async def list_pending_for_approver(
+    session: AsyncSession,
+    directory: DirectoryProvider,
+    *,
+    approver_user_id: uuid.UUID,
+    scopes: frozenset[Scope],
+    principals: frozenset[Principal],
+    limit: int,
+) -> list[tuple[AccessRequest, SlotState]]:
+    """The same queue, narrowed to the request and the seat.
+
+    The narrow twin of `list_pending_with_context_for_approver` and a pure
+    projection of it, kept because the filtering rules — scope, seat, order
+    and limit — may exist in exactly one place. A caller that needs
+    the names calls the widened one; nothing here re-reads or re-decides.
+    """
+    return [
+        (row.request, row.slot)
+        for row in await list_pending_with_context_for_approver(
+            session,
+            directory,
+            approver_user_id=approver_user_id,
+            scopes=scopes,
+            principals=principals,
+            limit=limit,
+        )
+    ]
+
+
 __all__ = [
     "GROUP_SLOTS",
     "NotAnApproverError",
+    "PendingWithContext",
     "RequestNotPendingError",
     "SlotDecision",
     "SlotState",
@@ -459,6 +538,7 @@ __all__ = [
     "first_fillable_index",
     "is_rejected",
     "list_pending_for_approver",
+    "list_pending_with_context_for_approver",
     "lock_request",
     "may_fill",
     "parse_slots",

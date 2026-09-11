@@ -52,7 +52,7 @@ from typing import Any
 
 import httpx
 import pytest
-from agent_api import me_routes
+from agent_api import deps, me_routes
 from agent_api.main import app
 from agent_api.mcp_client import (
     TRANSPORT_FAILURE_MESSAGE,
@@ -270,7 +270,7 @@ def _get(
     that no case here uses (and three sockets this file promises not to open).
     """
     spy = CallerSpy(caller)
-    monkeypatch.setattr(me_routes, "build_tool_caller", spy.build)
+    monkeypatch.setattr(deps, "build_tool_caller", spy.build)
 
     async def scenario(client: httpx.AsyncClient) -> httpx.Response:
         return await client.get(path, headers=dict(headers or {}))

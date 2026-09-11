@@ -34,6 +34,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agent_api import readiness
 from agent_api.admin_routes import router as admin_router
+from agent_api.approval_routes import router as approval_router
 from agent_api.auth_routes import router as auth_router
 from agent_api.chat_routes import router as chat_router
 from agent_api.checkpointer import build_checkpointer, build_pool, psycopg_dsn
@@ -180,6 +181,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(chat_router)
 app.include_router(me_router)
+app.include_router(approval_router)
 
 
 class HealthResponse(BaseModel):

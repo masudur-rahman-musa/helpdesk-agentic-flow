@@ -53,6 +53,7 @@ from typing import Any
 
 from helpdesk.access import (
     NotAnApproverError,
+    PendingWithContext,
     RequestNotPendingError,
     SimulatedDirectory,
     SlotDecision,
@@ -62,7 +63,7 @@ from helpdesk.access import (
     dump_slots,
     execute_grant,
     first_fillable_index,
-    list_pending_for_approver,
+    list_pending_with_context_for_approver,
     lock_request,
     parse_slots,
     request_in_scope,
@@ -153,7 +154,26 @@ class ListPendingApprovalsInput(BaseModel):
 
 
 class PendingApproval(BaseModel):
-    """One request waiting on this caller, with the seat that is theirs."""
+    """One request waiting on this caller: twenty fields, ids and names both.
+
+    Widened by an earlier change from the twelve it began as (decision D), the same
+    widening `mcp_server.tools.access.AccessRequestSummary` took in 23a and
+    for the same reason: the browser has no directory lookup and must never
+    gain one, so the role, the system and the two PEOPLE are named here rather
+    than left as uuids for a second read per row. The names are resolved from
+    the rows the ids point at, never echoed from the request row, pinned by
+    `test_mcp_approvals.py::test_the_queue_names_come_from_the_directory_rows_the_ids_point_at`.
+
+    `decision_reasons` and `citations` are the stored engine trace, so SPEC
+    §14's "full decision trace" — the reasons, the risk class and the SoD
+    outcome — is on the row an approver decides from rather than behind a
+    second call. Pinned by `::test_the_queue_row_carries_the_stored_decision_trace`,
+    the only case here that plants a request the engine queued WITH a trace.
+
+    The exact field set is pinned by
+    `::test_the_widened_queue_row_carries_exactly_the_twenty_planned_fields`,
+    which fails for a dropped field and for a spare one alike.
+    """
 
     request_id: uuid.UUID
     requester_user_id: uuid.UUID
@@ -172,6 +192,19 @@ class PendingApproval(BaseModel):
     approvals: list[SlotState]
     """The whole chain, decided seats included, so the caller can see who
     else has to act."""
+
+    role_slug: str
+    role_name: str
+    system_slug: str
+    system_name: str
+    target_display_name: str
+    requester_display_name: str
+    decision_reasons: list[Any]
+    citations: list[Any]
+    """The two JSONB columns as they were stored, rendered the way 23a renders
+    them on a request row: a list of reason strings and a list of citation
+    objects. Typed `Any` rather than re-declared here, because the shape is
+    the ENGINE's and a second model would be a second contract."""
 
 
 class ListPendingApprovalsOutput(BaseModel):
@@ -228,7 +261,7 @@ async def list_pending_approvals(
     claim; the user id itself still comes only from the token.
     """
     authorization = rbac.authorize(identity.claims, rbac.Tool.LIST_PENDING_APPROVALS)
-    rows = await list_pending_for_approver(
+    rows = await list_pending_with_context_for_approver(
         session,
         SimulatedDirectory(session),
         approver_user_id=identity.user_id,
@@ -236,10 +269,17 @@ async def list_pending_approvals(
         principals=rbac.principals_of(identity.claims),
         limit=args.limit,
     )
-    return ListPendingApprovalsOutput(approvals=[_pending(request, slot) for request, slot in rows])
+    return ListPendingApprovalsOutput(approvals=[_pending(row) for row in rows])
 
 
-def _pending(request: AccessRequest, slot: SlotState) -> PendingApproval:
+def _pending(row: PendingWithContext) -> PendingApproval:
+    """One queue row, its names taken from the JOIN and never from the request.
+
+    Every name argument below reads off `row`, which is what the four joins
+    answered, so nothing here can echo a slug or reuse one id for both people
+    (`test_mcp_approvals.py::test_the_queue_names_come_from_the_directory_rows_the_ids_point_at`).
+    """
+    request = row.request
     return PendingApproval(
         request_id=request.id,
         requester_user_id=request.requester_user_id,
@@ -251,8 +291,16 @@ def _pending(request: AccessRequest, slot: SlotState) -> PendingApproval:
         decision=request.decision,
         status=request.status,
         created_at=request.created_at,
-        my_slot=slot.slot,
+        my_slot=row.slot.slot,
         approvals=list(parse_slots(request.approvals)),
+        role_slug=row.role_slug,
+        role_name=row.role_name,
+        system_slug=row.system_slug,
+        system_name=row.system_name,
+        target_display_name=row.target_display_name,
+        requester_display_name=row.requester_display_name,
+        decision_reasons=list(request.decision_reasons),
+        citations=list(request.citations),
     )
 
 

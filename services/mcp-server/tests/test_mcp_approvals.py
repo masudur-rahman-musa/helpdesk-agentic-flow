@@ -1588,3 +1588,302 @@ def test_the_decision_event_names_the_request_and_the_seat(
     assert payload["role_id"] == str(GRANTABLE_ROLE)
     assert payload["slot"] == ApproverSlot.DEPARTMENT_MANAGER.value
     assert payload["chain_complete"] is False
+
+
+# --- an earlier change: the widened queue row (§1 criteria 1, 2 and 3) ------------------
+#
+# Surface under test (written before it exists; every case below is red on one
+# of these names until step 1 lands):
+#
+# ``mcp_server.tools.approvals.PendingApproval``
+#     the twelve fields it carries today plus ``role_slug``, ``role_name``,
+#     ``system_slug``, ``system_name``, ``target_display_name``,
+#     ``requester_display_name``, ``decision_reasons`` and ``citations``:
+#     TWENTY, asserted as an exact set.
+# ``helpdesk.access.approvals.list_pending_for_approver``
+#     the same read, joined to role, system, target and requester, so the
+#     names arrive WITH each request row rather than being looked up per row.
+#
+# Shapes this file fixes that the plan left open (a project rule and 55;
+# these belong in 23c's Deviations):
+# - the five name fields are STRINGS, and ``decision_reasons`` / ``citations``
+#   come back as the JSONB columns hold them (a list of strings and a list of
+#   objects), exactly as 23a's widening of ``AccessRequestSummary`` renders
+#   them in ``test_mcp_access_read_tools.py``.
+# - nothing about ``approvals``, ``my_slot`` or the twelve existing fields
+#   changes: the widening is additive, which is why §3 keeps
+#   ``test_mcp_rbac_matrix.py`` and ``test_agent_gates.py`` out of the diff.
+#
+# Isolation is the existing namespace: the session-scoped
+# ``mcp_env`` schema, an approver named on no other case's seat, and rows
+# planted through this module's own helpers. No new fixture.
+
+# The twenty fields of §1, written out rather than derived: a set built by
+# comprehension over the model would agree with any implementation.
+EXPECTED_PENDING_FIELDS = frozenset(
+    {
+        "request_id",
+        "requester_user_id",
+        "target_user_id",
+        "role_id",
+        "justification",
+        "requested_expiry_days",
+        "risk_class",
+        "decision",
+        "status",
+        "created_at",
+        "my_slot",
+        "approvals",
+        "role_slug",
+        "role_name",
+        "system_slug",
+        "system_name",
+        "target_display_name",
+        "requester_display_name",
+        "decision_reasons",
+        "citations",
+    }
+)
+
+# The stored engine trace the design asks the queue to show. Obviously fake
+# and shaped like `mcp_server.tools.access.Citation` as WRITTEN:
+# five fields, `heading_path` a string.
+QUEUED_REASONS = ["NOT_IN_TEMPLATE", "SOD_CLEAR", "APPROVAL_REQUIRED"]
+QUEUED_CITATION = {
+    "document_slug": "fake-access-policy",
+    "title": "Fake Access Policy",
+    "version": "v2",
+    "heading_path": "Fake Section > Fake Subsection",
+    "chunk_id": "fake-chunk-0023",
+}
+
+# Approvers and targets this section owns. Production indices 68..71 are named
+# on no other case's seat and carry none of the seed's planted anomalies (a
+# Production user's tenant_index is 46 + index; `% 20 == 7` is the stale grant
+# and `% 15 == 4` the out-of-template one), so the queues asserted below are
+# exactly the rows these cases plant.
+WIDE_APPROVER = ROWS.users_by_department["Production"][68]
+WIDE_TARGET = ROWS.users_by_department["Production"][70]
+# A second approver, because the row-count case asserts its queue as an EXACT
+# list and the three cases above plant rows that would otherwise join it.
+COUNT_APPROVER = ROWS.users_by_department["Production"][69]
+COUNT_TARGET = ROWS.users_by_department["Production"][71]
+
+
+def _plant_traced_request(
+    database_url: str,
+    *,
+    requester_user_id: uuid.UUID,
+    target_user_id: uuid.UUID,
+    role_id: uuid.UUID,
+    approvals: Sequence[dict[str, Any]],
+    decision_reasons: list[str],
+    citations: list[dict[str, Any]],
+) -> uuid.UUID:
+    """One pending row carrying the engine trace the queue must render.
+
+    A second helper rather than more keyword arguments on `_plant_request`:
+    every case above owns that one, and a default changed there would change
+    what they plant.
+    """
+
+    async def scenario() -> uuid.UUID:
+        engine = create_engine(database_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, ROWS.tenant_id) as session:
+                row = await Repository(session, AccessRequest).create(
+                    requester_user_id=requester_user_id,
+                    target_user_id=target_user_id,
+                    role_id=role_id,
+                    justification=f"fake traced request {uuid.uuid4().hex}",
+                    requested_expiry_days=ROLE_DEFAULT_EXPIRY_DAYS,
+                    risk_class="critical",
+                    decision="approval",
+                    decision_reasons=list(decision_reasons),
+                    citations=[dict(citation) for citation in citations],
+                    status=RequestStatus.PENDING.value,
+                    approver_user_ids=[],
+                    approvals=list(approvals),
+                    session_id=None,
+                    trace_id=None,
+                    idempotency_key=None,
+                )
+                return row.id
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(scenario())
+
+
+def _directory_names(database_url: str, role_id: uuid.UUID) -> tuple[str, str, str, str]:
+    """`(role_slug, role_name, system_slug, system_name)` off the directory rows."""
+    rows = _rows(
+        database_url,
+        "SELECT r.slug, r.name, s.slug, s.name FROM roles r"
+        " JOIN systems s ON s.id = r.system_id WHERE r.id = :role",
+        {"role": role_id},
+    )
+    assert len(rows) == 1, "fixture premise: the planted request names a real role"
+    return (str(rows[0][0]), str(rows[0][1]), str(rows[0][2]), str(rows[0][3]))
+
+
+def _display_name(database_url: str, user_id: uuid.UUID) -> str:
+    rows = _rows(database_url, "SELECT display_name FROM users WHERE id = :id", {"id": user_id})
+    assert len(rows) == 1, "fixture premise: the planted request names a real user"
+    return str(rows[0][0])
+
+
+def _pending_row(payload: dict[str, Any], request_id: uuid.UUID) -> dict[str, Any]:
+    matches = [entry for entry in payload["approvals"] if entry["request_id"] == str(request_id)]
+    assert len(matches) == 1, f"expected one queue row for {request_id}, got {len(matches)}"
+    row: dict[str, Any] = matches[0]
+    return row
+
+
+def test_the_widened_queue_row_carries_exactly_the_twenty_planned_fields(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches a widening that drops one of §1's eight new fields AND one that
+    carries a spare (a `system_id`, the raw `approver_user_ids`, a
+    `requester_email`): the key set is asserted as an exact set, so both
+    directions fail.
+
+    The per-field cases below cannot see the spare field, and a spare field is
+    a column nobody decided to publish being published to a browser.
+    """
+    approver = _seeded(WIDE_APPROVER)
+    token = token_for(approver, principals=("it_admin",))
+    request_id = _plant_request(
+        mcp_env.database_url,
+        requester_user_id=REQUESTER.id,
+        target_user_id=WIDE_TARGET.id,
+        role_id=GRANTABLE_ROLE,
+        approvals=[_seat(ApproverSlot.DEPARTMENT_MANAGER, approver.user_id)],
+    )
+
+    payload = _structured(call_tool(bearer(token), LIST, {"limit": LIMIT_MAX}))
+
+    assert len(EXPECTED_PENDING_FIELDS) == 20
+    assert set(_pending_row(payload, request_id)) == EXPECTED_PENDING_FIELDS
+
+
+def test_the_queue_names_come_from_the_directory_rows_the_ids_point_at(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Criterion 2. Catches the five name fields being filled from anything
+    but the rows their ids point at.
+
+    Four kills in one shape, none of them decidable by another guard:
+    `role_name`/`system_name` echoed from the matching SLUG fails, because the
+    premise reads both off the directory and asserts they differ;
+    `target_display_name` taken from the TOKEN's user (the approver) fails,
+    because the three people here are three different seeded users of the SAME
+    tenant with three different display names; the requester
+    and the target resolved from ONE id — the join written twice against the
+    same alias, which is the mistake this shape exists to catch — fails on the
+    pair being equal; a row that resolves nothing fails on all five.
+    """
+    approver = _seeded(WIDE_APPROVER)
+    requester_name = _display_name(mcp_env.database_url, REQUESTER.id)
+    target_name = _display_name(mcp_env.database_url, WIDE_TARGET.id)
+    assert requester_name != target_name, "premise: the two people are two people"
+    assert approver.display_name not in {requester_name, target_name}, (
+        "premise: neither name can be the caller's own (standing rule 9: same tenant)"
+    )
+    role_slug, role_name, system_slug, system_name = _directory_names(
+        mcp_env.database_url, GRANTABLE_ROLE
+    )
+    assert role_name != role_slug, "fixture premise: the seeded role's name is not its slug"
+    assert system_name != system_slug, "fixture premise: the seeded system's name is not its slug"
+    token = token_for(approver, principals=("it_admin",))
+    request_id = _plant_request(
+        mcp_env.database_url,
+        requester_user_id=REQUESTER.id,
+        target_user_id=WIDE_TARGET.id,
+        role_id=GRANTABLE_ROLE,
+        approvals=[_seat(ApproverSlot.DEPARTMENT_MANAGER, approver.user_id)],
+    )
+
+    payload = _structured(call_tool(bearer(token), LIST, {"limit": LIMIT_MAX}))
+
+    row = _pending_row(payload, request_id)
+    assert row["role_slug"] == role_slug
+    assert row["role_name"] == role_name
+    assert row["system_slug"] == system_slug
+    assert row["system_name"] == system_name
+    assert row["target_display_name"] == target_name
+    assert row["requester_display_name"] == requester_name
+    # The ids the names were resolved FROM are still on the row, so a queue
+    # that paired the right names with the wrong ids fails here too.
+    assert row["target_user_id"] == str(WIDE_TARGET.id)
+    assert row["requester_user_id"] == str(REQUESTER.id)
+
+
+def test_the_queue_row_carries_the_stored_decision_trace(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Criterion 3, the design's "full decision trace" on the row. Catches
+    `decision_reasons` and `citations` rendered as empty lists — the shape an
+    implementer gets for free by defaulting the two new fields — which would
+    show an approver a risk class with no reasons and no sources behind it,
+    and make the queue look right while saying nothing.
+
+    Only this case plants a request the engine queued WITH a trace: every
+    other row in this file stores `[]` for both, so a handler that hardcoded
+    the empty list passes all of them.
+    """
+    approver = _seeded(WIDE_APPROVER)
+    token = token_for(approver, principals=("it_admin",))
+    request_id = _plant_traced_request(
+        mcp_env.database_url,
+        requester_user_id=REQUESTER.id,
+        target_user_id=WIDE_TARGET.id,
+        role_id=GRANTABLE_ROLE,
+        approvals=[_seat(ApproverSlot.DEPARTMENT_MANAGER, approver.user_id)],
+        decision_reasons=list(QUEUED_REASONS),
+        citations=[dict(QUEUED_CITATION)],
+    )
+
+    payload = _structured(call_tool(bearer(token), LIST, {"limit": LIMIT_MAX}))
+
+    row = _pending_row(payload, request_id)
+    assert row["decision_reasons"] == QUEUED_REASONS
+    assert row["citations"] == [QUEUED_CITATION]
+    assert row["risk_class"] == "critical"
+
+
+def test_several_pending_seats_come_back_once_each_despite_the_joins(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """§5's second risk: one statement with four joins that multiplies rows.
+
+    Catches a join to `users` written without its `ON` clause narrowing to the
+    request's own two people — the shape that returns one copy of the request
+    per user in the tenant — and a join to `roles`/`systems` that fans out the
+    same way. Three seats are planted for an approver named on no other case's
+    seat, so their queue is an exact list of three ids in the order they were
+    filed; a multiplying join answers nine rows, and a join that drops rows
+    answers fewer.
+
+    This is the only case here that can fail for that reason: every case above
+    reads one row through `_pending_row`, which is indifferent to how many
+    other rows the join produced.
+    """
+    approver = _seeded(COUNT_APPROVER)
+    token = token_for(approver, principals=("it_admin",))
+    planted = [
+        _plant_request(
+            mcp_env.database_url,
+            requester_user_id=REQUESTER.id,
+            target_user_id=COUNT_TARGET.id,
+            role_id=role_id,
+            approvals=[_seat(ApproverSlot.DEPARTMENT_MANAGER, approver.user_id)],
+        )
+        for role_id in (GRANTABLE_ROLE, CAPPED_ROLE, OWNED_SYSTEM_ROLE)
+    ]
+
+    payload = _structured(call_tool(bearer(token), LIST, {"limit": LIMIT_MAX}))
+
+    assert _queue_ids(payload) == [str(request_id) for request_id in planted]
+    assert len(payload["approvals"]) == 3
