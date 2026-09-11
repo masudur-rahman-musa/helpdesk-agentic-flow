@@ -133,6 +133,7 @@ describe("MainNav — the routes it links to", () => {
     { name: "Chat", href: "/chat" },
     { name: "My requests", href: "/requests" },
     { name: "My access", href: "/access" },
+    { name: "Approvals", href: "/approvals" },
   ] as const;
 
   it.each(LINKS)("links $name to $href", ({ name, href }) => {
@@ -150,7 +151,7 @@ describe("MainNav — the routes it links to", () => {
     expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
   });
 
-  const NOT_YET = ["/approvals", "/reviews", "/admin/audit", "/admin/rules", "/notifications"];
+  const NOT_YET = ["/reviews", "/admin/audit", "/admin/rules", "/notifications"];
 
   it.each(NOT_YET)("carries no link to %s, which does not exist yet", (href) => {
     // 22a's rule, and the reason decision E adds exactly two links: a link to a

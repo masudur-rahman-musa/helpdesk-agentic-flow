@@ -4,11 +4,15 @@ import { SignOutButton } from "@/components/sign-out-button";
 
 /**
  * The shell's navigation. It links only to routes that exist: `/requests` and
- * `/access` are pages as of an earlier change, while approvals, reviews, admin and
- * notifications arrive with rows 23c to 24, and a link to a 404 is worse than
- * no link — the user pays the 404 to find out. `tests/shell.test.tsx` asserts
- * both halves: the three links by name and href, and the absence of a link to
- * each route nothing serves yet.
+ * `/access` are pages as of an earlier change and `/approvals` as of an earlier change, while
+ * reviews, admin and notifications arrive with rows 23f to 24, and a link to a
+ * 404 is worse than no link — the user pays the 404 to find out.
+ * `tests/shell.test.tsx` asserts both halves: the four links by name and href,
+ * and the absence of a link to each route nothing serves yet.
+ *
+ * `Approvals` is shown to everyone (23d decision C). A caller holding no seat
+ * on any chain gets the tool's `FORBIDDEN` as one sentence rather than a 404;
+ * conditional nav needs the principals in the shell, which no row has done.
  *
  * A plain component on purpose — no `usePathname`, so the shell renders in a
  * test without a router context and `tests/shell.test.tsx` needs no mock.
@@ -33,6 +37,12 @@ export function MainNav() {
         className="rounded-sm text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         My access
+      </Link>
+      <Link
+        href="/approvals"
+        className="rounded-sm text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        Approvals
       </Link>
       <SignOutButton />
     </nav>
