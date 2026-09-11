@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { QueryProvider } from "@/components/query-provider";
 import { FAILURE_MESSAGES } from "@/lib/chat-errors";
+import { reasonSentence } from "@/lib/decision-labels";
 
 /**
  * An earlier change §6, `chat-page.test.tsx`: the chat surface against a scripted stream
@@ -31,11 +32,29 @@ import { FAILURE_MESSAGES } from "@/lib/chat-errors";
  *   the per-tool entries inside a row are not themselves list items, so the
  *   row count is the event count.
  *
+ * Shapes an earlier change's §6 left open, fixed here for the same reason (standing rule
+ * 55/39; these go in 22d's Deviations):
+ * - the decision card is a `region` whose accessible name is exactly `Decision`
+ *   (§6 fixes this one), and the approver chain inside it is a `list` whose
+ *   accessible name is `Approvers` — the shape `ToolSteps` already uses, and
+ *   the only way "each approver is exactly one `listitem`" is countable in a
+ *   region that may hold other lists (the reasons).
+ * - `request_id` rides as the `data-request-id` attribute ON the region
+ *   element itself (§1), so a classified-only card is the ABSENCE of that
+ *   attribute, not an empty one.
+ * - the reason sentences and the four label lookups are
+ *   `@/lib/decision-labels`'; the sentences are compared by reference here and
+ *   pinned as literals in `tests/decision-labels.test.ts`, the same division
+ *   `FAILURE_MESSAGES` already has with `tests/chat-schema.test.ts`.
+ *
  * The wire shapes are agent-api's as BUILT, not as remembered:
  * `step` → `{node, round, tools:[{tool, ok, error_code}]}` (`graph/build.py::_step_data`),
  * `reply` → `{reply, outcome, citations, request_id, decision}` (`::_reply_data`);
- * `decision` is the turn's decision card or null, which nothing
- * here reads until an earlier change renders it,
+ * `decision` is the turn's decision card or null — `{request_id,
+ * status, decision, risk_class, reasons, approvers:[{slot, resolved}],
+ * effective_expiry_days, expires_at}`, `agent_api/decision_card.py::DecisionCard`
+ * dumped `mode="json"` — rendered by `ChatPanel` as the `Decision` region since
+ * an earlier change,
  * `error` → `{code}` (`::_failure_frames`), citations → `{document, title,
  * version, heading_path, chunk_id, text, score}` (`graph/state.py::Citation`),
  * history → `{messages:[{role, content}]}` (`chat_routes.ChatHistoryResponse`).
@@ -395,4 +414,270 @@ describe("ChatPanel — a refusal that arrives before the stream", () => {
       expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
     },
   );
+});
+
+describe("ChatPanel — the decision card", () => {
+  const REQUEST_ID = "11111111-0000-4000-8000-0000000000aa";
+  const RULE_ID = "22222222-0000-4000-8000-0000000000bb";
+
+  /** `DecisionCard` as `_reply_data` dumps it: a filed request, still pending. */
+  function filedCard(): Record<string, unknown> {
+    return {
+      request_id: REQUEST_ID,
+      status: "pending",
+      decision: "approval",
+      risk_class: "privileged",
+      reasons: ["NOT_IN_TEMPLATE", `SOD_CONFLICT:${RULE_ID}`],
+      approvers: [
+        { slot: "department_manager", resolved: true },
+        { slot: "it_admin", resolved: false },
+      ],
+      effective_expiry_days: 90,
+      expires_at: "2026-12-01T09:30:00Z",
+    };
+  }
+
+  /** The same card for a turn that classified and filed nothing (22c decision B). */
+  function classifiedCard(): Record<string, unknown> {
+    return {
+      request_id: null,
+      status: null,
+      decision: "auto",
+      risk_class: "low",
+      reasons: ["IN_TEMPLATE"],
+      approvers: [{ slot: "department_manager", resolved: false }],
+      effective_expiry_days: 30,
+      expires_at: null,
+    };
+  }
+
+  /** A settled `reply` frame carrying whatever the server put in `decision`. */
+  function reply(decision: unknown, outcome = "await_approval"): Record<string, unknown> {
+    return {
+      reply: "You will need manager approval.",
+      outcome,
+      citations: [],
+      request_id: outcome === "await_approval" ? REQUEST_ID : null,
+      decision,
+    };
+  }
+
+  it("renders the decision, risk, reasons, expiry, approvers and status of a filed request", async () => {
+    // §1's first criterion, all six fields in one arrangement. Catches a card
+    // that shows the wire values instead of the labels (`approval`,
+    // `privileged`, `pending` at the user), one that renders the reason CODES
+    // where a sentence belongs, and one that formats `expires_at` through the
+    // browser locale — `toLocaleDateString` under jsdom answers "12/1/2026",
+    // which is a different date in half the world, so the ISO prefix is the
+    // only unambiguous thing to print. The two seats are one resolved and one
+    // not, so an implementation ignoring `resolved` fails whichever word it
+    // hardcodes: "assigned" everywhere fails the second seat, "not yet
+    // assigned" everywhere fails the first. The two uuid assertions catch a
+    // card that prints the SoD rule id or the request id as text (decisions C
+    // and §1) — a raw uuid reads as nothing to the person asking.
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+    await send();
+
+    stream.push("reply", reply(filedCard()));
+    stream.push("done", {});
+    stream.close();
+
+    const region = await screen.findByRole("region", { name: "Decision" });
+    expect(region).toHaveTextContent("Needs approval");
+    expect(region).toHaveTextContent("Privileged");
+    expect(region).toHaveTextContent("Pending approval");
+    expect(region).toHaveTextContent(reasonSentence("NOT_IN_TEMPLATE"));
+    expect(region).toHaveTextContent(reasonSentence("SOD_CONFLICT"));
+    expect(region).toHaveTextContent("Expires in 90 days");
+    expect(region).toHaveTextContent("2026-12-01");
+    expect(region).toHaveAttribute("data-request-id", REQUEST_ID);
+
+    const seats = within(within(region).getByRole("list", { name: "Approvers" })).getAllByRole(
+      "listitem",
+    );
+    expect(seats).toHaveLength(2);
+    expect(seats[0]).toHaveTextContent("Department manager");
+    expect(seats[0]).toHaveTextContent("assigned");
+    expect(seats[0]).not.toHaveTextContent("not yet assigned");
+    expect(seats[1]).toHaveTextContent("IT admin");
+    expect(seats[1]).toHaveTextContent("not yet assigned");
+
+    expect(region.textContent ?? "").not.toContain(RULE_ID);
+    expect(region.textContent ?? "").not.toContain(REQUEST_ID);
+  });
+
+  it("a classified request shows no status line", async () => {
+    // The turn that classified and filed nothing: `request_id` and `status`
+    // are both null and the other six fields are answered exactly as they are
+    // for a filed request. Catches a card that renders the status row
+    // unconditionally — `STATUS_LABELS[null]` is the literal "undefined" on
+    // screen, and a default of "Pending approval" would tell a user something
+    // was filed for them when nothing was. The absent `data-request-id`
+    // catches an attribute written as `String(request_id)`, which row 23 would
+    // then read the string "null" out of, and the date assertion catches an
+    // expiry line built from a null `expires_at`.
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+    await send();
+
+    stream.push("reply", reply(classifiedCard(), "done"));
+    stream.push("done", {});
+    stream.close();
+
+    const region = await screen.findByRole("region", { name: "Decision" });
+    expect(region).toHaveTextContent("Granted automatically");
+    expect(region).toHaveTextContent("Low risk");
+    expect(region).toHaveTextContent(reasonSentence("IN_TEMPLATE"));
+    expect(region).toHaveTextContent("Expires in 30 days");
+    expect(
+      within(within(region).getByRole("list", { name: "Approvers" })).getAllByRole("listitem"),
+    ).toHaveLength(1);
+
+    expect(region).not.toHaveAttribute("data-request-id");
+    expect(region).not.toHaveTextContent(
+      /Pending approval|Approved|Rejected|Access granted|Failed|undefined|null/,
+    );
+    expect(region).not.toHaveTextContent(/\d{4}-\d{2}-\d{2}/);
+  });
+
+  it("a turn with no decision renders no card", async () => {
+    // The common turn: a policy question decided nothing about access, so
+    // `decision_card` answered `None` and the wire carries `decision: null`.
+    // Catches a panel that builds a card from every settled reply — an empty
+    // region with a blank decision word, a blank risk and "Expires in
+    // undefined days" under every answer the assistant gives. The assistant
+    // message assertion is what proves the frame was applied at all, so an
+    // absent region cannot pass by the reply never arriving.
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+    await send();
+
+    stream.push("reply", reply(null, "done"));
+    stream.push("done", {});
+    stream.close();
+
+    await waitFor(() => {
+      expect(assistantMessages()).toHaveLength(1);
+    });
+    expect(screen.queryByRole("region", { name: "Decision" })).toBeNull();
+  });
+
+  it("a decision that is not an object renders no card", async () => {
+    // The same absence, reached by a different route: a server that one day
+    // sends the decision WORD in that key instead of the card. Catches the
+    // reader written as `if (frame.decision !== null) setCard(frame.decision as
+    // DecisionCard)` — a cast is not a check, so `card.approvers.map` throws
+    // inside render and the whole panel unmounts, taking the conversation with
+    // it. That implementation passes the null case above, which is why this
+    // row exists separately: `readDecision` must narrow the SHAPE, not test
+    // for null.
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+    await send();
+
+    stream.push("reply", reply("approval", "done"));
+    stream.push("done", {});
+    stream.close();
+
+    await waitFor(() => {
+      expect(assistantMessages()).toHaveLength(1);
+    });
+    expect(screen.queryByRole("region", { name: "Decision" })).toBeNull();
+    expect(assistantMessages()[0]).toHaveTextContent("You will need manager approval.");
+  });
+
+  it("an approver whose slot is unknown renders the raw slot", async () => {
+    // §1's enum-drift path, on the map whose member list is most likely to
+    // grow. Catches the bare index — an `ApproverSlot` added on the Python
+    // side renders "undefined" against a seat somebody has to fill — and a
+    // card that DROPS a seat it cannot label, which would show a two-approver
+    // chain as one and tell the user less than the engine decided. The seat
+    // count is the half that fails for the dropping implementation.
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+    await send();
+
+    stream.push(
+      "reply",
+      reply({ ...filedCard(), approvers: [{ slot: "chief_of_staff", resolved: false }] }),
+    );
+    stream.push("done", {});
+    stream.close();
+
+    const region = await screen.findByRole("region", { name: "Decision" });
+    const seats = within(within(region).getByRole("list", { name: "Approvers" })).getAllByRole(
+      "listitem",
+    );
+    expect(seats).toHaveLength(1);
+    expect(seats[0]).toHaveTextContent("chief_of_staff");
+    expect(seats[0]).not.toHaveTextContent("undefined");
+  });
+
+  it("an error event clears the card", async () => {
+    // The card has the same lifetime the steps and the citations already have
+    // (decision D). Catches a panel that leaves the previous card standing
+    // through a failure: the user then reads a decision beside a sentence
+    // saying the turn decided nothing, which is the same class of lie as the
+    // half-composed token text the error path already drops. The
+    // single-alert assertion is carried over from the error case above so a
+    // panel that clears the card by re-rendering a second failure cannot pass.
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+    await send();
+
+    stream.push("reply", reply(filedCard()));
+    await screen.findByRole("region", { name: "Decision" });
+
+    stream.push("error", { code: "INTERNAL" });
+    stream.push("done", {});
+    stream.close();
+
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: "Decision" })).toBeNull();
+    });
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent(FAILURE_MESSAGES.INTERNAL ?? "no INTERNAL entry");
+  });
+
+  it("a second send clears the previous turn's card", async () => {
+    // The other half of decision D, and the one a panel passes by accident:
+    // clearing on `reply` alone leaves the previous turn's decision on screen
+    // for the whole of the next turn, which is precisely when a user is
+    // waiting to see whether THIS request was approved. Asserted after the
+    // second submit and BEFORE the second stream sends anything, so an
+    // implementation that overwrites the card at the next `reply` still fails.
+    // The first stream is closed first because `streaming.current` gates the
+    // second send until the first body is drained.
+    const first = scriptedStream();
+    const second = scriptedStream();
+    streamAnswer = () => (streamCalls === 1 ? first.response() : second.response());
+    renderPanel();
+    await send();
+
+    first.push("reply", reply(filedCard()));
+    first.push("done", {});
+    first.close();
+    await screen.findByRole("region", { name: "Decision" });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "And the HR system?");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => {
+      expect(streamCalls).toBe(2);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: "Decision" })).toBeNull();
+    });
+
+    second.close();
+  });
 });

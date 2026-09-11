@@ -11,10 +11,12 @@
  * The shapes are agent-api's as BUILT, not as remembered:
  * `step` → `{node, round, tools:[{tool, ok, error_code}]}`
  * (`graph/build.py::_step_data`), `reply` → `{reply, outcome, citations,
- * request_id}` (`::_reply_data`), `error` → `{code}` (`::_failure_frames`),
- * a citation → `graph/state.py::Citation`, and the history →
- * `chat_routes.ChatHistoryResponse`. Asserted against those literal shapes by
- * `tests/chat-page.test.tsx`.
+ * request_id, decision}` (`::_reply_data`, five keys since an earlier change),
+ * `error` → `{code}` (`::_failure_frames`), a citation →
+ * `graph/state.py::Citation`, a decision card →
+ * `agent_api/decision_card.py::DecisionCard` dumped `mode="json"`, and the
+ * history → `chat_routes.ChatHistoryResponse`. Asserted against those literal
+ * shapes by `tests/chat-page.test.tsx`.
  */
 
 export type ChatRole = "user" | "assistant";
@@ -35,7 +37,30 @@ export type Citation = {
   score: number;
 };
 
-export type ReplyEvent = { reply: string; citations: Citation[] };
+/** One seat in the approval chain: the slot, and whether a person fills it. */
+export type CardApprover = { slot: string; resolved: boolean };
+
+/**
+ * The turn's decision card, `DecisionCard` as the wire dumps it.
+ *
+ * `requestId` and `status` are null together for a turn that classified and
+ * filed nothing (22c decision B), which is why the card's status line is
+ * conditional and nothing else is. The enum-valued fields stay STRINGS rather
+ * than unions: the label maps are what turn them into words, and a member
+ * Python adds must render as itself rather than fail to parse.
+ */
+export type DecisionCard = {
+  requestId: string | null;
+  status: string | null;
+  decision: string;
+  riskClass: string;
+  reasons: string[];
+  approvers: CardApprover[];
+  effectiveExpiryDays: number;
+  expiresAt: string | null;
+};
+
+export type ReplyEvent = { reply: string; citations: Citation[]; decision: DecisionCard | null };
 
 function record(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -102,6 +127,43 @@ function readCitation(value: unknown): Citation | null {
   };
 }
 
+/**
+ * The `decision` key of a `reply` frame as a card, or `null`.
+ *
+ * `null` covers both the turn that decided nothing about access — the common
+ * one, a policy question — and a value that is not an object at all. The shape
+ * is NARROWED and never cast: a cast would let `approvers.map` throw inside
+ * render and take the whole conversation down with it, which is what
+ * `chat-page.test.tsx::a decision that is not an object renders no card` fails
+ * on. A key the server renames answers its empty value here rather than
+ * throwing, the same as every sibling reader.
+ */
+export function readDecision(data: unknown): DecisionCard | null {
+  const card = record(data);
+  if (card === null) {
+    return null;
+  }
+  const approvers: CardApprover[] = [];
+  for (const entry of list(card.approvers)) {
+    const approver = record(entry);
+    if (approver === null) {
+      continue;
+    }
+    approvers.push({ slot: text(approver.slot), resolved: approver.resolved === true });
+  }
+  return {
+    requestId: typeof card.request_id === "string" ? card.request_id : null,
+    status: typeof card.status === "string" ? card.status : null,
+    decision: text(card.decision),
+    riskClass: text(card.risk_class),
+    reasons: list(card.reasons).map(text),
+    approvers,
+    effectiveExpiryDays:
+      typeof card.effective_expiry_days === "number" ? card.effective_expiry_days : 0,
+    expiresAt: typeof card.expires_at === "string" ? card.expires_at : null,
+  };
+}
+
 export function readReply(data: unknown): ReplyEvent | null {
   const frame = record(data);
   if (frame === null) {
@@ -117,7 +179,7 @@ export function readReply(data: unknown): ReplyEvent | null {
   // A paused turn carries its pending sentence in the same key, and a turn
   // that failed sends an `error` frame instead of this one, so `reply` is the
   // settled text whatever the outcome.
-  return { reply: text(frame.reply), citations };
+  return { reply: text(frame.reply), citations, decision: readDecision(frame.decision) };
 }
 
 /** `{ messages: [{ role, content }] }`, in the order the route sent it. */

@@ -6,10 +6,12 @@ import { useRef, useState } from "react";
 import { Citations } from "@/components/chat/citations";
 import { Composer } from "@/components/chat/composer";
 import { Conversation } from "@/components/chat/conversation";
+import { DecisionCard } from "@/components/chat/decision-card";
 import { ToolSteps } from "@/components/chat/tool-steps";
 import {
   type ChatMessage,
   type Citation,
+  type DecisionCard as DecisionCardData,
   type StepEvent,
   readCode,
   readHistory,
@@ -22,8 +24,8 @@ import { chatMessageSchema } from "@/lib/chat-schema";
 import { createSseParser } from "@/lib/sse";
 
 /**
- * The chat surface: history, the streamed turn, its tool steps, its citations
- * and its failures.
+ * The chat surface: history, the streamed turn, its tool steps, its decision
+ * card, its citations and its failures.
  *
  * Two sources, deliberately different (decision D). The history is a TanStack
  * Query read of `GET /api/chat/messages` — a cached read with a key worth
@@ -38,6 +40,15 @@ import { createSseParser } from "@/lib/sse";
  * `response.redirected` is what this component checks rather than a status —
  * decision E, so the expiry path stays in one place.
  *
+ * The decision card, the tool steps and the citations share one lifetime
+ * (22d decision D): all three belong to the LATEST turn, are cleared when a
+ * new one is sent, and are cleared again by an `error` frame — a decision left
+ * standing beside "nothing was changed" is the same class of lie as the
+ * half-composed token text the error path already drops. `GET
+ * /api/chat/messages` carries no decision at all, which is why a card per
+ * assistant message was not an option: every message the history read supplies
+ * would have a blank one.
+ *
  * The turn's own failures are typed codes, never sentences: `FAILURE_MESSAGES`
  * turns a code into the one sentence the app shows for it, and the alert
  * region holds exactly one at a time.
@@ -48,6 +59,7 @@ export function ChatPanel() {
   const [live, setLive] = useState("");
   const [steps, setSteps] = useState<StepEvent[]>([]);
   const [citations, setCitations] = useState<Citation[]>([]);
+  const [decision, setDecision] = useState<DecisionCardData | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const streaming = useRef(false);
 
@@ -74,6 +86,7 @@ export function ChatPanel() {
     setFailure(null);
     setSteps([]);
     setCitations([]);
+    setDecision(null);
     setLive("");
     setTurn((previous) => [...previous, { role: "user", content: parsed.data.message }]);
 
@@ -146,6 +159,7 @@ export function ChatPanel() {
             text = "";
             setLive("");
             setCitations(reply.citations);
+            setDecision(reply.decision);
             setTurn((previous) => [...previous, { role: "assistant", content: reply.reply }]);
           }
           continue;
@@ -156,6 +170,7 @@ export function ChatPanel() {
           // with an error either.
           text = "";
           setLive("");
+          setDecision(null);
           setFailure(readCode(event.data));
         }
         // `done` needs nothing: the socket closing is what ends this loop, and
@@ -177,6 +192,7 @@ export function ChatPanel() {
         </p>
       ) : null}
 
+      {decision !== null ? <DecisionCard card={decision} /> : null}
       <ToolSteps steps={steps} />
       <Citations citations={citations} />
 
