@@ -146,6 +146,11 @@ describe("MainNav — the routes it links to", () => {
     // `NOT_YET` and into the links the nav owes. 22a's rule is unchanged — the
     // nav links to routes that exist and to no others.
     { name: "Audit log", href: "/admin/audit" },
+    // An earlier change §8: `/admin/killswitch` is a page as of this plan, so the nav
+    // owes it a link. 22a's rule is unchanged — the nav links to routes that
+    // exist and to no others — and `NOT_YET` keeps `/admin/rules` exactly as
+    // it is.
+    { name: "Kill switch", href: "/admin/killswitch" },
   ] as const;
 
   it.each(LINKS)("links $name to $href", ({ name, href }) => {
