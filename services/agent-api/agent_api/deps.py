@@ -29,6 +29,7 @@ STATUS_FOR_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.VALIDATION: 400,
     ErrorCode.FORBIDDEN: 403,
     ErrorCode.NOT_FOUND: 404,
+    ErrorCode.POLICY_BLOCKED: 409,
     ErrorCode.TOOL_DISABLED: 503,
 }
 """The HTTP status each typed code a proxied tool route can answer with.
@@ -49,8 +50,19 @@ of the client's own message (the host and the path are internal detail).
 `TOOL_DISABLED` is 503 because an admin tripping the kill switch is exactly
 "this call is unavailable right now", not a permission decision.
 
-Pinned, as a whole — the 403, the 503, the 400 and the missing `INTERNAL` row
-— by
+`POLICY_BLOCKED` is **409**. It became reachable from a
+proxied route with `/admin/killswitch`: an admin aiming `set_kill_switch` at
+`set_kill_switch` is refused by the protected-tool guard, and with no row here
+that refusal fell through to a 500 — telling an admin the platform broke when
+the platform refused, the one message that would send somebody looking for an
+outage. 409 because the caller holds the permission and the action conflicts
+with the platform's own state, which is exactly `ProtectedToolError`'s
+docstring. Added here rather than special-cased in that router, for the same
+reason 23c decision C moved the map at all.
+
+Pinned, as a whole — the five rows and the missing `INTERNAL` one — by
+`test_killswitch_routes.py::test_the_shared_status_map_answers_exactly_five_codes_with_no_internal_row`,
+and row by row by
 `test_approval_routes.py::test_the_shared_status_map_answers_a_matrix_refusal_403_and_a_kill_switch_503`
 and `test_me_routes.py::test_the_status_map_dresses_forbidden_as_403_and_not_as_chats_401`.
 """

@@ -676,6 +676,7 @@ def test_the_shared_status_map_answers_a_matrix_refusal_403_and_a_kill_switch_50
     assert deps.STATUS_FOR_CODE[ErrorCode.FORBIDDEN] == 403
     assert deps.STATUS_FOR_CODE[ErrorCode.TOOL_DISABLED] == 503
     assert deps.STATUS_FOR_CODE[ErrorCode.VALIDATION] == 400
+    assert deps.STATUS_FOR_CODE[ErrorCode.POLICY_BLOCKED] == 409
     assert ErrorCode.INTERNAL not in deps.STATUS_FOR_CODE
 
 

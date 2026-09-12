@@ -474,6 +474,7 @@ def test_the_status_map_dresses_forbidden_as_403_and_not_as_chats_401() -> None:
     from being "fixed" into agreeing.
     """
     assert me_routes.STATUS_FOR_CODE[ErrorCode.FORBIDDEN] == 403
+    assert me_routes.STATUS_FOR_CODE[ErrorCode.POLICY_BLOCKED] == 409
     assert ErrorCode.INTERNAL not in me_routes.STATUS_FOR_CODE
 
 
