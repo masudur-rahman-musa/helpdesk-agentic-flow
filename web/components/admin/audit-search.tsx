@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { AUDIT_CSV_MIME, csvFilename, toCsv } from "@/lib/audit-csv";
 import {
   AUDIT_FILTER_MAX_LENGTHS,
   DEFAULT_PAGE_SIZE,
@@ -47,6 +48,13 @@ import { Button, Input, Label } from "@/components/ui/field";
  * `::reads the search proxy with limit=50 and nothing else` and per control by
  * `::$control sends $param and no other parameter`.
  *
+ * `Export CSV` is offered exactly when the page on screen holds at least one
+ * row: not while the first read is in flight, not on an empty
+ * page and not over a failed read, so a header-only file named for a range it
+ * does not hold is never produced at all. The bytes are `lib/audit-csv.ts`'s
+ * and the four absences are pinned by `tests/audit-export.test.tsx`'s four
+ * `::offers ...` cases.
+ *
  * A failed read THROWS rather than answering an empty page, so the alert and the
  * empty state are mutually exclusive by construction: `No events match that
  * search.` over a broken proxy is the one sentence on this page an auditor acts
@@ -56,7 +64,8 @@ import { Button, Input, Label } from "@/components/ui/field";
  *
  * Accessible names: the region is `Audit log`, the results are the table `Audit
  * events`, the controls are `Event type`, `Subject type`, `Subject id`, `Actor`,
- * `From`, `To`, `Page size`, `Search`, `Older` and `Newer`, and each row's
+ * `From`, `To`, `Page size`, `Search`, `Export CSV`, `Older` and `Newer`, and
+ * each row's
  * disclosure carries the event's `seq` (`Payload for event {seq}`) because fifty
  * rows otherwise hold fifty identically named controls. That name is an
  * `aria-label` on the `<details>` itself: `details` maps to role `group`, whose
@@ -240,6 +249,11 @@ export function AuditSearch() {
 
       {search.isSuccess ? (
         <div className="flex flex-wrap gap-2">
+          {events.length > 0 ? (
+            <Button type="button" onClick={() => downloadCsv(events)}>
+              Export CSV
+            </Button>
+          ) : null}
           {stack.length > 0 ? (
             <Button type="button" onClick={() => setStack((current) => current.slice(0, -1))}>
               Newer
@@ -324,6 +338,36 @@ function EventTable({ events }: { events: AuditEventRow[] }) {
       </table>
     </div>
   );
+}
+
+/**
+ * Hands the rows on screen to the browser as a file.
+ *
+ * A pure function of state this component already holds (decision A): no second
+ * read, no second cursor walk and no server route, so the file is exactly the
+ * page the auditor is looking at and the filename says which slice of the log
+ * that is. Paging and then exporting therefore exports the page NOW on screen,
+ * which `tests/audit-export.test.tsx::exports the SECOND page's rows after
+ * paging to it` pins.
+ *
+ * The object URL is revoked immediately after the click: an unrevoked one holds
+ * the whole file in memory for the life of the document, and a 200-row export
+ * chosen repeatedly is the page's memory growing with no cap. The anchor is
+ * detached and carries `download`, without which a browser NAVIGATES to the
+ * blob and shows the CSV as a page instead of saving it. All three are pinned
+ * by `::clicks a named anchor at that url and revokes it afterwards`, against
+ * the stubs decision C names.
+ */
+function downloadCsv(events: AuditEventRow[]): void {
+  const url = URL.createObjectURL(new Blob([toCsv(events)], { type: AUDIT_CSV_MIME }));
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = csvFilename(events);
+    anchor.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /**
