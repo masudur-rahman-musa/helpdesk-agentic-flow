@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { FAILURE_MESSAGES, failureMessage } from "@/lib/chat-errors";
 import { formatSwitchInstant, KILL_SWITCH_READ_MESSAGE } from "@/lib/killswitch-format";
@@ -9,6 +9,7 @@ import {
   killSwitchBoardSchema,
   type SwitchState,
 } from "@/lib/killswitch-schema";
+import { KillSwitchToggle } from "@/components/admin/kill-switch-toggle";
 
 /**
  * The kill switch board, from `GET /api/admin/killswitch`.
@@ -28,10 +29,13 @@ import {
  * needs no click to start it. Pinned by `::reads the proxy once on paint, as a
  * GET with no query and no body`.
  *
- * Everything here is a READ, so a project rule has nothing to bite on: nothing on
- * this surface writes, and the toggle is an earlier change's. Nothing here decides
- * anything either — which tools are on the board, in what order, whether each
- * is stopped and who may see any of it all come from 24ca's tool. This renders.
+ * The one thing on this surface that writes is `KillSwitchToggle`, an earlier change's,
+ * and a project rule holds there without an exception: its mutation is
+ * `set_kill_switch`, a typed MCP tool behind RBAC and the protected-tool guard,
+ * reached through 24cb's proxy under the caller's own bearer. Nothing here
+ * decides anything either — which tools are on the board, in what order,
+ * whether each is stopped and who may see any of it all come from 24ca's tool.
+ * This renders.
  *
  * The rows are painted in the payload's own order, which is the registry's:
  * never sorted, filtered or grouped here, so a tool added by a later plan
@@ -46,13 +50,27 @@ import {
  * `$name renders the read message, no table and no empty state` rows.
  *
  * Accessible names: the region is `Kill switches`, the board is the table `Tool
- * kill switches` and its columns are `Tool`, `Status`, `Platform-wide` and
- * `This tenant`. Both names are `aria-label`s, because neither role takes its
- * name from its contents.
+ * kill switches` and its columns are `Tool`, `Status`, `Platform-wide`, `This
+ * tenant` and `Actions`. Both names are `aria-label`s, because neither role
+ * takes its name from its contents.
  */
 
-/** The four columns, in the order every case in the test file reads them by. */
-const COLUMNS = ["Tool", "Status", "Platform-wide", "This tenant"] as const;
+/**
+ * The five columns, in the order every case in the two test files reads them
+ * by.
+ *
+ * `Actions` is APPENDED and never inserted (24db decision A): every cell
+ * assertion in `tests/killswitch-board.test.tsx` is positional, so a column
+ * landing anywhere but last would make four layer and status cases read the
+ * wrong cell while staying green on the header. The controls live in their own
+ * column rather than inside a layer cell for the same reason — the layer cells
+ * are EVIDENCE, and `cellText(row, GLOBAL_CELL)` reading `No switch Stop
+ * platform-wide` is a change those cases are not about.
+ */
+const COLUMNS = ["Tool", "Status", "Platform-wide", "This tenant", "Actions"] as const;
+
+/** The query the board reads, and the one a toggle's success invalidates. */
+const BOARD_KEY = ["admin", "killswitch", "board"] as const;
 
 /** What a layer holding no switch shows, rather than an empty cell. */
 const NO_SWITCH = "No switch";
@@ -69,10 +87,21 @@ const NO_SWITCH = "No switch";
 type BoardAnswer = KillSwitchRow[] | null;
 
 export function KillSwitchBoard() {
-  const board = useQuery({
-    queryKey: ["admin", "killswitch", "board"],
-    queryFn: fetchBoard,
-  });
+  const queryClient = useQueryClient();
+  const board = useQuery({ queryKey: BOARD_KEY, queryFn: fetchBoard });
+
+  /**
+   * What a successful toggle does, and the only thing it is told about the
+   * cache (24db decision G): the key is the board's own, so the toggle imports
+   * nothing from here and the two modules cannot form a cycle.
+   *
+   * Invalidation and never an optimistic rewrite — the tool decides what the
+   * row becomes, and a row that changed on click would show a stop that did not
+   * land as done.
+   */
+  const onChanged = (): void => {
+    void queryClient.invalidateQueries({ queryKey: BOARD_KEY });
+  };
 
   const refusal = board.isError ? errorMessage(board.error) : null;
   const rows = board.isSuccess ? board.data : null;
@@ -91,7 +120,7 @@ export function KillSwitchBoard() {
         <p className="text-sm text-muted-foreground">No tools are registered.</p>
       ) : null}
 
-      {rows !== null && rows.length > 0 ? <SwitchTable rows={rows} /> : null}
+      {rows !== null && rows.length > 0 ? <SwitchTable rows={rows} onChanged={onChanged} /> : null}
     </section>
   );
 }
@@ -105,7 +134,7 @@ export function KillSwitchBoard() {
  * be told the global one still holds the tool down, and a merged column could
  * not say so.
  */
-function SwitchTable({ rows }: { rows: KillSwitchRow[] }) {
+function SwitchTable({ rows, onChanged }: { rows: KillSwitchRow[]; onChanged: () => void }) {
   return (
     <div className="overflow-x-auto">
       <table aria-label="Tool kill switches" className="w-full text-left text-sm">
@@ -153,6 +182,13 @@ function SwitchTable({ rows }: { rows: KillSwitchRow[] }) {
               </td>
               <td>
                 <LayerCell state={row.tenant_state} />
+              </td>
+              {/* Everything this row can DO, in its own cell (24db decision A).
+                  The toggle holds its own reason, its own arming and its own
+                  in-flight mutation, so one tool being stopped does not grey
+                  out another row's controls. */}
+              <td>
+                <KillSwitchToggle row={row} onChanged={onChanged} />
               </td>
             </tr>
           ))}

@@ -274,7 +274,7 @@ describe("KillSwitchBoard — the read it makes", () => {
 });
 
 describe("KillSwitchBoard — the shape of the board", () => {
-  it("renders the four column headers in order", async () => {
+  it("renders the five column headers in order", async () => {
     // §1's third criterion as an exact sequence. Kills a board that merges the
     // two layers into one column — decision C's whole point is that an admin
     // clearing the tenant switch has to be told the global one still holds the
@@ -288,7 +288,7 @@ describe("KillSwitchBoard — the shape of the board", () => {
     const headers = within(await table())
       .getAllByRole("columnheader")
       .map((header) => (header.textContent ?? "").trim());
-    expect(headers).toEqual(["Tool", "Status", "Platform-wide", "This tenant"]);
+    expect(headers).toEqual(["Tool", "Status", "Platform-wide", "This tenant", "Actions"]);
   });
 
   const ORDERS: ReadonlyArray<{ name: string; tools: readonly string[] }> = [
