@@ -112,6 +112,12 @@ EXPECTED_TOOL_NAMES = {
     # literal is the wire surface, and it is part of every diff adding a
     # REGISTRY entry).
     "list_kill_switches",
+    # An earlier change: the SoD rules board. Twenty-six names become twenty-seven,
+    # the new one a READ - the rules could be judged against but never listed,
+    # so `/admin/rules` had nothing to render (a project rule: this literal
+    # is the wire surface, and it is part of every diff adding a REGISTRY
+    # entry).
+    "list_sod_rules",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

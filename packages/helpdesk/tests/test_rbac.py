@@ -229,6 +229,20 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
+    # An earlier change: the SoD rules board, read-only in v1. SPEC section
+    # 14 gives `/admin/rules` to `it_admin` and `platform_admin`, so those two
+    # cells and no others - `auditor` reads what HAPPENED through
+    # `search_audit`, and a rule is configuration, so the cell it holds on
+    # that neighbouring row must not be copied here.
+    "list_sod_rules": {
+        "employee": None,
+        "manager": None,
+        "system_owner": None,
+        "hr": None,
+        "it_admin": "any",
+        "auditor": None,
+        "platform_admin": "any",
+    },
 }
 
 ALL_CASES: list[tuple[str, str, str | None]] = [

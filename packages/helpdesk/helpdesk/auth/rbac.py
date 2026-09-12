@@ -58,6 +58,7 @@ class Tool(StrEnum):
     ROLLBACK_REQUEST = "rollback_request"
     SET_KILL_SWITCH = "set_kill_switch"
     LIST_KILL_SWITCHES = "list_kill_switches"
+    LIST_SOD_RULES = "list_sod_rules"
     LIST_NOTIFICATIONS = "list_notifications"
     MARK_NOTIFICATION_READ = "mark_notification_read"
 
@@ -270,6 +271,15 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         # alone, so a board whose audience is wider than the write's would
         # show six principals switches none of them can change.
         Tool.LIST_KILL_SWITCHES: {
+            Principal.PLATFORM_ADMIN: Scope.ANY,
+        },
+        # An earlier change: the separation-of-duties rules read as rules, for SPEC
+        # §14's `/admin/rules` page, which that section gives to `it_admin`
+        # and `platform_admin`. Not `auditor`: an auditor reads
+        # what HAPPENED through `search_audit`, and the rules are
+        # configuration a principal with no route to the page cannot act on.
+        Tool.LIST_SOD_RULES: {
+            Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
     }

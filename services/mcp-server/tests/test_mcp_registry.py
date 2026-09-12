@@ -324,6 +324,10 @@ MUTATING_TOOL_NAMES = frozenset(
         # writes nothing at all, so a `True` here would demand an idempotency
         # key for a call the guard never protects and the admin page could not
         # render without minting one.
+        #
+        # An earlier change: `list_sod_rules` must stay off this list too, and for the
+        # same plain reason - the rules board is a READ. It issues three
+        # SELECTs and writes nothing at all.
     }
 )
 
@@ -522,6 +526,11 @@ ADMIN_READ_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
     # nothing, and a `killswitch.changed` per render would file a governance
     # record for a page view.
     ("list_kill_switches", rbac.Tool.LIST_KILL_SWITCHES, registry.SUCCESS_EVENT_TYPE, False),
+    # An earlier change: the SoD rules board, a READ over Postgres for exactly the
+    # same reasons - three SELECTs and nothing written, so the GENERIC success
+    # event and OFF `MUTATING_TOOL_NAMES` above. The table described
+    # twenty-six tools and now describes twenty-seven.
+    ("list_sod_rules", rbac.Tool.LIST_SOD_RULES, registry.SUCCESS_EVENT_TYPE, False),
 )
 
 
@@ -544,6 +553,10 @@ def test_the_kill_switch_board_is_registered_once_under_its_matrix_name(
     The name is written out literally rather than derived from the registry:
     reading the value under test back out of the code under test would assert
     nothing.
+
+    An earlier change adds `list_sod_rules` as a second row of this table, where the
+    equivalent slip is a spec pointed at `rbac.Tool.LIST_KILL_SWITCHES` - the
+    other admin READ, and the neighbour whose shape it copies.
     """
     spec = REGISTRY[name]
 

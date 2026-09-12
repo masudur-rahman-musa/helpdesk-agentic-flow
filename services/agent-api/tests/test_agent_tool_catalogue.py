@@ -94,9 +94,14 @@ ADMIN_TOOLS: frozenset[str] = frozenset(
         # and a tool the model may call is model-driven behaviour that owes
         # golden cases before it merges.
         "list_kill_switches",
+        # An earlier change: the SoD rules board, registered as a tool and left out of
+        # the catalogue for the same reason (decision F) - `/admin/rules` asks
+        # the wire directly, and the policy engine already gets the rules it
+        # needs through `snapshot.py`.
+        "list_sod_rules",
     }
 )
-"""The four tools row 24 owns, which this catalogue must NOT register."""
+"""The five tools row 24 owns, which this catalogue must NOT register."""
 
 CATALOGUED_TOOLS: frozenset[str] = frozenset(
     {
@@ -123,7 +128,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
 )
 """Every tool the agent may reach, as a literal: nineteen.
 
-Counted from the server's own `REGISTRY` — twenty-six specs — less the four
+Counted from the server's own `REGISTRY` — twenty-seven specs — less the five
 in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools row 23ga
 deliberately leaves out (decision E): a tool the model may call is
 model-driven behaviour and owes golden cases before it merges, and the

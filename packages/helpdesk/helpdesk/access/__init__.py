@@ -30,6 +30,10 @@ nothing else itself.
 which scopes are due a review this quarter and hands each to `open_review` as
 that same `system` actor, and `send_review_reminders` tells a late reviewer and,
 after a fortnight, every `it_admin`. Neither decides anything about access.
+`rules.py` is the read side of the design's `/admin/rules`: the
+tenant's separation-of-duties rules with both sides resolved to role and
+system names, in three statements and one total order. It judges nothing;
+`snapshot.py` keeps the narrow shape the policy engine decides on.
 `approvals.py` is the
 approval slot state machine — who may fill which seat, when a chain is
 finished — and the scoped queue of what is waiting for one approver.
@@ -162,6 +166,7 @@ from helpdesk.access.rollback import (
     rollback_request,
     within_rollback_window,
 )
+from helpdesk.access.rules import SodRuleDetail, SodRuleRole, read_sod_rules
 from helpdesk.access.snapshot import build_request_snapshot
 
 __all__ = [
@@ -228,6 +233,8 @@ __all__ = [
     "SlotDecision",
     "SlotState",
     "SodConflictAtExecutionError",
+    "SodRuleDetail",
+    "SodRuleRole",
     "TransferResult",
     "UnassignableReviewError",
     "append_request_rejected",
@@ -261,6 +268,7 @@ __all__ = [
     "open_review",
     "parse_slots",
     "quarter_period",
+    "read_sod_rules",
     "reclassify",
     "request_in_scope",
     "resolve_actor_ref",

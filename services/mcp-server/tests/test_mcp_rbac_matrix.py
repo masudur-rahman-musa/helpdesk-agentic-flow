@@ -300,6 +300,22 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. SPEC section 7's SoD rules board row: the two
+    # cells SPEC section 14 gives `/admin/rules`, both at `Scope.ANY`
+    # (decision E). `auditor` is the cell that matters - it reads what
+    # HAPPENED through `search_audit`, and the rules are configuration, so a
+    # row copied from that neighbour by habit hands an auditor a board they
+    # have no route to (a project rule: this literal is SPEC section 7, and
+    # it is part of every diff that adds a tool or changes a cell).
+    "list_sod_rules": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # An earlier change: the design gives the policy search every principal at
     # `Scope.ANY` — everyone who can ask a question can read the policy behind
     # the answer, and a single False here would be a corpus an employee cannot
@@ -478,6 +494,19 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # `Scope.ANY`, so a permitted caller SUCCEEDS and the plain permitted
         # branch of the sweep is the strict assertion that pins the cell.
         "list_kill_switches",
+        # An earlier change: `list_sod_rules` takes NO arguments at all - no tenant,
+        # no rule id (criterion 2) - so there is no id for a cross-tenant call
+        # to carry. Whose rules it answers comes from the TOKEN,
+        # and that isolation is pinned instead by
+        # `test_mcp_list_sod_rules.py::
+        # test_another_tenants_rules_are_invisible_to_this_caller`, which
+        # reads the OTHER seeded tenant's six real rules back for comparison.
+        # It belongs in neither `ALLOW_ANSWERS_NOT_FOUND` nor
+        # `SCOPE_BEFORE_EXISTENCE_TOOLS`: there is no id to
+        # resolve and both its cells are `Scope.ANY`, so a permitted caller
+        # SUCCEEDS and the plain permitted branch of the sweep is the strict
+        # assertion that pins the two cells.
+        "list_sod_rules",
     }
 )
 # The five decision G names explicitly: everything they answer is decided by
@@ -620,6 +649,14 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         # permitted principal, and the cell would pin nothing (standing rule
         # 27). A read of the shared namespace changes nothing in it, so this
         # sweep leaves no tenant with a stopped tool.
+        return {}
+    if tool_name == "list_sod_rules":
+        # An earlier change. No arguments at all, and no OPTIONAL ones either: the
+        # input model carries no fields, so anything sent here would be
+        # refused VALIDATION where this sweep asserts a success for the two
+        # permitted principals, and both cells would pin nothing (standing
+        # rule 27). The call is a READ of the tenant's own rules and changes
+        # nothing, so the sweep leaves the shared database as it found it.
         return {}
     if tool_name == "list_notifications":
         # An earlier change. No arguments at all: the list takes no id, and both of

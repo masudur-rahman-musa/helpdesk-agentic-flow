@@ -407,6 +407,31 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=admin.list_kill_switches,
     ),
     ToolSpec(
+        # An earlier change: a READ of the tenant's own configuration, so no
+        # idempotency key, no place on `test_mcp_registry.py::
+        # MUTATING_TOOL_NAMES`, and the pipeline's generic `tool.succeeded`
+        # as the whole record a render of the rules board leaves.
+        #
+        # It takes no arguments at all: the tenant is the token's and the
+        # rules are that tenant's rows. Two cells, `it_admin`
+        # and `platform_admin`, the design's audience for `/admin/rules`
+        # — wider than `list_kill_switches` because reading the
+        # rules is not changing anything, narrower than `search_audit`
+        # because these are configuration rather than what happened.
+        name=rbac.Tool.LIST_SOD_RULES.value,
+        tool=rbac.Tool.LIST_SOD_RULES,
+        description=(
+            "List this tenant's separation-of-duties rules: the two conflicting roles with "
+            "their system, the rationale and the policy reference. Takes no arguments; "
+            "reads only."
+        ),
+        input_model=admin.ListSodRulesInput,
+        output_model=admin.ListSodRulesOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=admin.list_sod_rules,
+    ),
+    ToolSpec(
         # A READ over Qdrant: nothing is written, so no idempotency key and no
         # domain event of its own — the pipeline's generic `tool.succeeded` is
         # the whole record a search leaves. The wire name, the matrix member,
