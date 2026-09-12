@@ -43,6 +43,7 @@ from agent_api.killswitch_routes import router as killswitch_router
 from agent_api.me_routes import router as me_router
 from agent_api.notification_routes import router as notification_router
 from agent_api.review_routes import router as review_router
+from agent_api.rules_routes import router as rules_router
 
 REDIS_CONNECT_TIMEOUT_SECONDS = 5.0
 """How long the rate limiter waits to reach Redis at all.
@@ -190,6 +191,7 @@ app.include_router(review_router)
 app.include_router(notification_router)
 app.include_router(audit_router)
 app.include_router(killswitch_router)
+app.include_router(rules_router)
 
 
 class HealthResponse(BaseModel):
