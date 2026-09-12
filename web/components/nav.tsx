@@ -6,17 +6,18 @@ import { SignOutButton } from "@/components/sign-out-button";
 /**
  * The shell's navigation. It links only to routes that exist: `/requests` and
  * `/access` are pages as of an earlier change, `/approvals` as of an earlier change, `/reviews`
- * as of an earlier change and `/notifications` as of an earlier change, while `/admin/audit` and
- * `/admin/rules` arrive with row 24, and a link to a 404 is worse than no link
- * — the user pays the 404 to find out. `tests/shell.test.tsx` asserts both
- * halves: the six links by name and href, and the absence of a link to each
- * route nothing serves yet.
+ * as of an earlier change, `/notifications` as of an earlier change and `/admin/audit` as of
+ * an earlier change, while `/admin/rules` arrives later in row 24, and a link to a 404
+ * is worse than no link — the user pays the 404 to find out.
+ * `tests/shell.test.tsx` asserts both halves: the seven links by name and href,
+ * and the absence of a link to each route nothing serves yet.
  *
  * The unread count is `NotificationBell`, a separate client component with its
  * own query (23gc decision B), so this file stays hook-free.
  *
- * `Approvals` is shown to everyone (23d decision C). A caller holding no seat
- * on any chain gets the tool's `FORBIDDEN` as one sentence rather than a 404;
+ * `Approvals` is shown to everyone (23d decision C), and so is `Audit log`
+ * (24ba decision E). A caller holding no seat on any chain, or no audit
+ * principal, gets the tool's `FORBIDDEN` as one sentence rather than a 404;
  * conditional nav needs the principals in the shell, which no row has done.
  *
  * A plain component on purpose — no `usePathname`, so the shell renders in a
@@ -60,6 +61,12 @@ export function MainNav() {
         className="rounded-sm text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         Notifications
+      </Link>
+      <Link
+        href="/admin/audit"
+        className="rounded-sm text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        Audit log
       </Link>
       <NotificationBell />
       <SignOutButton />

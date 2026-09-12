@@ -142,6 +142,10 @@ describe("MainNav — the routes it links to", () => {
     // of `NOT_YET` and into the links the nav owes. 22a's rule is unchanged —
     // the nav links to routes that exist and to no others.
     { name: "Notifications", href: "/notifications" },
+    // An earlier change §8: `/admin/audit` is a page as of this plan, so it moves out of
+    // `NOT_YET` and into the links the nav owes. 22a's rule is unchanged — the
+    // nav links to routes that exist and to no others.
+    { name: "Audit log", href: "/admin/audit" },
   ] as const;
 
   it.each(LINKS)("links $name to $href", ({ name, href }) => {
@@ -159,7 +163,7 @@ describe("MainNav — the routes it links to", () => {
     expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
   });
 
-  const NOT_YET = ["/admin/audit", "/admin/rules"];
+  const NOT_YET = ["/admin/rules"];
 
   it.each(NOT_YET)("carries no link to %s, which does not exist yet", (href) => {
     // 22a's rule, and the reason decision E adds exactly two links: a link to a
