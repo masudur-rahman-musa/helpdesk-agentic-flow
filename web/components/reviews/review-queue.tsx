@@ -11,6 +11,8 @@ import {
   reviewItemsSchema,
   reviewQueueSchema,
 } from "@/lib/reviews-schema";
+import { readWire } from "@/lib/wire-read";
+
 import { Button } from "@/components/ui/field";
 
 /**
@@ -18,14 +20,14 @@ import { Button } from "@/components/ui/field";
  * of the one they selected, and the keep/revoke decision on each.
  *
  * A client component doing its own reads and its own mutations through TanStack
- * Query (§2, 23d decision A), exactly `ApprovalQueue`'s shape: the bearer stays
- * an httpOnly cookie the proxy attaches, and an expired session is
- * `response.redirected` rather than a status, because the browser has already
- * followed the proxy's redirect by the time this code runs (22b decision E).
- * All THREE call sites check it — a review queue sits open on a screen for many
- * minutes before anyone clicks Keep — which is what
- * `tests/reviews-page.test.tsx`'s three `an expired session` cases pin, one per
- * call site.
+ * Query (§2, 23d decision A), exactly `ApprovalQueue`'s shape. Both READS go
+ * through `lib/wire-read.ts`, which answers `null` while the browser
+ * follows the proxy's redirect to `/login` (22b decision E) and is mapped here
+ * to the empty list; the decision keeps its own check of it, because `readWire`
+ * is a GET and because a review queue sits open on a screen for many minutes
+ * before anyone clicks Keep. All THREE call sites still follow that redirect,
+ * which is what `tests/reviews-page.test.tsx`'s three `an expired session`
+ * cases pin, one per call site.
  *
  * Every act crosses 23h's proxies, so a project rule holds: the decision is a
  * typed MCP tool behind RBAC, the kill switch, the scope rules and the audit
@@ -335,49 +337,36 @@ function decisionRefusal(error: unknown): string | null {
 }
 
 /**
- * The queue for one filter. `all` sends no `status` parameter at all rather
+ * The queue for one filter, or the empty list while the browser follows the
+ * proxy's redirect to `/login`. `all` sends no `status` parameter at all rather
  * than a word the tool's enum has no member for.
+ *
+ * A refused read throws a `WireRefusedError` and this page dresses it with
+ * nothing (24ia decision B): the queue's own alert is what a reviewer sees for a
+ * typed 403 as well as for a bodyless 500, and the per-code sentences on this
+ * surface stay the DECISION's alone. Pinned by
+ * `tests/reviews-page.test.tsx::a 403 FORBIDDEN on the queue renders the queue
+ * alert, not the code's sentence`.
  */
 async function fetchReviews(status: string): Promise<ReviewQueueRow[]> {
   const url = status === "all" ? "/api/me/reviews" : `/api/me/reviews?status=${status}`;
-  const response = await fetch(url, { headers: { accept: "application/json" } });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return [];
-  }
-  if (!response.ok) {
-    // Thrown rather than swallowed: the proxy's own `502 UPSTREAM_UNAVAILABLE`
-    // is valid JSON, so a reader that skipped the status would turn an outage
-    // into "no reviews are waiting for you".
-    throw new Error(`the review queue could not be read (${response.status})`);
-  }
-
-  const parsed = reviewQueueSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("the review queue payload did not match what this page reads");
-  }
-  return parsed.data.reviews;
+  const parsed = await readWire(url, reviewQueueSchema);
+  return parsed === null ? [] : parsed.reviews;
 }
 
+/**
+ * The items of one review, or the empty list while the browser follows the
+ * proxy's redirect to `/login`. The review id is a path segment and never a
+ * query parameter, pinned by `tests/reviews-page.test.tsx::reads
+ * /api/reviews/{review_id}/items with an empty query string`.
+ *
+ * Same dressing as the queue read: the item alert answers a typed 403 and a
+ * bodyless 500 alike (`::a 403 FORBIDDEN on the items renders the item alert,
+ * not the code's sentence`).
+ */
 async function fetchItems(reviewId: string): Promise<ReviewItem[]> {
-  const response = await fetch(`/api/reviews/${reviewId}/items`, {
-    headers: { accept: "application/json" },
-  });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return [];
-  }
-  if (!response.ok) {
-    throw new Error(`the review's items could not be read (${response.status})`);
-  }
-
-  const parsed = reviewItemsSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("the review items payload did not match what this page reads");
-  }
-  return parsed.data.items;
+  const parsed = await readWire(`/api/reviews/${reviewId}/items`, reviewItemsSchema);
+  return parsed === null ? [] : parsed.items;
 }
 
 /**

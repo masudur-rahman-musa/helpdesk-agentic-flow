@@ -1003,3 +1003,146 @@ describe("ReviewQueue — an expired session", () => {
     });
   });
 });
+
+/**
+ * An earlier change §6, added to 23f's file and rewriting none of it (§8): three cases
+ * per read for the TWO reads this component owns — the queue
+ * (`readWire("/api/me/reviews?status=...", reviewQueueSchema)`) and the items
+ * (`readWire("/api/reviews/{id}/items", reviewItemsSchema)`). The decision POST
+ * is not a read and keeps its own `DecisionRefusedError`, so no case here
+ * clicks Keep or Revoke.
+ */
+describe("ReviewQueue — the queue read through the shared wire reader", () => {
+  const ORIGIN = "http://localhost:3000";
+
+  it("a 403 FORBIDDEN on the queue renders the queue alert, not the code's sentence", async () => {
+    // Decision B on the surface that already renders `FAILURE_MESSAGES`
+    // sentences for a refused DECISION, so reusing that dressing for the READ is
+    // one import away. Kills exactly that migration — "You are not allowed to do
+    // that." in the region alert reads as "you may not review", when what failed
+    // is the listing — and kills a `WireRefusedError` escaping the error branch,
+    // which leaves the page on its loading state with neither alert nor queue.
+    // The two rows above cannot decide it: a refused payload and a 502 are plain
+    // errors through the migrated reader, so only a typed body reaches the new
+    // class.
+    queueAnswer = () => jsonResponse({ code: "FORBIDDEN" }, 403);
+    renderQueue();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(QUEUE_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.FORBIDDEN);
+    expect(screen.queryByRole("list", { name: "Review queue" })).toBeNull();
+    expect(screen.queryByText(EMPTY_QUEUE)).toBeNull();
+  }, 10_000);
+
+  it("reads /api/me/reviews with the exact query string ?status=open", async () => {
+    // The one read of the eight whose query string is not empty, asserted as an
+    // exact `search` rather than as `toContain` (the case above this file's
+    // fixtures asserts it that way, and `?status=open&limit=50` would satisfy
+    // it). Kills a migration that drops the filter while moving the call into
+    // `readWire` — decision D's first paint is the OPEN reviews, and after two
+    // quarters the whole table is mostly completed ones — and kills one that
+    // sends `?status=` or `?status=Open`, either of which reaches the tool's
+    // enum as a word it has no member for. Arithmetic: the
+    // staged answer is the default empty 200, so queue reads = 1 on mount and
+    // item reads = 0 with no row selected.
+    queueAnswer = () => jsonResponse({ reviews: [] }, 200);
+    renderQueue();
+
+    await screen.findByText(EMPTY_QUEUE);
+    const url = new URL(only(queueCalls(), "queue").url, ORIGIN);
+    expect(url.pathname).toBe("/api/me/reviews");
+    expect(url.search).toBe("?status=open");
+    expect(itemCalls()).toHaveLength(0);
+  });
+
+  it("a bodyless 500 on the queue renders the same queue alert", async () => {
+    // §5's second risk at the first of this component's two reads: `readWire`
+    // reads the body of every non-ok response looking for a typed code, and
+    // `fetchReviews` reads it for none. Kills a refusal branch awaiting an
+    // unguarded `json()`, and kills one that treats an unreadable body as a
+    // refusal carrying `undefined` — `failureMessage(undefined)` is the default
+    // sentence, which says nothing about a queue.
+    queueAnswer = () => new Response(null, { status: 500 });
+    renderQueue();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(QUEUE_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.default);
+    expect(screen.queryByRole("list", { name: "Review queue" })).toBeNull();
+    expect(screen.queryByText(EMPTY_QUEUE)).toBeNull();
+  }, 10_000);
+});
+
+describe("ReviewQueue — the item read through the shared wire reader", () => {
+  const ORIGIN = "http://localhost:3000";
+
+  it("a 403 FORBIDDEN on the items renders the item alert, not the code's sentence", async () => {
+    // The same decision B at the SECOND read, which a migration fixed in one
+    // place misses. The queue read succeeds here, so only the item path can
+    // produce this alert and the queue's own error branch cannot stand in for
+    // it. Kills an item reader dressing the typed code (the reviewer would be
+    // told they are not allowed to do something, while the queue they are
+    // looking at renders fine), kills one reusing the QUEUE sentence — which
+    // sends them reloading a page that has nothing wrong with it — and kills a
+    // `WireRefusedError` escaping into no alert at all, which after a click on
+    // Show items leaves the row silent.
+    stageTwoReviews();
+    itemsAnswer = () => jsonResponse({ code: "FORBIDDEN" }, 403);
+    const user = userEvent.setup();
+    renderQueue();
+
+    await selectReview(user, "2026-Q2");
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(ITEMS_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.FORBIDDEN);
+    expect(screen.queryByText(QUEUE_ALERT)).toBeNull();
+    expect(screen.queryByText(EMPTY_ITEMS)).toBeNull();
+    expect(await reviewRows()).toHaveLength(2);
+  }, 10_000);
+
+  it("reads /api/reviews/{review_id}/items with an empty query string", async () => {
+    // The path of the one read whose url carries an id, asserted as an exact
+    // `pathname` holding the SELECTED review's id and an exact empty `search`.
+    // Kills a migration that moves the id into a query string
+    // (`/api/reviews/items?review_id=...` hits no route this repo has), kills
+    // one that sends the other row's id — the queue holds two reviews and only
+    // `2026-Q2` was clicked, so a reader keyed on "the first row" is red here —
+    // and kills one that adds a filter or a page size to a read the reviewer
+    // decides items from. Arithmetic: queue reads = 1 on
+    // mount, item reads = 1 after exactly one Show items click.
+    stageTwoReviews();
+    const user = userEvent.setup();
+    renderQueue();
+
+    await selectReview(user, "2026-Q2");
+    await itemRows();
+
+    const url = new URL(only(itemCalls(), "item").url, ORIGIN);
+    expect(url.pathname).toBe(`/api/reviews/${REVIEW_ONE}/items`);
+    expect(url.search).toBe("");
+  });
+
+  it("a bodyless 500 on the items renders the same item alert", async () => {
+    // §5's second risk at the second read. `fetchItems` is the one of the eight
+    // that reads no body on failure at all today, so a migration routing it
+    // through `readWire` newly parses one; a response carrying none is where
+    // that shows. Kills an unguarded `json()` in the refusal branch, and kills
+    // an unreadable body classified as a refusal with `undefined` as its code,
+    // which renders the default sentence rather than the item one. The queue
+    // read succeeds, so the queue's alert cannot satisfy this case.
+    stageTwoReviews();
+    itemsAnswer = () => new Response(null, { status: 500 });
+    const user = userEvent.setup();
+    renderQueue();
+
+    await selectReview(user, "2026-Q2");
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(ITEMS_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.default);
+    expect(screen.queryByText(QUEUE_ALERT)).toBeNull();
+    expect(await reviewRows()).toHaveLength(2);
+  }, 10_000);
+});

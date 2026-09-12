@@ -10,6 +10,8 @@ import {
   type NotificationRow,
   notificationPageSchema,
 } from "@/lib/notifications-schema";
+import { readWire } from "@/lib/wire-read";
+
 import { Button } from "@/components/ui/field";
 
 /**
@@ -18,13 +20,13 @@ import { Button } from "@/components/ui/field";
  *
  * A client component doing its own read and its own mutations through TanStack
  * Query (§2, 23d decision A), exactly `ReviewQueue`'s and `ApprovalQueue`'s
- * shape: the bearer stays an httpOnly cookie the proxy attaches, and an expired
- * session is `response.redirected` rather than a status, because the browser has
- * already followed the proxy's redirect by the time this code runs (22b
- * decision E). BOTH call sites check it — a notifications list sits open on a
- * screen for many minutes before anyone clicks — which is what
- * `tests/notifications-page.test.tsx`'s two `an expired session` cases pin, one
- * per call site.
+ * shape. The READ goes through `lib/wire-read.ts`, which answers
+ * `null` while the browser follows the proxy's redirect to `/login` (22b
+ * decision E); the stamp keeps its own check of it, because `readWire` is a GET
+ * and because a notifications list sits open on a screen for many minutes
+ * before anyone clicks. BOTH call sites still follow that redirect, which is
+ * what `tests/notifications-page.test.tsx`'s two `an expired session` cases
+ * pin, one per call site.
  *
  * Every act crosses 23gb's proxies, so a project rule holds: the stamp is a typed
  * MCP tool behind RBAC, the kill switch, the self-only scope check and the
@@ -238,24 +240,15 @@ function stampRefusal(error: unknown): string | null {
  */
 async function fetchNotifications(unreadOnly: boolean): Promise<NotificationPage> {
   const url = unreadOnly ? "/api/me/notifications?unread_only=true" : "/api/me/notifications";
-  const response = await fetch(url, { headers: { accept: "application/json" } });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return { notifications: [], unread_count: 0 };
-  }
-  if (!response.ok) {
-    // Thrown rather than swallowed: the proxy's own `502 UPSTREAM_UNAVAILABLE`
-    // is valid JSON, so a reader that skipped the status would turn an outage
-    // into "you have no notifications".
-    throw new Error(`the notifications could not be read (${response.status})`);
-  }
-
-  const parsed = notificationPageSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("the notifications payload did not match what this page reads");
-  }
-  return parsed.data;
+  // The empty page is what the redirect resolves to, exactly as before: no row,
+  // no tally, and nothing said about either while the browser leaves. A refusal
+  // and a failed read both throw out of `readWire` instead, and this page
+  // dresses neither (24ia decision B) — the list's own alert answers a typed 403
+  // and a bodyless 500 alike, and the per-code sentences here stay the STAMP's
+  // (`tests/notifications-page.test.tsx::a 403 FORBIDDEN on the page read
+  // renders the page alert, not the code's sentence`).
+  const parsed = await readWire(url, notificationPageSchema);
+  return parsed === null ? { notifications: [], unread_count: 0 } : parsed;
 }
 
 /**

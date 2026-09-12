@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useContext } from "react";
 
 import { notificationPageSchema } from "@/lib/notifications-schema";
+import { readWire } from "@/lib/wire-read";
 
 /**
  * The unread count in the shell's nav, and the route into `/notifications`
@@ -35,10 +36,10 @@ import { notificationPageSchema } from "@/lib/notifications-schema";
  * the one thing this component owes on failure is the route into the page.
  * Pinned by the two `a read that fails` rows.
  *
- * An expired session is `response.redirected` and never a status (22b decision
- * E), the same as the page's two call sites. This read fires on every
- * authenticated page, so it is the likeliest place a stale session is
- * discovered at all.
+ * The read goes through `lib/wire-read.ts`, so an expired session
+ * arrives as that module's `null` and never as a status (22b decision E), the
+ * same as the page's two call sites. This read fires on every authenticated
+ * page, so it is the likeliest place a stale session is discovered at all.
  */
 export function NotificationBell() {
   // Deviation from §2, recorded in the plan: `tests/shell.test.tsx` renders
@@ -102,24 +103,16 @@ function UnreadBell() {
  * `limit` on the page's own read is what tells the two apart in the tests.
  */
 async function fetchUnreadCount(): Promise<number> {
-  const response = await fetch("/api/me/notifications?unread_only=true&limit=1", {
-    headers: { accept: "application/json" },
-  });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return 0;
-  }
-  if (!response.ok) {
-    // Thrown rather than swallowed, even though the failure renders as nothing:
-    // a resolved `0` is a claim that nothing is waiting, and the difference
-    // between that and "unknown" is the whole of §1's silent-failure criterion.
-    throw new Error(`the unread count could not be read (${response.status})`);
-  }
-
-  const parsed = notificationPageSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("the notifications payload did not match what this bell reads");
-  }
-  return parsed.data.unread_count;
+  // `readWire` THROWS for every failure, even though the failure renders as
+  // nothing here: a resolved `0` is a claim that nothing is waiting, and the
+  // difference between that and "unknown" is the whole of §1's silent-failure
+  // criterion (`tests/notification-bell.test.tsx::a 403 FORBIDDEN leaves the
+  // count unknown, never 0, and shows no alert`). Its `null` — the browser
+  // already navigating to `/login` — is the one case that resolves, and `0` is
+  // then never rendered either, because a count of zero shows no badge.
+  const parsed = await readWire(
+    "/api/me/notifications?unread_only=true&limit=1",
+    notificationPageSchema,
+  );
+  return parsed === null ? 0 : parsed.unread_count;
 }

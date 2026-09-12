@@ -6,13 +6,15 @@ import Link from "next/link";
 import { type MyGrant, myAccessSchema } from "@/lib/access-schema";
 import { renewalHref } from "@/lib/chat-prefill";
 import { daysUntil } from "@/lib/expiry";
+import { readWire } from "@/lib/wire-read";
 
 /**
  * What this user holds right now, from `GET /api/me/access`.
  *
  * The same shape as `RequestList`: a client read through TanStack Query
- * (decision A), the expired session detected as `response.redirected` rather
- * than a status (22b decision E), and a failed read thrown rather than
+ * (decision A) made by `lib/wire-read.ts`, whose `null` — the
+ * browser already following the proxy's redirect to `/login` (22b decision E) —
+ * is mapped here to the empty list, and a failed read thrown rather than
  * answered as an empty list — "you hold no access" over a broken proxy is the
  * sentence on this page a person might act on by asking again for access they
  * already have (`tests/access-page.test.tsx`'s two `a read that fails` rows
@@ -91,23 +93,17 @@ function expiryLabel(expiresAt: string | null): string {
   return days === null ? expiresAt : `${days} days left`;
 }
 
+/**
+ * Every grant this user holds, or the empty list while the browser follows the
+ * proxy's redirect to `/login`.
+ *
+ * A refusal and a failed read both THROW out of `readWire`, and this page
+ * dresses neither (24ia decision B): the section's own alert sentence is what a
+ * holder reads for a typed 403 and for a bodyless 500 alike, pinned by
+ * `tests/access-page.test.tsx::a 403 FORBIDDEN renders this page's own read
+ * sentence, not the code's`.
+ */
 async function fetchGrants(): Promise<MyGrant[]> {
-  const response = await fetch("/api/me/access", { headers: { accept: "application/json" } });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return [];
-  }
-  if (!response.ok) {
-    // Thrown rather than swallowed: the proxy's own `502
-    // UPSTREAM_UNAVAILABLE` is valid JSON, so a reader that skipped the status
-    // would turn an outage into "you hold nothing".
-    throw new Error(`your access could not be read (${response.status})`);
-  }
-
-  const parsed = myAccessSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("the access payload did not match what this page reads");
-  }
-  return parsed.data.grants;
+  const parsed = await readWire("/api/me/access", myAccessSchema);
+  return parsed === null ? [] : parsed.grants;
 }

@@ -771,3 +771,130 @@ describe("ChatPanel — the renewal prefill", () => {
     expect(streamCalls).toBe(0);
   });
 });
+
+/**
+ * An earlier change §6, added to 22b's file and rewriting none of it (§8): the three
+ * cases that hold `fetchHistory` still, after its four private lines become
+ * `readWire("/api/chat/messages", z.unknown())` with `readHistory` kept after
+ * it (decision A). The stream POST is not a read and is untouched, which is why
+ * no case here presses Send.
+ *
+ * §6 asks each read's case to render "that page's existing alert sentence".
+ * The history read has NONE: `ChatPanel` renders an alert for the TURN's typed
+ * failures only, and a failed history read shows the empty conversation and
+ * nothing else. So the state pinned here is that one, and the failed read is
+ * told apart from an empty transcript by the RETRY — TanStack's `retry: 1`
+ * makes a thrown read two calls and a swallowed one, which is the wrong
+ * implementation, exactly one. Reported to 24ia as a deviation rather than
+ * answered by adding a sentence no closed plan's §1 asked for (decision B).
+ */
+describe("ChatPanel — the history read through the shared wire reader", () => {
+  const ORIGIN = "http://localhost:3000";
+
+  /** Every history read the panel made under a stub staged for this case. */
+  function historyReadsOf(stub: ReturnType<typeof vi.fn<typeof fetch>>): number {
+    return stub.mock.calls.filter(([input]) => urlOf(input).includes("/api/chat/messages")).length;
+  }
+
+  /**
+   * The history answer for this case alone, replacing `beforeEach`'s stub
+   * (`afterEach`'s `vi.unstubAllGlobals` takes it back down). The file's own
+   * stub answers a 200 unconditionally and holds no failure staging, and §8
+   * authorises no rewrite of it.
+   */
+  function stubHistory(answer: () => Response): ReturnType<typeof vi.fn<typeof fetch>> {
+    const stub = vi.fn<typeof fetch>();
+    stub.mockImplementation(async (input) => {
+      const url = urlOf(input);
+      if (url.includes("/api/chat/messages")) {
+        return answer();
+      }
+      throw new Error(`unexpected fetch to ${url}`);
+    });
+    vi.stubGlobal("fetch", stub);
+    return stub;
+  }
+
+  it("a 403 FORBIDDEN is a failed read, not an empty transcript, and raises no alert", async () => {
+    // The read that has no sentence of its own, so the kill is the SHAPE of the
+    // failure. The retry count is the load-bearing half: a migration that
+    // swallows the refusal and answers `[]` (the value §1 reserves for the
+    // REDIRECT alone) renders exactly what this case sees on screen, and only
+    // the second call says the read actually failed — `retry: 1` fetches twice
+    // for a thrown read and once for a resolved one. The absent alert kills
+    // decision B's rejected alternative on this page: dressing the typed code
+    // would put "You are not allowed to do that." in the region the TURN's
+    // failures own, for a transcript the user never asked about, and the
+    // composer would carry a refusal before anything was sent. Arithmetic
+    //: history reads = 1 on mount + 1 retry = 2; a swallowed
+    // refusal = 1; stream calls = 0, nothing is sent.
+    const stub = stubHistory(
+      () =>
+        new Response(JSON.stringify({ code: "FORBIDDEN" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    renderPanel();
+
+    await waitFor(
+      () => {
+        expect(historyReadsOf(stub)).toBe(2);
+      },
+      { timeout: 5_000 },
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(within(conversation()).queryAllByRole("article")).toHaveLength(0);
+    expect(streamCalls).toBe(0);
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+  }, 10_000);
+
+  it("reads /api/chat/messages with an empty query string", async () => {
+    // The path and the query byte for byte, as an exact `pathname` and an exact
+    // `search`. Kills a migration that moves the history read onto
+    // `/api/chat/stream` — the POST route this same component owns, and the one
+    // a careless copy reaches for — and kills one that gains a session, a limit
+    // or a cursor while being rewritten: which transcript this is comes from the
+    // session cookie behind the proxy, and a page naming one is a project rule in
+    // the browser. Arithmetic: the file's own stub answers a
+    // 200, so history reads = 1 on mount and stream calls = 0.
+    renderPanel();
+
+    await screen.findByRole("log", { name: "Conversation" });
+    const reads = fetchStub.mock.calls
+      .map(([input]) => urlOf(input))
+      .filter((url) => url.includes("/api/chat/messages"));
+    const first = reads[0];
+    if (reads.length !== 1 || first === undefined) {
+      throw new Error(`expected exactly one history read, found ${reads.length}`);
+    }
+    const url = new URL(first, ORIGIN);
+    expect(url.pathname).toBe("/api/chat/messages");
+    expect(url.search).toBe("");
+    expect(streamCalls).toBe(0);
+  });
+
+  it("a bodyless 500 is a failed read too, and still raises no alert", async () => {
+    // §5's second risk on the one read with no schema at all (decision A's
+    // `z.unknown()`): `readWire` reads the body of every non-ok response looking
+    // for a typed code, where `fetchHistory` reads it for none. Kills a refusal
+    // branch awaiting an unguarded `json()` — the `SyntaxError` would reject
+    // outside the query's own error path — and kills a reader that answers an
+    // unreadable failure with an empty transcript, which reads as "you have said
+    // nothing yet" over a conversation the person can see the history of
+    // nowhere. Arithmetic: history reads = 1 on mount + 1
+    // retry = 2; a swallowed failure = 1.
+    const stub = stubHistory(() => new Response(null, { status: 500 }));
+    renderPanel();
+
+    await waitFor(
+      () => {
+        expect(historyReadsOf(stub)).toBe(2);
+      },
+      { timeout: 5_000 },
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(within(conversation()).queryAllByRole("article")).toHaveLength(0);
+    expect(streamCalls).toBe(0);
+  }, 10_000);
+});

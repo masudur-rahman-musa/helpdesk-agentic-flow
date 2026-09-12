@@ -13,6 +13,8 @@ import {
   slotLabel,
   statusLabel,
 } from "@/lib/decision-labels";
+import { readWire } from "@/lib/wire-read";
+
 import { Button } from "@/components/ui/field";
 
 /**
@@ -20,14 +22,13 @@ import { Button } from "@/components/ui/field";
  * decisions it can take.
  *
  * A client component doing its own read and its own mutations through TanStack
- * Query (decision A), exactly `RequestList`'s shape: the bearer stays an
- * httpOnly cookie the proxy attaches, and an expired session is
- * `response.redirected` rather than a status, because the browser has already
- * followed the proxy's redirect by the time this code runs (22b decision E).
- * Both the read AND both mutations check it — a session expires while the
- * queue sits open on a screen far more often than it expires mid-read — which
- * is what `tests/approvals-page.test.tsx`'s `::follows the redirect at the
- * decision too, not only at the read` pins.
+ * Query (decision A), exactly `RequestList`'s shape. The READ goes through
+ * `lib/wire-read.ts`, which answers `null` while the browser
+ * follows the proxy's redirect to `/login` (22b decision E); both mutations
+ * keep their own check of it, because `readWire` is a GET and because a session
+ * expires while the queue sits open on a screen far more often than it expires
+ * mid-read. That is what `tests/approvals-page.test.tsx`'s `::follows the
+ * redirect at the decision too, not only at the read` pins.
  *
  * Every act crosses 23c's proxies, so a project rule holds: the decision is a
  * typed MCP tool behind RBAC, the kill switch, the seat rules and the audit
@@ -326,25 +327,20 @@ function decisionRefusal(error: unknown): string | null {
   return code === "VALIDATION" ? DECISION_VALIDATION_MESSAGE : failureMessage(code);
 }
 
+/**
+ * The queue waiting on this approver, or the empty list while the browser
+ * follows the proxy's redirect to `/login`.
+ *
+ * A refused read throws a `WireRefusedError` and this page dresses it with
+ * nothing (24ia decision B): the region's own read alert is what an approver
+ * sees for a typed 403 as well as for a bodyless 500, and the per-code
+ * sentences on this surface stay the DECISION's alone. Pinned by
+ * `tests/approvals-page.test.tsx::a 403 FORBIDDEN on the queue renders the read
+ * alert, not the code's sentence`.
+ */
 async function fetchApprovals(): Promise<PendingApproval[]> {
-  const response = await fetch("/api/me/approvals", { headers: { accept: "application/json" } });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return [];
-  }
-  if (!response.ok) {
-    // Thrown rather than swallowed: the proxy's own `502 UPSTREAM_UNAVAILABLE`
-    // is valid JSON, so a reader that skipped the status would turn an outage
-    // into "nothing is waiting for your decision".
-    throw new Error(`the approval queue could not be read (${response.status})`);
-  }
-
-  const parsed = pendingApprovalsSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("the approvals payload did not match what this page reads");
-  }
-  return parsed.data.approvals;
+  const parsed = await readWire("/api/me/approvals", pendingApprovalsSchema);
+  return parsed === null ? [] : parsed.approvals;
 }
 
 /**

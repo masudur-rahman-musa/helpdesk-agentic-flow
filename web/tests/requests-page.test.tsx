@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QueryProvider } from "@/components/query-provider";
 import { RequestList } from "@/components/requests/request-list";
+import { FAILURE_MESSAGES } from "@/lib/chat-errors";
 import { reasonSentence } from "@/lib/decision-labels";
 
 /**
@@ -336,4 +337,96 @@ describe("RequestList — an expired session", () => {
     });
     expect(screen.queryByRole("list", { name: "Requests" })).toBeNull();
   });
+});
+
+/**
+ * An earlier change §6, added to 23b's file and rewriting none of it (§8): the three
+ * cases that hold `fetchRequests` still, after its four private lines become
+ * `readWire("/api/me/requests", myRequestsSchema)`.
+ *
+ * The sentence is not held as a constant anywhere today — it is JSX text inside
+ * `request-list.tsx` — so `READ_ALERT` below is it copied byte for byte, and
+ * the mismatch with §6's "taken from the constant the file already holds" is
+ * reported to 24ia rather than fixed by exporting a constant this plan's §3
+ * does not authorise.
+ */
+describe("RequestList — through the shared wire reader", () => {
+  const READ_ALERT = "Your requests could not be read. Try again in a moment.";
+  const ORIGIN = "http://localhost:3000";
+
+  /** The single read this page made, as a URL a case can assert field by field. */
+  function onlyReadUrl(): URL {
+    const urls = fetchStub.mock.calls.map(([input]) =>
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+    );
+    const first = urls[0];
+    if (urls.length !== 1 || first === undefined) {
+      throw new Error(`expected exactly one read, found ${urls.length}`);
+    }
+    return new URL(first, ORIGIN);
+  }
+
+  it("a 403 FORBIDDEN renders this page's own read sentence, not the code's", async () => {
+    // Decision B, pinned rather than assumed. Through `readWire` a typed code
+    // arrives as a `WireRefusedError` where today every non-ok status arrives as
+    // a plain `Error`, so this kills the two migrations that changes: one that
+    // dresses the code per page (`failureMessage(error.code)` would put "You are
+    // not allowed to do that." here, which no closed plan's §1 asked for and
+    // which this file's other cases would stay green for), and one that lets the
+    // new class escape the page's error branch entirely — rethrown outside the
+    // query function it reaches no `isError` at all and the page sits on its
+    // loading state with no alert. The staged body is what makes the class
+    // reachable: a 502 `UPSTREAM_UNAVAILABLE` (the rows above) is a plain
+    // `Error` through the migrated reader too, so neither of those rows can
+    // decide this.
+    answer = () => jsonResponse({ code: "FORBIDDEN" }, 403);
+    renderList();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(READ_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.FORBIDDEN);
+    expect(screen.queryByRole("list", { name: "Requests" })).toBeNull();
+    expect(screen.queryByText(EMPTY_REQUESTS)).toBeNull();
+  }, 10_000);
+
+  it("reads /api/me/requests with an empty query string", async () => {
+    // The path and the query as they are today, asserted as an exact `pathname`
+    // and an exact `search` so a migration cannot move the call while it moves
+    // the reader. Kills a `readWire` call handed `/api/requests`, `/api/me` or a
+    // path with the tenant or the user spliced into it (a project rule: identity is
+    // the token's, and a page naming either is the bug this assertion is
+    // cheapest at), and kills one that gains a filter or a page size the tool
+    // was never asked for — `toContain` on the url would pass for every one of
+    // those. Arithmetic: the staged answer is the default
+    // empty 200, so reads = 1 on mount and the empty state is what says the read
+    // settled before the count is taken.
+    answer = () => jsonResponse({ requests: [] }, 200);
+    renderList();
+
+    await screen.findByText(EMPTY_REQUESTS);
+    const url = onlyReadUrl();
+    expect(url.pathname).toBe("/api/me/requests");
+    expect(url.search).toBe("");
+  });
+
+  it("a bodyless 500 renders the same read sentence", async () => {
+    // `readWire` reads the body of every non-ok response to look for a typed
+    // code, where `fetchRequests` reads it for no failure at all (§5's second
+    // risk). A response with no body at all is where that difference shows:
+    // kills a migration whose refusal branch awaits an unguarded `json()` and
+    // hands the page whatever `SyntaxError` says instead of its own sentence,
+    // and kills one that treats an unreadable body as a refusal carrying
+    // `undefined` — `failureMessage(undefined)` is the default sentence, so the
+    // `not.toContain` is what separates the two. No JSON is staged here on
+    // purpose: with a body this case is the 403 above, and the point is the half
+    // that has none.
+    answer = () => new Response(null, { status: 500 });
+    renderList();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(READ_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.default);
+    expect(screen.queryByRole("list", { name: "Requests" })).toBeNull();
+    expect(screen.queryByText(EMPTY_REQUESTS)).toBeNull();
+  }, 10_000);
 });

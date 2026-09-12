@@ -281,3 +281,83 @@ describe("NotificationBell — an expired session", () => {
     });
   });
 });
+
+/**
+ * An earlier change §6, added to 23gc's file and rewriting none of it (§8): the three
+ * cases that hold `fetchUnreadCount` still, after its four private lines become
+ * `readWire("/api/me/notifications?unread_only=true&limit=1",
+ * notificationPageSchema)` with `null` mapped to `0`.
+ *
+ * §6 asks each read's case to render "that page's existing alert sentence".
+ * This component has NONE and may not grow one: §1 of 23gc makes a failed read
+ * silent, because an error region in the shell's header follows a person onto
+ * every route including the working ones. The failure state pinned here is
+ * therefore that silence — the link still present, its accessible name
+ * `Notifications` with no count in it, and no alert anywhere — which is the
+ * state this bell reaches today. Reported to 24ia as a deviation rather than
+ * answered by adding a sentence the plan's §1 forbids.
+ */
+describe("NotificationBell — through the shared wire reader", () => {
+  const ORIGIN = "http://localhost:3000";
+
+  it("a 403 FORBIDDEN leaves the count unknown, never 0, and shows no alert", async () => {
+    // Decision B where this component has no sentence to keep, so what has to
+    // hold is the silence AND the unknown count. The accessible name is the
+    // whole discriminator: a bell that maps the refusal (or `readWire`'s `null`)
+    // to `0` renders `Notifications, 0 unread`, which claims nothing is waiting
+    // when the truth is that nobody could read it — and `0` is exactly what the
+    // migration's `?? 0` invites at the wrong place, since §1 maps only the
+    // REDIRECT to zero. Kills that, kills a bell dressing the typed code into an
+    // alert in the shell's header (the one place an error region follows a
+    // person from screen to screen), and kills a `WireRefusedError` unmounting
+    // the link, which takes away the route into the page. The typed body is what
+    // makes the new class reachable: the 502 row above is a plain error through
+    // the migrated reader too.
+    bellAnswer = () => jsonResponse({ code: "FORBIDDEN" }, 403);
+    renderBell();
+
+    const link = await screen.findByRole("link", { name: "Notifications" }, { timeout: 5_000 });
+    expect(link).toHaveAttribute("href", "/notifications");
+    expect(/\d/.test(link.textContent ?? "")).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Notifications, 0 unread" })).toBeNull();
+  }, 10_000);
+
+  it("reads /api/me/notifications with the exact query string ?unread_only=true&limit=1", async () => {
+    // The bell's query string is the only thing telling its read apart from the
+    // page's, on the same path (decision C against decision E). The case above
+    // asserts the two keys with `toContain`, which stays green for
+    // `?unread_only=true&limit=50` or for a third parameter added while the call
+    // moves; this pins the `search` byte for byte, so a migration that drops
+    // `limit=1` (fifty rows dragged into the header of every authenticated page,
+    // for a number) or drops `unread_only=true` (a tally of everything, read as
+    // unread) is red. Arithmetic: the staged answer is the
+    // default `unread_count: 0` 200, so bell reads = 1 on mount, and the named
+    // link is what says the read settled before the count is taken.
+    bellAnswer = () => jsonResponse({ notifications: [], unread_count: 0 }, 200);
+    renderBell();
+
+    await screen.findByRole("link", { name: "Notifications, 0 unread" });
+    const url = new URL(onlyCall(), ORIGIN);
+    expect(url.pathname).toBe("/api/me/notifications");
+    expect(url.search).toBe("?unread_only=true&limit=1");
+  });
+
+  it("a bodyless 500 leaves the count unknown, never 0, and shows no alert", async () => {
+    // §5's second risk on the read that fires on every authenticated page:
+    // `readWire` reads the body of every non-ok response looking for a typed
+    // code, and `fetchUnreadCount` reads it for none. Kills a refusal branch
+    // awaiting an unguarded `json()` — the rejection would surface as an
+    // unhandled one rather than as this query's error — and kills a bell that
+    // answers an unreadable failure with `0`, which is the difference between
+    // "nothing is waiting" and "nobody knows" on every screen of the app.
+    bellAnswer = () => new Response(null, { status: 500 });
+    renderBell();
+
+    const link = await screen.findByRole("link", { name: "Notifications" }, { timeout: 5_000 });
+    expect(link).toHaveAttribute("href", "/notifications");
+    expect(/\d/.test(link.textContent ?? "")).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Notifications, 0 unread" })).toBeNull();
+  }, 10_000);
+});

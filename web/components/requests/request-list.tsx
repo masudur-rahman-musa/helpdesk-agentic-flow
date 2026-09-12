@@ -10,17 +10,18 @@ import {
   slotLabel,
   statusLabel,
 } from "@/lib/decision-labels";
+import { readWire } from "@/lib/wire-read";
 
 /**
  * Everything this user has asked for, newest read of `GET /api/me/requests`
  *.
  *
  * A client component doing its own read through TanStack Query (decision A),
- * exactly as `ChatPanel` reads its history: the bearer stays an httpOnly
- * cookie the proxy attaches, and the expired-session path is
- * `response.redirected` and never a status, because the browser has already
- * followed the proxy's redirect by the time this code runs (22b decision E,
- * pinned by `tests/requests-page.test.tsx`'s `an expired session` case).
+ * with the read itself in `lib/wire-read.ts`: the redirect, the
+ * status, the typed code and the parse live there once, and this file maps that
+ * module's `null` — the browser already following the proxy's redirect to
+ * `/login` (22b decision E) — to the empty list. Pinned by
+ * `tests/requests-page.test.tsx`'s `an expired session` case.
  *
  * A failed read THROWS rather than answering an empty list. The two are
  * different things to the person reading the page — "you have filed nothing"
@@ -144,23 +145,17 @@ function CitationRow({ citation }: { citation: RequestCitation }) {
   );
 }
 
+/**
+ * Every request this user has filed, or the empty list while the browser
+ * follows the proxy's redirect to `/login`.
+ *
+ * A refusal and a failed read both THROW out of `readWire`, and this page
+ * dresses neither (24ia decision B): the section's own alert sentence is what a
+ * requester reads for a typed 403 and for a bodyless 500 alike, pinned by
+ * `tests/requests-page.test.tsx::a 403 FORBIDDEN renders this page's own read
+ * sentence, not the code's`.
+ */
 async function fetchRequests(): Promise<MyRequest[]> {
-  const response = await fetch("/api/me/requests", { headers: { accept: "application/json" } });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return [];
-  }
-  if (!response.ok) {
-    // Thrown rather than swallowed: a proxy answering `502
-    // UPSTREAM_UNAVAILABLE` carries a perfectly valid JSON body, so a reader
-    // that skipped the status would parse a refusal envelope into no rows.
-    throw new Error(`your requests could not be read (${response.status})`);
-  }
-
-  const parsed = myRequestsSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("the requests payload did not match what this page reads");
-  }
-  return parsed.data.requests;
+  const parsed = await readWire("/api/me/requests", myRequestsSchema);
+  return parsed === null ? [] : parsed.requests;
 }

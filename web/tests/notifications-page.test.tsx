@@ -771,3 +771,81 @@ describe("NotificationList — an expired session", () => {
     });
   });
 });
+
+/**
+ * An earlier change §6, added to 23gb/23gc's file and rewriting none of it (§8): the
+ * three cases that hold the PAGE read still, after its four private lines
+ * become `readWire(url, notificationPageSchema)`. The read stamp is a POST, not
+ * a read, so it keeps its own `StampRefusedError` and the refusal cases above
+ * are untouched.
+ */
+describe("NotificationList — the page read through the shared wire reader", () => {
+  const ORIGIN = "http://localhost:3000";
+
+  it("a 403 FORBIDDEN on the page read renders the page alert, not the code's sentence", async () => {
+    // Decision B on the file that already renders `FAILURE_MESSAGES` sentences
+    // for a refused STAMP, in a row-level alert. Kills a migration reusing that
+    // dressing for the READ — "You are not allowed to do that." in the region
+    // alert reads as "you may not see your notifications", where the generic
+    // sentence tells the person to try again — and kills a `WireRefusedError`
+    // escaping the error branch, which leaves the page on its loading state with
+    // no alert and no list. The two rows above cannot decide it: a refused
+    // payload and a 502 both arrive as plain errors through the migrated reader,
+    // so only a typed body reaches the new class. The row-level alert is absent
+    // here by construction (no stamp is clicked), so the region alert is the
+    // only one this case can find.
+    pageAnswer = () => jsonResponse({ code: "FORBIDDEN" }, 403);
+    renderList();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(PAGE_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.FORBIDDEN);
+    expect(screen.queryByRole("list", { name: "Your notifications" })).toBeNull();
+    expect(screen.queryByText(EMPTY_LIST)).toBeNull();
+  }, 10_000);
+
+  it("reads /api/me/notifications with an empty query string on first paint", async () => {
+    // The page read and the bell's read are the SAME path and are told apart by
+    // the query alone (decision E: no `limit`, and `unread_only` only when the
+    // control is on), so this is the one assertion that can catch them being
+    // swapped. Kills a migration that gives the page read the bell's
+    // `?unread_only=true&limit=1` — the list would then show one unread row and
+    // call it everything — and kills one that sends `unread_only=false`, a value
+    // the tool has no reading for. `toContain` would pass for all of those,
+    // which is why the `search` is exact. Arithmetic: the
+    // staged answer is the default empty 200 and no bell is rendered in
+    // `renderList`, so reads to `/api/me/notifications` = 1.
+    pageAnswer = () => jsonResponse({ notifications: [], unread_count: 0 }, 200);
+    renderList();
+
+    await screen.findByText(EMPTY_LIST);
+    const url = new URL(
+      only(
+        callsMatching((candidate) => candidate.includes("/api/me/notifications")),
+        "notifications read",
+      ).url,
+      ORIGIN,
+    );
+    expect(url.pathname).toBe("/api/me/notifications");
+    expect(url.search).toBe("");
+  });
+
+  it("a bodyless 500 on the page read renders the same page alert", async () => {
+    // §5's second risk on this page: `readWire` reads the body of every non-ok
+    // response looking for a typed code, and `fetchNotifications` reads it for
+    // none. Kills a refusal branch awaiting an unguarded `json()`, and kills one
+    // classifying an unreadable body as a refusal carrying `undefined`, whose
+    // `failureMessage` is the default sentence and says nothing about
+    // notifications. The empty state must stay absent: "You have no
+    // notifications." over an outage is what §5's fourth risk names, and it is
+    // the reading a person acts on by closing the tab.
+    pageAnswer = () => new Response(null, { status: 500 });
+    renderList();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(PAGE_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.default);
+    expect(screen.queryByRole("list", { name: "Your notifications" })).toBeNull();
+    expect(screen.queryByText(EMPTY_LIST)).toBeNull();
+  }, 10_000);
+});

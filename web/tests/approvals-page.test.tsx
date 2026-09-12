@@ -729,3 +729,86 @@ describe("ApprovalQueue — an expired session", () => {
     });
   });
 });
+
+/**
+ * An earlier change §6, added to 23d's file and rewriting none of it (§8): the three
+ * cases that hold the QUEUE read still, after its four private lines become
+ * `readWire("/api/me/approvals", pendingApprovalsSchema)`. The two POSTs are
+ * not reads and are untouched by that plan, which is why no case here stages a
+ * decision: `DecisionRefusedError` and its per-code sentences stay exactly as
+ * the cases above pin them.
+ */
+describe("ApprovalQueue — the queue read through the shared wire reader", () => {
+  const ORIGIN = "http://localhost:3000";
+
+  /** The single queue read, as a URL a case can assert field by field. */
+  function onlyQueueUrl(): URL {
+    const urls = fetchStub.mock.calls
+      .map(([input]) => urlOf(input))
+      .filter((url) => url.includes("/api/me/approvals"));
+    const first = urls[0];
+    if (urls.length !== 1 || first === undefined) {
+      throw new Error(`expected exactly one queue read, found ${urls.length}`);
+    }
+    return new URL(first, ORIGIN);
+  }
+
+  it("a 403 FORBIDDEN on the queue renders the read alert, not the code's sentence", async () => {
+    // Decision B, and the page where it is easiest to get wrong: this file
+    // ALREADY renders `FAILURE_MESSAGES` sentences for a refused DECISION, so a
+    // migration that reuses that dressing for the READ is one import away. Kills
+    // exactly that — "You are not allowed to do that." in the region alert would
+    // tell an approver they may not approve, when what failed is the listing —
+    // and kills a `WireRefusedError` escaping the error branch, which leaves the
+    // page on its loading state with neither alert nor queue. Neither of the two
+    // rows above can decide it: a refused payload and a 502 both arrive as plain
+    // errors through the migrated reader, so only a typed body reaches the new
+    // class.
+    answer = () => jsonResponse({ code: "FORBIDDEN" }, 403);
+    renderQueue();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(READ_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.FORBIDDEN);
+    expect(screen.queryByRole("list", { name: "Pending approvals" })).toBeNull();
+    expect(screen.queryByText(EMPTY_QUEUE)).toBeNull();
+  }, 10_000);
+
+  it("reads /api/me/approvals with an empty query string", async () => {
+    // The path and the query byte for byte, as an exact `pathname` and an exact
+    // `search`. Kills a migration that moves the queue read onto
+    // `/api/approvals` — the POST prefix this same file uses, one character away
+    // and a route that takes a request id — and kills one that gains a filter
+    // (`?slot=`, `?status=pending`) while being rewritten: which items wait on
+    // this approver is decided behind the MCP boundary off the token, and a page
+    // naming a seat or a principal is a project rule in the browser. Arithmetic
+    //: the staged answer is the default empty 200, so queue
+    // reads = 1 on mount and decision calls = 0, and the empty state is what
+    // says the read settled before the count is taken.
+    answer = () => jsonResponse({ approvals: [] }, 200);
+    renderQueue();
+
+    await screen.findByText(EMPTY_QUEUE);
+    const url = onlyQueueUrl();
+    expect(url.pathname).toBe("/api/me/approvals");
+    expect(url.search).toBe("");
+    expect(decisionCalls()).toHaveLength(0);
+  });
+
+  it("a bodyless 500 on the queue renders the same read alert", async () => {
+    // §5's second risk on this page: `readWire` reads the body of every non-ok
+    // response looking for a typed code, and `fetchApprovals` reads it for none.
+    // Kills a refusal branch awaiting an unguarded `json()` (an outage would
+    // then surface as a parser message, or as no alert at all), and kills one
+    // classifying an unreadable body as a refusal carrying `undefined`, which
+    // `failureMessage` answers with the default sentence instead of this page's.
+    answer = () => new Response(null, { status: 500 });
+    renderQueue();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(READ_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.default);
+    expect(screen.queryByRole("list", { name: "Pending approvals" })).toBeNull();
+    expect(screen.queryByText(EMPTY_QUEUE)).toBeNull();
+  }, 10_000);
+});

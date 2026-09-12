@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import { z } from "zod";
 
 import { Citations } from "@/components/chat/citations";
 import { Composer } from "@/components/chat/composer";
@@ -23,6 +24,7 @@ import { failureMessage } from "@/lib/chat-errors";
 import { readAsk } from "@/lib/chat-prefill";
 import { chatMessageSchema } from "@/lib/chat-schema";
 import { createSseParser } from "@/lib/sse";
+import { readWire } from "@/lib/wire-read";
 
 /**
  * The chat surface: history, the streamed turn, its tool steps, its decision
@@ -37,9 +39,10 @@ import { createSseParser } from "@/lib/sse";
  * Both calls go to this app's own routes, never to agent-api: the bearer is an
  * httpOnly cookie the browser cannot read (22a decision A), so a cross-origin
  * call would have nothing to send. An expired session comes back from
- * `proxyAgentApi` as a redirect the browser already followed, which is why
- * `response.redirected` is what this component checks rather than a status —
- * decision E, so the expiry path stays in one place.
+ * `proxyAgentApi` as a redirect the browser already followed, never as a
+ * status (decision E): the history read reads it as `lib/wire-read.ts`'s `null`
+ * and the stream checks `response.redirected` for itself, because
+ * `readWire` is a GET.
  *
  * The decision card, the tool steps and the citations share one lifetime
  * (22d decision D): all three belong to the LATEST turn, are cleared when a
@@ -228,17 +231,26 @@ async function refusalCode(response: Response): Promise<string> {
   }
 }
 
+/**
+ * The stored transcript, or the empty one while the browser follows the proxy's
+ * redirect to `/login`.
+ *
+ * `z.unknown()` and not a schema (24ia decision A): `readHistory` is what
+ * validates this body and still is, so the parameter is only there to let the
+ * redirect, the status and the typed code live in one module with the other
+ * seven reads. Every non-ok response THROWS out of `readWire` — an empty
+ * conversation and an unreadable one are different things, and Query is what
+ * decides whether to retry (`tests/chat-page.test.tsx::a 403 FORBIDDEN is a
+ * failed read, not an empty transcript, and raises no alert`).
+ *
+ * `null` is the redirect and, because `z.unknown()` accepts everything, also a
+ * body that is literally `null` — the same empty transcript either way, which is
+ * what `readHistory(null)` already answered. The one edge `z.unknown()` moves is
+ * recorded in the plan's Deviations: a 200 carrying no JSON at all used to
+ * reject here and now reads as an empty transcript, because this schema refuses
+ * nothing.
+ */
 async function fetchHistory(): Promise<ChatMessage[]> {
-  const response = await fetch("/api/chat/messages", { headers: { accept: "application/json" } });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return [];
-  }
-  if (!response.ok) {
-    // Thrown, not swallowed: an empty conversation and an unreadable one are
-    // different things, and Query is what decides whether to retry.
-    throw new Error(`the transcript could not be read (${response.status})`);
-  }
-  return readHistory(await response.json());
+  const body = await readWire("/api/chat/messages", z.unknown());
+  return body === null ? [] : readHistory(body);
 }

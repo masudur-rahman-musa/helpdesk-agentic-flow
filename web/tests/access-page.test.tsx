@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GrantList } from "@/components/access/grant-list";
 import { QueryProvider } from "@/components/query-provider";
+import { FAILURE_MESSAGES } from "@/lib/chat-errors";
 import { readAsk } from "@/lib/chat-prefill";
 
 /**
@@ -276,4 +277,88 @@ describe("GrantList — an expired session", () => {
     });
     expect(screen.queryByRole("list", { name: "Grants" })).toBeNull();
   });
+});
+
+/**
+ * An earlier change §6, added to 23b's file and rewriting none of it (§8): the three
+ * cases that hold `fetchGrants` still, after its four private lines become
+ * `readWire("/api/me/access", myAccessSchema)`.
+ *
+ * `READ_ALERT` is the sentence copied byte for byte out of `grant-list.tsx`,
+ * which holds it as JSX text and not as a constant — reported to 24ia rather
+ * than answered by exporting one this plan's §3 does not authorise.
+ */
+describe("GrantList — through the shared wire reader", () => {
+  const READ_ALERT = "Your access could not be read. Try again in a moment.";
+  const ORIGIN = "http://localhost:3000";
+
+  /** The single read this page made, as a URL a case can assert field by field. */
+  function onlyReadUrl(): URL {
+    const urls = fetchStub.mock.calls.map(([input]) =>
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+    );
+    const first = urls[0];
+    if (urls.length !== 1 || first === undefined) {
+      throw new Error(`expected exactly one read, found ${urls.length}`);
+    }
+    return new URL(first, ORIGIN);
+  }
+
+  it("a 403 FORBIDDEN renders this page's own read sentence, not the code's", async () => {
+    // Decision B on the one page whose empty state a person acts on by asking
+    // again for access they already hold. Through `readWire` a typed code
+    // arrives as a `WireRefusedError`, which this file has never seen: kills a
+    // migration that dresses it per page ("You are not allowed to do that." over
+    // a list of grants the caller demonstrably holds is worse than the generic
+    // sentence, and it is the alternative decision B refused), and kills one
+    // that lets the class escape the error branch, leaving the page on its
+    // loading state with no alert at all. The 502 rows above cannot decide this
+    // — `UPSTREAM_UNAVAILABLE` is a plain `Error` through the migrated reader
+    // too — so only the typed body reaches the branch under test.
+    answer = () => jsonResponse({ code: "FORBIDDEN" }, 403);
+    renderList();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(READ_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.FORBIDDEN);
+    expect(screen.queryByRole("list", { name: "Grants" })).toBeNull();
+    expect(screen.queryByText(EMPTY_ACCESS)).toBeNull();
+  }, 10_000);
+
+  it("reads /api/me/access with an empty query string", async () => {
+    // The path and the query byte for byte, as an exact `pathname` and an exact
+    // `search`. Kills a migration that carries the call to `/api/access` or
+    // `/api/me/grants` while moving it into `readWire`, and kills one that adds
+    // a parameter nobody asked for — an `?active=true` or a `?user=` would pass
+    // any `toContain` check and is a project rule written into the browser.
+    // Arithmetic: the staged answer is the default empty 200,
+    // so reads = 1 on mount, and the empty state is what says the read settled
+    // before the count is taken.
+    answer = () => jsonResponse({ grants: [] }, 200);
+    renderList();
+
+    await screen.findByText(EMPTY_ACCESS);
+    const url = onlyReadUrl();
+    expect(url.pathname).toBe("/api/me/access");
+    expect(url.search).toBe("");
+  });
+
+  it("a bodyless 500 renders the same read sentence", async () => {
+    // The half `readWire`'s guarded `json()` carries and `fetchGrants` never
+    // had: the migrated reader reads the body of EVERY non-ok response, so a
+    // response carrying none is new ground for this page (§5's second risk).
+    // Kills a refusal branch that awaits an unguarded `json()` — the page would
+    // show whatever `SyntaxError` says, or nothing, for an outage — and kills
+    // one that treats an unreadable body as a refusal with `undefined` as its
+    // code, which `failureMessage` answers with the default sentence rather than
+    // this page's own.
+    answer = () => new Response(null, { status: 500 });
+    renderList();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(READ_ALERT);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.default);
+    expect(screen.queryByRole("list", { name: "Grants" })).toBeNull();
+    expect(screen.queryByText(EMPTY_ACCESS)).toBeNull();
+  }, 10_000);
 });
