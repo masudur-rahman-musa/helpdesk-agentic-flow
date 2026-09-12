@@ -106,6 +106,12 @@ EXPECTED_TOOL_NAMES = {
     # REGISTRY entry).
     "list_notifications",
     "mark_notification_read",
+    # An earlier change: the admin board's read half. Twenty-five names become
+    # twenty-six, the new one a READ — `set_kill_switch` could stop a tool but
+    # nothing could say which tools were stopped (a project rule: this
+    # literal is the wire surface, and it is part of every diff adding a
+    # REGISTRY entry).
+    "list_kill_switches",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

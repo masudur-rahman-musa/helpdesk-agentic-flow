@@ -26,6 +26,7 @@ from helpdesk.killswitch.switch import (
     Scope,
     SwitchState,
     SwitchUnavailableError,
+    ToolSwitchStates,
     key_for,
 )
 
@@ -45,6 +46,7 @@ __all__ = [
     "Scope",
     "SwitchState",
     "SwitchUnavailableError",
+    "ToolSwitchStates",
     "change_switch",
     "key_for",
 ]

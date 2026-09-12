@@ -1,5 +1,5 @@
 """The admin tools: the design's Admin group. `rollback_request` is the first, `search_audit` lives with the reads, and
-`set_kill_switch` is the third.
+`set_kill_switch` is the third and `list_kill_switches` the fourth.
 
 `rollback_request` is the design's undo: an executed request, within the
 domain's `WINDOW_HOURS` of the grant, taken back in full. Everything it
@@ -43,6 +43,14 @@ by `test_mcp_set_kill_switch.py::test_the_six_denied_principals_change_no_switch
 It reaches Redis through `mcp_server.redis_client`, the same per-loop pooled
 client with the same pinned timeouts the pipeline reads the switch with.
 
+`list_kill_switches` is the read half of the row above, and the whole of what
+the design's `/admin/killswitch` page is drawn from: every registered tool, both
+layers of its switch, in one `MGET`. It takes no arguments at all, so there is
+nothing for a caller to choose and nothing to trust, and it
+writes nothing — the same single `platform_admin` cell as the write, because a
+board whose audience is wider than the write's would show six principals
+switches none of them can change.
+
 No function here opens a session or touches the transport: the pipeline binds
 the session to the token's tenant before the handler is called.
 """
@@ -71,8 +79,10 @@ from helpdesk.errors import NotFoundError
 from helpdesk.killswitch import (
     GLOBAL,
     GLOBAL_SEGMENT,
+    PROTECTED_TOOLS,
     KillSwitch,
     Scope,
+    SwitchState,
     change_switch,
 )
 from helpdesk.killswitch import (
@@ -295,15 +305,132 @@ async def set_kill_switch(
     )
 
 
+class ListKillSwitchesInput(BaseModel):
+    """No fields at all, and nothing for a caller to choose.
+
+    The tenant is the token's and the tool list is the server's own registry, so there is no argument to trust and none to validate.
+    `extra="forbid"` rather than `ignore`: a caller who sends a `tenant_id`
+    believing they are reading another tenant's board must be refused, not
+    quietly answered with their own. Pinned as an EXACTLY empty field set by
+    `test_mcp_list_kill_switches.py::test_the_tool_takes_no_arguments_at_all`,
+    which no later field can ride along into.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class KillSwitchRow(BaseModel):
+    """One tool's line on the admin board.
+
+    Both layers, never one effective state (decision B): an admin clearing
+    the tenant switch has to be told the global one still holds the tool
+    down. `stopped` is carried beside them so row 24d renders a line without
+    re-implementing the precedence, and `protected` so its toggle is disabled
+    from the row rather than from a second copy of a security-relevant list
+    (decision G). The exact six keys are pinned by
+    `test_mcp_list_kill_switches.py::test_the_board_answers_the_envelope_and_an_exact_six_key_row`.
+    """
+
+    tool: str
+    protected: bool
+    """True when no switch may stop this tool at all: read off
+    `helpdesk.killswitch.PROTECTED_TOOLS`, the frozenset that actually
+    refuses the write, never retyped here. Pinned by
+    `::test_protected_is_true_for_the_one_tool_no_switch_may_stop`."""
+
+    stopped: bool
+    """True when EITHER layer holds the tool down, or when its stored value
+    could not be read. Never derived from the tenant layer alone: the board
+    and `KillSwitch.check` must agree about what is running, pinned together
+    in `::test_a_stopped_tool_reads_stopped_on_the_layer_it_was_stopped_on`,
+    which calls the stopped tool and asserts the refusal."""
+
+    global_state: SwitchState | None
+    tenant_state: SwitchState | None
+    unreadable: bool
+    """The stored value is present but will not parse. Reported rather than
+    raised (decision D), because this board is the only surface from which a
+    bad key can be seen and cleared, and always alongside `stopped` -- a row
+    that read "running" while `check` denied every call would be the one
+    answer an operator cannot act on
+    (`::test_an_unreadable_value_marks_its_row_and_the_board_still_answers`)."""
+
+
+class ListKillSwitchesOutput(BaseModel):
+    """The whole board: one row per registered tool, in the registry's order."""
+
+    switches: list[KillSwitchRow]
+
+
+async def list_kill_switches(
+    session: AsyncSession, identity: Identity, args: ListKillSwitchesInput
+) -> ListKillSwitchesOutput:
+    """Every registered tool and the state of its two kill switches.
+
+    The read half of `set_kill_switch`, and what the design's
+    `/admin/killswitch` page is drawn from: `KillSwitch.status` answers for
+    one tool at a time and `check` answers by raising, so before this there
+    was no way to ask which tools are currently stopped.
+
+    The tool names come from the REGISTRY, so every registered tool has a
+    line and a tool added by a later plan cannot be invisible on the page
+    (`test_mcp_list_kill_switches.py::test_the_listed_names_are_exactly_the_registry_in_its_own_order`).
+    Not from a Redis `SCAN`, which shows only the keys that exist and could
+    never say "this tool is running", and not from the `rbac.Tool` members,
+    which are a different vocabulary from the one `check` is called with
+    (decision A). The import is deferred to the call for the same reason
+    `set_kill_switch`'s is: `registry` imports this module.
+
+    The whole board is ONE `MGET` inside `list_states` (decision C), against
+    the token's tenant and the global scope alone — another tenant's switch
+    appears nowhere here (a project rule,
+    `::test_another_tenants_switch_is_invisible_to_this_caller`).
+
+    No scope helper and no second permission check: the design gives the row one
+    cell, so the pipeline's matrix stage IS the whole check and deleting it
+    hands the board to the six principals with no cell, pinned by
+    `::test_the_six_denied_principals_read_no_board` (a project rule: there
+    is no second copy of that guard to hide behind).
+
+    Nothing is written, so the pipeline's generic `tool.succeeded` is the
+    whole record a read of the board leaves
+    (`::test_one_call_writes_exactly_one_event_naming_the_tool_and_the_caller`).
+    The session is unused: this tool reads Redis and nothing else.
+    """
+    from mcp_server.registry import REGISTRY
+
+    tools = list(REGISTRY)
+    states = await KillSwitch(_redis(load_settings())).list_states(identity.tenant_id, tools)
+    return ListKillSwitchesOutput(
+        switches=[
+            KillSwitchRow(
+                tool=row.tool,
+                protected=row.tool in PROTECTED_TOOLS,
+                stopped=row.unreadable
+                or row.global_state is not None
+                or row.tenant_state is not None,
+                global_state=row.global_state,
+                tenant_state=row.tenant_state,
+                unreadable=row.unreadable,
+            )
+            for row in states
+        ]
+    )
+
+
 __all__ = [
     "TOOL_NAME_MAX_LENGTH",
     "WINDOW_HOURS",
+    "KillSwitchRow",
+    "ListKillSwitchesInput",
+    "ListKillSwitchesOutput",
     "RequestNotExecutedError",
     "RollbackRequestInput",
     "RollbackRequestOutput",
     "RollbackWindowExpiredError",
     "SetKillSwitchInput",
     "SetKillSwitchOutput",
+    "list_kill_switches",
     "rollback_request",
     "set_kill_switch",
 ]

@@ -318,6 +318,12 @@ MUTATING_TOOL_NAMES = frozenset(
         # cost, stated: a retried trip refreshes `at` and `actor`, and
         # `search_audit` shows one `killswitch.changed` per CALL, which is the
         # truth about what was called.
+        #
+        # An earlier change: `list_kill_switches` does NOT belong here either, and for
+        # the plainer reason — the board is a READ. It issues one `MGET` and
+        # writes nothing at all, so a `True` here would demand an idempotency
+        # key for a call the guard never protects and the admin page could not
+        # render without minting one.
     }
 )
 
@@ -494,6 +500,48 @@ def test_each_notification_tool_is_registered_once_under_its_matrix_name(
     permission test anywhere would notice.
 
     The names are written out literally rather than derived from the registry:
+    reading the value under test back out of the code under test would assert
+    nothing.
+    """
+    spec = REGISTRY[name]
+
+    assert spec.name == name == tool.value
+    assert spec.tool is tool
+    assert spec.event_type == event_type
+    assert spec.mutating is mutating
+    assert name not in registry.WIRE_NAME_ALIASES
+
+
+# --- the admin board's read half ------------------------------------
+
+
+ADMIN_READ_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
+    # A READ over Redis: one `MGET` and nothing written, so it declares the
+    # GENERIC success event and stays OFF `MUTATING_TOOL_NAMES` above. There is
+    # no domain event to append — an admin opening the switch board changed
+    # nothing, and a `killswitch.changed` per render would file a governance
+    # record for a page view.
+    ("list_kill_switches", rbac.Tool.LIST_KILL_SWITCHES, registry.SUCCESS_EVENT_TYPE, False),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "tool", "event_type", "mutating"),
+    ADMIN_READ_TOOL_EXPECTATIONS,
+    ids=[name for name, _, _, _ in ADMIN_READ_TOOL_EXPECTATIONS],
+)
+def test_the_kill_switch_board_is_registered_once_under_its_matrix_name(
+    name: str, tool: rbac.Tool, event_type: str, mutating: bool
+) -> None:
+    """Catches the board's spec pointed at `rbac.Tool.SET_KILL_SWITCH`, whose
+    the design row is identical (`platform_admin` alone, at `Scope.ANY`), so no
+    permission test anywhere would notice — and every kill switch the pipeline
+    checked for this tool would be keyed on the writer's name instead. It also
+    catches the board declared as MUTATING, which demands an idempotency key
+    for a call the guard never protects, and a declared
+    `killswitch.changed`, which would record a change on every render.
+
+    The name is written out literally rather than derived from the registry:
     reading the value under test back out of the code under test would assert
     nothing.
     """

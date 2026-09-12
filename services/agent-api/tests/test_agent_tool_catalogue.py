@@ -83,8 +83,20 @@ Counted from the specification and the tool's own model: seven (standing rule
 sides at once is still a red row here."""
 
 
-ADMIN_TOOLS: frozenset[str] = frozenset({"search_audit", "set_kill_switch", "rollback_request"})
-"""The three tools row 24 owns, which this catalogue must NOT register."""
+ADMIN_TOOLS: frozenset[str] = frozenset(
+    {
+        "search_audit",
+        "set_kill_switch",
+        "rollback_request",
+        # An earlier change: the kill switch BOARD, registered as a tool and
+        # deliberately left out of the catalogue (decision F) for the same
+        # reason as the other three — the admin page asks the wire directly,
+        # and a tool the model may call is model-driven behaviour that owes
+        # golden cases before it merges.
+        "list_kill_switches",
+    }
+)
+"""The four tools row 24 owns, which this catalogue must NOT register."""
 
 CATALOGUED_TOOLS: frozenset[str] = frozenset(
     {
@@ -111,7 +123,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
 )
 """Every tool the agent may reach, as a literal: nineteen.
 
-Counted from the server's own `REGISTRY` — twenty-five specs — less the three
+Counted from the server's own `REGISTRY` — twenty-six specs — less the four
 in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools row 23ga
 deliberately leaves out (decision E): a tool the model may call is
 model-driven behaviour and owes golden cases before it merges, and the
@@ -183,8 +195,9 @@ def test_tool_inputs_holds_exactly_the_nineteen_tools_the_agent_may_reach() -> N
     """An earlier change criterion 1, replacing 17b's one-entry assertion. Catches a
     catalogue short of a tool — a name in an `INTENT_TOOLS` row that no model
     validates, so its arguments reach the server unchecked — and one that
-    registers an admin tool: `search_audit`, `set_kill_switch` and
-    `rollback_request` belong to row 24, and a tool with no catalogue entry
+    registers an admin tool: `search_audit`, `set_kill_switch`,
+    `rollback_request` and `list_kill_switches` belong to row 24, and a tool
+    with no catalogue entry
     cannot be proposed at all, which is the defence in depth behind the RBAC
     matrix that decision A asks for.
 

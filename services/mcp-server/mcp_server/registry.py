@@ -383,6 +383,30 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=admin.set_kill_switch,
     ),
     ToolSpec(
+        # A READ, and the half of the row above that was missing: nothing
+        # could say WHICH tools were stopped. It writes nothing, so it carries
+        # no idempotency key, stays off
+        # `test_mcp_registry.py::MUTATING_TOOL_NAMES`, and the pipeline's
+        # generic `tool.succeeded` is the whole record a render of the board
+        # leaves — a `killswitch.changed` per page view would put a governance
+        # record in the hash chain for a call that changed nothing.
+        #
+        # It is NOT in `helpdesk.killswitch.PROTECTED_TOOLS`: only the tool
+        # that can UNDO a switch is protected, so this one can be stopped like
+        # any other.
+        name=rbac.Tool.LIST_KILL_SWITCHES.value,
+        tool=rbac.Tool.LIST_KILL_SWITCHES,
+        description=(
+            "List every tool and the state of its kill switches, global and this tenant's. "
+            "stopped=true means the tool is currently refusing calls."
+        ),
+        input_model=admin.ListKillSwitchesInput,
+        output_model=admin.ListKillSwitchesOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=admin.list_kill_switches,
+    ),
+    ToolSpec(
         # A READ over Qdrant: nothing is written, so no idempotency key and no
         # domain event of its own — the pipeline's generic `tool.succeeded` is
         # the whole record a search leaves. The wire name, the matrix member,

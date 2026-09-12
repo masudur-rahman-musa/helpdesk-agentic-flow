@@ -35,6 +35,7 @@ tool, row 24 builds the admin toggle over `trip`/`clear`/`status`.
 import enum
 import re
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -120,6 +121,32 @@ class SwitchState(BaseModel):
     at: datetime
 
 
+class ToolSwitchStates(BaseModel):
+    """Both layers of one tool's switch, as stored, for the admin board.
+
+    Both are carried rather than one effective state:
+    an admin clearing a tenant switch has to be told the global one is still
+    holding the tool down, which is the same reason `status`' docstring
+    gives. Pinned by
+    `test_killswitch.py::test_list_states_reports_each_layer_on_its_own`,
+    whose `both-layers` case fails against a single effective state.
+
+    `unreadable` is a fact about what is STORED, not a decision about what to
+    do with it: a value that will not parse marks its own row and leaves both
+    states null, so one bad key cannot blank the board an admin needs in
+    order to clear it (decision D). Pinned by
+    `::test_an_unparseable_value_marks_its_own_row_and_answers_the_others`.
+    `check` keeps its own behaviour: an unreadable value still denies there.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tool: str
+    global_state: SwitchState | None
+    tenant_state: SwitchState | None
+    unreadable: bool
+
+
 def key_for(scope: Scope, tool: str) -> str:
     """The exact Redis key for a scope and tool (the design).
 
@@ -142,6 +169,24 @@ def key_for(scope: Scope, tool: str) -> str:
             f"and be at most {TOOL_NAME_MAX_LENGTH} characters"
         )
     return f"{KEY_PREFIX}:{segment}:{tool}"
+
+
+def _parse(raw: bytes | str | None) -> tuple[SwitchState | None, bool]:
+    """One stored value as (state, readable).
+
+    Absent is `(None, True)` and unparseable is `(None, False)`, which is the
+    distinction `list_states` needs and `_read` deliberately does not make:
+    `check` denies on an unreadable value, while the BOARD reports it, because
+    the board is the only surface from which a bad key can be seen and cleared. No exception either way, so one bad key cannot
+    hide the rest of the board
+    (`test_killswitch.py::test_an_unparseable_value_marks_its_own_row_and_answers_the_others`).
+    """
+    if raw is None:
+        return None, True
+    try:
+        return SwitchState.model_validate_json(raw), True
+    except ValidationError:
+        return None, False
 
 
 class KillSwitch:
@@ -172,6 +217,66 @@ class KillSwitch:
         """
         state, _ = await self._read_effective(tenant_id, tool)
         return state
+
+    async def list_states(
+        self, tenant_id: uuid.UUID, tools: Sequence[str]
+    ) -> list[ToolSwitchStates]:
+        """Both layers of every named tool, in the order asked, in ONE round trip.
+
+        The board behind row 24's `/admin/killswitch` page. One row per
+        REQUESTED tool, never one per key that happens to exist: a board built
+        from what Redis returned could never say "this tool is running", which
+        is the sentence the page exists for
+        (`test_killswitch.py::test_list_states_answers_one_null_row_per_tool_over_a_clean_namespace`).
+
+        One `MGET` over the two keys per tool, not a `GET` per key (an earlier change
+        decision C): fifty-two round trips on every render of the board is a
+        latency budget spent on nothing. Counted on the client by
+        `::test_the_whole_board_costs_exactly_one_redis_command`, because an
+        implementation looping `_read` answers exactly the same rows.
+
+        Keys are built by `key_for`, so this path passes the same gate as
+        every other, and the tenant layer is keyed on the ARGUMENT alone —
+        never a glob — so another tenant's switch is invisible here
+        (`::test_list_states_never_reports_another_tenants_switch`). Values
+        are matched to tools by position, two per tool, global first; the
+        off-by-one that would attribute a stop to the neighbouring tool is
+        caught by `::test_a_switch_in_the_middle_leaves_every_other_row_clear`.
+
+        A value present but unparseable marks its row `unreadable` instead of
+        raising (decision D); a `RedisError` still raises
+        `SwitchUnavailableError`, because an outage is not a board of running
+        tools (`::test_list_states_on_an_unreachable_redis_raises_internal`).
+        Neither message names the key, the tenant or the endpoint.
+        """
+        names = list(tools)
+        if not names:
+            # `MGET` with no keys is an error, and an empty board needs no read.
+            return []
+        keys = [key for tool in names for key in (key_for(GLOBAL, tool), key_for(tenant_id, tool))]
+        try:
+            values: list[bytes | str | None] = await self._client.mget(keys)
+        except RedisError as exc:
+            # Neither the keys (which hold the tenant id) nor the endpoint:
+            # row 24 surfaces this message to whoever called the tool.
+            raise SwitchUnavailableError("could not read the kill switch board") from exc
+        rows: list[ToolSwitchStates] = []
+        for index, tool in enumerate(names):
+            global_state, global_ok = _parse(values[2 * index])
+            tenant_state, tenant_ok = _parse(values[2 * index + 1])
+            unreadable = not (global_ok and tenant_ok)
+            rows.append(
+                ToolSwitchStates(
+                    tool=tool,
+                    # An unreadable row carries no state at all: what is there
+                    # could not be read, and reporting the other layer beside
+                    # the marker would invite the page to render half a story.
+                    global_state=None if unreadable else global_state,
+                    tenant_state=None if unreadable else tenant_state,
+                    unreadable=unreadable,
+                )
+            )
+        return rows
 
     async def trip(self, scope: Scope, tool: str, reason: str, actor: str) -> SwitchState:
         """Turn a tool off for a scope, recording the admin's reason and identity."""

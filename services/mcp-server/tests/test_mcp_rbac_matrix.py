@@ -283,6 +283,23 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. the design's kill-switch BOARD row, the same single cell as the
+    # write directly above: `platform_admin` alone, matching the design's
+    # `/admin/killswitch` page. `it_admin` and `auditor` are the cells that
+    # matter — `it_admin` holds one on `rollback_request` and `auditor` one on
+    # `search_audit`, so a read row copied from either by habit shows six
+    # principals a board none of them can act on (a project rule: this
+    # literal is the design, and it is part of every diff that adds a tool or
+    # changes a cell).
+    "list_kill_switches": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": False,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # An earlier change: the design gives the policy search every principal at
     # `Scope.ANY` — everyone who can ask a question can read the policy behind
     # the answer, and a single False here would be a corpus an employee cannot
@@ -449,6 +466,18 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # plain permitted branch of the sweep is the strict assertion and the
         # cell pins the matrix.
         "list_notifications",
+        # An earlier change: `list_kill_switches` takes NO arguments at all — no
+        # tenant, no user, no tool name (criterion 2) — so there is no id for
+        # a cross-tenant call to carry. Whose switches it answers comes from
+        # the TOKEN, and that isolation is pinned instead by
+        # `test_mcp_list_kill_switches.py::
+        # test_another_tenants_switch_is_invisible_to_this_caller`, which
+        # plants a REAL switch in the other tenant. It belongs in neither
+        # `ALLOW_ANSWERS_NOT_FOUND` nor `SCOPE_BEFORE_EXISTENCE_TOOLS`
+        #: there is no id to resolve and its one cell is
+        # `Scope.ANY`, so a permitted caller SUCCEEDS and the plain permitted
+        # branch of the sweep is the strict assertion that pins the cell.
+        "list_kill_switches",
     }
 )
 # The five decision G names explicitly: everything they answer is decided by
@@ -584,6 +613,14 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "reason": f"fake matrix clear {uuid.uuid4().hex}",
             "scope": str(env.tenant_a.tenant_id),
         }
+    if tool_name == "list_kill_switches":
+        # An earlier change. No arguments at all, and no OPTIONAL ones either: the
+        # input model carries no fields, so anything sent here would be
+        # refused VALIDATION where this sweep asserts a success for the one
+        # permitted principal, and the cell would pin nothing (standing rule
+        # 27). A read of the shared namespace changes nothing in it, so this
+        # sweep leaves no tenant with a stopped tool.
+        return {}
     if tool_name == "list_notifications":
         # An earlier change. No arguments at all: the list takes no id, and both of
         # its optional arguments have defaults, so a permitted caller reaches

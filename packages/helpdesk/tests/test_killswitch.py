@@ -29,6 +29,21 @@ Fail closed (decision C): an unreadable value denies with ``TOOL_DISABLED`` and
 a message saying the switch is unreadable; an unreachable Redis denies with
 ``INTERNAL``. A switch that cannot be read is never treated as absent.
 
+An earlier change section 6 adds the BULK read, written before it exists:
+
+``await list_states(tenant_id, tools) -> Sequence[row]``
+    One row per requested tool, in the order the tools were requested, read in
+    ONE Redis round trip (an ``MGET`` over the two keys per tool, decision C).
+    Each row carries ``tool``, ``global_state``, ``tenant_state`` (each a
+    ``SwitchState`` or ``None``) and ``unreadable``.
+
+    A value present but unparseable answers that row's ``unreadable`` marker
+    with a null state instead of raising (decision D), so one bad key cannot
+    blank the whole board; a ``RedisError`` still raises
+    ``SwitchUnavailableError``. The sequence and the row attribute names are
+    fixed here because the plan's section 6 named the fields and not the
+    container; a mapping would fail the ordering case.
+
 Style follows the existing DB tests: no pytest-asyncio in this project, so each
 case is a sync function driving one ``asyncio.run`` scenario, and every client
 lives and dies inside that one loop.
@@ -694,5 +709,284 @@ def test_an_unreachable_redis_message_does_not_leak_the_key_or_the_endpoint() ->
                 assert str(TENANT_A) not in message
                 assert "killswitch:" not in message
                 assert str(port) not in message
+
+    asyncio.run(scenario())
+
+
+# --- the bulk read --------------------------------------
+#
+# `check` and `status` answer for ONE tool at a time. The admin board at
+# `/admin/killswitch` needs every tool at once, and the rows below pin what it
+# is allowed to be told: the two layers separately, another tenant's switch
+# nowhere, a bad key confined to its own row, and one round trip for the lot.
+
+# Five valid switch targets, so the middle one is genuinely in the middle: the
+# `MGET` matches values to tools by POSITION, and an off-by-one attributes one
+# tool's stop to its neighbour.
+LIST_TOOLS: tuple[str, ...] = (
+    "get_me",
+    "list_my_access",
+    "revoke_access",
+    "search_audit",
+    "create_ticket",
+)
+MIDDLE_TOOL = LIST_TOOLS[2]
+
+# Every command name issued through `_CountingRedis`, in order. Module level
+# rather than an instance attribute so the counter is readable off a client
+# typed as the library's own `Redis`.
+_COMMANDS: list[str] = []
+
+
+class _CountingRedis(Redis):
+    """Records the NAME of every command issued through this client.
+
+    Counting on the client is the only honest way to assert "one round trip"
+    (decision C): reading the source for an `mget` call would pass just as
+    well for an implementation that also issued a `GET` per key first.
+    """
+
+    async def execute_command(self, *args: Any, **options: Any) -> Any:
+        _COMMANDS.append(str(args[0]))
+        # redis-py leaves this method unannotated, so calling it from a typed
+        # override is `no-untyped-call` under `mypy --strict`.
+        return await super().execute_command(*args, **options)  # type: ignore[no-untyped-call]
+
+
+def _row_by_tool(rows: Any, tool: str) -> Any:
+    """The one row for a tool, asserting there is exactly one."""
+    matches = [row for row in rows if row.tool == tool]
+    assert len(matches) == 1, f"expected exactly one row for {tool}, got {len(matches)}"
+    return matches[0]
+
+
+def test_list_states_answers_one_null_row_per_tool_over_a_clean_namespace(
+    redis_url: str,
+) -> None:
+    """Catches a bulk read that answers only the tools with a key set.
+
+    Redis returns nothing at all for a key that does not exist, so an
+    implementation building its rows from what came BACK (a `SCAN`, or a
+    filter over the non-null `MGET` values) answers a shorter list here, in
+    which every tool is stopped. The admin board would then have no way to say
+    "this tool is running" — the sentence the page exists for (decision A).
+    The order is asserted too: the rows must follow the tools as requested.
+    """
+
+    async def scenario() -> None:
+        async with _client(redis_url) as client:
+            rows = await KillSwitch(client).list_states(TENANT_A, LIST_TOOLS)
+
+            assert [row.tool for row in rows] == list(LIST_TOOLS)
+            for row in rows:
+                assert row.global_state is None, row.tool
+                assert row.tenant_state is None, row.tool
+                assert row.unreadable is False, row.tool
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("set_global", "set_tenant"),
+    [
+        pytest.param(True, False, id="global-only"),
+        pytest.param(False, True, id="tenant-only"),
+        pytest.param(True, True, id="both-layers"),
+    ],
+)
+def test_list_states_reports_each_layer_on_its_own(
+    redis_url: str, set_global: bool, set_tenant: bool
+) -> None:
+    """Catches a bulk read that collapses the two layers into one effective
+    state, the way `status` does.
+
+    The `both-layers` row is the one that separates them: with one effective
+    state the tenant switch is invisible behind the global one, so an admin
+    clearing the tenant switch is never told the global one still holds the
+    tool down (decision B, and `KillSwitch.status`' own docstring). The two
+    reasons differ, so a row reading the wrong KEY into the wrong layer fails
+    as well as one reading a single key.
+    """
+
+    async def scenario() -> None:
+        async with _client(redis_url) as client:
+            if set_global:
+                await client.set(f"killswitch:global:{MIDDLE_TOOL}", _state_json(reason=REASON))
+            if set_tenant:
+                await client.set(
+                    f"killswitch:{TENANT_A}:{MIDDLE_TOOL}", _state_json(reason=OTHER_REASON)
+                )
+
+            rows = await KillSwitch(client).list_states(TENANT_A, LIST_TOOLS)
+            row = _row_by_tool(rows, MIDDLE_TOOL)
+
+            if set_global:
+                assert row.global_state is not None
+                assert row.global_state.reason == REASON
+                assert row.global_state.actor == ACTOR
+            else:
+                assert row.global_state is None
+            if set_tenant:
+                assert row.tenant_state is not None
+                assert row.tenant_state.reason == OTHER_REASON
+            else:
+                assert row.tenant_state is None
+            assert row.unreadable is False
+
+    asyncio.run(scenario())
+
+
+def test_list_states_never_reports_another_tenants_switch(redis_url: str) -> None:
+    """Catches a bulk read that keys the tenant layer on anything but the
+    tenant it was asked about.
+
+    Only tenant B has a switch here, so every row of tenant A's board must be
+    clear. An implementation reading `killswitch:*:{tool}` with a glob, or
+    keying on the tenant that happens to be stored in the value, would show
+    tenant A a stop nobody in tenant A set and the admin could not clear it.
+    """
+
+    async def scenario() -> None:
+        async with _client(redis_url) as client:
+            await client.set(f"killswitch:{TENANT_B}:{MIDDLE_TOOL}", _state_json())
+
+            rows = await KillSwitch(client).list_states(TENANT_A, LIST_TOOLS)
+
+            assert [row.tool for row in rows] == list(LIST_TOOLS)
+            for row in rows:
+                assert row.global_state is None, row.tool
+                assert row.tenant_state is None, row.tool
+                assert row.unreadable is False, row.tool
+
+    asyncio.run(scenario())
+
+
+def test_a_switch_in_the_middle_leaves_every_other_row_clear(redis_url: str) -> None:
+    """Catches the `MGET` off-by-one.
+
+    A bulk read matches values to tools by position, and the two keys per tool
+    interleave, so a row built from the wrong index shows the stop on the tool
+    NEXT to the one an operator actually stopped — a board that is wrong in the
+    most confusing possible way, with every single-tool test still green. The
+    switch is planted in the middle of five so a shift in either direction, by
+    one place or by one LAYER, lands on a row asserted clear.
+    """
+
+    async def scenario() -> None:
+        async with _client(redis_url) as client:
+            await client.set(f"killswitch:{TENANT_A}:{MIDDLE_TOOL}", _state_json())
+
+            rows = await KillSwitch(client).list_states(TENANT_A, LIST_TOOLS)
+
+            stopped = _row_by_tool(rows, MIDDLE_TOOL)
+            assert stopped.tenant_state is not None
+            assert stopped.tenant_state.reason == REASON
+            assert stopped.global_state is None
+            for row in rows:
+                if row.tool == MIDDLE_TOOL:
+                    continue
+                assert row.global_state is None, row.tool
+                assert row.tenant_state is None, row.tool
+                assert row.unreadable is False, row.tool
+
+    asyncio.run(scenario())
+
+
+def test_an_unparseable_value_marks_its_own_row_and_answers_the_others(
+    redis_url: str,
+) -> None:
+    """Catches decision D implemented as `check`'s raise.
+
+    `_read` raises `ToolDisabledError` on a value it cannot parse, and reusing
+    that path here blanks the whole board behind one bad key — the board being
+    the only surface from which that key can be seen and cleared. It equally
+    catches the opposite error, a parse failure swallowed as "no switch": the
+    marker and a null state are asserted TOGETHER, so a row that reads clear
+    where `check` is denying every call fails.
+
+    A second tool carries a good value in the same read, so the case pins that
+    the rest of the list still answers rather than just that nothing raised.
+    """
+
+    async def scenario() -> None:
+        async with _client(redis_url) as client:
+            await client.set(f"killswitch:global:{MIDDLE_TOOL}", "not json at all")
+            await client.set(f"killswitch:{TENANT_A}:{LIST_TOOLS[0]}", _state_json())
+
+            rows = await KillSwitch(client).list_states(TENANT_A, LIST_TOOLS)
+
+            bad = _row_by_tool(rows, MIDDLE_TOOL)
+            assert bad.unreadable is True
+            assert bad.global_state is None
+            assert bad.tenant_state is None
+
+            good = _row_by_tool(rows, LIST_TOOLS[0])
+            assert good.unreadable is False
+            assert good.tenant_state is not None
+            assert good.tenant_state.reason == REASON
+            assert good.global_state is None
+
+    asyncio.run(scenario())
+
+
+def test_list_states_on_an_unreachable_redis_raises_internal(redis_url: str) -> None:
+    """Catches an outage answered as a board of running tools.
+
+    Decision D makes an unparseable VALUE a row-level marker; a `RedisError`
+    is not that, and an implementation that widened the marker to cover every
+    failure would paint the whole board green during an outage while `check`
+    denied every call. `INTERNAL` and not `TOOL_DISABLED`: the platform is not
+    able to say what is stopped.
+
+    The message is asserted to name neither the host and port nor the key, for
+    the reason the other read paths are: the tenant id and the Redis endpoint
+    would otherwise travel to whoever called the tool.
+
+    No `redis_url` use beyond the fixture's namespace guarantee: this client
+    points at a port nothing listens on.
+    """
+    port = _unused_port()
+
+    async def scenario() -> None:
+        async with _client(f"redis://127.0.0.1:{port}/0") as client:
+            with pytest.raises(ToolError) as excinfo:
+                await KillSwitch(client).list_states(TENANT_A, LIST_TOOLS)
+            assert excinfo.value.code == ErrorCode.INTERNAL
+            message = str(excinfo.value)
+            assert str(TENANT_A) not in message
+            assert "killswitch:" not in message
+            assert str(port) not in message
+
+    asyncio.run(scenario())
+
+
+def test_the_whole_board_costs_exactly_one_redis_command(redis_url: str) -> None:
+    """Catches a bulk read that is a loop of `GET`s (decision C).
+
+    One `MGET` over the two keys per tool, or fifty-two round trips to paint
+    one page, on every render of the admin board. Counted on the CLIENT rather
+    than read off the source: an implementation calling `_read` per tool
+    produces exactly the same rows, and only the command count tells them
+    apart. The command NAME is asserted as well, so a single `KEYS` or `SCAN`
+    over the keyspace — one command, and unbounded — fails here too.
+
+    The seeding writes go through the same client and are excluded by clearing
+    the recorder immediately before the read, with the connection already
+    open, so no connection handshake is counted.
+    """
+
+    async def scenario() -> None:
+        client = _CountingRedis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2)
+        try:
+            await client.set(f"killswitch:{TENANT_A}:{MIDDLE_TOOL}", _state_json())
+            _COMMANDS.clear()
+
+            rows = await KillSwitch(client).list_states(TENANT_A, LIST_TOOLS)
+
+            assert [row.tool for row in rows] == list(LIST_TOOLS)
+            assert [name.upper() for name in _COMMANDS] == ["MGET"], _COMMANDS
+        finally:
+            _COMMANDS.clear()
+            await client.aclose()
 
     asyncio.run(scenario())

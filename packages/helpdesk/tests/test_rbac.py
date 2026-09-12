@@ -214,6 +214,21 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
+    # An earlier change: the READ half of the row above, with the same
+    # single cell. the design gives `/admin/killswitch` to `platform_admin`
+    # alone, so a read whose audience is wider than the write's would show six
+    # principals a board none of them can act on — `it_admin` and `auditor`
+    # are the cells that matter, each holding one on a neighbouring admin row
+    # and none here.
+    "list_kill_switches": {
+        "employee": None,
+        "manager": None,
+        "system_owner": None,
+        "hr": None,
+        "it_admin": None,
+        "auditor": None,
+        "platform_admin": "any",
+    },
 }
 
 ALL_CASES: list[tuple[str, str, str | None]] = [

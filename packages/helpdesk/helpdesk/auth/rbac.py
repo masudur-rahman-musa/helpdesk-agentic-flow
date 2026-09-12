@@ -57,6 +57,7 @@ class Tool(StrEnum):
     SEARCH_AUDIT = "search_audit"
     ROLLBACK_REQUEST = "rollback_request"
     SET_KILL_SWITCH = "set_kill_switch"
+    LIST_KILL_SWITCHES = "list_kill_switches"
     LIST_NOTIFICATIONS = "list_notifications"
     MARK_NOTIFICATION_READ = "mark_notification_read"
 
@@ -262,6 +263,13 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
         Tool.SET_KILL_SWITCH: {
+            Principal.PLATFORM_ADMIN: Scope.ANY,
+        },
+        # The READ half of the row above, with the same single cell (ADR
+        # 0019). the design gives `/admin/killswitch` to `platform_admin`
+        # alone, so a board whose audience is wider than the write's would
+        # show six principals switches none of them can change.
+        Tool.LIST_KILL_SWITCHES: {
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
     }
