@@ -148,9 +148,12 @@ describe("MainNav — the routes it links to", () => {
     { name: "Audit log", href: "/admin/audit" },
     // An earlier change §8: `/admin/killswitch` is a page as of this plan, so the nav
     // owes it a link. 22a's rule is unchanged — the nav links to routes that
-    // exist and to no others — and `NOT_YET` keeps `/admin/rules` exactly as
-    // it is.
+    // exist and to no others.
     { name: "Kill switch", href: "/admin/killswitch" },
+    // An earlier change §8: `/admin/rules` is a page as of this plan, so it moves out of
+    // `NOT_YET` and into the links the nav owes. 22a's rule is unchanged — the
+    // nav links to routes that exist and to no others.
+    { name: "Rules", href: "/admin/rules" },
   ] as const;
 
   it.each(LINKS)("links $name to $href", ({ name, href }) => {
@@ -168,7 +171,11 @@ describe("MainNav — the routes it links to", () => {
     expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
   });
 
-  const NOT_YET = ["/admin/rules"];
+  // An earlier change §8: `/admin/rules` left this list for `LINKS` above, and
+  // `/admin/policies` takes its place — the one the design route nothing serves
+  // until row 24h. The list is never empty, because `it.each([])` is an error
+  // rather than a skip.
+  const NOT_YET = ["/admin/policies"];
 
   it.each(NOT_YET)("carries no link to %s, which does not exist yet", (href) => {
     // 22a's rule, and the reason decision E adds exactly two links: a link to a

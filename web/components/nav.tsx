@@ -7,17 +7,18 @@ import { SignOutButton } from "@/components/sign-out-button";
  * The shell's navigation. It links only to routes that exist: `/requests` and
  * `/access` are pages as of an earlier change, `/approvals` as of an earlier change, `/reviews`
  * as of an earlier change, `/notifications` as of an earlier change, `/admin/audit` as of
- * an earlier change and `/admin/killswitch` as of an earlier change, while `/admin/rules`
- * arrives later in row 24, and a link to a 404
- * is worse than no link — the user pays the 404 to find out.
- * `tests/shell.test.tsx` asserts both halves: the eight links by name and href,
+ * an earlier change, `/admin/killswitch` as of an earlier change and `/admin/rules` as of
+ * an earlier change, while `/admin/policies` arrives later in row 24, and a link to a
+ * 404 is worse than no link — the user pays the 404 to find out.
+ * `tests/shell.test.tsx` asserts both halves: the nine links by name and href,
  * and the absence of a link to each route nothing serves yet.
  *
  * The unread count is `NotificationBell`, a separate client component with its
  * own query (23gc decision B), so this file stays hook-free.
  *
  * `Approvals` is shown to everyone (23d decision C), and so are `Audit log`
- * (24ba decision E) and `Kill switch` (24da decision D). A caller holding no
+ * (24ba decision E), `Kill switch` (24da decision D) and `Rules`. A caller
+ * holding no
  * seat on any chain, no audit principal, or none of the one `platform_admin`
  * cell the board needs, gets the tool's `FORBIDDEN` as one sentence rather
  * than a 404;
@@ -76,6 +77,12 @@ export function MainNav() {
         className="rounded-sm text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         Kill switch
+      </Link>
+      <Link
+        href="/admin/rules"
+        className="rounded-sm text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        Rules
       </Link>
       <NotificationBell />
       <SignOutButton />
