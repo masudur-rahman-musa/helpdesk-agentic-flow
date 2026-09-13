@@ -992,3 +992,59 @@ describe("KillSwitchToggle — the four sentences this surface owns", () => {
     expect(KILL_SWITCH_VALIDATION_MESSAGE).not.toBe(FAILURE_MESSAGES.VALIDATION);
   });
 });
+
+describe("KillSwitchToggle — the vocabulary check decision A swaps out (plan 24ib §6)", () => {
+  it("renders the shared TOOL_DISABLED sentence for a typed refusal", async () => {
+    // An earlier change decision A, the half that must stay TRUE when this file's
+    // private `isTypedCode` becomes `lib/wire-read.ts`'s import: a code that IS
+    // one of the design's eight still reaches `ToggleRefusedError` and still
+    // renders that code's shared sentence. `TOOL_DISABLED` is the row no
+    // existing case covers — the three pinned ones are `FORBIDDEN` and the two
+    // overrides — so this kills a predicate narrowed to the codes the other
+    // rows happen to name, which would answer "The kill switch could not be
+    // changed. Try again in a moment." for a route deliberately switched off
+    // and send an admin retrying a stop that can never land. The sentence is
+    // READ from the shared map, so the page cannot satisfy it by inventing
+    // wording, and the board read count kills a refusal that invalidates
+    // anyway.
+    boardAnswer = () => board([ROW_NEITHER]);
+    toggleAnswer = () => jsonResponse({ code: "TOOL_DISABLED" }, 503);
+    const user = userEvent.setup();
+    renderBoard();
+
+    await typeReason(user, TOOL, REASON);
+    await clickControl(user, TOOL, stopTenant(TOOL));
+
+    const target = await rowFor(TOOL);
+    const alert = await within(target).findByRole("alert");
+    expect(alert).toHaveTextContent(FAILURE_MESSAGES.TOOL_DISABLED);
+    expect(alert.textContent ?? "").not.toContain(KILL_SWITCH_TOGGLE_MESSAGE);
+    expect(boardCalls()).toHaveLength(1);
+  });
+
+  it("treats the map's fallback KEY as no code at all", async () => {
+    // Decision A's other half, and the one assertion that separates the real
+    // predicate from the lazy one. `default` is `FAILURE_MESSAGES`' fallback
+    // KEY and never a wire value, so `code in FAILURE_MESSAGES` alone answers
+    // TRUE for it: the existing `UPSTREAM_UNAVAILABLE` row cannot see that,
+    // because that code is outside the map entirely and both predicates refuse
+    // it. This kills a swap that drops the `code !== "default"` guard — the
+    // page would dress a body carrying the fallback key as a typed refusal and
+    // print "Something went wrong. Nothing was changed.", a claim that the
+    // stop did NOT land, for an answer nobody validated. The `not.toContain`
+    // is what makes the two sentences tell apart.
+    boardAnswer = () => board([ROW_NEITHER]);
+    toggleAnswer = () => jsonResponse({ code: "default" }, 502);
+    const user = userEvent.setup();
+    renderBoard();
+
+    await typeReason(user, TOOL, REASON);
+    await clickControl(user, TOOL, stopTenant(TOOL));
+
+    const target = await rowFor(TOOL);
+    const alert = await within(target).findByRole("alert");
+    expect(alert).toHaveTextContent(KILL_SWITCH_TOGGLE_MESSAGE);
+    expect(alert.textContent ?? "").not.toContain(FAILURE_MESSAGES.default);
+    expect(boardCalls()).toHaveLength(1);
+  });
+});

@@ -2,25 +2,26 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { FAILURE_MESSAGES, failureMessage } from "@/lib/chat-errors";
+import { failureMessage } from "@/lib/chat-errors";
 import { formatSwitchInstant, KILL_SWITCH_READ_MESSAGE } from "@/lib/killswitch-format";
 import {
   type KillSwitchRow,
   killSwitchBoardSchema,
   type SwitchState,
 } from "@/lib/killswitch-schema";
+import { WireRefusedError, readWire } from "@/lib/wire-read";
 import { KillSwitchToggle } from "@/components/admin/kill-switch-toggle";
 
 /**
  * The kill switch board, from `GET /api/admin/killswitch`.
  *
  * A client component doing its own read through TanStack Query (§2, decision
- * A), `AuditSearch`'s and `ReviewQueue`'s shape: the bearer stays an httpOnly
- * cookie the proxy attaches, and an expired session is `response.redirected`
- * rather than a status, because the browser has already followed the proxy's
- * redirect by the time this code runs (22b decision E). Pinned by
- * `tests/killswitch-board.test.tsx::follows the proxy's redirect to /login
- * instead of rendering a board`.
+ * A), `AuditSearch`'s and `ReviewQueue`'s shape, reading through
+ * `lib/wire-read.ts`, which owns the redirect, the status, the the design
+ * vocabulary check and the `safeParse` for every board that talks to `app/api/`
+ *. Pinned by `tests/killswitch-board.test.tsx::follows the proxy's
+ * redirect to /login instead of rendering a board` and the `$name renders the
+ * read message, no table and no empty state` rows.
  *
  * The read is fired on paint and takes NO argument of any kind (decision A):
  * which board this caller sees is the token's tenant, decided behind the MCP
@@ -223,34 +224,6 @@ function LayerCell({ state }: { state: SwitchState | null }) {
 }
 
 /**
- * A read the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so
- * no free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
-class BoardRefusedError extends Error {
-  readonly code: string;
-
-  constructor(code: string) {
-    super("the kill switch board was refused");
-    this.code = code;
-  }
-}
-
-/**
- * Whether a body's `code` is one of the design's eight, which is what separates
- * this page's two unhappy paths (decision E, a project rule): a typed refusal
- * renders that code's shared sentence, and everything else — a payload the
- * parser refuses, a non-JSON body, or a code outside that vocabulary such as
- * the proxy's own `UPSTREAM_UNAVAILABLE` — is a failed read. `default` is the
- * shared map's fallback key and never a wire value.
- */
-function isTypedCode(code: unknown): code is string {
-  return typeof code === "string" && code !== "default" && code in FAILURE_MESSAGES;
-}
-
-/**
  * The sentence for whatever went wrong, one alert either way.
  *
  * No override on this surface, unlike `AuditSearch`'s `VALIDATION`: the two
@@ -258,7 +231,7 @@ function isTypedCode(code: unknown): code is string {
  * sentences are true of this read.
  */
 function errorMessage(error: unknown): string {
-  if (error instanceof BoardRefusedError) {
+  if (error instanceof WireRefusedError) {
     return failureMessage(error.code);
   }
   return KILL_SWITCH_READ_MESSAGE;
@@ -269,51 +242,6 @@ function errorMessage(error: unknown): string {
  * the proxy's redirect to `/login`.
  */
 async function fetchBoard(): Promise<BoardAnswer> {
-  const response = await fetch("/api/admin/killswitch", {
-    headers: { accept: "application/json" },
-  });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return null;
-  }
-  if (!response.ok) {
-    // The status is read BEFORE the body: the proxy's own `502
-    // UPSTREAM_UNAVAILABLE` is valid JSON, so a reader that skipped it would
-    // turn an outage into "no tools are registered".
-    const code = await typedCodeOf(response);
-    if (code !== null) {
-      throw new BoardRefusedError(code);
-    }
-    throw new Error(`the kill switches could not be read (${response.status})`);
-  }
-
-  const parsed = killSwitchBoardSchema.safeParse(await readJson(response));
-  if (!parsed.success) {
-    throw new Error("the kill switch payload did not match what this page reads");
-  }
-  return parsed.data.switches;
-}
-
-/**
- * The typed code a refused response carries, or null when it carries none — a
- * body that is not JSON at all included, which is why `json()` is guarded
- * rather than awaited into an unhandled rejection.
- */
-async function typedCodeOf(response: Response): Promise<string | null> {
-  const body = await readJson(response);
-  if (typeof body !== "object" || body === null) {
-    return null;
-  }
-  const code = (body as { code?: unknown }).code;
-  return isTypedCode(code) ? code : null;
-}
-
-/** The body as JSON, or `undefined` when it is not JSON at all. */
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
+  const payload = await readWire("/api/admin/killswitch", killSwitchBoardSchema);
+  return payload === null ? null : payload.switches;
 }

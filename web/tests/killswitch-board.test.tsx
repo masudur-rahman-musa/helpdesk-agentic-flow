@@ -629,3 +629,48 @@ describe("KillSwitchBoard — an expired session", () => {
     expect(screen.queryByText(EMPTY_STATE)).toBeNull();
   });
 });
+
+describe("KillSwitchBoard — two failed reads the existing rows do not cover (plan 24ib §6)", () => {
+  it("renders the read message for a 500 carrying no body at all", async () => {
+    // An earlier change §5's second risk, named for this board: `readWire` reads the
+    // body of a non-ok response to look for a typed code, and the existing
+    // `a 500 carrying no JSON at all` row still hands it HTML BYTES to fail on.
+    // This one is `new Response(null, ...)` — nothing to read at all. Kills a
+    // fetcher whose error path calls `response.json()` unguarded: the parse
+    // error escapes as an unhandled rejection instead of a sentence, and the
+    // operator is left on a kill switch screen that says nothing whatever
+    // while the proxy behind it is down. The empty state is asserted absent
+    // because the other wrong answer — an outage rendered as "No tools are
+    // registered." — is the one sentence here an operator acts on by
+    // concluding the platform is clean.
+    boardAnswer = () => new Response(null, { status: 500 });
+    renderBoard();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(KILL_SWITCH_READ_MESSAGE);
+    expect(missingTable()).toBeNull();
+    expect(screen.queryByText(EMPTY_STATE)).toBeNull();
+  }, 10_000);
+
+  it("renders the read message for a 200 whose body is not JSON at all", async () => {
+    // An earlier change decision E on this board: today `readJson` guards the parse and
+    // `killSwitchBoardSchema` refuses the `undefined`; through `readWire` the
+    // same response takes the same route to the same sentence, and the case is
+    // what turns that equivalence from an argument into an assertion. Kills a
+    // migration that lets a 200 carrying an HTML error page through the ok
+    // branch without a parse — the board would paint from an unvalidated body,
+    // and a row whose `stopped` nobody checked renders a stopped tool as
+    // running, which is §5's first risk arriving by a different door.
+    boardAnswer = () =>
+      new Response("<html>not json</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    renderBoard();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(KILL_SWITCH_READ_MESSAGE);
+    expect(missingTable()).toBeNull();
+    expect(screen.queryByText(EMPTY_STATE)).toBeNull();
+  }, 10_000);
+});

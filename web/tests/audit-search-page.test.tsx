@@ -849,3 +849,86 @@ describe("AuditSearch — an expired session", () => {
     expect(screen.queryByText(READ_ALERT)).toBeNull();
   });
 });
+
+describe("AuditSearch — the call the migration must not reshape (plan 24ib §6)", () => {
+  it("asks for the filtered, paged read as one exact path and query string", async () => {
+    // An earlier change §6's first case, on the one read no case pins as a STRING:
+    // `::reads the search proxy with limit=50 and nothing else` fixes the
+    // default read, and the paging cases assert `paramsOf` — an unordered SET
+    // that is satisfied by any composition order and, on a read carrying only
+    // two parameters, says nothing about the three-parameter one. Kills a
+    // migration that moves the call into `readWire(path, schema)` and drops a
+    // parameter on the way across: `before_seq` left behind re-reads the FIRST
+    // page under an `Older` that says it moved on, and the applied filter left
+    // behind pages the unfiltered log while the form still shows the filter the
+    // auditor typed. Both are silent — rows appear either way — and the whole
+    // claim of this plan is that this string does not change.
+    // Arithmetic: search reads = 3, the paint's, the
+    // commit's and this `Older`'s.
+    stageTwoPages();
+    const user = userEvent.setup();
+    renderSearch();
+
+    await eventRows();
+    await user.type(await textControl("Event type"), "grant.created");
+    await commit(user);
+    await waitFor(() => {
+      expect(searchCalls()).toHaveLength(2);
+    });
+
+    await user.click(within(await region()).getByRole("button", { name: "Older" }));
+    await waitFor(() => {
+      expect(searchCalls()).toHaveLength(3);
+    });
+
+    const url = callAt(searchCalls(), 2);
+    expect(new URL(url, ORIGIN).pathname).toBe(SEARCH_PATH);
+    expect(queryOf(url)).toBe(`limit=50&event_type=grant.created&before_seq=${SEQ_TWO}`);
+  });
+});
+
+describe("AuditSearch — two failed reads the existing rows do not cover (plan 24ib §6)", () => {
+  it("renders the read alert for a 500 carrying no body at all", async () => {
+    // An earlier change §5's second risk, which the existing `a 500 carrying no JSON at
+    // all` row does not reach: that row hands back an HTML BODY, so a reader
+    // that calls `response.json()` on it still has bytes to fail on. This one
+    // is `new Response(null, ...)` — no body at all — which is the shape
+    // `readWire` meets when it goes looking for a typed code on a non-ok
+    // response. Kills a fetcher that reads the code with an UNGUARDED
+    // `response.json()`: the parse error escapes the error path itself as an
+    // unhandled rejection, so the auditor is left on a page that says nothing
+    // whatever about a proxy that is down, and the empty state is asserted
+    // absent so the other wrong answer — an outage rendered as "no events match
+    // that search" — is red too.
+    searchAnswer = () => new Response(null, { status: 500 });
+    renderSearch();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(READ_ALERT);
+    expect(screen.queryByRole("table", { name: "Audit events" })).toBeNull();
+    expect(screen.queryByText(EMPTY_STATE)).toBeNull();
+  }, 10_000);
+
+  it("renders the read alert for a 200 whose body is not JSON at all", async () => {
+    // An earlier change decision E, asserted rather than argued. Today the ok path
+    // calls `response.json()` unguarded and the `SyntaxError` falls through
+    // `errorMessage`'s default arm; through `readWire` the same response is
+    // `undefined`, `auditSearchSchema` refuses it, and the SAME sentence is
+    // reached by a different route. Kills a migration that lets the two routes
+    // diverge — a page that shows nothing at all, or that reports the empty
+    // state, when a proxy answers 200 with an HTML error page (the shape a
+    // misrouted or logged-out edge answers with, and the one case where a
+    // status check alone sees success).
+    searchAnswer = () =>
+      new Response("<html>not json</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    renderSearch();
+
+    const alert = await screen.findByRole("alert", {}, { timeout: 5_000 });
+    expect(alert).toHaveTextContent(READ_ALERT);
+    expect(screen.queryByRole("table", { name: "Audit events" })).toBeNull();
+    expect(screen.queryByText(EMPTY_STATE)).toBeNull();
+  }, 10_000);
+});

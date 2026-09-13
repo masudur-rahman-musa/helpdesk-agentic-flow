@@ -13,19 +13,20 @@ import {
   toInstant,
 } from "@/lib/audit-filters";
 import { type AuditEventRow, auditSearchSchema } from "@/lib/audit-schema";
-import { FAILURE_MESSAGES, failureMessage } from "@/lib/chat-errors";
+import { failureMessage } from "@/lib/chat-errors";
+import { WireRefusedError, readWire } from "@/lib/wire-read";
 import { Button, Input, Label } from "@/components/ui/field";
 
 /**
  * The searchable audit log, from `GET /api/admin/audit/search`.
  *
  * A client component doing its own read through TanStack Query (§2, 23d
- * decision A), `ReviewQueue`'s and `ApprovalQueue`'s shape: the bearer stays an
- * httpOnly cookie the proxy attaches, and an expired session is
- * `response.redirected` rather than a status, because the browser has already
- * followed the proxy's redirect by the time this code runs (22b decision E).
- * Pinned by `tests/audit-search-page.test.tsx::follows the proxy's redirect to
- * /login instead of rendering the log`.
+ * decision A), `ReviewQueue`'s and `ApprovalQueue`'s shape, reading through
+ * `lib/wire-read.ts`, which owns the redirect, the status, the the design
+ * vocabulary check and the `safeParse` for every board that talks to `app/api/`
+ *. What stays here is the sentence, `AUDIT_VALIDATION_MESSAGE`
+ * included. Pinned by `tests/audit-search-page.test.tsx::follows the proxy's
+ * redirect to /login instead of rendering the log`.
  *
  * Everything here is a READ, so a project rule has nothing to bite on; a project rule
  * is 24a's and the tool's — this page sends no tenant and no user, and could not
@@ -370,37 +371,9 @@ function downloadCsv(events: AuditEventRow[]): void {
   }
 }
 
-/**
- * A search the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so no
- * free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
-class SearchRefusedError extends Error {
-  readonly code: string;
-
-  constructor(code: string) {
-    super("the search was refused");
-    this.code = code;
-  }
-}
-
-/**
- * Whether a body's `code` is one of the design's eight, which is what separates
- * this page's two unhappy paths: a typed refusal renders its own sentence, and
- * everything else — a payload the parser refuses, a non-JSON body, or a code
- * outside that vocabulary such as the proxy's own `UPSTREAM_UNAVAILABLE` — is a
- * failed read. `default` is the shared map's fallback key and
- * never a wire value.
- */
-function isTypedCode(code: unknown): code is string {
-  return typeof code === "string" && code !== "default" && code in FAILURE_MESSAGES;
-}
-
 /** The sentence for whatever went wrong, one alert either way. */
 function errorMessage(error: unknown): string {
-  if (error instanceof SearchRefusedError) {
+  if (error instanceof WireRefusedError) {
     return error.code === "VALIDATION" ? AUDIT_VALIDATION_MESSAGE : failureMessage(error.code);
   }
   return AUDIT_READ_MESSAGE;
@@ -450,47 +423,12 @@ async function fetchSearch(
     params.set("before_seq", String(beforeSeq));
   }
 
-  const response = await fetch(`/api/admin/audit/search?${params.toString()}`, {
-    headers: { accept: "application/json" },
-  });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
+  const payload = await readWire(`/api/admin/audit/search?${params.toString()}`, auditSearchSchema);
+  if (payload === null) {
+    // The redirect answers what this read answers when it finds nothing, so no
+    // third state appears on screen while the browser navigates to `/login`
+    //.
     return { events: [], nextBeforeSeq: null };
   }
-  if (!response.ok) {
-    // The status is read BEFORE the body: the proxy's own `502
-    // UPSTREAM_UNAVAILABLE` is valid JSON, so a reader that skipped it would
-    // turn an outage into "no events match that search".
-    const code = await typedCodeOf(response);
-    if (code !== null) {
-      throw new SearchRefusedError(code);
-    }
-    throw new Error(`the audit log could not be read (${response.status})`);
-  }
-
-  const parsed = auditSearchSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new Error("the audit search payload did not match what this page reads");
-  }
-  return { events: parsed.data.events, nextBeforeSeq: parsed.data.next_before_seq };
-}
-
-/**
- * The typed code a refused response carries, or null when it carries none — a
- * body that is not JSON at all included, which is why `json()` is guarded
- * rather than awaited into an unhandled rejection.
- */
-async function typedCodeOf(response: Response): Promise<string | null> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    return null;
-  }
-  if (typeof body !== "object" || body === null) {
-    return null;
-  }
-  const code = (body as { code?: unknown }).code;
-  return isTypedCode(code) ? code : null;
+  return { events: payload.events, nextBeforeSeq: payload.next_before_seq };
 }

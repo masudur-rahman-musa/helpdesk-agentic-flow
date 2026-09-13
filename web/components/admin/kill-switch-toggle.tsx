@@ -3,8 +3,12 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { FAILURE_MESSAGES, failureMessage } from "@/lib/chat-errors";
+import { failureMessage } from "@/lib/chat-errors";
 import { type KillSwitchRow, setKillSwitchResultSchema } from "@/lib/killswitch-schema";
+// The vocabulary check alone: `readWire` is a GET and cannot express this POST,
+// so the fetch below stays as it is while the design's eight are checked in the
+// one place that holds them.
+import { isTypedCode } from "@/lib/wire-read";
 import { Button } from "@/components/ui/field";
 
 /**
@@ -302,23 +306,6 @@ class ToggleRefusedError extends Error {
     super("the kill switch change was refused");
     this.code = code;
   }
-}
-
-/**
- * Whether a body's `code` is one of the design's eight, which is what separates
- * this surface's two unhappy paths (decision E, a project rule): a typed
- * refusal renders that code's sentence, and everything else — a payload the
- * parser refuses, a body that is not JSON, or a code outside that vocabulary
- * such as the proxy's own `UPSTREAM_UNAVAILABLE` — is a failed toggle.
- * `default` is the shared map's fallback key and never a wire value.
- *
- * The third copy of this predicate on the admin surface, beside
- * `kill-switch-board.tsx`'s and `audit-search.tsx`'s. 24da decision F refused
- * the shared-fetcher refactor on purpose and this plan's §3 repeats the
- * refusal; the move is owed to the plan that takes that surface on.
- */
-function isTypedCode(code: unknown): code is string {
-  return typeof code === "string" && code !== "default" && code in FAILURE_MESSAGES;
 }
 
 /** The sentence for a refused toggle, or `null` while nothing is refused. */

@@ -3,7 +3,8 @@
 import { useMutation } from "@tanstack/react-query";
 
 import { auditVerifySchema } from "@/lib/audit-schema";
-import { FAILURE_MESSAGES, failureMessage } from "@/lib/chat-errors";
+import { failureMessage } from "@/lib/chat-errors";
+import { WireRefusedError, readWire } from "@/lib/wire-read";
 import { Button } from "@/components/ui/field";
 
 /**
@@ -34,23 +35,16 @@ import { Button } from "@/components/ui/field";
  * is intact and where it broke all come from an earlier change's route; this renders one
  * sentence about the answer.
  *
- * Two unhappy paths, one discriminator: a body carrying one
- * of the design's eight codes is a REFUSAL and renders that code's shared
- * sentence, and everything else — a payload the parser refuses, a body that is
- * not JSON, and the proxy's own `UPSTREAM_UNAVAILABLE`, which is not one of the
- * eight — is a failed read. No `VALIDATION` override on this surface, unlike
- * `AuditSearch`: the route takes no argument, so there is nothing an auditor
- * could correct. Pinned by the two `$name renders its own sentence and not the
- * read failure` rows and the three `$name renders the read failure and no
- * verdict` rows.
- *
- * An expired session is `response.redirected` rather than a status, because the
- * browser has already followed the proxy's redirect by the time this code runs
- * (22b decision E). On this surface that matters more than on any other: a
- * fetcher checking `response.ok` would render "the chain could not be checked"
- * for a session that merely expired, which is the sentence an auditor is most
- * likely to escalate as evidence of tampering. Pinned by `::follows the proxy's
- * redirect to /login instead of answering about the chain`.
+ * The read goes through `lib/wire-read.ts`, which owns the redirect, the
+ * status, the the design vocabulary check and the `safeParse` for every board
+ * that talks to `app/api/`. What stays here is the sentence: a
+ * `WireRefusedError` renders its code's shared sentence and every other failure
+ * renders `AUDIT_VERIFY_READ_MESSAGE`, with no `VALIDATION` override on this
+ * surface unlike `AuditSearch` — the route takes no argument, so there is
+ * nothing an auditor could correct. Pinned by the two `$name renders its own
+ * sentence and not the read failure` rows, the three `$name renders the read
+ * failure and no verdict` rows, and `::follows the proxy's redirect to /login
+ * instead of answering about the chain`.
  *
  * Accessible names: the region is `Chain integrity` — a second region beside
  * 24ba's `Audit log` on the same screen — and its one control is `Verify
@@ -109,35 +103,9 @@ export function AuditVerify() {
   );
 }
 
-/**
- * A check the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so no
- * free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
-class VerifyRefusedError extends Error {
-  readonly code: string;
-
-  constructor(code: string) {
-    super("the chain check was refused");
-    this.code = code;
-  }
-}
-
-/**
- * Whether a body's `code` is one of the design's eight, which is what separates
- * this panel's two unhappy paths. `default` is the shared
- * map's fallback key and never a wire value; the proxy's own
- * `UPSTREAM_UNAVAILABLE` is outside the vocabulary and so is a failed read.
- */
-function isTypedCode(code: unknown): code is string {
-  return typeof code === "string" && code !== "default" && code in FAILURE_MESSAGES;
-}
-
 /** The sentence for whatever went wrong, one alert either way. */
 function errorMessage(error: unknown): string {
-  if (error instanceof VerifyRefusedError) {
+  if (error instanceof WireRefusedError) {
     return failureMessage(error.code);
   }
   return AUDIT_VERIFY_READ_MESSAGE;
@@ -146,52 +114,12 @@ function errorMessage(error: unknown): string {
 /**
  * The chain's verdict, or `null` when the browser was sent to `/login` instead.
  *
- * No query string and no body: the route has nothing to ask for. The status is
- * read BEFORE the body, because the proxy's own `502 UPSTREAM_UNAVAILABLE` is
- * valid JSON and a reader that skipped it would turn an outage into a verdict.
+ * No query string and no body: the route has nothing to ask for.
  */
 async function fetchVerify(): Promise<ChainVerdict | null> {
-  const response = await fetch("/api/admin/audit/verify", {
-    headers: { accept: "application/json" },
-  });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
+  const payload = await readWire("/api/admin/audit/verify", auditVerifySchema);
+  if (payload === null) {
     return null;
   }
-  if (!response.ok) {
-    const code = await typedCodeOf(response);
-    if (code !== null) {
-      throw new VerifyRefusedError(code);
-    }
-    throw new Error(`the audit chain could not be checked (${response.status})`);
-  }
-
-  const parsed = auditVerifySchema.safeParse(await bodyOf(response));
-  if (!parsed.success) {
-    throw new Error("the verify payload did not match what this panel reads");
-  }
-  return { ok: parsed.data.ok, brokenAt: parsed.data.broken_at };
-}
-
-/** The parsed body, or `undefined` when it was not JSON at all. */
-async function bodyOf(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * The typed code a refused response carries, or null when it carries none — a
- * body that is not JSON at all included.
- */
-async function typedCodeOf(response: Response): Promise<string | null> {
-  const body = await bodyOf(response);
-  if (typeof body !== "object" || body === null) {
-    return null;
-  }
-  const code = (body as { code?: unknown }).code;
-  return isTypedCode(code) ? code : null;
+  return { ok: payload.ok, brokenAt: payload.broken_at };
 }

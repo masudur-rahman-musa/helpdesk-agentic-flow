@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AUDIT_VALIDATION_MESSAGE } from "@/components/admin/audit-search";
 import { AUDIT_VERIFY_READ_MESSAGE, AuditVerify } from "@/components/admin/audit-verify";
 import { QueryProvider } from "@/components/query-provider";
 import { FAILURE_MESSAGES } from "@/lib/chat-errors";
@@ -391,6 +392,76 @@ describe("AuditVerify — an expired session", () => {
       expect(assign).toHaveBeenCalledWith(LOGIN_URL);
     });
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(INTACT)).toBeNull();
+  });
+});
+
+describe("AuditVerify — the failures and the sentence the migration must keep (plan 24ib §6)", () => {
+  it("renders the read failure for a 500 carrying no body at all", async () => {
+    // An earlier change §5's second risk, named for this panel: `readWire` reads the
+    // body of a non-ok response to look for a typed code, and the existing
+    // `a 500 carrying no JSON at all` row still hands it HTML BYTES to fail on.
+    // This one is `new Response(null, ...)` — nothing to read at all. Kills a
+    // fetcher whose error path calls `response.json()` unguarded: the parse
+    // error escapes as an unhandled rejection instead of a sentence, and an
+    // auditor who clicked `Verify integrity` over a dead proxy is shown neither
+    // a verdict nor a failure and is free to read the silence as either.
+    verifyAnswer = () => new Response(null, { status: 500 });
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(AUDIT_VERIFY_READ_MESSAGE);
+    expect(screen.queryByText(INTACT)).toBeNull();
+    expect(screen.queryByText(BROKEN)).toBeNull();
+  });
+
+  it("renders the read failure for a 200 whose body is not JSON at all", async () => {
+    // An earlier change decision E on this panel: today `bodyOf` guards the parse and
+    // `auditVerifySchema` refuses the `undefined`; through `readWire` the same
+    // response takes the same route to the same sentence, and the case is what
+    // turns that equivalence from an argument into an assertion. Kills a
+    // migration that lets a 200 carrying an HTML error page reach the verdict
+    // branch — the panel would print "The chain is intact." on the strength of
+    // a body nobody parsed, which is the single worst sentence this surface can
+    // print wrongly, and both verdicts are asserted absent for that reason.
+    verifyAnswer = () =>
+      new Response("<html>not json</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(AUDIT_VERIFY_READ_MESSAGE);
+    expect(screen.queryByText(INTACT)).toBeNull();
+    expect(screen.queryByText(BROKEN)).toBeNull();
+  });
+
+  it("renders the SHARED VALIDATION sentence and never the audit-search override", async () => {
+    // 24ba decision H seen from the surface it does NOT belong to, and the
+    // reason an earlier change keeps `errorMessage` per board rather than sharing one.
+    // Kills a migration that lifts the `VALIDATION` override out of
+    // `AuditSearch` into anything both panels reach — this route takes no
+    // argument at all, so "Check the filters and try again." points an auditor
+    // at filters that do not exist on this surface and at a correction nobody
+    // can make. The `not.toContain` is the load-bearing half: the shared
+    // sentence alone would stay green on a panel rendering both.
+    verifyAnswer = () => jsonResponse({ code: "VALIDATION" }, 400);
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(FAILURE_MESSAGES.VALIDATION);
+    expect(alert.textContent ?? "").not.toContain(AUDIT_VALIDATION_MESSAGE);
+    expect(screen.queryByText(AUDIT_VERIFY_READ_MESSAGE)).toBeNull();
     expect(screen.queryByText(INTACT)).toBeNull();
   });
 });
