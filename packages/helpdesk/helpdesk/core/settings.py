@@ -2,7 +2,8 @@
 
 Every service builds its `Settings` from here; nothing reads os.environ
 directly, `web_origin_from_env` below being the one environment read this
-module owns for the callers that cannot build full `Settings` yet. The four backing-service values are required so a misconfigured
+module owns for the callers that cannot build full `Settings` yet. The four
+backing-service values are required so a misconfigured
 deployment fails at startup, not on first use; every other value carries a
 default with its reason next to the field. A default is not an excuse for a
 missing check: `MCP_URL` and `GATEWAY_API_KEYS` are both validated here, so a
@@ -17,7 +18,6 @@ from urllib.parse import urlsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-
 
 DEFAULT_WEB_ORIGIN = "http://localhost:3000"
 """The one browser origin agent-api answers with CORS headers for.
@@ -178,6 +178,21 @@ class Settings(BaseSettings):
     default is `~/.cache`.
     """
 
+    policy_dir: Path = Path("policies")
+    """The corpus root ingestion walks, as `{tenant_slug}/{version}/{file}`.
+
+    A setting rather than the script's hardcoded constant so the repository
+    works as a template: an adopter points `POLICY_DIR` at their own folder
+    and re-ingests, without editing a file this project owns (an earlier change
+    section 1). Relative by default, resolved against the process's working
+    directory the way `embedding_cache_dir` is.
+
+    It shapes no stored value: `rag/pipeline.py` writes `source_path`
+    corpus-relative, so a long root cannot push a row past the
+    `SOURCE_PATH_LENGTH` cap. Pinned by
+    `test_settings.py::test_the_default_policy_dir_is_exactly_the_planned_value`.
+    """
+
     web_origin: str = DEFAULT_WEB_ORIGIN
     """The single browser origin agent-api allows cross-origin requests from.
 
@@ -214,6 +229,31 @@ class Settings(BaseSettings):
             raise ValueError("MCP_URL must contain no whitespace")
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("MCP_URL must be an absolute http or https URL")
+        return value
+
+    @field_validator("policy_dir", mode="before")
+    @classmethod
+    def _policy_dir_is_a_usable_root(cls, value: object) -> object:
+        """Refuse an empty value and one with surrounding whitespace.
+
+        Before validation, not after: `Path("")` is a legal `Path` equal to
+        `Path(".")`, so an empty `POLICY_DIR=` line would pass an after-mode
+        check and silently retarget the whole corpus walk at the working
+        directory. Interior spaces are ACCEPTED, unlike `WEB_ORIGIN`'s rule: this is a filesystem path, and a folder with a
+        space in its name is one an adopter really has, while the trailing
+        newline from a pasted `.env` value is the failure worth catching.
+        Pinned by
+        `test_settings.py::test_an_empty_policy_dir_is_refused_at_load`,
+        `::test_a_policy_dir_with_surrounding_whitespace_is_refused_at_load`
+        and, for the accepted half,
+        `::test_a_policy_dir_with_an_interior_space_is_accepted`.
+        """
+        if not isinstance(value, str):
+            return value
+        if not value:
+            raise ValueError("POLICY_DIR must not be empty")
+        if value != value.strip():
+            raise ValueError("POLICY_DIR must have no leading or trailing whitespace")
         return value
 
     @field_validator("web_origin")

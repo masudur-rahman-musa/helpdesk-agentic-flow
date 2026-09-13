@@ -1,4 +1,4 @@
-.PHONY: help setup run migrate test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check e2e load-smoke
+.PHONY: help setup run migrate ingest test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check e2e load-smoke
 # Where `scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
@@ -13,6 +13,8 @@ run:        ## Run the project locally
 	docker compose up -d && uv run uvicorn agent_api.main:app --reload
 migrate:    ## Apply both schemas to the local compose database (hard rule 3)
 	uv run alembic upgrade head && uv run python scripts/checkpointer_setup.py
+ingest:     ## Ingest one tenant's corpus version from POLICY_DIR: make ingest TENANT=acme VERSION=v1
+	uv run python scripts/ingest.py --tenant $(TENANT) --version $(VERSION)
 test:       ## Run tests with the coverage gate (needs the compose Postgres: docker compose up -d)
 	COVERAGE_FILE=.coverage-baseline uv run pytest -q --cov=helpdesk --cov=agent_api --cov=mcp_server \
 	  --cov-context=test --cov-fail-under=80

@@ -6,6 +6,25 @@ The model never executes anything: it interprets intent, while a deterministic p
 
 **Status: under active development.** Architecture docs, live demo, and evaluation numbers land as milestones complete.
 
+## Use it with your own policies
+
+The policy corpus is a folder, not a fixture. Point `POLICY_DIR` at your own
+and re-ingest:
+
+```
+POLICY_DIR=/srv/company-policies
+make ingest TENANT=your-tenant-slug VERSION=v1
+```
+
+The layout is `{tenant}/{version}/{file}`; the shipped `policies/` folder is a
+demo corpus, not a dependency. The directory itself is a port with one
+implementation, so reading users, departments and grants from Entra ID, Okta or
+SCIM is one class rather than a refactor.
+
+The five things an adopter changes first are listed in
+[CUSTOMIZING.md](CUSTOMIZING.md), and the adapter interface is walked through
+in [docs/directory-adapter.md](docs/directory-adapter.md).
+
 ## End-to-end flows and load
 
 `make e2e` drives the five flows of the specification in a real browser against

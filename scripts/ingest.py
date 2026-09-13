@@ -5,9 +5,17 @@
 Argument parsing, the corpus root, one line of output per document and the
 exit code — nothing else. Every effect lives in `helpdesk.rag.pipeline`: the design calls ingestion "also an admin API", and a
 later row's admin route can only call the same function this script does if
-the script holds no logic of its own. That is also why nothing here is tested
-directly — there is no behaviour to reach that `test_rag_pipeline.py` does not
-already pin.
+the script holds no logic of its own. That is also why almost nothing here is
+tested directly - there is no behaviour to reach that `test_rag_pipeline.py`
+does not already pin. The exception is the corpus root: `_corpus_root` and
+`--corpus-root`'s default are the whole of what `test_ingest_script.py`
+covers.
+
+The root is `POLICY_DIR` (SPEC section 12.1, an earlier change) so the repository works
+as a template: an adopter points that variable at their own folder and runs
+`make ingest`. An explicit `--corpus-root` still wins. A walk that silently
+found nothing would be worse than one that refuses, and `ingest_version`
+refuses a missing directory rather than reporting zero.
 
 This is the ONE place the real redaction client and the real embedding models
 are constructed (decisions E and F), so every test runs against fakes with no
@@ -34,13 +42,19 @@ from helpdesk.rag.gateway import RedactionClient
 from helpdesk.rag.pipeline import ingest_version
 from helpdesk.rag.vectors import create_client
 
-CORPUS_ROOT = Path("policies")
-"""Where the corpus lives, relative to the repository root (the design).
 
-Row 28 makes this configurable for the template; until then a walk that
-silently found nothing would be worse than one that refuses, and
-`ingest_version` refuses a missing directory rather than reporting zero.
-"""
+def _corpus_root(flag: Path | None, configured: Path) -> Path:
+    """The corpus root to walk: the explicit flag, else `POLICY_DIR`.
+
+    A function rather than an argparse default so the fallback is reachable
+    without a loaded `Settings`, and so `--help` keeps
+    working in an environment with no `DATABASE_URL`: the flag's default stays
+    `None` and settings are read inside `_run`. Pinned by
+    `test_ingest_script.py::test_the_corpus_root_falls_back_to_the_settings_value`,
+    `::test_an_explicit_corpus_root_flag_wins_over_the_settings_value` and
+    `::test_the_corpus_root_flag_defaults_to_none`.
+    """
+    return configured if flag is None else flag
 
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
@@ -50,14 +64,15 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--corpus-root",
         type=Path,
-        default=CORPUS_ROOT,
-        help=f"corpus root directory (default: {CORPUS_ROOT})",
+        default=None,
+        help="corpus root directory (default: the POLICY_DIR setting)",
     )
     return parser.parse_args(argv)
 
 
 async def _run(args: argparse.Namespace) -> int:
     settings = load_settings()
+    corpus_root = _corpus_root(args.corpus_root, settings.policy_dir)
     engine = create_engine(settings.database_url)
     client = create_client(settings)
     redactor = RedactionClient.from_settings(settings)
@@ -75,7 +90,7 @@ async def _run(args: argparse.Namespace) -> int:
             factory,
             client,
             tenant_id=tenant.id,
-            corpus_root=args.corpus_root,
+            corpus_root=corpus_root,
             tenant_slug=args.tenant,
             version=args.version,
             redactor=redactor,

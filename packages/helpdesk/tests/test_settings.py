@@ -15,6 +15,8 @@ tests chdir into an empty tmp dir for the same reason (its Settings() call
 reads the relative ``.env``).
 """
 
+from pathlib import Path
+
 import pytest
 from helpdesk.core.settings import (
     DEFAULT_WEB_ORIGIN,
@@ -364,3 +366,143 @@ def test_the_settings_field_and_the_helper_share_one_validator(
 
     failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
     assert "WEB_ORIGIN" in failed_fields
+
+
+# --- an earlier change: POLICY_DIR, the bring-your-own policies root (decision A) -------
+#
+# `POLICY_DIR` is not in `ENV_NAMES` for `MCP_URL`'s and `WEB_ORIGIN`'s reason:
+# it carries a default, so `_set_env` must not clear it for the cases above,
+# and `test_missing_required_value_fails_validation` asserts every name in that
+# tuple is REQUIRED, which `policy_dir` is not. These cases clear it
+# themselves, so a developer with `POLICY_DIR` exported in their own shell
+# cannot make the default row pass or fail by accident.
+
+POLICY_DIR_DEFAULT = Path("policies")
+"""The default the field declares, written out rather than imported.
+
+a project rule: importing the field's default and asserting it equals itself
+pins nothing, and this path is the corpus root every unconfigured ingest run
+walks."""
+
+
+def _set_env_without_policy_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_env(monkeypatch, VALID_ENV)
+    monkeypatch.delenv("POLICY_DIR", raising=False)
+
+
+def test_the_default_policy_dir_is_exactly_the_planned_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches an implementation whose unconfigured default is anything but the
+    repository's own corpus directory - an absolute path off the author's
+    machine, `policies/` with a trailing separator that makes the walked
+    `{tenant}/{version}` path differ, or a required field with no default at
+    all, which would make every existing service fail to build `Settings`
+    because nobody exports `POLICY_DIR` today.
+    """
+    _set_env_without_policy_dir(monkeypatch)
+
+    assert Settings(_env_file=None).policy_dir == POLICY_DIR_DEFAULT
+
+
+def test_a_policy_dir_of_one_character_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a validator that refuses the smallest usable root.
+
+    This is the inclusive minimum boundary of the length gate: one character
+    passes, zero does not (the case below). A validator written as "must be
+    longer than one character", or one that requires a separator in the value,
+    is red here while every longer path it is tried against stays green, so
+    only this row can catch it. An adopter running the ingest from inside their
+    own policies checkout gives exactly `.`.
+    """
+    _set_env_without_policy_dir(monkeypatch)
+    monkeypatch.setenv("POLICY_DIR", ".")
+
+    assert Settings(_env_file=None).policy_dir == Path(".")
+
+
+def test_an_empty_policy_dir_is_refused_at_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a plain `policy_dir: Path` field with no validator at all.
+
+    `Path("")` is a legal `Path` that pydantic builds without complaint and
+    that compares equal to `Path(".")`, so an empty `POLICY_DIR=` line in an
+    adopter's `.env` would silently redirect the whole corpus walk to the
+    process's working directory instead of failing at startup. Nothing else in
+    the load path refuses it: the type is satisfied, and the walk itself only
+    reports `CorpusDirectoryNotFoundError` much later, per tenant.
+    """
+    _set_env_without_policy_dir(monkeypatch)
+    monkeypatch.setenv("POLICY_DIR", "")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
+    assert "POLICY_DIR" in failed_fields
+
+
+# Every row here is a value `Path` accepts happily, and every one differs from
+# the accepted `"policies"` only by whitespace at an END. No other clause of
+# the field can decide them: they are non-empty, longer than one character and
+# contain no interior space, so deleting the surrounding-whitespace clause is
+# the only edit that turns them green (a project rule's rejection table,
+# applied to a filesystem path).
+POLICY_DIR_WHITESPACE_CASES: tuple[tuple[str, str], ...] = (
+    ("leading space", " policies"),
+    ("trailing space", "policies "),
+    ("trailing newline", "policies\n"),
+    ("trailing CRLF", "policies\r\n"),
+    ("leading tab", "\tpolicies"),
+)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [value for _label, value in POLICY_DIR_WHITESPACE_CASES],
+    ids=[label for label, _value in POLICY_DIR_WHITESPACE_CASES],
+)
+def test_a_policy_dir_with_surrounding_whitespace_is_refused_at_load(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """Catches a validator that checks only for emptiness, and a field that
+    silently `strip()`s instead of refusing.
+
+    A value pasted into `.env` carries the trailing newline or the stray space
+    the editor left, and `Path("policies\\n")` is a real directory name that no
+    filesystem holds, so the failure surfaces as a corpus walk finding nothing
+    rather than as a bad configuration value. The two rows that matter most are
+    the newline and the CRLF: they are invisible in the file that produced
+    them. Every row also proves the refusal is not a quiet normalisation, since
+    a stripping implementation returns a valid `Settings` and raises nothing.
+    """
+    _set_env_without_policy_dir(monkeypatch)
+    monkeypatch.setenv("POLICY_DIR", value)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
+    assert "POLICY_DIR" in failed_fields
+
+
+def test_a_policy_dir_with_an_interior_space_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a validator copied from `WEB_ORIGIN`, which refuses whitespace
+    ANYWHERE in the value.
+
+    Decision A splits the two deliberately: `WEB_ORIGIN` lands in a response
+    header where any space is a defect, but this is a filesystem path and
+    `/Users/me/My Policies` is a directory an adopter really has. This is the
+    only row of the whole `POLICY_DIR` table that separates the two rules - the
+    refused rows above pass under either one, so without this case the
+    stricter, wrong validator is green everywhere.
+    """
+    _set_env_without_policy_dir(monkeypatch)
+    monkeypatch.setenv("POLICY_DIR", "my policies")
+
+    assert Settings(_env_file=None).policy_dir == Path("my policies")
