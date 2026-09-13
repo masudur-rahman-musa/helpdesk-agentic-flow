@@ -1,0 +1,31 @@
+{
+  "match": "payments.initiator",
+  "answers": {
+    "IntentExtraction": {
+      "intent": "request_access",
+      "entities": {
+        "system": "payments",
+        "role": "payments.initiator",
+        "justification": "I need to raise payment runs."
+      },
+      "confidence": 0.95
+    },
+    "ToolPlan": [
+      { "calls": [{ "tool": "get_me", "arguments": {} }] },
+      {
+        "calls": [
+          {
+            "tool": "create_access_request",
+            "arguments": {
+              "target_user_id": "{me.user_id}",
+              "role_id": "{resolved.role_id}",
+              "justification": "I need to raise payment runs."
+            }
+          }
+        ]
+      },
+      { "calls": [] }
+    ],
+    "text": "I could not give you that one. It conflicts with access you already hold."
+  }
+}

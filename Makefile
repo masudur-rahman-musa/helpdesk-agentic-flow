@@ -1,4 +1,10 @@
-.PHONY: help setup run migrate test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check
+.PHONY: help setup run migrate test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check e2e load-smoke
+# Where `scripts/e2e_accounts.py` writes the seeded principals Playwright signs
+# in as. Inside `.cache/`, which is already gitignored, because the file holds
+# the seed's demo passwords in plaintext: fake by a project rule, and still not
+# something to leave in the working tree.
+E2E_ACCOUNTS_FILE ?= .cache/e2e-accounts.json
+
 help:       ## Show all targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 setup:      ## Install dependencies and pre-commit hooks
@@ -32,6 +38,18 @@ web-verify: ## The web gate: types, lint, unit tests, production build
 	pnpm -C web install --frozen-lockfile && pnpm -C web typecheck && pnpm -C web lint \
 	  && pnpm -C web test && pnpm -C web build
 verify: format lint typecheck test test-policy web-verify   ## The full gate, in order
+e2e:        ## The five SPEC 16 flows in a real browser (manual; needs docker compose up -d)
+	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright pnpm -C web exec playwright install chromium
+	mkdir -p .cache
+	uv run python scripts/e2e_reset.py
+	E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) uv run python scripts/e2e_accounts.py
+	pnpm -C web build
+	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) \
+	  pnpm -C web exec playwright test
+load-smoke: ## 20 chat sessions for 5 minutes against the REAL gateway (manual, costs money)
+	uv run locust -f scripts/load_smoke.py --headless \
+	  --users 20 --spawn-rate 2 --run-time 5m \
+	  --host $${AGENT_API_URL:-http://localhost:8000}
 eval:       ## Project evals: golden set vs project-evals/baseline.json
 	echo 'golden set is run by the companion console: see project-evals/README.md'
 infra-check: ## Validate infrastructure as code (no apply)

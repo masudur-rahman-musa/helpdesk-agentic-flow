@@ -1,0 +1,31 @@
+{
+  "match": "wiki.viewer",
+  "answers": {
+    "IntentExtraction": {
+      "intent": "request_access",
+      "entities": {
+        "system": "wiki",
+        "role": "wiki.viewer",
+        "justification": "I need to read the internal wiki."
+      },
+      "confidence": 0.96
+    },
+    "ToolPlan": [
+      { "calls": [{ "tool": "get_me", "arguments": {} }] },
+      {
+        "calls": [
+          {
+            "tool": "create_access_request",
+            "arguments": {
+              "target_user_id": "{me.user_id}",
+              "role_id": "{resolved.role_id}",
+              "justification": "I need to read the internal wiki."
+            }
+          }
+        ]
+      },
+      { "calls": [] }
+    ],
+    "text": "That access is part of the standard set for your department, so it is already in place."
+  }
+}

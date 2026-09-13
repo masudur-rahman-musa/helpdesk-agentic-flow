@@ -37,6 +37,10 @@ dev = [
     # from whatever `mcp` happens to vendor. Floor is the version the tests
     # were written and verified against.
     "httpx2>=2.12",
+    # The load smoke of an earlier change (decision B). locust rides this lockfile;
+    # k6 is the better load tool and is an install outside the project
+    # folder, which a project rule makes an ask on every machine.
+    "locust>=2.32",
 ]
 
 [tool.uv.workspace]
