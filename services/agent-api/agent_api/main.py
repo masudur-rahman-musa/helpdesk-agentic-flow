@@ -42,6 +42,7 @@ from agent_api.checkpointer import build_checkpointer, build_pool, psycopg_dsn
 from agent_api.killswitch_routes import router as killswitch_router
 from agent_api.me_routes import router as me_router
 from agent_api.notification_routes import router as notification_router
+from agent_api.policies_routes import router as policies_router
 from agent_api.review_routes import router as review_router
 from agent_api.rules_routes import router as rules_router
 
@@ -192,6 +193,7 @@ app.include_router(notification_router)
 app.include_router(audit_router)
 app.include_router(killswitch_router)
 app.include_router(rules_router)
+app.include_router(policies_router)
 
 
 class HealthResponse(BaseModel):

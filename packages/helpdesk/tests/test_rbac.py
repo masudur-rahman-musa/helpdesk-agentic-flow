@@ -243,6 +243,22 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
+    # An earlier change: the policy documents board, read-only. SPEC section 14 gives
+    # `/admin/policies` to `it_admin` and `platform_admin`, so those two cells
+    # and no others. `auditor` is deliberately absent on a design note's reasoning
+    # (the corpus is configuration, and what HAPPENED is read through
+    # `search_audit`), and `employee` is absent even though every principal
+    # may SEARCH the corpus: reading a policy is not reading the ingest's
+    # version history.
+    "list_policy_documents": {
+        "employee": None,
+        "manager": None,
+        "system_owner": None,
+        "hr": None,
+        "it_admin": "any",
+        "auditor": None,
+        "platform_admin": "any",
+    },
 }
 
 ALL_CASES: list[tuple[str, str, str | None]] = [

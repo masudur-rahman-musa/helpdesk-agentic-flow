@@ -99,9 +99,15 @@ ADMIN_TOOLS: frozenset[str] = frozenset(
         # the wire directly, and the policy engine already gets the rules it
         # needs through `snapshot.py`.
         "list_sod_rules",
+        # An earlier change: the policy documents board, registered as a tool and left
+        # out of the catalogue for the same reason (24ea decision F) -
+        # `/admin/policies` asks the wire directly, and the model already
+        # reaches the corpus through `search_policy`, which answers the spans
+        # an employee may read rather than the ingest's version history.
+        "list_policy_documents",
     }
 )
-"""The five tools row 24 owns, which this catalogue must NOT register."""
+"""The six tools row 24 owns, which this catalogue must NOT register."""
 
 CATALOGUED_TOOLS: frozenset[str] = frozenset(
     {
@@ -128,7 +134,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
 )
 """Every tool the agent may reach, as a literal: nineteen.
 
-Counted from the server's own `REGISTRY` — twenty-seven specs — less the five
+Counted from the server's own `REGISTRY` — twenty-eight specs — less the six
 in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools row 23ga
 deliberately leaves out (decision E): a tool the model may call is
 model-driven behaviour and owes golden cases before it merges, and the

@@ -118,6 +118,13 @@ EXPECTED_TOOL_NAMES = {
     # is the wire surface, and it is part of every diff adding a REGISTRY
     # entry).
     "list_sod_rules",
+    # An earlier change: the policy documents board. Twenty-seven names become
+    # twenty-eight, the new one a READ - the corpus could be SEARCHED
+    # (`search_policy`) but never listed, so `/admin/policies` had no way to
+    # say which documents and versions a tenant holds (a project rule: this
+    # literal is the wire surface, and it is part of every diff adding a
+    # REGISTRY entry).
+    "list_policy_documents",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

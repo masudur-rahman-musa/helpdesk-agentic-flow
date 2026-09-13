@@ -51,6 +51,16 @@ writes nothing — the same single `platform_admin` cell as the write, because a
 board whose audience is wider than the write's would show six principals
 switches none of them can change.
 
+`list_policy_documents` is the sixth, and the read the design's
+`/admin/policies` page is drawn from: which documents this tenant's corpus
+holds, which versions exist of each, which one is live and whether a version
+actually landed. Everything it decides lives in
+`helpdesk.rag.documents.read_policy_documents` -- the two statements, the
+grouping by slug, the title rule and both orders -- and what lives here is the
+wire contract alone. It takes no arguments either, and its two cells are
+`it_admin` and `platform_admin`, the design's audience for that page (a design note,
+cited rather than re-opened).
+
 `list_sod_rules` is the fifth, and the read the design's
 `/admin/rules` page is drawn from: the tenant's separation-of-duties rules
 with both sides resolved to a role and system a person can read. Everything
@@ -87,6 +97,7 @@ from helpdesk.access.rollback import WINDOW_HOURS as WINDOW_HOURS  # re-exported
 from helpdesk.auth import rbac
 from helpdesk.core.settings import load_settings
 from helpdesk.errors import NotFoundError
+from helpdesk.rag.documents import read_policy_documents
 from helpdesk.killswitch import (
     GLOBAL,
     GLOBAL_SEGMENT,
@@ -540,14 +551,129 @@ async def list_sod_rules(
     )
 
 
+class ListPolicyDocumentsInput(BaseModel):
+    """No fields at all, and nothing for a caller to choose.
+
+    The tenant is the token's and the corpus is that tenant's own rows (hard
+    rule 6), so there is no argument to trust and none to validate.
+    `extra="forbid"` rather than `ignore`, exactly as `ListSodRulesInput`: a
+    caller who sends a `tenant_id` believing they are reading another tenant's
+    corpus must be refused, not quietly answered with their own, and a `slug`
+    or a `version` asking the board to narrow itself is refused for the same
+    reason. Pinned as an EXACTLY empty field set by
+    `test_mcp_list_policy_documents.py::test_the_tool_declares_no_field_at_all`,
+    which no later field can ride along into.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PolicyVersionRow(BaseModel):
+    """One ingested version as 24g puts it on the wire. Exactly six fields.
+
+    `chunk_count` is the only thing on this surface that separates a version
+    that ingested from one that registered a document and wrote no span, and
+    `sha256` the only evidence that two versions differ at all (plan decisions
+    B and G). `source_path` is corpus-relative and never absolute, so nothing
+    about the ingest host crosses. Pinned by
+    `test_mcp_list_policy_documents.py::test_the_output_models_carry_exactly_the_planned_field_sets`.
+    """
+
+    version: str
+    is_current: bool
+    ingested_at: datetime
+    chunk_count: int
+    source_path: str
+    sha256: str
+
+
+class PolicyDocumentRow(BaseModel):
+    """One document slug and every version of it. Exactly three fields.
+
+    Grouped rather than flat (plan decision A): the page's question is which
+    documents there are and which version of each is live, and a flat list
+    would be regrouped in the browser on every paint. `title` is the current
+    version's where one exists and the newest-ingested version's otherwise,
+    which `read_policy_documents` decides.
+    """
+
+    slug: str
+    title: str
+    versions: list[PolicyVersionRow]
+
+
+class ListPolicyDocumentsOutput(BaseModel):
+    """The whole corpus, in the helper's order."""
+
+    documents: list[PolicyDocumentRow]
+
+
+async def list_policy_documents(
+    session: AsyncSession, identity: Identity, args: ListPolicyDocumentsInput
+) -> ListPolicyDocumentsOutput:
+    """This tenant's policy documents, their versions, and which one is live.
+
+    What the design's `/admin/policies` page is drawn from. The rows have been
+    written since an earlier change and readable as a CORPUS nowhere: `search_policy`
+    answers the spans an answer may cite, and nothing said which documents a
+    tenant has, which versions exist of each or whether a version landed with
+    no chunk at all.
+
+    Transport only. The two statements, the grouping by slug, the title rule
+    and both orders are `helpdesk.rag.documents.read_policy_documents`'s, so
+    24h's page and every later caller read one sequence rather than a second
+    copy inside a handler; the mapping below adds nothing but the wire's
+    names.
+
+    No scope helper and no second permission check: the design gives the row two
+    cells, both `Scope.ANY`, so the pipeline's matrix stage IS the whole check
+    and deleting it hands the corpus to the five principals with no cell,
+    pinned by
+    `test_mcp_list_policy_documents.py::test_the_five_denied_principals_are_refused_whatever_the_corpus_holds`
+    (a project rule: there is no second copy of that guard to hide behind).
+    That case runs with a corpus and without one, which is criterion 9's other
+    half: the refusal is the same either way, so the tool is not an existence
+    oracle for a tenant's corpus.
+
+    Nothing is written, so the pipeline's generic `tool.succeeded` is the whole
+    record a read leaves. The session is the pipeline's, already bound to the
+    token's tenant.
+    """
+    details = await read_policy_documents(session)
+    return ListPolicyDocumentsOutput(
+        documents=[
+            PolicyDocumentRow(
+                slug=detail.slug,
+                title=detail.title,
+                versions=[
+                    PolicyVersionRow(
+                        version=version.version,
+                        is_current=version.is_current,
+                        ingested_at=version.ingested_at,
+                        chunk_count=version.chunk_count,
+                        source_path=version.source_path,
+                        sha256=version.sha256,
+                    )
+                    for version in detail.versions
+                ],
+            )
+            for detail in details
+        ]
+    )
+
+
 __all__ = [
     "TOOL_NAME_MAX_LENGTH",
     "WINDOW_HOURS",
     "KillSwitchRow",
     "ListKillSwitchesInput",
     "ListKillSwitchesOutput",
+    "ListPolicyDocumentsInput",
+    "ListPolicyDocumentsOutput",
     "ListSodRulesInput",
     "ListSodRulesOutput",
+    "PolicyDocumentRow",
+    "PolicyVersionRow",
     "RequestNotExecutedError",
     "RollbackRequestInput",
     "RollbackRequestOutput",
@@ -557,6 +683,7 @@ __all__ = [
     "SodRuleRoleBlock",
     "SodRuleRow",
     "list_kill_switches",
+    "list_policy_documents",
     "list_sod_rules",
     "rollback_request",
     "set_kill_switch",

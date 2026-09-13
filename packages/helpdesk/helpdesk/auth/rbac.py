@@ -59,6 +59,7 @@ class Tool(StrEnum):
     SET_KILL_SWITCH = "set_kill_switch"
     LIST_KILL_SWITCHES = "list_kill_switches"
     LIST_SOD_RULES = "list_sod_rules"
+    LIST_POLICY_DOCUMENTS = "list_policy_documents"
     LIST_NOTIFICATIONS = "list_notifications"
     MARK_NOTIFICATION_READ = "mark_notification_read"
 
@@ -279,6 +280,19 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         # what HAPPENED through `search_audit`, and the rules are
         # configuration a principal with no route to the page cannot act on.
         Tool.LIST_SOD_RULES: {
+            Principal.IT_ADMIN: Scope.ANY,
+            Principal.PLATFORM_ADMIN: Scope.ANY,
+        },
+        # An earlier change: the policy corpus read as documents, for the design's
+        # `/admin/policies` page, which that section gives to `it_admin` and
+        # `platform_admin` — the same audience as the rules board above, for
+        # the same reason (a design note, cited rather than re-opened). Not
+        # `auditor`: an auditor reads what HAPPENED through `search_audit`,
+        # and the corpus is configuration. Not `employee` either, though
+        # `SEARCH_POLICY` gives every principal the corpus itself: searching
+        # returns the spans an answer may cite, while this row is the ingest's
+        # version history, which only an admin can act on.
+        Tool.LIST_POLICY_DOCUMENTS: {
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },

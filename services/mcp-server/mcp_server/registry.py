@@ -432,6 +432,32 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=admin.list_sod_rules,
     ),
     ToolSpec(
+        # An earlier change: a READ of the tenant's own corpus metadata, so no
+        # idempotency key, no place on `test_mcp_registry.py::
+        # MUTATING_TOOL_NAMES`, and the pipeline's generic `tool.succeeded`
+        # as the whole record a render of the policies board leaves.
+        #
+        # It takes no arguments at all: the tenant is the token's and the
+        # documents are that tenant's rows. The same two cells
+        # as the rules board above, the design's audience for `/admin/policies`
+        # — narrower than `search_policy`, which every principal
+        # holds, because searching answers the spans a question may cite while
+        # this answers the ingest's version history.
+        name=rbac.Tool.LIST_POLICY_DOCUMENTS.value,
+        tool=rbac.Tool.LIST_POLICY_DOCUMENTS,
+        description=(
+            "List this tenant's policy documents: one row per document with its title and "
+            "every ingested version, each carrying whether it is current, when it was "
+            "ingested, how many chunks it holds, its source path and its sha256. Takes no "
+            "arguments; reads only."
+        ),
+        input_model=admin.ListPolicyDocumentsInput,
+        output_model=admin.ListPolicyDocumentsOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=admin.list_policy_documents,
+    ),
+    ToolSpec(
         # A READ over Qdrant: nothing is written, so no idempotency key and no
         # domain event of its own — the pipeline's generic `tool.succeeded` is
         # the whole record a search leaves. The wire name, the matrix member,

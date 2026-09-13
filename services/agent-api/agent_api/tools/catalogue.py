@@ -10,11 +10,13 @@ validation against an advertised schema would instead be a mid-turn failure
 for a user.
 
 NINETEEN entries and no twentieth: the server registers
-twenty-two tools, and `search_audit`, `set_kill_switch` and `rollback_request`
-belong to the admin surface row 24 owns. A tool with no entry here cannot be
-proposed at all, which is defence in depth BEHIND the RBAC matrix rather than
-a replacement for it — the matrix still refuses what a principal may not call.
-Pinned by
+twenty-eight tools, of which six belong to the admin surface row 24 owns
+(`test_agent_tool_catalogue.py::ADMIN_TOOLS`, the literal that goes red when a
+seventh is registered), `list_reviews` is read through its own route and the
+two notification tools are row 23ga's deliberate omission. A tool with no
+entry here cannot be proposed at all, which is defence in depth BEHIND the
+RBAC matrix rather than a replacement for it — the matrix still refuses what a
+principal may not call. Pinned by
 `test_agent_tool_catalogue.py::test_tool_inputs_holds_exactly_the_nineteen_tools_the_agent_may_reach`.
 
 **Extras are forbidden on every model here, including the read tools whose

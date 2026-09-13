@@ -316,6 +316,25 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. SPEC section 7's policy documents board row: the two cells
+    # SPEC section 14 gives `/admin/policies`, both at `Scope.ANY`. `auditor`
+    # is the cell that matters - it reads what HAPPENED through `search_audit`
+    # and the corpus is configuration, so a row copied from that neighbour by
+    # habit hands an auditor a board they have no route to. `employee` is the
+    # other one: every principal may SEARCH the corpus (`search_policy` is
+    # `True` for all seven below), and a row copied from THAT neighbour would
+    # give the whole company the ingest's version history (a project rule:
+    # this literal is SPEC section 7, and it is part of every diff that adds a
+    # tool or changes a cell).
+    "list_policy_documents": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # An earlier change: the design gives the policy search every principal at
     # `Scope.ANY` — everyone who can ask a question can read the policy behind
     # the answer, and a single False here would be a corpus an employee cannot
@@ -507,6 +526,20 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # SUCCEEDS and the plain permitted branch of the sweep is the strict
         # assertion that pins the two cells.
         "list_sod_rules",
+        # An earlier change: `list_policy_documents` takes NO arguments at all - no
+        # tenant, no slug, no version - so there is no id for a cross-tenant
+        # call to carry. Whose corpus it answers comes from the TOKEN (hard
+        # rule 6), and that isolation is pinned instead by
+        # `packages/helpdesk/tests/test_rag_documents.py::
+        # test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests`,
+        # which plants the SAME slug in two tenants and compares titles,
+        # counts and digests. It belongs in neither `ALLOW_ANSWERS_NOT_FOUND`
+        # nor `SCOPE_BEFORE_EXISTENCE_TOOLS`: there is no
+        # id to resolve and both its cells are `Scope.ANY`, so a permitted
+        # caller SUCCEEDS - an empty corpus is an answer, never a refusal -
+        # and the plain permitted branch of the sweep is the strict assertion
+        # that pins the two cells.
+        "list_policy_documents",
     }
 )
 # The five decision G names explicitly: everything they answer is decided by
@@ -657,6 +690,15 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         # permitted principals, and both cells would pin nothing (standing
         # rule 27). The call is a READ of the tenant's own rules and changes
         # nothing, so the sweep leaves the shared database as it found it.
+        return {}
+    if tool_name == "list_policy_documents":
+        # An earlier change. No arguments at all, and no OPTIONAL ones either: the
+        # input model carries no fields, so anything sent here would be
+        # refused VALIDATION where this sweep asserts a success for the two
+        # permitted principals, and both cells would pin nothing (standing
+        # rule 27). The call is a READ of `policy_documents` and
+        # `policy_chunks` and changes nothing, so the sweep leaves the shared
+        # database as it found it.
         return {}
     if tool_name == "list_notifications":
         # An earlier change. No arguments at all: the list takes no id, and both of

@@ -328,6 +328,12 @@ MUTATING_TOOL_NAMES = frozenset(
         # An earlier change: `list_sod_rules` must stay off this list too, and for the
         # same plain reason - the rules board is a READ. It issues three
         # SELECTs and writes nothing at all.
+        #
+        # An earlier change: `list_policy_documents` stays off it for the same reason -
+        # two SELECTs over `policy_documents` and `policy_chunks`, and nothing
+        # written. A `True` here would demand an idempotency key for a call
+        # the guard never protects, so `/admin/policies` could not render
+        # without minting one.
     }
 )
 
@@ -531,6 +537,16 @@ ADMIN_READ_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
     # event and OFF `MUTATING_TOOL_NAMES` above. The table described
     # twenty-six tools and now describes twenty-seven.
     ("list_sod_rules", rbac.Tool.LIST_SOD_RULES, registry.SUCCESS_EVENT_TYPE, False),
+    # An earlier change: the policy documents board, a READ over Postgres for exactly
+    # the same reasons - two SELECTs and nothing written, so the GENERIC
+    # success event and OFF `MUTATING_TOOL_NAMES` above. The table described
+    # twenty-seven tools and now describes twenty-eight.
+    (
+        "list_policy_documents",
+        rbac.Tool.LIST_POLICY_DOCUMENTS,
+        registry.SUCCESS_EVENT_TYPE,
+        False,
+    ),
 )
 
 
@@ -557,6 +573,12 @@ def test_the_kill_switch_board_is_registered_once_under_its_matrix_name(
     An earlier change adds `list_sod_rules` as a second row of this table, where the
     equivalent slip is a spec pointed at `rbac.Tool.LIST_KILL_SWITCHES` - the
     other admin READ, and the neighbour whose shape it copies.
+
+    An earlier change adds `list_policy_documents` as a third row. Its equivalent slip
+    is a spec pointed at `rbac.Tool.LIST_SOD_RULES`, whose SPEC section 7 row
+    is identical (`it_admin` and `platform_admin` at `Scope.ANY`), so no
+    permission test anywhere would notice and every kill switch the pipeline
+    checked for the corpus board would be keyed on the rules board's name.
     """
     spec = REGISTRY[name]
 

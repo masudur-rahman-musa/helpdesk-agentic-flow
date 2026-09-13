@@ -26,6 +26,7 @@ from helpdesk.models import (
     IdempotencyKey,
     Message,
     MessageRole,
+    PolicyChunk,
     Role,
     Session,
     System,
@@ -399,6 +400,50 @@ async def count_live_grants(session: AsyncSession, now: datetime) -> int:
         )
     )
     return int(result.scalar_one())
+
+
+async def count_chunks_by_document(
+    session: AsyncSession, document_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """How many chunks the bound tenant holds per document version.
+
+    The grouped half of `read_policy_documents`: `chunk_count` is the only
+    thing on `/admin/policies` that separates a version which ingested from
+    one that registered a document and wrote no span, and asking per version
+    would be a round trip per row of the corpus. One statement over exactly
+    the ids just read, pinned with the read itself by
+    `test_rag_documents.py::test_the_whole_read_issues_exactly_two_selects`.
+
+    A document with no chunk row is simply ABSENT from the mapping rather
+    than carrying a zero: the caller defaults it, which is the same value a
+    registered-but-unchunked version legitimately has and the same value a
+    document written between the two statements gets. Neither is an error, and the kept row is pinned by
+    `::test_each_versions_chunk_count_is_exact_and_a_version_with_no_chunk_is_kept`.
+
+    An empty `document_ids` runs no statement at all, exactly as
+    `Repository.get_many` does: `IN ()` is not valid SQL, and a tenant with no
+    corpus is a normal answer rather than a broken page
+    (`::test_a_tenant_with_no_corpus_answers_an_empty_tuple`).
+
+    The tenant clause is written OUT rather than left to the session guard,
+    for the same reason `count_live_grants` writes it out: the guard injects
+    its criteria through `with_loader_criteria`, which applies to the ENTITIES
+    a statement loads, and this statement loads none. `bound_tenant_id` raises
+    with no tenant bound, so the unbound case stays a loud failure rather than
+    a corpus-wide count, and the scoping is pinned by
+    `::test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests`.
+    """
+    if not document_ids:
+        return {}
+    result = await session.execute(
+        select(PolicyChunk.document_id, func.count(PolicyChunk.id))
+        .where(
+            PolicyChunk.tenant_id == bound_tenant_id(session),
+            PolicyChunk.document_id.in_(list(document_ids)),
+        )
+        .group_by(PolicyChunk.document_id)
+    )
+    return {document_id: int(count) for document_id, count in result.all()}
 
 
 async def _list_scoped_grants(
