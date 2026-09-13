@@ -1,0 +1,10 @@
+# Accepted trivy findings. Empty, and that is the point: a gate that ships with
+# an exception ships already defeated.
+#
+# An entry is one line holding a CVE id, added only with a comment above it
+# carrying the reason and the date it was accepted. The only acceptable reason
+# is that no fix exists upstream: where a fix exists, the fix is the answer, and
+# Dependabot is configured to open it.
+#
+# Read by the trivy config scan in .github/workflows/ci.yml. Pinned empty by
+# packages/helpdesk/tests/test_security_config.py::test_the_trivyignore_file_exists_and_is_empty_of_entries.

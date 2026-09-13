@@ -1,0 +1,23 @@
+# gitleaks configuration.
+#
+# The default rule set is extended, never replaced: the secret shapes we did not
+# think of are the ones that leak. Pinned by
+# packages/helpdesk/tests/test_security_config.py::test_gitleaks_config_extends_the_default_rules.
+#
+# The hook in .pre-commit-config.yaml reads the working tree; the security job in
+# .github/workflows/ci.yml reads the full git history. Both read this file.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Paths whose credential-shaped strings are deliberately fake"
+paths = [
+  # Placeholders only. Every value here is a shape, never a credential; the real
+  # file it is copied to is gitignored and has never been committed.
+  ".env.example",
+  # Demo logins printed for a reader of the demo. No account they open exists.
+  "docs/demo-accounts.md",
+  # Seed data, obviously fake by a project rule: no real name, company or address.
+  "scripts/seed.py",
+]

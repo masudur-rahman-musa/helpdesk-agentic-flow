@@ -1,0 +1,35 @@
+name: image-scan
+
+# Weekly and on demand, never on a pull request. An
+# upstream CVE published overnight would otherwise redden a PR that changed no
+# code, and a gate that fails for reasons the author cannot act on is a gate the
+# team learns to click past.
+#
+# --ignore-unfixed for the same reason from the other direction: every finding
+# here has an upgrade available, so every red run has an action.
+#
+# These are the three images docker-compose.yml pins. The demo stack ships them,
+# so a fixable critical in the postgres we pin is our finding. The service images
+# this project builds itself are scanned by the row that builds them.
+#
+# Pinned by packages/helpdesk/tests/test_security_config.py::
+# test_the_image_scan_covers_exactly_the_three_pinned_compose_images.
+on:
+  schedule:
+    # 04:00 UTC every Monday.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Scan the pinned base images
+        run: |
+          for image in postgres:16.6-alpine redis:7.4-alpine qdrant/qdrant:v1.12.4; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.58.1 image \
+              --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "$image"
+          done

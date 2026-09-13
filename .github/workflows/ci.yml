@@ -14,3 +14,62 @@ jobs:
       - run: uv sync
       - run: uv run pre-commit run --all-files
       - run: make verify
+
+  # Four scanners, no compose stack, and no `needs:` — so this job runs beside
+  # `check` rather than behind it. That matters: `check` runs `make verify`,
+  # which needs Postgres, Redis and Qdrant that CI does not have, so chaining
+  # the security job behind it would make it unrunnable too.
+  #
+  # gitleaks and trivy run from their own pinned images rather than from an
+  # action, because both need argument forms the actions do not pass through
+  # (a config path plus history for one, two target files for the other).
+  # Pinned by packages/helpdesk/tests/test_security_config.py.
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # fetch-depth: 0 is the whole point of this job. The pre-commit hook
+      # already reads the working tree; only full history finds a secret that
+      # was committed and reverted.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secrets over the full history
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 \
+            detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      # --strict fails the job on an advisory with a fix available, which is the
+      # only kind Dependabot can act on. No --ignore-vuln flag exists today; one
+      # is added only with a comment carrying the reason and the date.
+      - name: Python advisories
+        run: |
+          uv export --frozen --no-emit-project --format requirements-txt \
+            --output-file requirements-audit.txt
+          uvx pip-audit --strict -r requirements-audit.txt
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Web advisories
+        working-directory: web
+        run: pnpm audit --audit-level high
+
+      # Both compose files, because the override example is copied verbatim by
+      # anyone running the stack locally. .trivyignore is empty at HEAD.
+      - name: Compose configuration
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work aquasec/trivy:0.58.1 \
+            config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore \
+            docker-compose.yml
+          docker run --rm -v "$PWD:/work" -w /work aquasec/trivy:0.58.1 \
+            config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore \
+            docker-compose.override.example.yml
