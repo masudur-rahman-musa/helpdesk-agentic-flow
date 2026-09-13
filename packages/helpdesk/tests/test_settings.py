@@ -16,7 +16,12 @@ reads the relative ``.env``).
 """
 
 import pytest
-from helpdesk.core.settings import Settings, load_settings
+from helpdesk.core.settings import (
+    DEFAULT_WEB_ORIGIN,
+    Settings,
+    load_settings,
+    web_origin_from_env,
+)
 from pydantic import ValidationError
 
 ENV_NAMES: tuple[str, ...] = ("DATABASE_URL", "REDIS_URL", "QDRANT_URL", "JWT_SECRET")
@@ -208,3 +213,154 @@ def test_a_malformed_mcp_url_is_refused_at_settings_load(
             Settings(_env_file=None)
         failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
         assert "MCP_URL" in failed_fields
+
+
+# --- an earlier change: WEB_ORIGIN, the one allowed CORS origin (decision A) -----------
+#
+# `WEB_ORIGIN` is not in `ENV_NAMES` for `MCP_URL`'s reason: it carries a
+# default, so `_set_env` must not clear it for the cases above, and these cases
+# clear it themselves so a developer with `WEB_ORIGIN` exported cannot make the
+# default row pass or fail by accident.
+
+WEB_ORIGIN_DEFAULT = "http://localhost:3000"
+"""The default the field and `web_origin_from_env` share, written out.
+
+a project rule: importing `DEFAULT_WEB_ORIGIN` and asserting it equals itself
+pins nothing, and this value is the exact string agent-api echoes back into
+`access-control-allow-origin` when the environment says nothing."""
+
+
+def _set_env_without_web_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_env(monkeypatch, VALID_ENV)
+    monkeypatch.delenv("WEB_ORIGIN", raising=False)
+
+
+def test_the_default_web_origin_is_exactly_the_planned_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches an implementation whose unconfigured default is anything but the
+    dev web origin - a wildcard, agent-api's own port (8000), `https` where the
+    local app serves `http`, or a value carrying a trailing slash: each one
+    makes an unconfigured deployment answer the browser with an
+    `access-control-allow-origin` the web app's origin does not match, which
+    the browser reports as a CORS failure with no server-side error at all.
+
+    Also catches a `web_origin_from_env` that does not share the field's
+    default (decision A1's whole point): the second assertion reads the helper
+    with `WEB_ORIGIN` unset, so a helper defaulting to `""` or to its own
+    literal is red here even though `DEFAULT_WEB_ORIGIN` is right.
+    """
+    _set_env_without_web_origin(monkeypatch)
+
+    assert DEFAULT_WEB_ORIGIN == WEB_ORIGIN_DEFAULT
+    assert web_origin_from_env() == WEB_ORIGIN_DEFAULT
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["http://localhost:3000", "https://helpdesk.example"],
+    ids=["the http dev origin", "an https deployed origin"],
+)
+def test_an_accepted_web_origin_is_returned_unchanged(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """Catches a helper that normalizes what it was given instead of returning
+    it: lowercasing is harmless, but appending a trailing slash, stripping the
+    port, or rebuilding the string through `urlunsplit` all produce a value
+    that no longer equals the browser's `Origin` header byte for byte, and the
+    CORS middleware compares those two strings exactly.
+
+    Also catches a validator so strict it refuses a legitimate origin - both
+    rows are shapes the plan's section 1 names as accepted, and `https` with no
+    port is the deployed shape a localhost-only check would reject.
+    """
+    _set_env_without_web_origin(monkeypatch)
+    monkeypatch.setenv("WEB_ORIGIN", value)
+
+    assert web_origin_from_env() == value
+
+
+# Each rejected row is refused by exactly ONE clause, so no row passes on a
+# neighbouring check's behalf: the three whitespace rows parse as good URLs
+# with a scheme and a netloc, the trailing slash and the path rows differ only
+# in what follows the slash, the query and fragment rows carry an empty path,
+# `ftp://` has a netloc and no whitespace, `localhost:3000` parses with scheme
+# `localhost` and no netloc, and `https://` has a legal scheme and an empty
+# host. Deleting any single clause of the validator turns at least one row red.
+WEB_ORIGIN_CASES: tuple[tuple[str, str, bool], ...] = (
+    ("the default", WEB_ORIGIN_DEFAULT, True),
+    ("an https deployed origin", "https://helpdesk.example", True),
+    ("trailing slash", "http://localhost:3000/", False),
+    ("a path", "https://helpdesk.example/app", False),
+    ("a query", "https://helpdesk.example?x=1", False),
+    ("a fragment", "https://helpdesk.example#f", False),
+    ("ftp scheme", "ftp://helpdesk.example", False),
+    ("no scheme, so no netloc", "localhost:3000", False),
+    ("empty host", "https://", False),
+    ("trailing newline", "http://localhost:3000\n", False),
+    ("trailing CRLF", "http://localhost:3000\r\n", False),
+    ("an interior space", "http://localhost :3000", False),
+)
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [(value, valid) for _label, value, valid in WEB_ORIGIN_CASES],
+    ids=[label for label, _value, _valid in WEB_ORIGIN_CASES],
+)
+def test_a_malformed_web_origin_is_refused_at_load(
+    monkeypatch: pytest.MonkeyPatch, value: str, valid: bool
+) -> None:
+    """Catches a helper that reads the environment and hands the string
+    straight to the CORS middleware.
+
+    The value this field carries is written into a RESPONSE HEADER, so the two
+    whitespace rows are the ones that matter most: `http://localhost:3000\\n`
+    copied out of a `.env` reaches the middleware with a stray newline, and the
+    trailing-slash and path rows are the shapes an author writes from habit -
+    a browser's `Origin` header never carries either, so the allowed origin
+    silently matches nothing and every browser call fails with no server error.
+
+    Deleting the whitespace clause leaves the three whitespace rows green under
+    no other check (they parse cleanly), and deleting the
+    path/query/fragment clause leaves four rows that `urlsplit` is perfectly
+    happy with, so no row here is caught by a neighbour.
+    """
+    _set_env_without_web_origin(monkeypatch)
+    monkeypatch.setenv("WEB_ORIGIN", value)
+
+    if valid:
+        assert web_origin_from_env() == value
+    else:
+        with pytest.raises(ValueError, match="WEB_ORIGIN"):
+            web_origin_from_env()
+
+
+def test_the_settings_field_and_the_helper_share_one_validator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a diff that validates only in `web_origin_from_env` and leaves
+    `Settings.web_origin` as a plain `str` field.
+
+    Decision A1 says one rule in one place; without a `field_validator` on the
+    field, every service that builds full `Settings` (rather than calling the
+    import-time helper) accepts a malformed origin, and the malformed value
+    reaches whatever reads `settings.web_origin` later. The kwarg is passed
+    directly rather than through the environment so the FIELD's own validation
+    path is the only thing under test - an env read could be answered by the
+    helper's check and pass on its neighbour's behalf.
+    """
+    _clear_env(monkeypatch)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(
+            _env_file=None,
+            database_url=VALID_ENV["DATABASE_URL"],
+            redis_url=VALID_ENV["REDIS_URL"],
+            qdrant_url=VALID_ENV["QDRANT_URL"],
+            jwt_secret=VALID_ENV["JWT_SECRET"],
+            web_origin="http://a/",
+        )
+
+    failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
+    assert "WEB_ORIGIN" in failed_fields

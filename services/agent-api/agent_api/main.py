@@ -20,7 +20,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse
 from helpdesk.auth.jwt import TokenClaims, verify_token
 from helpdesk.core.db import create_engine, create_session_factory
-from helpdesk.core.settings import load_settings
+from helpdesk.core.settings import load_settings, web_origin_from_env
 from helpdesk.gateway.client import ModelClient
 from helpdesk.obs.context import bind_context
 from helpdesk.obs.logging import configure_logging
@@ -30,6 +30,7 @@ from helpdesk.obs.tracing import flush as flush_traces
 from pydantic import BaseModel
 from redis.asyncio import Redis
 from starlette.datastructures import Headers
+from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agent_api import readiness
@@ -183,6 +184,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="agent-api", lifespan=lifespan)
 app.add_middleware(TelemetryContextMiddleware)
+# Locked to the one web origin and never a wildcard. The
+# origin is read from the environment here rather than from `load_settings()`:
+# `app` is built at import time and Starlette freezes the middleware stack
+# before the first request, so neither the full settings nor `lifespan` can
+# supply it (decision A1). `allow_credentials` stays False because no browser
+# request to this service carries any -- the bearer is attached server-side by
+# the web app's proxy (decision C1). `max_age` is left at CORSMiddleware's own
+# 600 seconds: nothing here depends on how long a browser caches a preflight
+# (decision D, a project rule).
+# Pinned by `test_agent_api_cors.py`, whose foreign-origin case fails if the
+# allow_origins restriction is deleted and whose echo case fails if the whole
+# middleware is.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[web_origin_from_env()],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["authorization", "content-type", "accept"],
+)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(chat_router)

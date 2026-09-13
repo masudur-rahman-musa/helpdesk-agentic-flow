@@ -1,7 +1,8 @@
 """Typed runtime configuration, loaded from the environment (or .env locally).
 
 Every service builds its `Settings` from here; nothing reads os.environ
-directly. The four backing-service values are required so a misconfigured
+directly, `web_origin_from_env` below being the one environment read this
+module owns for the callers that cannot build full `Settings` yet. The four backing-service values are required so a misconfigured
 deployment fails at startup, not on first use; every other value carries a
 default with its reason next to the field. A default is not an excuse for a
 missing check: `MCP_URL` and `GATEWAY_API_KEYS` are both validated here, so a
@@ -9,12 +10,73 @@ malformed value is refused when the process starts rather than on the first
 call that uses it.
 """
 
+import os
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+DEFAULT_WEB_ORIGIN = "http://localhost:3000"
+"""The one browser origin agent-api answers with CORS headers for.
+
+The web app's development origin, which is also the only origin that talks to
+agent-api at all: the browser reaches Next, and Next reaches this service
+server-side. A deployment sets `WEB_ORIGIN` to its own origin; the value is
+never a wildcard, on any route or any method. Pinned by
+`test_settings.py::test_the_default_web_origin_is_exactly_the_planned_value`.
+"""
+
+
+def _validated_web_origin(value: str) -> str:
+    """Return `value` unchanged if it is an exact origin, else raise.
+
+    An exact origin is scheme, host and optional port and NOTHING else: a
+    browser's `Origin` header carries exactly that, and `CORSMiddleware`
+    compares the two strings byte for byte. So a trailing slash, a path, a
+    query or a fragment does not fail loudly -- it silently matches no browser
+    request, and the deployment reports a CORS error with no server-side error
+    to grep for.
+
+    Whitespace is refused for the same reason `MCP_URL` refuses it: a value
+    copied into `.env` with a trailing newline parses as a perfectly good URL
+    whose host carries the stray character. Here it is worse than a bad host,
+    because this value is written into a RESPONSE HEADER.
+
+    One function rather than two checks: the field
+    validator and `web_origin_from_env` both call it, so a service building
+    full `Settings` and a service reading the environment at import time apply
+    the same rule. Pinned by
+    `test_settings.py::test_a_malformed_web_origin_is_refused_at_load` and, for
+    the field's own path, by
+    `test_settings.py::test_the_settings_field_and_the_helper_share_one_validator`.
+    """
+    if any(character.isspace() for character in value):
+        raise ValueError("WEB_ORIGIN must contain no whitespace")
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("WEB_ORIGIN must be an absolute http or https URL")
+    if parsed.path or parsed.query or parsed.fragment:
+        raise ValueError("WEB_ORIGIN must be a bare origin with no path, query or fragment")
+    return value
+
+
+def web_origin_from_env() -> str:
+    """The allowed browser origin, read from the environment at import time.
+
+    agent-api builds its `app` at module import and Starlette freezes the
+    middleware stack before the first request, so the CORS origin cannot come
+    from `lifespan` and cannot come from `load_settings()`, which requires four
+    backing-service values no test process has. This
+    helper reads the one variable, shares `Settings.web_origin`'s default and
+    runs the same validator, so there is still one default, one rule and one
+    env name. Pinned by
+    `test_settings.py::test_the_default_web_origin_is_exactly_the_planned_value`
+    and `::test_an_accepted_web_origin_is_returned_unchanged`.
+    """
+    return _validated_web_origin(os.environ.get("WEB_ORIGIN", DEFAULT_WEB_ORIGIN))
 
 
 class Settings(BaseSettings):
@@ -116,6 +178,17 @@ class Settings(BaseSettings):
     default is `~/.cache`.
     """
 
+    web_origin: str = DEFAULT_WEB_ORIGIN
+    """The single browser origin agent-api allows cross-origin requests from.
+
+    A field as well as `web_origin_from_env`'s env read so every service
+    building full `Settings` validates it too: without
+    it the value would be checked on the import-time path only, and a
+    malformed origin would reach whatever reads `settings.web_origin` later.
+    Pinned by
+    `test_settings.py::test_the_settings_field_and_the_helper_share_one_validator`.
+    """
+
     @field_validator("jwt_secret")
     @classmethod
     def _jwt_secret_at_least_32_bytes(cls, value: str) -> str:
@@ -142,6 +215,17 @@ class Settings(BaseSettings):
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("MCP_URL must be an absolute http or https URL")
         return value
+
+    @field_validator("web_origin")
+    @classmethod
+    def _web_origin_is_an_exact_origin(cls, value: str) -> str:
+        """Delegate to `_validated_web_origin`, the one rule both paths share.
+
+        A body rather than a second copy of the checks: decision A1's point is
+        that the field and the import-time helper cannot disagree. Pinned by
+        `test_settings.py::test_the_settings_field_and_the_helper_share_one_validator`.
+        """
+        return _validated_web_origin(value)
 
     @field_validator("gateway_api_keys", mode="before")
     @classmethod
