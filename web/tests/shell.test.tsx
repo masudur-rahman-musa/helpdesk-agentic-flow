@@ -154,6 +154,11 @@ describe("MainNav — the routes it links to", () => {
     // `NOT_YET` and into the links the nav owes. 22a's rule is unchanged — the
     // nav links to routes that exist and to no others.
     { name: "Rules", href: "/admin/rules" },
+    // An earlier change §8: `/admin/policies` is a page as of this plan, so it moves out
+    // of `NOT_YET` and into the links the nav owes — the tenth link, and the
+    // last the design route to be served. 22a's rule is unchanged — the nav links
+    // to routes that exist and to no others.
+    { name: "Policies", href: "/admin/policies" },
   ] as const;
 
   it.each(LINKS)("links $name to $href", ({ name, href }) => {
@@ -171,24 +176,10 @@ describe("MainNav — the routes it links to", () => {
     expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
   });
 
-  // An earlier change §8: `/admin/rules` left this list for `LINKS` above, and
-  // `/admin/policies` takes its place — the one the design route nothing serves
-  // until row 24h. The list is never empty, because `it.each([])` is an error
-  // rather than a skip.
-  const NOT_YET = ["/admin/policies"];
-
-  it.each(NOT_YET)("carries no link to %s, which does not exist yet", (href) => {
-    // 22a's rule, and the reason decision E adds exactly two links: a link to a
-    // route no page serves is worse than no link, because the user pays a 404
-    // to find out. Catches a nav written ahead of rows 23c–24 — the shape a
-    // "finish the nav while we are here" edit produces, which nothing else in
-    // this file would notice.
-    const { container } = render(
-      <AppShell>
-        <p>hello</p>
-      </AppShell>,
-    );
-
-    expect(container.querySelector(`a[href="${href}"]`)).toBeNull();
-  });
+  // An earlier change §8: `NOT_YET` and its case are DELETED. `/admin/policies` was its
+  // last entry and is a page as of this plan, so the list would be empty, and
+  // `it.each([])` is an error rather than a skip. Nothing takes its place: this
+  // was the last the design route nothing served, so the rule the case carried —
+  // the nav links to routes that exist and to no others — is now held by the
+  // `LINKS` table above alone.
 });
