@@ -20,6 +20,8 @@ lives and dies inside that one loop.
 """
 
 import asyncio
+import os
+import subprocess
 import sys
 import uuid
 from collections.abc import Iterator
@@ -208,3 +210,81 @@ def redis_url(redis_base_url: str) -> str:
     )
     asyncio.run(_redis_flushdb(redis_base_url))
     return redis_base_url
+
+
+# --- The restricted application DB role ---------------------------
+
+# An earlier change decision C: the role name is a fixed constant, never configuration,
+# so there is no identifier to interpolate from an untrusted source. The literal
+# is repeated in `test_audit_db_role.py::ROLE_NAME`, which is what pins it.
+RESTRICTED_DB_ROLE = "helpdesk_app"
+
+
+def _alembic_upgrade_head(database_url: str) -> None:
+    """Migrate one throwaway database to head as the OWNER."""
+    result = subprocess.run(
+        ["uv", "run", "alembic", "upgrade", "head"],
+        cwd=_REPO_ROOT,
+        env={**os.environ, "DATABASE_URL": database_url},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"alembic upgrade head failed:\n{result.stderr}"
+
+
+@pytest.fixture(scope="session")
+def migrated_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
+    """One throwaway database, migrated to head once, for the whole run.
+
+    Built once and shared: isolation inside it comes from a
+    fresh tenant row per test, never from a second database. `temp_db_url` is
+    not usable here because it carries a `Base.metadata.create_all` schema and
+    no migration ever runs against it, so it has no roles and no grants.
+    """
+    url = pg.create()
+    _alembic_upgrade_head(url)
+    yield url
+    pg.drop(url)
+
+
+@pytest.fixture(scope="session")
+def restricted_db_password() -> str:
+    """A throwaway password generated per run, never a secret and never from env.
+
+    a project rule keeps secrets out of tests and fixtures; the migration creates
+    `helpdesk_app` NOLOGIN precisely so that no password lives in the schema.
+    A random hex value is not a credential to anything outside this run.
+    """
+    return f"t{uuid.uuid4().hex}"
+
+
+@pytest.fixture
+def restricted_db_url(migrated_db_url: str, restricted_db_password: str) -> str:
+    """The migrated database's URL, connecting as `helpdesk_app` instead of the owner.
+
+    The migration creates the role NOLOGIN, so nothing can connect as it until
+    the owner grants LOGIN and a password here. Roles are CLUSTER-GLOBAL, not
+    per database: this ALTER is visible to every database on the compose
+    Postgres, which is safe only because the suite runs one test run at a time. It is re-applied per test rather than once per session
+    because the migration round-trip case downgrades to base, which may drop
+    the role and take the LOGIN with it.
+
+    The database is the SAME one `migrated_db_url` built; only the user and the
+    password in the URL change.
+    """
+    assert restricted_db_password.isalnum(), (
+        "the generated password must be alphanumeric; it is interpolated into "
+        "an SQL literal that takes no escaping"
+    )
+    asyncio.run(
+        _admin_execute(
+            migrated_db_url,
+            f"ALTER ROLE \"{RESTRICTED_DB_ROLE}\" LOGIN PASSWORD '{restricted_db_password}'",
+        )
+    )
+    return (
+        make_url(migrated_db_url)
+        .set(username=RESTRICTED_DB_ROLE, password=restricted_db_password)
+        .render_as_string(hide_password=False)
+    )

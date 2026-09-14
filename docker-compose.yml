@@ -27,8 +27,21 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?copy .env.example to .env first}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env first}
       POSTGRES_DB: ${POSTGRES_DB:?copy .env.example to .env first}
+      # Read by the init script below, never by a service. The restricted role
+      # exists so that a compromised service cannot rewrite the audit log; the
+      # owner credentials above stay with Alembic and the test suite.
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?copy .env.example to .env first}
     ports: ["5432:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
+    volumes:
+      - "pgdata:/var/lib/postgresql/data"
+      # Runs only when pgdata is empty, which is why it owns the PASSWORD and
+      # nothing else: the Alembic migration owns the role's existence and every
+      # grant, so a database that already exists is not silently left ungranted
+      #. The .sql is mounted outside the init directory
+      # because the entrypoint would otherwise run it a second time itself,
+      # with no password variable set.
+      - "./docker/postgres/init-app-role.sh:/docker-entrypoint-initdb.d/init-app-role.sh:ro"
+      - "./docker/postgres/init-app-role.sql:/etc/helpdesk/init-app-role.sql:ro"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -63,7 +76,7 @@ services:
         SERVICE: agent-api
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       MCP_URL: http://helpdesk-mcp-server:8081/mcp
@@ -91,7 +104,7 @@ services:
         SERVICE: mcp-server
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       POLICY_DIR: /srv/policies
@@ -126,7 +139,7 @@ services:
         SERVICE: scheduler
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       MCP_URL: http://helpdesk-mcp-server:8081/mcp
