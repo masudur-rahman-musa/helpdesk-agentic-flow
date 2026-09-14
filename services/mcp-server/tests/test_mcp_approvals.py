@@ -1869,6 +1869,12 @@ def test_several_pending_seats_come_back_once_each_despite_the_joins(
     This is the only case here that can fail for that reason: every case above
     reads one row through `_pending_row`, which is indifferent to how many
     other rows the join produced.
+
+    The approver holds `it_admin`, whose scope is `any`, so the queue is every
+    pending request the TENANT carries and not only the three planted here -
+    the other cases in this module plant into the same session-scoped database. What is asserted is therefore the two things a bad join
+    breaks: no request appears twice anywhere in the queue, and the three
+    planted ones are all present, in the order they were filed.
     """
     approver = _seeded(COUNT_APPROVER)
     token = token_for(approver, principals=("it_admin",))
@@ -1885,5 +1891,9 @@ def test_several_pending_seats_come_back_once_each_despite_the_joins(
 
     payload = _structured(call_tool(bearer(token), LIST, {"limit": LIMIT_MAX}))
 
-    assert _queue_ids(payload) == [str(request_id) for request_id in planted]
-    assert len(payload["approvals"]) == 3
+    queue = _queue_ids(payload)
+    expected = [str(request_id) for request_id in planted]
+
+    assert len(queue) == len(set(queue)), "a multiplying join returns a request twice"
+    assert [entry for entry in queue if entry in set(expected)] == expected
+    assert len(queue) >= len(expected), "premise: the queue carries at least the planted three"

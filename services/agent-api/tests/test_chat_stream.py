@@ -607,7 +607,7 @@ def test_one_message_streams_its_steps_its_tokens_and_its_reply(
     frames = parse_frames(response.text)
     token_count = len(chunk_reply(COMPOSED_REPLY))
     assert token_count > 1, "premise: the reply must span several chunks"
-    assert _names(frames) == [STEP] * 6 + [TOKEN] * token_count + [REPLY, DONE]
+    assert _names(frames) == [STEP] * 7 + [TOKEN] * token_count + [REPLY, DONE]
     assert len(_of(frames, REPLY)) == 1
     assert _streamed_text(frames) == COMPOSED_REPLY
 
@@ -640,7 +640,11 @@ def test_both_routes_store_the_same_rows_for_one_message(
     plain_session = uuid.uuid4()
     stream_session = uuid.uuid4()
     gateway = StagedGateway([*_one_turn(), *_one_turn()])
-    tools = ScriptedToolCaller(_page(), _page())
+    # ONE page, staged twice: `_page()` mints a fresh `chunk_id` per call, so two
+    # separate pages would make the citation comparison below fail on the stub's
+    # randomness rather than on anything the two routes did differently.
+    page = _page()
+    tools = ScriptedToolCaller(page, page)
 
     async def scenario(client: httpx.AsyncClient) -> tuple[httpx.Response, httpx.Response]:
         plain = await client.post(

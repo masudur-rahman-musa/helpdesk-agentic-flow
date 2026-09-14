@@ -87,7 +87,7 @@ class ChatUser(HttpUser):
         )
 
 
-@events.quitting.add_listener
+@events.quitting.add_listener  # type: ignore[untyped-decorator]
 def _print_percentiles(environment: Any, **_kwargs: Any) -> None:
     """p50 and p95 for the chat turn, off locust's own statistics.
 

@@ -43,17 +43,25 @@ TRACE_FLAGS = "01"
 """The sampled flag. This process asks for the call to be recorded: the join
 between the two services is the whole point of propagating the header."""
 
-TRACEPARENT_PATTERN = re.compile(r"00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}")
+_ZERO_TRACE_ID = "0" * (TRACE_ID_BYTES * 2)
+_ZERO_SPAN_ID = "0" * (SPAN_ID_BYTES * 2)
+
+TRACEPARENT_PATTERN = re.compile(
+    rf"00-(?!{_ZERO_TRACE_ID})([0-9a-f]{{32}})-(?!{_ZERO_SPAN_ID})([0-9a-f]{{16}})-[0-9a-f]{{2}}"
+)
 """The version-`00` shape, lowercase hex only, matched with `re.fullmatch`.
 
 Version `00` alone: a later version may add fields this module cannot read,
 and forwarding a header it does not understand would claim a parent span it
-cannot name. Pinned by
-`test_gateway_traceparent.py::test_the_pattern_itself_refuses_every_malformed_row`.
-"""
+cannot name.
 
-_ZERO_TRACE_ID = "0" * (TRACE_ID_BYTES * 2)
-_ZERO_SPAN_ID = "0" * (SPAN_ID_BYTES * 2)
+The two lookaheads are W3C's own invalid ids, which the pattern refuses rather
+than the caller checking afterwards. The pattern is what the client asserts on
+a BUILT request, so a shape only `check_traceparent` refused would still pass
+that assertion. Pinned by
+`test_gateway_traceparent.py::test_the_pattern_itself_refuses_every_malformed_row`,
+whose `zero-trace-id` and `zero-span-id` rows are exactly these two.
+"""
 
 
 class TraceparentInvalidError(ToolError):
@@ -83,11 +91,11 @@ def check_traceparent(value: str) -> str:
     The all-zero trace and span ids are refused as well as the malformed
     shapes: W3C forbids both, and the gateway answers 422 to them, so
     accepting one here would spend a round trip to learn what a `fullmatch`
-    and two comparisons already know. Pinned by
+    already knows. They are refused BY the pattern, so this function is the
+    single `fullmatch` its docstring claims. Pinned by
     `test_gateway_traceparent.py::test_a_malformed_traceparent_is_refused_with_a_typed_code`.
     """
-    match = TRACEPARENT_PATTERN.fullmatch(value)
-    if match is None or match.group(1) == _ZERO_TRACE_ID or match.group(2) == _ZERO_SPAN_ID:
+    if TRACEPARENT_PATTERN.fullmatch(value) is None:
         raise TraceparentInvalidError(
             "the supplied traceparent is not a valid W3C version-00 header"
         )

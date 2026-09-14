@@ -247,8 +247,11 @@ def test_the_pool_carries_both_timeout_halves(checkpoint_env: CheckpointEnv) -> 
     and passes neither to psycopg is red."""
     pool = build_pool(checkpoint_env.dsn)
 
-    assert float(pool.kwargs["connect_timeout"]) == CONNECT_TIMEOUT_SECONDS
-    assert f"statement_timeout={COMMAND_TIMEOUT_MILLISECONDS}" in str(pool.kwargs["options"])
+    kwargs = pool.kwargs
+    assert isinstance(kwargs, dict), "premise: the pool was built with a kwargs mapping"
+
+    assert float(kwargs["connect_timeout"]) == CONNECT_TIMEOUT_SECONDS
+    assert f"statement_timeout={COMMAND_TIMEOUT_MILLISECONDS}" in str(kwargs["options"])
 
 
 # --- setup_checkpointer -------------------------------------------------------

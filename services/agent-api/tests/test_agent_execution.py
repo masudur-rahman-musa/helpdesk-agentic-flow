@@ -249,7 +249,11 @@ def test_the_call_goes_out_as_the_catalogues_own_model_carrying_the_derived_key(
     for (name, arguments), expected in zip(caller.calls, calls, strict=True):
         assert name == expected.tool
         assert isinstance(arguments, TOOL_INPUTS[expected.tool])
-        assert arguments.model_dump(mode="json") == expected.arguments
+        # `exclude_unset`: the catalogue models carry optional fields with
+        # defaults (`classify_access_request.requested_expiry_days`), so a plain
+        # dump adds keys the validated call never named. What this case is about
+        # is that every named argument arrives, the key included.
+        assert arguments.model_dump(mode="json", exclude_unset=True) == expected.arguments
     assert caller.calls[1][1].model_dump(mode="json")[IDEMPOTENCY_KEY] == DERIVED_KEY
 
 

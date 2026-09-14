@@ -359,7 +359,10 @@ def test_the_router_names_its_path_its_tool_and_a_fieldless_argument_model(
 
     The registration half catches a router written and never included in
     `main.py`: every case above would then fail as a 404 with no hint which of
-    the two is missing.
+    the two is missing. It reads `app.openapi()["paths"]` rather than walking
+    `app.routes`: this app includes its routers through a wrapper, so the
+    concrete `APIRoute` is not on `app.routes` at all and the walk answered an
+    empty set for every route in the service.
     """
     assert rules_routes.RULES_PATH == "/admin/rules"
     assert rules_routes.LIST_SOD_RULES_TOOL == "list_sod_rules"
@@ -367,11 +370,9 @@ def test_the_router_names_its_path_its_tool_and_a_fieldless_argument_model(
     assert LIST_SOD_RULES == rules_routes.LIST_SOD_RULES_TOOL
     assert rules_routes.ListSodRulesArgs().model_dump() == {}
     assert rules_routes.ListSodRulesArgs.model_fields == {}
-    assert ("GET", RULES_PATH) in {
-        (method, getattr(route, "path", None))
-        for route in app.routes
-        for method in getattr(route, "methods", set())
-    }
+    openapi_paths = app.openapi()["paths"]
+    assert RULES_PATH in openapi_paths
+    assert "get" in openapi_paths[RULES_PATH]
 
 
 # --- the staged payloads are the tool's own shape -----------------------------

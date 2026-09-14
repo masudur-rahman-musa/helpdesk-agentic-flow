@@ -36,7 +36,7 @@ is `None` on every turn no tool classified, and a `risk_class: null` reads as
 
 from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager, suppress
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from langfuse import Langfuse
 
@@ -115,10 +115,16 @@ def configure_tracing(
         return
     if settings is not None and settings.langfuse_public_key and settings.langfuse_secret_key:
         try:
-            _CLIENT = Langfuse(
-                public_key=settings.langfuse_public_key,
-                secret_key=settings.langfuse_secret_key,
-                host=settings.langfuse_host,
+            # `Langfuse` satisfies the subset of its API this module uses, which
+            # is exactly what `TraceClient` declares; the SDK's own class is
+            # wider and not a structural match.
+            _CLIENT = cast(
+                TraceClient,
+                Langfuse(
+                    public_key=settings.langfuse_public_key,
+                    secret_key=settings.langfuse_secret_key,
+                    host=settings.langfuse_host,
+                ),
             )
         except Exception:
             _CLIENT = None

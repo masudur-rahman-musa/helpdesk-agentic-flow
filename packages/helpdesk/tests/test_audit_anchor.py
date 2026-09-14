@@ -100,6 +100,12 @@ ANCHOR_LOGGER = "helpdesk.audit.anchor"
 ROLE_NAME = "helpdesk_app"
 """An earlier change decision C, repeated here for the privilege cases below."""
 
+ANCHOR_DOWNGRADE_TARGET = "c7f4a1d2e8b3"
+"""An earlier change's revision: the one immediately below this plan's own.
+
+Named as a literal because the round trip below must undo THIS revision, and
+`-1` counts from whatever the head happens to be."""
+
 INSUFFICIENT_PRIVILEGE = "42501"
 TRIGGER_RAISED = "P0001"
 """42501 is `insufficient_privilege`, P0001 what an append-only trigger
@@ -290,19 +296,33 @@ def _read_latest(owner_url: str, tenant_id: uuid.UUID) -> ChainAnchor | None:
     return asyncio.run(scenario())
 
 
-def _tamper(owner_url: str, tenant_id: uuid.UUID, seq: int) -> None:
-    """Rewrite one stored event the only way possible: owner, trigger disabled."""
+def _tamper(owner_url: str, tenant_id: uuid.UUID, ordinal: int) -> None:
+    """Rewrite the `ordinal`th event OF THIS TENANT: owner, trigger disabled.
+
+    The row is located by `OFFSET`, the way `_truncate_tail` locates its cut.
+    `seq` is a GLOBAL identity (`models/audit.py`), so it is not a per-tenant
+    counter: passing a literal `2` rewrote whichever tenant happened to own
+    seq 2 and usually matched no row at all, leaving the chain intact and the
+    premise assertion below the only thing that said so.
+    """
 
     async def scenario() -> None:
         async with _engine(owner_url) as engine, engine.begin() as conn:
             await conn.execute(text("ALTER TABLE audit_events DISABLE TRIGGER USER"))
-            await conn.execute(
+            updated = await conn.execute(
                 text(
                     "UPDATE audit_events SET payload = CAST(:payload AS jsonb) "
-                    "WHERE tenant_id = :t AND seq = :s"
+                    "WHERE tenant_id = :t AND seq = ("
+                    "SELECT seq FROM audit_events WHERE tenant_id = :t "
+                    "ORDER BY seq OFFSET :offset LIMIT 1)"
                 ),
-                {"payload": json.dumps({"fake": "tampered"}), "t": tenant_id, "s": seq},
+                {
+                    "payload": json.dumps({"fake": "tampered"}),
+                    "t": tenant_id,
+                    "offset": ordinal - 1,
+                },
             )
+            assert updated.rowcount == 1, f"no event {ordinal} to tamper with"
             await conn.execute(text("ALTER TABLE audit_events ENABLE TRIGGER USER"))
 
     asyncio.run(scenario())
@@ -941,10 +961,11 @@ def test_the_anchor_migration_round_trips_and_its_downgrade_takes_the_grants(
     TABLE then fails, which is the whole kill of the round trip) and one that
     leaves the grants behind on a table it dropped and recreated.
 
-    `downgrade -1` must land on an earlier change's revision, so the new revision is
-    the head and revises `c7f4a1d2e8b3`; if it does not, the grant check below
-    reads a database where `audit_events` lost its grants instead, and says
-    so.
+    The downgrade names an earlier change's revision rather than counting `-1` steps
+    back: this revision is no longer the head, and
+    a relative step would leave the anchor table standing and say nothing about
+    this migration at all. If the target is wrong, the grant check below reads
+    a database where `audit_events` lost its grants instead, and says so.
     """
     _alembic("upgrade", "head", database_url=fresh_db_url)
 
@@ -954,7 +975,7 @@ def test_the_anchor_migration_round_trips_and_its_downgrade_takes_the_grants(
 
     asyncio.run(after_upgrade())
 
-    _alembic("downgrade", "-1", database_url=fresh_db_url)
+    _alembic("downgrade", ANCHOR_DOWNGRADE_TARGET, database_url=fresh_db_url)
 
     async def after_downgrade() -> None:
         async with _engine(fresh_db_url) as engine, engine.connect() as conn:

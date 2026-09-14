@@ -420,7 +420,7 @@ def test_the_gateway_api_keys_env_parses_into_a_tenant_to_key_map(
         {**VALID_ENV, "GATEWAY_API_KEYS": "nordlicht:fake-key-a,cuan:fake-key-b"},
     )
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     assert settings.gateway_api_keys == {"nordlicht": "fake-key-a", "cuan": "fake-key-b"}
     assert settings.gateway_url == BASE_URL
@@ -432,7 +432,7 @@ def test_the_gateway_api_keys_default_to_an_empty_map(monkeypatch: pytest.Monkey
     stop agent-api and mcp-server from starting at all."""
     _set_env(monkeypatch, VALID_ENV)
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     assert settings.gateway_api_keys == {}
 
@@ -445,7 +445,7 @@ def test_the_embedding_cache_dir_defaults_inside_the_repo(
     12 forbids."""
     _set_env(monkeypatch, VALID_ENV)
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     assert settings.embedding_cache_dir == pathlib.Path(".cache/fastembed")
     assert not settings.embedding_cache_dir.is_absolute()
@@ -471,7 +471,7 @@ def test_a_malformed_gateway_key_pair_names_its_one_based_position(
     _set_env(monkeypatch, {**VALID_ENV, "GATEWAY_API_KEYS": value})
 
     with pytest.raises(ValidationError) as excinfo:
-        Settings(_env_file=None)
+        Settings(_env_file=None)  # type: ignore[call-arg]
 
     message = " ".join(str(error["msg"]) for error in excinfo.value.errors())
     assert position in message
@@ -483,16 +483,21 @@ def test_from_settings_builds_a_client_on_the_configured_url_and_keys(
 ) -> None:
     """Catches a `from_settings` that reads os.environ itself or hard-codes a
     URL, which would make the constructor's arguments dead and every test
-    above prove nothing about the code that actually runs in ingest."""
+    above prove nothing about the code that actually runs in ingest.
+
+    The URL is read off the client's own `_base_url`, which is where the value
+    lands: this client composes an ABSOLUTE URL per call rather than
+    configuring httpx's `base_url`, so `client.client.base_url` is the empty
+    URL for every instance and asserting on it could never fail."""
     _set_env(
         monkeypatch,
         {**VALID_ENV, "GATEWAY_API_KEYS": f"{TENANT}:fake-key-a"},
     )
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     client = RedactionClient.from_settings(settings)
     try:
-        assert str(client.client.base_url).rstrip("/") == BASE_URL
+        assert client._base_url == BASE_URL
         assert client.client.timeout.connect == CONNECT_TIMEOUT_SECONDS
         assert client.client.timeout.read == READ_TIMEOUT_SECONDS
     finally:

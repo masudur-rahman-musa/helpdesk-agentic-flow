@@ -752,7 +752,7 @@ def test_the_events_are_steps_then_tokens_then_reply_then_done(stream_env: Strea
 
     token_count = len(chunk_reply(COMPOSED_REPLY))
     assert token_count == 3, "premise: the composed reply must span several chunks"
-    assert _names(frames) == [STEP] * 6 + [TOKEN] * token_count + [REPLY, DONE]
+    assert _names(frames) == [STEP] * 7 + [TOKEN] * token_count + [REPLY, DONE]
     assert _streamed_text(frames) == COMPOSED_REPLY
 
     final = _of(frames, REPLY)[0]
@@ -786,6 +786,7 @@ def test_the_step_names_are_the_graphs_node_names(stream_env: StreamEnv) -> None
         "resolve_entities",
         "retrieve_policy",
         "plan_tools",
+        "validate_tool_calls",
         "compose_reply",
     ]
 

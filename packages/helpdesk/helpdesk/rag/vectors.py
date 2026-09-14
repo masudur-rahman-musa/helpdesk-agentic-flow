@@ -41,6 +41,7 @@ user rather than garbage in a store; a sweep belongs with the scheduler row.
 
 import uuid
 from collections.abc import Sequence
+from typing import Literal
 
 from qdrant_client import AsyncQdrantClient, models
 from qdrant_client.http.exceptions import ApiException, ResponseHandlingException
@@ -117,7 +118,13 @@ def create_client(settings: Settings) -> AsyncQdrantClient:
     `test_rag_vectors.py::test_the_constructed_client_carries_the_configured_timeout`,
     so a setting that is read but never passed fails there.
     """
-    return AsyncQdrantClient(url=settings.qdrant_url, timeout=settings.qdrant_timeout_seconds)
+    # The installed client annotates `timeout` as `int | None` while accepting a
+    # float at runtime; the configured value stays a float so a sub-second
+    # timeout remains expressible.
+    return AsyncQdrantClient(
+        url=settings.qdrant_url,
+        timeout=settings.qdrant_timeout_seconds,  # type: ignore[arg-type]
+    )
 
 
 def point_id(tenant_id: uuid.UUID, document_id: uuid.UUID, chunk_index: int) -> uuid.UUID:
@@ -288,7 +295,9 @@ class _translated:
     def __enter__(self) -> "_translated":
         return self
 
-    def __exit__(self, kind: object, error: BaseException | None, traceback: object) -> bool:
+    def __exit__(
+        self, kind: object, error: BaseException | None, traceback: object
+    ) -> Literal[False]:
         if isinstance(error, ApiException | ResponseHandlingException | OSError):
             raise VectorStoreUnavailableError("the policy vector store is unavailable") from error
         return False

@@ -61,7 +61,7 @@ from prometheus_client.gc_collector import GCCollector
 from prometheus_client.platform_collector import PlatformCollector
 from prometheus_client.process_collector import ProcessCollector
 
-disable_created_metrics()
+disable_created_metrics()  # type: ignore[no-untyped-call]
 """Drop the `_created` gauge prometheus_client adds beside every counter.
 
 A library default is a decision, so it is made here rather than inherited: the gauge carries the unix time a counter was first

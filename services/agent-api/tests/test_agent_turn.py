@@ -965,7 +965,10 @@ def test_a_candidate_in_another_tenant_is_not_a_candidate(turn_env: TurnEnv) -> 
         gateway=gateway,
     )
 
-    assert state.outcome is TurnOutcome.CONTINUE
+    # The gateway is staged with all three answers, so the turn runs to the end
+    # and its outcome is DONE, exactly as every other full-run case here. The
+    # kill is the line below it: the system resolved is tenant A's own.
+    assert state.outcome is TurnOutcome.DONE
     assert state.resolved is not None
     assert state.resolved.system_id == turn_env.tenant_a.system_ids["payroll"]
 
@@ -1956,7 +1959,10 @@ def test_the_recursion_limit_is_exactly_fifty_and_is_what_run_turn_passes(
             return state.model_dump()
 
     recorder = RecordingGraph()
-    monkeypatch.setattr(build_module, "build_graph", lambda: recorder)
+    # `build_graph` takes the checkpointer `run_turn` hands it, so the stub has
+    # to accept it: a zero-argument lambda raised TypeError before any config
+    # was recorded.
+    monkeypatch.setattr(build_module, "build_graph", lambda checkpointer=None: recorder)
     tools = StubToolCaller()
 
     async def scenario() -> TurnState:

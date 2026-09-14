@@ -203,8 +203,9 @@ def _last_user_message(messages: list[dict[str, Any]]) -> str:
 
 def build_app() -> FastAPI:
     app = FastAPI(title="e2e gateway stub")
+    served: dict[tuple[str, str], int] = {}
     app.state.fixtures = load_fixtures()
-    app.state.served: dict[tuple[str, str], int] = {}
+    app.state.served = served
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

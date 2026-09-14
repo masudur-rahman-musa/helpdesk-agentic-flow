@@ -41,9 +41,12 @@ own uuid-suffixed session id.
 """
 
 import asyncio
+import os
+import subprocess
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from _seed import TENANT_SCOPED_TABLES, SeededTenant, seed_tenant
@@ -64,7 +67,9 @@ from helpdesk.models.conversation import (
     MessageTooLongError,
     check_message_content,
 )
-from sqlalchemy import BigInteger, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Integer, String, UniqueConstraint, text
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 TENANT_A_SLUG = "conversation-tenant-a"
 TENANT_B_SLUG = "conversation-tenant-b"
@@ -415,3 +420,65 @@ def test_another_tenants_sessions_and_messages_are_invisible(
             await engine.dispose()
 
     asyncio.run(scenario())
+
+
+# --- an earlier change decision F: the metadata column matches the model ------------------
+
+
+def _alembic(*arguments: str, database_url: str) -> None:
+    result = subprocess.run(
+        ["uv", "run", "alembic", *arguments],
+        cwd=REPO_ROOT,
+        env={**os.environ, "DATABASE_URL": database_url},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"alembic {' '.join(arguments)} failed:\n{result.stderr}"
+
+
+def _metadata_is_nullable(database_url: str) -> bool:
+    """`sessions.metadata` as the DATABASE describes it, not as the model does."""
+
+    async def scenario() -> bool:
+        engine = create_engine(database_url)
+        try:
+            async with engine.connect() as conn:
+                answer = (
+                    await conn.execute(
+                        text(
+                            "SELECT is_nullable FROM information_schema.columns "
+                            "WHERE table_name = 'sessions' AND column_name = 'metadata'"
+                        )
+                    )
+                ).scalar_one()
+            return str(answer) == "YES"
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(scenario())
+
+
+def test_the_metadata_column_is_not_null_after_the_migration_and_nullable_after_its_downgrade(
+    fresh_db_url: str,
+) -> None:
+    """An earlier change decision F, both directions.
+
+    `models/conversation.py` maps the attribute as `Mapped[dict[str, Any]]`,
+    which SQLAlchemy renders NOT NULL, while the conversation revision created
+    the column `nullable=True`. Nothing in the suite could see the difference:
+    every case here builds its schema from the metadata rather than from
+    Alembic, so the drift lived only in a migrated database.
+
+    Catches a revision whose `upgrade` does not reach the column, and one whose
+    `downgrade` is not its inverse - a downgrade that left NOT NULL standing
+    would make the revision unrepeatable on any database that ran it once.
+    """
+    _alembic("upgrade", "head", database_url=fresh_db_url)
+    assert _metadata_is_nullable(fresh_db_url) is False
+
+    _alembic("downgrade", "-1", database_url=fresh_db_url)
+    assert _metadata_is_nullable(fresh_db_url) is True
+
+    _alembic("upgrade", "head", database_url=fresh_db_url)
+    assert _metadata_is_nullable(fresh_db_url) is False

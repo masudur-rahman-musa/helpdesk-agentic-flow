@@ -38,6 +38,7 @@ Cost is that fixture module's session-scoped Postgres and Redis (standing rule
 """
 
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -62,13 +63,13 @@ if str(_MCP_TESTS) not in sys.path:
     sys.path.insert(0, str(_MCP_TESTS))
 
 from mcp_fixtures import (  # noqa: E402 - path set immediately above
+    TEST_JWT_SECRET,
+    TEST_QDRANT_URL,
     SeededMcp,
     bearer,
     list_tools,
-    mcp_env,  # noqa: F401 - fixtures are resolved by name
-    mcp_pg,  # noqa: F401
+    mcp_pg,  # noqa: F401 - fixtures are resolved by name
     mcp_redis_base_url,  # noqa: F401
-    mcp_redis_url,  # noqa: F401
     seeded_mcp_db,  # noqa: F401
     token_for,
 )
@@ -274,12 +275,34 @@ def test_the_reingest_tool_is_advertised_but_is_not_the_models_to_call() -> None
 
 
 @pytest.fixture(scope="session")
-def advertised(mcp_env: SeededMcp) -> dict[str, Any]:  # noqa: F811
+def catalogue_mcp_env(
+    seeded_mcp_db: SeededMcp,  # noqa: F811
+    mcp_redis_base_url: str,  # noqa: F811
+) -> Iterator[SeededMcp]:
+    """`mcp_fixtures.mcp_env`, session-scoped, for this file only.
+
+    The shared `mcp_env` takes pytest's function-scoped `monkeypatch`, so every
+    session-scoped consumer of it is a `ScopeMismatch` at setup rather than a
+    test. a project rule wants the backing services built once, so this file
+    drives its own `pytest.MonkeyPatch()` over the same four variables and
+    reads the SESSION Redis index, undoing them when the session ends.
+
+    Pinned by every row of this file: without it they error instead of running."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("DATABASE_URL", seeded_mcp_db.database_url)
+        patch.setenv("REDIS_URL", mcp_redis_base_url)
+        patch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+        patch.setenv("QDRANT_URL", TEST_QDRANT_URL)
+        yield seeded_mcp_db
+
+
+@pytest.fixture(scope="session")
+def advertised(catalogue_mcp_env: SeededMcp) -> dict[str, Any]:
     """One `tools/list`, read once for the whole sweep.
 
     Nineteen parametrized rows driving their own MCP session would pay the
     handshake nineteen times for an answer that cannot change between them."""
-    return _advertised(mcp_env)
+    return _advertised(catalogue_mcp_env)
 
 
 @pytest.mark.parametrize("name", sorted(CATALOGUED_TOOLS))
@@ -356,20 +379,20 @@ def test_the_planner_facing_schema_is_the_wire_schema_minus_the_idempotency_key(
 
 
 def test_the_advertised_top_k_default_is_the_catalogues_own(
-    mcp_env: SeededMcp,  # noqa: F811
+    catalogue_mcp_env: SeededMcp,
 ) -> None:
     """Catches the corpus default moving in `helpdesk.rag.retrieval` while the
     agent keeps asking for six. The property names and the required set both
     stay equal through such a change, so the two assertions above cannot see
     it — only the default itself can."""
-    advertised = _advertised(mcp_env)
+    advertised = _advertised(catalogue_mcp_env)
 
     theirs: dict[str, Any] = advertised[SEARCH_POLICY].input_schema
     assert _properties(theirs)["top_k"]["default"] == SEARCH_POLICY_TOP_K
 
 
 def test_the_citation_fields_are_the_ones_the_server_returns(
-    mcp_env: SeededMcp,  # noqa: F811
+    catalogue_mcp_env: SeededMcp,
 ) -> None:
     """The OUTPUT half of decision C, which the input drift test cannot reach.
 
@@ -378,7 +401,7 @@ def test_the_citation_fields_are_the_ones_the_server_returns(
     validation mid-turn, ending an answerable question as an `INTERNAL`. Read
     off the advertised output schema rather than by importing `mcp_server`,
     because the agent talks to that service over HTTP and never by import."""
-    advertised = _advertised(mcp_env)
+    advertised = _advertised(catalogue_mcp_env)
 
     output: dict[str, Any] = advertised[SEARCH_POLICY].output_schema
     citation_ref = _properties(output)["citations"]["items"]["$ref"]

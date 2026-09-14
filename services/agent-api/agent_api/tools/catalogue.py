@@ -105,9 +105,18 @@ class ListMyAccessArgs(_ToolArgs):
 
 
 class ListMyRequestsArgs(_ToolArgs):
+    """`limit` is the server's `REQUESTS_LIMIT_DEFAULT`, copied as a literal.
+
+    agent-api never imports mcp-server (the design), so the default is written
+    twice and `test_agent_tool_catalogue.py::
+    test_every_catalogued_schema_agrees_with_the_advertised_one[list_my_requests]`
+    is what keeps the two copies equal. Omitting the field entirely is what that
+    case caught: the model could not ask for a page size at all."""
+
     status: RequestStatus | None = Field(
         default=None, description="Only requests in this status, or all of them when absent."
     )
+    limit: int = Field(default=50, description="How many requests to return, at most.")
 
 
 class ClassifyAccessRequestArgs(_ToolArgs):

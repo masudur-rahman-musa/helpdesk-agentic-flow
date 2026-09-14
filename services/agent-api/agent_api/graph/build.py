@@ -432,7 +432,9 @@ def _after_execution(state: TurnState) -> str:
     return PLAN_TOOLS
 
 
-def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> CompiledStateGraph:
+def build_graph(
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+) -> CompiledStateGraph[TurnState, None, TurnState, TurnState]:
     """The nine working nodes, the planning cycle, the pause and the four early stops.
 
     The cycle is `plan_tools` → `validate_tool_calls` → `execute_tools` →
@@ -459,20 +461,25 @@ def build_graph(checkpointer: BaseCheckpointSaver[Any] | None = None) -> Compile
     paused turn in one process's memory, which is precisely the failure this
     plan exists to remove.
     """
+    # An earlier change decision C: every `add_node` carries a named ignore. The nodes are
+    # `async (TurnState, RunnableConfig) -> dict[str, Any]`, which LangGraph runs
+    # correctly but no `add_node` overload describes; restructuring the builder to
+    # satisfy the stubs would change working code to please a type, and these are
+    # the 13 sites rule 46 names.
     graph = StateGraph(TurnState)
-    graph.add_node(LOAD_SESSION, _traced(LOAD_SESSION, _load_session))
-    graph.add_node(EXTRACT_INTENT, _traced(EXTRACT_INTENT, _extract_intent))
-    graph.add_node(RESOLVE_ENTITIES, _traced(RESOLVE_ENTITIES, _resolve_entities))
-    graph.add_node(RETRIEVE_POLICY, _traced(RETRIEVE_POLICY, _retrieve_policy))
-    graph.add_node(PLAN_TOOLS, _traced(PLAN_TOOLS, _plan_tools))
-    graph.add_node(VALIDATE_TOOL_CALLS, _traced(VALIDATE_TOOL_CALLS, _validate_tool_calls))
-    graph.add_node(EXECUTE_TOOLS, _traced(EXECUTE_TOOLS, _execute_tools))
-    graph.add_node(AWAIT_APPROVAL, _traced(AWAIT_APPROVAL, _await_approval))
-    graph.add_node(COMPOSE_REPLY, _traced(COMPOSE_REPLY, _compose_reply))
-    graph.add_node(REFUSE_AND_TICKET, _traced(REFUSE_AND_TICKET, _refuse_and_ticket))
-    graph.add_node(ASK_CLARIFYING, _traced(ASK_CLARIFYING, _ask_clarifying))
-    graph.add_node(ASK_DISAMBIGUATION, _traced(ASK_DISAMBIGUATION, _ask_disambiguation))
-    graph.add_node(FAIL_TURN, _traced(FAIL_TURN, _fail_turn))
+    graph.add_node(LOAD_SESSION, _traced(LOAD_SESSION, _load_session))  # type: ignore[call-overload]
+    graph.add_node(EXTRACT_INTENT, _traced(EXTRACT_INTENT, _extract_intent))  # type: ignore[call-overload]
+    graph.add_node(RESOLVE_ENTITIES, _traced(RESOLVE_ENTITIES, _resolve_entities))  # type: ignore[call-overload]
+    graph.add_node(RETRIEVE_POLICY, _traced(RETRIEVE_POLICY, _retrieve_policy))  # type: ignore[call-overload]
+    graph.add_node(PLAN_TOOLS, _traced(PLAN_TOOLS, _plan_tools))  # type: ignore[call-overload]
+    graph.add_node(VALIDATE_TOOL_CALLS, _traced(VALIDATE_TOOL_CALLS, _validate_tool_calls))  # type: ignore[call-overload]
+    graph.add_node(EXECUTE_TOOLS, _traced(EXECUTE_TOOLS, _execute_tools))  # type: ignore[call-overload]
+    graph.add_node(AWAIT_APPROVAL, _traced(AWAIT_APPROVAL, _await_approval))  # type: ignore[call-overload]
+    graph.add_node(COMPOSE_REPLY, _traced(COMPOSE_REPLY, _compose_reply))  # type: ignore[call-overload]
+    graph.add_node(REFUSE_AND_TICKET, _traced(REFUSE_AND_TICKET, _refuse_and_ticket))  # type: ignore[call-overload]
+    graph.add_node(ASK_CLARIFYING, _traced(ASK_CLARIFYING, _ask_clarifying))  # type: ignore[call-overload]
+    graph.add_node(ASK_DISAMBIGUATION, _traced(ASK_DISAMBIGUATION, _ask_disambiguation))  # type: ignore[call-overload]
+    graph.add_node(FAIL_TURN, _traced(FAIL_TURN, _fail_turn))  # type: ignore[call-overload]
 
     graph.add_edge(START, LOAD_SESSION)
     graph.add_edge(LOAD_SESSION, EXTRACT_INTENT)

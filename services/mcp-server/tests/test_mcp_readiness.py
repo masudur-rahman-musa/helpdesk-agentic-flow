@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 from mcp_server import readiness
+from qdrant_client import AsyncQdrantClient
 
 Check = Callable[[], Any]
 
@@ -120,7 +121,7 @@ def test_the_qdrant_check_client_carries_the_timeout(monkeypatch: pytest.MonkeyP
     container reporting ready throughout the outage /readyz exists to report.
     """
     captured: dict[str, Any] = {}
-    real = readiness.AsyncQdrantClient
+    real = AsyncQdrantClient
 
     def spy(*args: Any, **kwargs: Any) -> Any:
         client = real(*args, **kwargs)

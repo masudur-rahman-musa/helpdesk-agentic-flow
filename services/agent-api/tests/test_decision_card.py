@@ -100,7 +100,7 @@ EXPIRY_DAYS = 30
 
 REASONS = [ReasonCode.PRIVILEGE_ADMIN.value, f"{ReasonCode.SOD_CONFLICT.value}:{RULE_ID}"]
 
-RESOLVED_APPROVERS = [
+RESOLVED_APPROVERS: list[dict[str, str | None]] = [
     {"slot": ApproverSlot.DEPARTMENT_MANAGER.value, "user_id": str(MANAGER_ID)},
     {"slot": ApproverSlot.IT_ADMIN.value, "user_id": None},
 ]

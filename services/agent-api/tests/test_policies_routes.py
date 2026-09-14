@@ -372,7 +372,10 @@ def test_the_router_names_its_path_its_tool_and_a_fieldless_argument_model(
 
     The registration half catches a router written and never included in
     `main.py`: every case below would then fail as a 404 with no hint which of
-    the two is missing.
+    the two is missing. It reads `app.openapi()["paths"]` rather than walking
+    `app.routes`: this app includes its routers through a wrapper, so the
+    concrete `APIRoute` is not on `app.routes` at all and the walk answered an
+    empty set for every route in the service.
     """
     assert policies_routes.POLICIES_PATH == "/admin/policies"
     assert policies_routes.LIST_POLICY_DOCUMENTS_TOOL == "list_policy_documents"
@@ -380,11 +383,9 @@ def test_the_router_names_its_path_its_tool_and_a_fieldless_argument_model(
     assert LIST_POLICY_DOCUMENTS == policies_routes.LIST_POLICY_DOCUMENTS_TOOL
     assert policies_routes.ListPolicyDocumentsArgs().model_dump() == {}
     assert policies_routes.ListPolicyDocumentsArgs.model_fields == {}
-    assert ("GET", POLICIES_PATH) in {
-        (method, getattr(route, "path", None))
-        for route in app.routes
-        for method in getattr(route, "methods", set())
-    }
+    openapi_paths = app.openapi()["paths"]
+    assert POLICIES_PATH in openapi_paths
+    assert "get" in openapi_paths[POLICIES_PATH]
 
 
 # --- the staged payloads are the tool's own shape -----------------------------
@@ -757,6 +758,11 @@ def test_the_reingest_route_sends_its_exact_three_key_argument_set(
     The staged answer is validated against the tool's own output model first: a payload invented here rather than read off
     `mcp_server/tools/admin.py` would let the body assertion pass while the
     route answered a shape the web parser refuses.
+
+    The registration half reads `app.openapi()["paths"]` rather than walking
+    `app.routes`: this app includes its routers through a wrapper, so the
+    concrete `APIRoute` is not on `app.routes` at all and the walk answered an
+    empty set for every route in the service.
     """
     assert ReingestPolicyDocumentOutput.model_validate(REINGEST_PAYLOAD).model_dump(
         mode="json"
@@ -773,11 +779,9 @@ def test_the_reingest_route_sends_its_exact_three_key_argument_set(
     assert policies_routes.REINGEST_PATH == REINGEST_PATH
     assert policies_routes.REINGEST_POLICY_DOCUMENT_TOOL == REINGEST_POLICY_DOCUMENT
     assert set(policies_routes.ReingestPolicyDocumentArgs.model_fields) == set(REINGEST_BODY)
-    assert ("POST", REINGEST_PATH) in {
-        (method, getattr(route, "path", None))
-        for route in app.routes
-        for method in getattr(route, "methods", set())
-    }
+    openapi_paths = app.openapi()["paths"]
+    assert REINGEST_PATH in openapi_paths
+    assert "post" in openapi_paths[REINGEST_PATH]
 
 
 @pytest.mark.parametrize(

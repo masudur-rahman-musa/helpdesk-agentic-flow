@@ -53,6 +53,7 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
+import mcp_server.tools.notifications as notifications
 import pytest
 from helpdesk.models.idempotency import KEY_LENGTH
 from helpdesk.models.notification import NotificationKind
@@ -69,7 +70,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from mcp_server.tools import notifications
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
