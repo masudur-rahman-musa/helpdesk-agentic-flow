@@ -143,9 +143,7 @@ class ListMyRequestsInput(BaseModel):
     refused (a project rule's shape), pinned by
     `test_mcp_access_read_tools.py::test_a_status_outside_the_enum_is_refused_validation`."""
 
-    limit: int = Field(
-        default=REQUESTS_LIMIT_DEFAULT, ge=REQUESTS_LIMIT_MIN, le=REQUESTS_LIMIT_MAX
-    )
+    limit: int = Field(default=REQUESTS_LIMIT_DEFAULT, ge=REQUESTS_LIMIT_MIN, le=REQUESTS_LIMIT_MAX)
     """Refused by the INPUT MODEL, so `0` and `201` answer `VALIDATION`
     before any DB access at all."""
 

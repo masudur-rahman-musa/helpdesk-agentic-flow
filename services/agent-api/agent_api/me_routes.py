@@ -42,6 +42,7 @@ from agent_api.deps import call_tool_route
 
 router = APIRouter()
 
+
 class ListMyRequestsArgs(BaseModel):
     """`list_my_requests` with no page size asked for.
 

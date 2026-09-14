@@ -125,7 +125,7 @@ async def list_my_access(
 # cells, four of them `Scope.ANY` and two narrow. An audit row carries no
 # department and no system of its own, so the two narrow scopes are enforced
 # by resolving each row's SUBJECT to a (department, system owner) pair and
-# asking `request_in_scope` — the same authority the approval queue uses — 
+# asking `request_in_scope` — the same authority the approval queue uses —
 # whether the caller reaches it.
 
 SEARCH_LIMIT_MIN = 1
@@ -357,9 +357,7 @@ async def _resolve_subjects(
             resolved[key] = (
                 _UNRESOLVED
                 if request is None
-                else _Reach(
-                    department_of(request.target_user_id), owner_of_role(request.role_id)
-                )
+                else _Reach(department_of(request.target_user_id), owner_of_role(request.role_id))
             )
         elif subject_type == _REVIEW_SUBJECT:
             resolved[key] = reach_of_review(reviews.get(subject_uuid))

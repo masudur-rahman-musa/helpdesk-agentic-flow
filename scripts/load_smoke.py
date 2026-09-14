@@ -104,4 +104,3 @@ def _print_percentiles(environment: Any, **_kwargs: Any) -> None:
         f"p50 {entry.get_response_time_percentile(0.5)} ms, "
         f"p95 {entry.get_response_time_percentile(0.95)} ms"
     )
-

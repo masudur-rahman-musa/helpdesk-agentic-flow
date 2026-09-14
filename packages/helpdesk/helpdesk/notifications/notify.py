@@ -23,6 +23,8 @@ Pinned by
 
 import uuid
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from helpdesk.core.repository import Repository, find_user_by_id
 from helpdesk.errors import ErrorCode, NotFoundError, ToolError
 from helpdesk.models.notification import (
@@ -31,7 +33,6 @@ from helpdesk.models.notification import (
     Notification,
     NotificationKind,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class InvalidNotificationError(ToolError):

@@ -100,17 +100,15 @@ from helpdesk.access import (
     lock_request,
     read_sod_rules,
 )
-from helpdesk.access.rules import SodRuleRole
 from helpdesk.access import (
     rollback_request as rollback,
 )
 from helpdesk.access.rollback import WINDOW_HOURS as WINDOW_HOURS  # re-exported for the registry
+from helpdesk.access.rules import SodRuleRole
 from helpdesk.auth import rbac
+from helpdesk.core.repository import find_tenant_by_id
 from helpdesk.core.settings import load_settings
 from helpdesk.errors import NotFoundError
-from helpdesk.core.repository import find_tenant_by_id
-from helpdesk.rag.documents import read_policy_documents
-from helpdesk.rag.pipeline import ingest_one_document
 from helpdesk.killswitch import (
     GLOBAL,
     GLOBAL_SEGMENT,
@@ -128,6 +126,8 @@ from helpdesk.killswitch import (
 )
 from helpdesk.killswitch.switch import InvalidSwitchTargetError
 from helpdesk.models import RequestStatus
+from helpdesk.rag.documents import read_policy_documents
+from helpdesk.rag.pipeline import ingest_one_document
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -821,6 +821,7 @@ def _reingest_summary(slug: str, version: str, *, created: bool, chunk_count: in
     if not created:
         return f"{slug} {version} is unchanged; nothing was re-ingested."
     return f"{slug} {version} was re-ingested as {chunk_count} chunks and is now live."
+
 
 __all__ = [
     "REINGESTED_EVENT_TYPE",

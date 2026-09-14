@@ -45,9 +45,13 @@ from helpdesk.obs import metrics
 from prometheus_client import CollectorRegistry
 from test_agent_approval_interrupt import (
     ApprovalEnv,
-    ScriptedToolCaller as ApprovalToolCaller,
-    StagedGateway as ApprovalGateway,
     approval_env,  # noqa: F401 - fixture resolved by name
+)
+from test_agent_approval_interrupt import (
+    ScriptedToolCaller as ApprovalToolCaller,
+)
+from test_agent_approval_interrupt import (
+    StagedGateway as ApprovalGateway,
 )
 from test_agent_approval_resume import COMPOSED_APPROVAL, _pause, _resume, _store_request
 
@@ -323,9 +327,7 @@ def test_a_failed_turn_counts_a_refusal_under_its_error_code(
     assert response.status_code == 500
     assert response.json() == {"code": ErrorCode.INTERNAL.value}
 
-    turn_labels = _turn_labels(
-        stream_env, intent=UNKNOWN_INTENT, decision=TurnOutcome.FAILED.value
-    )
+    turn_labels = _turn_labels(stream_env, intent=UNKNOWN_INTENT, decision=TurnOutcome.FAILED.value)
     assert _sample(fresh_registry, TURNS, turn_labels) == 1.0
     assert _sum_of(fresh_registry, TURNS) == 1.0
 
