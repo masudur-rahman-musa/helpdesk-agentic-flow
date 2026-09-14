@@ -1,7 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type ReactNode, useState } from "react";
 
+import { PoliciesReingest } from "@/components/admin/policies-reingest";
 import { failureMessage } from "@/lib/chat-errors";
 import { formatSwitchInstant } from "@/lib/killswitch-format";
 import {
@@ -39,10 +41,12 @@ import { readWire, WireRefusedError } from "@/lib/wire-read";
  * Pinned by `::PoliciesBoard — the read it makes::reads the proxy once on
  * paint, as a GET with no query and no body`.
  *
- * Everything here is a READ — v1 is read-only (the design), so this surface holds
- * no control at all and a project rule has nothing to bite on. The re-ingest
- * §14's cell also names is row 31's, and it owns whatever control this page
- * grows to hold it.
+ * Everything here is a READ except ONE control: an earlier change appended an `Actions`
+ * column carrying a re-ingest per distinct version, the last cell of the design's
+ * `/admin/policies` row. a project rule holds without an exception — the mutation
+ * is a typed MCP tool behind RBAC and the kill switch, and nothing about it is
+ * decided here; `components/admin/policies-reingest.tsx` holds the click and
+ * `tests/policies-reingest.test.tsx` pins what it does.
  *
  * Nothing is decided here either. The payload arrives GROUPED by slug (24g
  * decision A) in the tool's own total order — `slug` ascending, each document's
@@ -68,16 +72,18 @@ import { readWire, WireRefusedError } from "@/lib/wire-read";
  */
 
 /**
- * The six columns, in the order every cell assertion in
+ * The seven columns, in the order every cell assertion in
  * `tests/policies-board.test.tsx` reads them by.
  *
- * Six cells rather than a live marker folded into the version cell (decision
- * B): a merged cell could not say whether a version is live without re-reading
- * the version string, and six read by position is how every other admin board
- * in the tree is asserted. Pinned as an exact sequence by `::PoliciesBoard —
- * the shape of the board::renders the six column headers in order`.
+ * Six read cells rather than a live marker folded into the version cell (24h
+ * decision B): a merged cell could not say whether a version is live without
+ * re-reading the version string, and reading by position is how every other
+ * admin board in the tree is asserted. `Actions` is APPENDED (31b §1), so those
+ * six keep positions 0 to 5 and every positional assertion still reads the
+ * column it was written for. Pinned as an exact sequence by `::PoliciesBoard —
+ * the shape of the board::renders the seven column headers in order`.
  */
-const COLUMNS = ["Version", "Status", "Ingested", "Chunks", "Source", "Digest"] as const;
+const COLUMNS = ["Version", "Status", "Ingested", "Chunks", "Source", "Digest", "Actions"] as const;
 
 /** The query this board reads. */
 const BOARD_KEY = ["admin", "policies", "board"] as const;
@@ -93,7 +99,24 @@ const BOARD_KEY = ["admin", "policies", "board"] as const;
 type BoardAnswer = PolicyDocument[] | null;
 
 export function PoliciesBoard() {
+  const queryClient = useQueryClient();
   const board = useQuery({ queryKey: BOARD_KEY, queryFn: fetchBoard });
+
+  /**
+   * What a successful re-ingest does, and the only thing the control is told
+   * about the cache (24db decision G): the key is the board's own, so
+   * `policies-reingest.tsx` imports nothing from here and the two modules
+   * cannot form a cycle.
+   *
+   * Invalidation and never an optimistic rewrite — the tool decides what the
+   * rows become, including which version is live, and a row that changed on
+   * click would show an ingest that did not land. Pinned by
+   * `::PoliciesBoard — the re-ingest control it carries::passes
+   * the board's invalidation down rather than exposing its query key`.
+   */
+  const onChanged = (): void => {
+    void queryClient.invalidateQueries({ queryKey: BOARD_KEY });
+  };
 
   const refusal = board.isError ? errorMessage(board.error) : null;
   const documents = board.isSuccess ? board.data : null;
@@ -113,7 +136,9 @@ export function PoliciesBoard() {
       ) : null}
 
       {documents !== null
-        ? documents.map((entry) => <DocumentSection key={entry.slug} policy={entry} />)
+        ? documents.map((entry) => (
+            <DocumentSection key={entry.slug} policy={entry} onChanged={onChanged} />
+          ))
         : null}
     </section>
   );
@@ -136,7 +161,7 @@ export function PoliciesBoard() {
  * rather than left to a runtime crash. Pinned by `::PoliciesBoard — nothing to
  * show::renders a document with no versions as its region and heading alone`.
  */
-function DocumentSection({ policy }: { policy: PolicyDocument }) {
+function DocumentSection({ policy, onChanged }: { policy: PolicyDocument; onChanged: () => void }) {
   const hasVersions = policy.versions.length > 0;
   const hasLive = policy.versions.some((entry) => entry.is_current);
 
@@ -148,7 +173,7 @@ function DocumentSection({ policy }: { policy: PolicyDocument }) {
         <p className="text-sm text-muted-foreground">{NO_LIVE_VERSION_TEXT}</p>
       ) : null}
 
-      {hasVersions ? <VersionsTable policy={policy} /> : null}
+      {hasVersions ? <VersionsTable policy={policy} onChanged={onChanged} /> : null}
     </section>
   );
 }
@@ -156,11 +181,33 @@ function DocumentSection({ policy }: { policy: PolicyDocument }) {
 /**
  * One line per version of one document, in the payload's own order.
  *
- * Keyed by `version`, which is unique within a document: `sha256` is not
- * (re-ingesting an unchanged file registers the same bytes under a new version)
- * and an index would re-key every row whenever a later plan adds one.
+ * Keyed by `${version}:${sha256}` (31b decision F). The bare `version` is NOT
+ * unique within a document: `register_document_version` matches on the DIGEST,
+ * so a changed re-ingest writes a second row under the same version string and
+ * 24g's read answers both. Two children under one key is a React error and,
+ * worse, carries one row's component state — the armed flag this table hands
+ * down — onto the other. An index would re-key every row whenever a later
+ * ingest adds one. Pinned by `::renders both rows of a repeated version
+ * string`.
+ *
+ * WHICH rows carry a re-ingest is decided here (31b decision A): the FIRST
+ * occurrence of each distinct version string in the payload's own order, which
+ * is the newest row of that version because 24g decision C orders versions
+ * `ingested_at` descending. The tool re-ingests a version DIRECTORY, so two
+ * rows sharing a version string are one re-ingestable thing and a second
+ * control would be a duplicate accessible name doing an identical act. Nothing
+ * is sorted, filtered or regrouped to find them. Pinned by `::renders one
+ * re-ingest control per distinct version of a document`.
+ *
+ * The ARMING lives here rather than in the control (§1, 31b Deviations): a
+ * click on any other control in the same document must clear it, and a flag
+ * held per control cannot see its siblings. One armed version per document, so
+ * clearing it clears whichever control set it.
  */
-function VersionsTable({ policy }: { policy: PolicyDocument }) {
+function VersionsTable({ policy, onChanged }: { policy: PolicyDocument; onChanged: () => void }) {
+  const [armedVersion, setArmedVersion] = useState<string | null>(null);
+  const acting = new Set(firstOccurrences(policy.versions));
+
   return (
     <div className="overflow-x-auto">
       <table aria-label={`Versions of ${policy.slug}`} className="w-full text-left text-sm">
@@ -174,8 +221,23 @@ function VersionsTable({ policy }: { policy: PolicyDocument }) {
           </tr>
         </thead>
         <tbody>
-          {policy.versions.map((entry) => (
-            <VersionRow key={entry.version} version={entry} />
+          {policy.versions.map((entry, index) => (
+            <VersionRow
+              key={`${entry.version}:${entry.sha256}`}
+              version={entry}
+              control={
+                acting.has(index) ? (
+                  <PoliciesReingest
+                    slug={policy.slug}
+                    version={entry.version}
+                    isCurrent={entry.is_current}
+                    armed={armedVersion === entry.version}
+                    onArmedChange={(armed) => setArmedVersion(armed ? entry.version : null)}
+                    onChanged={onChanged}
+                  />
+                ) : null
+              }
+            />
           ))}
         </tbody>
       </table>
@@ -184,7 +246,27 @@ function VersionsTable({ policy }: { policy: PolicyDocument }) {
 }
 
 /**
- * One version, six cells.
+ * The index of each version string's first row, in the payload's own order.
+ *
+ * A first-occurrence scan and not a group-by: nothing is reordered, so the rows
+ * an admin reads stay in the order the tool fixed and the control lands on the
+ * newest row of its version.
+ */
+function firstOccurrences(versions: PolicyVersion[]): number[] {
+  const seen = new Set<string>();
+  const indexes: number[] = [];
+  versions.forEach((entry, index) => {
+    if (seen.has(entry.version)) {
+      return;
+    }
+    seen.add(entry.version);
+    indexes.push(index);
+  });
+  return indexes;
+}
+
+/**
+ * One version, seven cells.
  *
  * `Status` is a word either way and never a blank cell (decision C).
  * `Ingested` renders through `formatSwitchInstant` (decision F), so the date
@@ -197,9 +279,11 @@ function VersionsTable({ policy }: { policy: PolicyDocument }) {
  * `DIGEST_PREFIX` characters with the whole 64 in the cell's `title` (decision
  * E), which is where `::PoliciesBoard — what a version row shows::renders the
  * digest as twelve characters carrying the whole sha256 as its title` looks for
- * it.
+ * it. `Actions` carries the re-ingest on the rows `firstOccurrences` picked and
+ * an empty cell on the rest, so every row still has seven cells and a
+ * positional read of the first six is unaffected.
  */
-function VersionRow({ version }: { version: PolicyVersion }) {
+function VersionRow({ version, control }: { version: PolicyVersion; control: ReactNode }) {
   return (
     <tr className="border-t border-border align-top">
       <td className="font-mono text-xs">{version.version}</td>
@@ -217,6 +301,7 @@ function VersionRow({ version }: { version: PolicyVersion }) {
       <td className="font-mono text-xs" title={version.sha256}>
         {formatDigest(version.sha256)}
       </td>
+      <td>{control}</td>
     </tr>
   );
 }

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_API_TIMEOUT_MS, requestToken } from "@/lib/agent-api";
+import { AGENT_API_REINGEST_TIMEOUT_MS, AGENT_API_TIMEOUT_MS, requestToken } from "@/lib/agent-api";
 
 /**
  * a project rule: agent-api is an external call that can hang, so it carries
@@ -39,6 +39,25 @@ describe("agent-api timeout", () => {
     // Kills a band ("some timeout is set"): a project rule wants the value,
     // and a 10-minute timeout is indistinguishable from none to a waiting user.
     expect(AGENT_API_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it("pins the reingest timeout at exactly 35000ms and above agent-api's MCP read timeout", () => {
+    // An earlier change §1's timeout criterion and decision E. Kills
+    // the re-ingest proxy left on `AGENT_API_TIMEOUT_MS`: a re-ingest is a
+    // gateway redaction call plus an embed pass, and the process's first
+    // `FastEmbedEmbedder` load can outrun ten seconds while the ingest itself
+    // completes, so the admin reads an abort as a failure over a corpus that
+    // DID change.
+    //
+    // The second assertion is why the number is what it is, and it is a
+    // different kill from the first: agent-api's own `MCP_READ_TIMEOUT_SECONDS`
+    // is 30.0, so anything at or below 30_000 makes the PROXY abort first and
+    // the tool's typed refusal — `FORBIDDEN`, `NOT_FOUND`, `TOOL_DISABLED` —
+    // never reaches the browser, which then shows "try again in a moment" for a
+    // permission the admin does not have. A bound written in seconds (`35`)
+    // fails both halves at once.
+    expect(AGENT_API_REINGEST_TIMEOUT_MS).toBe(35_000);
+    expect(AGENT_API_REINGEST_TIMEOUT_MS).toBeGreaterThan(30_000);
   });
 
   it("carries an abort signal on the outgoing login call", async () => {

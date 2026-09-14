@@ -1,7 +1,10 @@
 // @vitest-environment node
+import { NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GET as policiesGET } from "@/app/api/admin/policies/route";
+import { POST as reingestPOST } from "@/app/api/admin/policies/reingest/route";
+import { AGENT_API_REINGEST_TIMEOUT_MS, proxyAgentApi } from "@/lib/agent-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
@@ -30,6 +33,19 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  *   default status the way `tests/rules-proxy-routes.test.ts` reads it.
  *
  * No backing service and no page: the only seam is `fetch`.
+ *
+ * An earlier change §6 adds the five `the reingest proxy ...` cases at the bottom, over
+ * `app/api/admin/policies/reingest/route.ts` (31a's route, whose timeout is
+ * 31b's). Shapes that file fixes, on top of the four above:
+ * - the handler is `export async function POST(request: Request):
+ *   Promise<Response>` and the upstream path is `/admin/policies/reingest`.
+ * - the timeout is observed by MOCKING `@/lib/agent-api` and reading
+ *   `proxyAgentApi`'s third argument: `AbortSignal.timeout`'s value is
+ *   invisible on the signal at runtime, so the seam's argument list is the only
+ *   place the number can be seen. The mock is installed with
+ *   `vi.doMock` and a fresh `import` inside that one case, never a hoisted
+ *   `vi.mock`, because the other eight cases in this file exercise the REAL
+ *   `proxyAgentApi` and a file-wide mock would silently empty them.
  */
 
 const TOKEN = "header.payload.signature";
@@ -217,6 +233,163 @@ describe("the policies proxy — the refusals", () => {
     fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));
 
     const response = await policiesGET();
+
+    expect(response.status).toBe(REDIRECT_STATUS);
+    expect(response.headers.get("location")?.endsWith("/login")).toBe(true);
+    const cookies = response.headers.getSetCookie();
+    expect(cookies).toHaveLength(1);
+    const [cookie] = cookies;
+    expect(cookie?.startsWith(`${SESSION_COOKIE_NAME}=;`)).toBe(true);
+    expect(/Max-Age=0|Expires=Thu, 01 Jan 1970/.test(cookie ?? "")).toBe(true);
+  });
+});
+
+describe("the reingest proxy — the bearer, the body and the bound (plan 31b §6)", () => {
+  /** agent-api's own path, which 31a decision I keeps identical to the browser's. */
+  const REINGEST_UPSTREAM_PATH = "/admin/policies/reingest";
+
+  /** The browser's half of a re-ingest: §1's exact three keys, obviously fake. */
+  const REINGEST_BODY = {
+    slug: "fake-access-policy",
+    version: "v9",
+    idempotency_key: "0f8fad5b-d9cb-469f-a165-70867728950e",
+  };
+
+  /** One re-ingest result, `policyReingestResultSchema`'s eight fields. */
+  const REINGEST_RESULT = {
+    slug: "fake-access-policy",
+    version: "v9",
+    created: true,
+    chunk_count: 4,
+    is_current: true,
+    sha256: "c1".repeat(32),
+    ingested_at: "2026-04-02T09:00:00Z",
+    summary: "Fake summary, tests only.",
+  };
+
+  function reingestRequest(body: unknown = REINGEST_BODY): Request {
+    return new Request("http://web.test/api/admin/policies/reingest", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("the reingest proxy sends the bearer from the httpOnly cookie and never in the URL", async () => {
+    // Catches a route that reads a token from a header the browser set or from
+    // the query string — the cookie is the only copy of the bearer (22a
+    // decision A), so anything else means the client was handed one, and a
+    // token in a URL lands in every access log. Also catches a route that calls
+    // agent-api directly instead of through `proxyAgentApi`: an unrouted call
+    // carries no authorization header at all, and on THIS verb that is a
+    // mutation rewriting a tenant's live policy corpus with no principal
+    // attached — the RBAC cell, the kill switch and the `policy.reingested`
+    // actor all hang off that bearer.
+    fetchStub.mockResolvedValue(jsonResponse(REINGEST_RESULT, 200));
+
+    await reingestPOST(reingestRequest());
+
+    const [url, init] = firstCall();
+    expect(String(url)).toBe(`${UPSTREAM_ORIGIN}${REINGEST_UPSTREAM_PATH}`);
+    expect(String(url)).not.toContain(TOKEN);
+    expect(String(url)).not.toContain("?");
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("the reingest proxy forwards the body verbatim with its content type", async () => {
+    // The exact bytes in, the exact bytes out, key order included. Catches a
+    // proxy that re-parses and re-serialises the payload — a second opinion
+    // about a body it does not validate, which drops the one key it had not
+    // heard of and, on this route, would drop `idempotency_key` and turn a
+    // retry into a second ingest. Catches a route that MINTS a key of its own
+    // for the same reason, and one that sends no content type, which leaves
+    // FastAPI unable to read the body at all and answers a refusal for a
+    // perfectly good re-ingest. The string comparison is against
+    // `JSON.stringify` of the same object, so a re-serialisation that reordered
+    // the keys is red even though the parsed values would match.
+    fetchStub.mockResolvedValue(jsonResponse(REINGEST_RESULT, 200));
+
+    const response = await reingestPOST(reingestRequest());
+
+    const [, init] = firstCall();
+    expect(await sentBody(init)).toBe(JSON.stringify(REINGEST_BODY));
+    expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(REINGEST_RESULT);
+  });
+
+  it("the reingest proxy bounds the call at exactly 35000ms", async () => {
+    // 31b §1's timeout criterion and decision E, as the exact number AND the
+    // exact argument position. Catches the route left on
+    // `proxyAgentApi`'s ten-second default, which 31a deliberately deferred to
+    // this row: a re-ingest is a gateway redaction call plus an embed pass, and
+    // the process's first `FastEmbedEmbedder` load can outrun ten seconds while
+    // the ingest itself completes — the admin reads an abort as a failure over
+    // a corpus that DID change, and clicks again. Catches a value passed as the
+    // second argument, where it would be read as the `RequestInit` and the call
+    // would go out untimed with no method, no body and no content type.
+    //
+    // The number is read off the seam's argument list because
+    // `AbortSignal.timeout`'s value is not observable on the signal it returns
+    //, which is why this one case mocks the module rather
+    // than the socket.
+    expect(AGENT_API_REINGEST_TIMEOUT_MS).toBe(35_000);
+
+    const proxySpy = vi.fn<typeof proxyAgentApi>();
+    proxySpy.mockResolvedValue(NextResponse.json(REINGEST_RESULT, { status: 200 }));
+    vi.resetModules();
+    vi.doMock("@/lib/agent-api", async () => {
+      const actual = await vi.importActual<typeof import("@/lib/agent-api")>("@/lib/agent-api");
+      return { ...actual, proxyAgentApi: proxySpy };
+    });
+
+    try {
+      const route = await import("@/app/api/admin/policies/reingest/route");
+      await route.POST(reingestRequest());
+
+      const call = proxySpy.mock.calls[0];
+      if (call === undefined) {
+        throw new Error("expected the proxy seam to be called");
+      }
+      expect(call[0]).toBe(REINGEST_UPSTREAM_PATH);
+      expect(call[2]).toBe(35_000);
+      expect(call[2]).toBe(AGENT_API_REINGEST_TIMEOUT_MS);
+    } finally {
+      vi.doUnmock("@/lib/agent-api");
+      vi.resetModules();
+    }
+  });
+
+  it("the reingest proxy answers 502 UPSTREAM_UNAVAILABLE when the call throws", async () => {
+    // Catches a route whose `fetch` rejection is left to propagate: Next
+    // answers an untyped 500 with a stack, which names the internal host and
+    // which the control cannot map to any sentence — so a timed-out re-ingest
+    // would render nothing an admin can act on. Only the transport branch can
+    // produce this row: the cookie is present and no status is returned at all.
+    // This is also the one envelope 31b's control treats as a failure rather
+    // than a typed refusal, because `UPSTREAM_UNAVAILABLE` is outside SPEC
+    // §8.1's eight.
+    fetchStub.mockRejectedValue(new TypeError("fetch failed"));
+
+    const response = await reingestPOST(reingestRequest());
+
+    expect(response.status).toBe(UPSTREAM_UNAVAILABLE_STATUS);
+    expect(await response.json()).toEqual({ code: "UPSTREAM_UNAVAILABLE" });
+  });
+
+  it("the reingest proxy expires the session cookie and redirects to /login on a 401", async () => {
+    // Catches a route that passes agent-api's 401 through to the browser: the
+    // stale cookie survives, so every later call fails the same way with
+    // nothing telling the admin why, and the control would render a refusal for
+    // a session that merely ended. A board sits open on a screen for minutes,
+    // so this is the common case on a MUTATION rather than an edge. This is
+    // 22a's `proxyAgentApi` seam, so a route that opens its own `fetch` is
+    // caught here too — an unrouted call answers 401, not a redirect, and
+    // clears no cookie.
+    fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));
+
+    const response = await reingestPOST(reingestRequest());
 
     expect(response.status).toBe(REDIRECT_STATUS);
     expect(response.headers.get("location")?.endsWith("/login")).toBe(true);

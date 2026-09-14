@@ -33,6 +33,22 @@ export const AGENT_API_TIMEOUT_MS = 10_000;
  */
 export const AGENT_API_STREAM_TIMEOUT_MS = 120_000;
 
+/**
+ * Thirty-five seconds, for one re-ingest alone.
+ *
+ * A re-ingest is a gateway redaction call plus an embed pass rather than a
+ * query, and the ingest process's first `FastEmbedEmbedder` load can outrun ten
+ * seconds while the ingest itself completes — an abort the admin reads as a
+ * failure over a corpus that did change, and clicks again. The number is above
+ * agent-api's own `MCP_READ_TIMEOUT_SECONDS` (30.0) on purpose, so the tool's
+ * typed refusal wins the race rather than this proxy aborting a call that is
+ * still running. a project rule still holds: the call carries a timeout, it
+ * is just a different number, and the value and the reason for it are pinned by
+ * `tests/agent-api.test.ts`'s "pins the reingest timeout at exactly 35000ms and
+ * above agent-api's MCP read timeout".
+ */
+export const AGENT_API_REINGEST_TIMEOUT_MS = 35_000;
+
 export type LoginResult = { ok: true; token: string } | { ok: false };
 
 function baseUrl(): string {

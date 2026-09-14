@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PoliciesBoard } from "@/components/admin/policies-board";
@@ -23,14 +24,20 @@ import {
  * The unit under test is `PoliciesBoard` from
  * `web/components/admin/policies-board.tsx`, taking NO props and doing its own
  * read through TanStack Query (§2, decision A), so `app/admin/policies/page.tsx`
- * stays a thin `AppShell` wrapper no case here renders. Everything on this
- * surface is a READ: this page holds no control at all (§1), so no case clicks
- * anything and no case posts anything — the re-ingest is row 31's.
+ * stays a thin `AppShell` wrapper no case here renders. The surface is a READ
+ * plus ONE control: an earlier change appended an `Actions` column carrying a re-ingest
+ * per distinct version, and three cases below click it. Everything else here is
+ * still a read, and the control's own behaviour — the arming, the body, the
+ * alerts, the redirect — belongs to `tests/policies-reingest.test.tsx`; what
+ * this file owes is WHICH rows carry a control and what the board does with the
+ * callback it passes down.
  *
- * The accessible names are the plan's own (§1, §6): the board region
- * `Policies`, the heading `Policy documents`, one region per document named by
- * its `slug`, each holding a table named `Versions of <slug>`, whose six column
- * headers are `Version`, `Status`, `Ingested`, `Chunks`, `Source`, `Digest`.
+ * The accessible names are the plans' own (24h §1, §6; 31b §1, §6): the board
+ * region `Policies`, the heading `Policy documents`, one region per document
+ * named by its `slug`, each holding a table named `Versions of <slug>`, whose
+ * seven column headers are `Version`, `Status`, `Ingested`, `Chunks`, `Source`,
+ * `Digest`, `Actions`, and one control per distinct version named
+ * `Re-ingest <slug> <version>`.
  * The implementation owes each `<section>` and each `<table>` an `aria-label`,
  * because neither role takes its name from its contents.
  *
@@ -41,7 +48,8 @@ import {
  *   pathname is `/api/admin/policies`, whose `search` is empty, whose method is
  *   `GET` (absent counts, `fetch`'s own default) and whose `body` is
  *   `undefined`. The relative-versus-absolute form of the URL is NOT fixed.
- * - a version row's six cells are read BY POSITION in the header order above:
+ * - a version row's first six cells are read BY POSITION in the header order
+ *   above, which 31b's appended seventh leaves exactly where they were:
  *   `role="cell"` carries no name of its own, so `within(row)` alone cannot tell
  *   the `Chunks` cell from the `Version` one — which is the swap several of
  *   these cases exist to catch.
@@ -76,9 +84,12 @@ import {
 
 const ORIGIN = "http://localhost:3000";
 const BOARD_PATH = "/api/admin/policies";
+/** 31b's control posts here. It CONTAINS `BOARD_PATH`, so paths are compared
+ * exactly and never with `includes`. */
+const REINGEST_PATH = "/api/admin/policies/reingest";
 const LOGIN_URL = "http://localhost:3000/login";
 
-/** The six columns, in the order §1 fixes them. */
+/** The six READ columns, in the order 24h §1 fixes them; 31b appends a seventh. */
 const VERSION_CELL = 0;
 const STATUS_CELL = 1;
 const INGESTED_CELL = 2;
@@ -127,6 +138,9 @@ type BoardAnswer = () => Response | Promise<Response>;
 
 let boardAnswer: BoardAnswer = () => board([document({})]);
 
+/** What 31b's control gets back, for the three cases below that click it. */
+let reingestAnswer: BoardAnswer = () => reingestResult();
+
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -137,6 +151,24 @@ function jsonResponse(body: unknown, status: number): Response {
 /** The corpus in `policyDocumentsBoardSchema`'s envelope. */
 function board(documents: Record<string, unknown>[]): Response {
   return jsonResponse({ documents }, 200);
+}
+
+/** A re-ingest answer in `policyReingestResultSchema`'s shape: all eight (31a). */
+function reingestResult(overrides: Record<string, unknown> = {}): Response {
+  return jsonResponse(
+    {
+      slug: "fake-access-policy",
+      version: "v2",
+      created: true,
+      chunk_count: 7,
+      is_current: true,
+      sha256: SHA_LIVE,
+      ingested_at: INGESTED_AT,
+      summary: "Fake summary, tests only.",
+      ...overrides,
+    },
+    200,
+  );
 }
 
 /**
@@ -165,8 +197,17 @@ function urlOf(input: RequestInfo | URL): string {
   return input.url;
 }
 
+function pathOf(input: RequestInfo | URL): string {
+  return new URL(urlOf(input), ORIGIN).pathname;
+}
+
 function boardCalls(): Parameters<typeof fetch>[] {
-  return fetchStub.mock.calls.filter(([input]) => urlOf(input).includes(BOARD_PATH));
+  return fetchStub.mock.calls.filter(([input]) => pathOf(input) === BOARD_PATH);
+}
+
+/** Every POST 31b's control made, read the same exact way. */
+function reingestCalls(): Parameters<typeof fetch>[] {
+  return fetchStub.mock.calls.filter(([input]) => pathOf(input) === REINGEST_PATH);
 }
 
 function at<T>(values: readonly T[], index: number): T {
@@ -242,14 +283,18 @@ async function rowFor(slug: string, versionName: string): Promise<HTMLElement> {
 
 beforeEach(() => {
   boardAnswer = () => board([document({})]);
+  reingestAnswer = () => reingestResult();
   assign.mockReset();
   fetchStub.mockReset();
   fetchStub.mockImplementation(async (input) => {
-    const url = urlOf(input);
-    if (url.includes(BOARD_PATH)) {
+    const path = pathOf(input);
+    if (path === REINGEST_PATH) {
+      return await reingestAnswer();
+    }
+    if (path === BOARD_PATH) {
       return await boardAnswer();
     }
-    throw new Error(`unexpected fetch to ${url}`);
+    throw new Error(`unexpected fetch to ${urlOf(input)}`);
   });
   vi.stubGlobal("fetch", fetchStub);
   vi.stubGlobal("location", {
@@ -372,21 +417,36 @@ describe("PoliciesBoard — the shape of the board", () => {
     }
   });
 
-  it("renders the six column headers in order", async () => {
-    // §1's fourth criterion as an exact sequence, and the guard every cell case
-    // below leans on: those are positional, so a column inserted anywhere must
-    // be red HERE rather than silently making six cell cases read the wrong
-    // column. Kills a board that folds the live marker into the version cell
-    // (decision B's rejected shape), which leaves five headers and no cell that
-    // can say whether a version is live without re-reading the version string,
-    // and kills one that reorders `Source` and `Digest` so the two 12-character
-    // strings in the last columns are swapped past noticing.
+  it("renders the seven column headers in order", async () => {
+    // 24h §1's fourth criterion and 31b §1's first, as one exact sequence, and
+    // the guard every cell case below leans on: those are positional, so a
+    // column inserted anywhere must be red HERE rather than silently making six
+    // cell cases read the wrong column. Kills a board that folds the live
+    // marker into the version cell (24h decision B's rejected shape), which
+    // leaves no cell that can say whether a version is live without re-reading
+    // the version string, and kills one that reorders `Source` and `Digest` so
+    // the two 12-character strings in the last columns are swapped past
+    // noticing.
+    //
+    // `Actions` is asserted LAST, which is 31b §1's "appended": a board putting
+    // the new column anywhere else keeps seven headers and shifts every one of
+    // the six positional cell assertions in this file onto its neighbour, so a
+    // digest would be read where a source path is. That is the kill this
+    // sequence carries that a containment check on `Actions` would not.
     renderBoard();
 
     const headers = within(await versionsTable("fake-access-policy"))
       .getAllByRole("columnheader")
       .map((header) => (header.textContent ?? "").trim());
-    expect(headers).toEqual(["Version", "Status", "Ingested", "Chunks", "Source", "Digest"]);
+    expect(headers).toEqual([
+      "Version",
+      "Status",
+      "Ingested",
+      "Chunks",
+      "Source",
+      "Digest",
+      "Actions",
+    ]);
   });
 
   it("renders a document's versions in the payload's own order", async () => {
@@ -766,5 +826,134 @@ describe("PoliciesBoard — an expired session", () => {
     expect(anyTables()).toHaveLength(0);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText(POLICIES_EMPTY_TEXT)).toBeNull();
+  });
+});
+
+describe("PoliciesBoard — the re-ingest control it carries (plan 31b §6)", () => {
+  /**
+   * A third fake digest, so the document below holds TWO `v1` rows that differ
+   * only in their bytes — the state `register_document_version` writes when an
+   * edited file is re-ingested under the same version string (31b decision F),
+   * and the state criteria 2 and 12 both read.
+   */
+  const SHA_OTHER = `3333333333ee${"f".repeat(52)}`;
+
+  const REPEATED = document({
+    versions: [
+      version({ version: "v2", is_current: true, sha256: SHA_LIVE }),
+      version({
+        version: "v1",
+        is_current: false,
+        sha256: SHA_OTHER,
+        source_path: "fake-corpus/fake-access-policy/v1.md",
+      }),
+      version({
+        version: "v1",
+        is_current: false,
+        sha256: SHA_OLD,
+        source_path: "fake-corpus/fake-access-policy/v1.md",
+      }),
+    ],
+  });
+
+  function controlName(slug: string, versionName: string): string {
+    return `Re-ingest ${slug} ${versionName}`;
+  }
+
+  it("renders one re-ingest control per distinct version of a document", async () => {
+    // 31b §1's second criterion and decision A. The tool re-ingests a version
+    // DIRECTORY, so two registered rows sharing a version string are one
+    // re-ingestable thing: a control on each is a duplicate accessible name
+    // doing an identical act, which a screen reader user cannot tell apart and
+    // which spends a second minted key on the same directory. The count is
+    // asserted over the whole document region, so a board rendering a control
+    // on every row (three here) is red, and so is one rendering a single
+    // per-document control acting on the live version — that shape could never
+    // refresh a superseded version's file, which is exactly the file an admin
+    // edits before promoting it.
+    //
+    // WHICH `v1` row carries it is the other half: the control sits on the
+    // FIRST occurrence in the payload's own order, the newest row of that
+    // version (24g decision C orders versions `ingested_at` descending). The
+    // fixture puts that occurrence at index 1 rather than at the top of the
+    // table, so a board that special-cases the first ROW of the table passes
+    // nothing here.
+    boardAnswer = () => board([REPEATED]);
+    renderBoard();
+
+    const region = await documentRegion("fake-access-policy");
+    await waitFor(async () => {
+      expect(await versionRows("fake-access-policy")).toHaveLength(3);
+    });
+    expect(within(region).getAllByRole("button")).toHaveLength(2);
+    expect(
+      within(region).getByRole("button", { name: controlName("fake-access-policy", "v1") }),
+    ).toBeInTheDocument();
+    expect(
+      within(region).getByRole("button", { name: controlName("fake-access-policy", "v2") }),
+    ).toBeInTheDocument();
+
+    const rows = await versionRows("fake-access-policy");
+    expect(
+      within(at(rows, 1)).getByRole("button", { name: controlName("fake-access-policy", "v1") }),
+    ).toBeInTheDocument();
+    expect(within(at(rows, 2)).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("renders both rows of a repeated version string", async () => {
+    // 31b §1's twelfth criterion and decision F. `register_document_version`
+    // matches on the DIGEST, so a changed re-ingest writes a SECOND row under
+    // the same version string and 24g's read answers both. Keyed by the bare
+    // `version`, React sees two children under one key: it warns, and — the
+    // part no warning describes — it carries one row's component state onto the
+    // other, so the `v1` control's armed flag and in-flight flag would land on
+    // a row the admin never touched. The kill is BOTH halves at once: three
+    // rows still rendered (a board that deduplicated by version would show
+    // two, hiding the row whose digest is the one on disk) and no `key`
+    // complaint on `console.error`, which is the only place React says it.
+    // This plan's mutation is what makes the state reachable, which is why the
+    // case lives with it and not with 24h's read.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    boardAnswer = () => board([REPEATED]);
+    renderBoard();
+
+    await waitFor(async () => {
+      expect(await versionRows("fake-access-policy")).toHaveLength(3);
+    });
+    expect(await renderedVersions("fake-access-policy")).toEqual(["v2", "v1", "v1"]);
+    const complaints = consoleError.mock.calls
+      .map((call) => call.map((part) => String(part)).join(" "))
+      .filter((message) => message.toLowerCase().includes("key"));
+    expect(complaints).toEqual([]);
+    consoleError.mockRestore();
+  });
+
+  it("passes the board's invalidation down rather than exposing its query key", async () => {
+    // 31b §1's ninth criterion, from the board's side, and 24db decision G's
+    // division. The control holds no knowledge of the cache at all: the board
+    // owns `BOARD_KEY` and hands down an `onChanged`, so the two modules do not
+    // import each other and a later change to the key cannot leave a control
+    // invalidating a query that no longer exists — a silent staleness, with the
+    // page showing pre-ingest counts and no error anywhere. The kill is the
+    // SECOND read: a board that renders the control and passes nothing makes
+    // exactly one, and the admin would have to reload by hand to see whether
+    // the file they made live actually landed. Arithmetic:
+    // board GETs = 2 (paint, then the invalidation), POSTs = 1. Everything the
+    // control does with that answer is `tests/policies-reingest.test.tsx`'s.
+    boardAnswer = () => board([document({})]);
+    const user = userEvent.setup();
+    renderBoard();
+
+    const row = await rowFor("fake-access-policy", "v2");
+    await user.click(
+      within(row).getByRole("button", { name: controlName("fake-access-policy", "v2") }),
+    );
+
+    await waitFor(() => {
+      expect(reingestCalls()).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(boardCalls()).toHaveLength(2);
+    });
   });
 });

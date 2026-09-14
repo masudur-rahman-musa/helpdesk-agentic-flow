@@ -28,21 +28,30 @@
  * here would leave that parser refusing a payload agent-api answered
  * correctly.
  *
- * The ordinary timeout applies. A re-ingest is a gateway call plus an embed
- * pass rather than a turn, and an earlier change §5 records that the process's first
- * model load can outrun this bound while the ingest itself completes; the
- * longer timeout belongs with the control that calls this, in row 31b.
+ * The bound is `AGENT_API_REINGEST_TIMEOUT_MS` and not the seam's ten-second
+ * default (31b decision E). A re-ingest is a gateway call plus an embed pass
+ * rather than a turn, and 31a §5 records that the process's first model load
+ * can outrun ten seconds while the ingest itself completes — an abort the admin
+ * reads as a failure over a corpus that did change. Pinned as the exact number
+ * AND as the exact argument position by `tests/policies-proxy-routes.test.ts`'s
+ * "the reingest proxy bounds the call at exactly 35000ms": passed second it
+ * would be read as the `RequestInit` and the call would go out with no method,
+ * no body and no timeout at all.
  */
 
-import { proxyAgentApi } from "@/lib/agent-api";
+import { AGENT_API_REINGEST_TIMEOUT_MS, proxyAgentApi } from "@/lib/agent-api";
 
 /** agent-api's own path, which decision I keeps identical to the browser's. */
 const UPSTREAM_PATH = "/admin/policies/reingest";
 
 export async function POST(request: Request): Promise<Response> {
-  return proxyAgentApi(UPSTREAM_PATH, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: await request.text(),
-  });
+  return proxyAgentApi(
+    UPSTREAM_PATH,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: await request.text(),
+    },
+    AGENT_API_REINGEST_TIMEOUT_MS,
+  );
 }
