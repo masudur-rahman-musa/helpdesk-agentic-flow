@@ -13,14 +13,16 @@ import { auditSearchSchema, auditVerifySchema } from "@/lib/audit-schema";
  *   `AuditEventRow`, `AuditSearch` and `AuditVerify` — decision E: one file,
  *   both envelopes, `reviews-schema.ts`' own naming.
  * - the search envelope is `{ events: [...], next_before_seq: number | null }`
- *   with the NINE `AuditEventRow` fields, and the verify envelope
- *   `{ ok: boolean, broken_at: number | null }` — both read off
- *   `mcp_server/tools/read.py` and an earlier change's verify route, never invented
- *   here.
+ *   with the NINE `AuditEventRow` fields, and the verify envelope the FOUR
+ *   fields `{ ok: boolean, broken_at: number | null, truncated_at: number |
+ *   null, anchored_seq: number | null }` — both read off
+ *   `mcp_server/tools/read.py` and an earlier change's verify route as an earlier change left
+ *   it, never invented here.
  * - every field is REQUIRED, and nullable exactly where the tool's own model
- *   is (`actor_ref`, `subject_id`, `next_before_seq`, `broken_at`), never
- *   `.optional()`: a missing column would otherwise reach the page as
- *   `undefined` and render as a blank cell instead of a refused payload.
+ *   is — six names: `actor_ref`, `subject_id`, `next_before_seq`,
+ *   `broken_at`, `truncated_at` and `anchored_seq` — never `.optional()`: a
+ *   missing column would otherwise reach the page as `undefined` and render
+ *   as a blank cell instead of a refused payload.
  * - `payload` is an arbitrary JSON OBJECT (13b decision E, §5's third risk):
  *   a schema demanding a shape would reject real rows, because every event
  *   type writes its own keys.
@@ -184,16 +186,73 @@ describe("auditSearchSchema", () => {
   });
 });
 
+/** The four-field verify answer 30bb's route gives, intact and anchored. */
+const VERIFY_ANSWER: Record<string, unknown> = {
+  ok: true,
+  broken_at: null,
+  truncated_at: null,
+  anchored_seq: 902,
+};
+
+/** The four field names of an earlier change §1, written out rather than derived. */
+const VERIFY_FIELDS = ["ok", "broken_at", "truncated_at", "anchored_seq"] as const;
+
 describe("auditVerifySchema", () => {
   it("accepts both answers plan 07's route can give", () => {
-    // §1's last criterion. An intact chain answers `broken_at: null` and a
-    // tampered one names the sequence number it broke at. Catches a parser
-    // that pins `broken_at` to a number — the ordinary, healthy answer would
-    // then be refused and the page would report the chain unreadable on every
-    // load — and one that pins it to a string, which would refuse the only
-    // answer that matters.
-    expect(auditVerifySchema.safeParse({ ok: true, broken_at: null }).success).toBe(true);
-    expect(auditVerifySchema.safeParse({ ok: false, broken_at: 42 }).success).toBe(true);
+    // §1's first criterion, over the THREE verdicts 30bb's `verify_chain` can
+    // now answer. An intact chain answers both seqs null, a tampered one names
+    // `broken_at`, and a shortened one names `truncated_at` while `broken_at`
+    // stays null. Catches a parser that pins either seq to a number — the
+    // ordinary, healthy answer would then be refused and the page would report
+    // the chain unreadable on every load — and one that never grew
+    // `truncated_at` at all, which refuses the one answer 30ba and 30bb exist
+    // to make visible.
+    expect(auditVerifySchema.safeParse(VERIFY_ANSWER).success).toBe(true);
+    expect(
+      auditVerifySchema.safeParse({
+        ok: false,
+        broken_at: 42,
+        truncated_at: null,
+        anchored_seq: 902,
+      }).success,
+    ).toBe(true);
+    expect(
+      auditVerifySchema.safeParse({
+        ok: false,
+        broken_at: null,
+        truncated_at: 902,
+        anchored_seq: 902,
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each(VERIFY_FIELDS)("rejects a four-field answer missing %s", (field) => {
+    // Decision A, one row per REQUIRED field, each row complete except the one
+    // it names — so the row is red only when the schema stops requiring THAT
+    // field, never because a neighbour is also absent. Catches an `.optional()`
+    // declaration on any of the four: `ok` arriving as `undefined` is falsy and
+    // would report a healthy chain as broken; an absent `broken_at` or
+    // `truncated_at` would render a verdict about a seq nobody sent; an absent
+    // `anchored_seq` would let a wire that dropped the anchor fact reach the
+    // page as "no head has been anchored", which is a different claim about a
+    // different system state.
+    expect(auditVerifySchema.safeParse(without(VERIFY_ANSWER, field)).success).toBe(false);
+  });
+
+  it("rejects a string truncated_at and a string anchored_seq", () => {
+    // Both are NUMBERS: they are event sequence numbers the panel prints into a
+    // sentence an auditor acts on. Catches a `z.string()` or a coercing field —
+    // `"902"` would reach the page and print `The chain is missing event 902
+    // and everything after it.` from a payload nobody type-checked, and a
+    // coerced anchor would let junk render as a head that was never anchored.
+    // Each object is otherwise complete, so the only reason it fails is the
+    // field it names.
+    expect(auditVerifySchema.safeParse({ ...VERIFY_ANSWER, truncated_at: "902" }).success).toBe(
+      false,
+    );
+    expect(auditVerifySchema.safeParse({ ...VERIFY_ANSWER, anchored_seq: "902" }).success).toBe(
+      false,
+    );
   });
 
   it("rejects an answer with no ok", () => {
@@ -208,21 +267,32 @@ describe("auditVerifySchema", () => {
     // `ok` is a BOOLEAN: `"false"` is truthy in the page's own conditional, so
     // a coerced string would render a tampered chain as intact. The extra key
     // is the `.strict()` catch, for the same reason as the search envelope.
-    expect(auditVerifySchema.safeParse({ ok: "true", broken_at: null }).success).toBe(false);
+    expect(auditVerifySchema.safeParse({ ...VERIFY_ANSWER, ok: "true" }).success).toBe(false);
     expect(
-      auditVerifySchema.safeParse({ ok: true, broken_at: null, checked_at: "2026-01-15" }).success,
+      auditVerifySchema.safeParse({ ...VERIFY_ANSWER, checked_at: "2026-01-15" }).success,
     ).toBe(true);
   });
 
-  it("exposes ok and broken_at on the parsed value", () => {
-    // Catches fields parsed as `z.unknown()`: these two ARE the whole answer,
-    // and a page that cannot read them has nothing to render.
-    const parsed = auditVerifySchema.safeParse({ ok: false, broken_at: 42 });
+  it("exposes all four fields on the parsed value", () => {
+    // Catches fields parsed as `z.unknown()`: these four ARE the whole answer,
+    // and a page that cannot read them has nothing to render. The truncated
+    // shape is the one that carries three of the four as something other than
+    // their healthy value, so a schema that dropped `truncated_at` or
+    // `anchored_seq` on the way out — parsed but not exposed — does not compile
+    // here under strict TypeScript, let alone assert.
+    const parsed = auditVerifySchema.safeParse({
+      ok: false,
+      broken_at: null,
+      truncated_at: 902,
+      anchored_seq: 902,
+    });
     if (!parsed.success) {
       throw new Error("the complete payload must parse");
     }
 
     expect(parsed.data.ok).toBe(false);
-    expect(parsed.data.broken_at).toBe(42);
+    expect(parsed.data.broken_at).toBeNull();
+    expect(parsed.data.truncated_at).toBe(902);
+    expect(parsed.data.anchored_seq).toBe(902);
   });
 });

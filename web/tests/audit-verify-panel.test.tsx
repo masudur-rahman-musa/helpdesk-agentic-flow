@@ -34,8 +34,10 @@ import { FAILURE_MESSAGES } from "@/lib/chat-errors";
  * - "GET" is asserted as `init?.method ?? "GET"`, so an omitted method — what
  *   `fetch` defaults to and what 24ba's search fetcher relies on — passes, and
  *   a POST does not. The plan fixes the verb, not whether it is spelled out.
- * - the two result sentences are found by TEXT (§6: a `<p>`), and the refusal
- *   and failure sentences inside `role="alert"`. The case asserting a sentence
+ * - the FOUR verdict sentences and the TWO anchor lines an earlier change adds are
+ *   found by TEXT inside the region named `Chain integrity` (§6: each a `<p>`),
+ *   never as exported constants, and the refusal and failure sentences inside
+ *   `role="alert"`, which stays the refusal channel alone. The case asserting a sentence
  *   also asserts that the other class of sentence is ABSENT, which is what
  *   makes the discriminator assertable at all.
  * - the in-flight case holds the response open with a promise the case
@@ -55,12 +57,31 @@ const INTACT = "The chain is intact.";
 const BROKEN_SEQ = 42;
 const BROKEN = "The chain is broken at event 42.";
 
+/**
+ * An earlier change's literals. `902` is the anchored head and the seq a truncated
+ * chain is missing from; `42` stays the break. The two seqs are different
+ * numbers so a case that crosses them is visible (§6's last paragraph).
+ */
+const ANCHORED_SEQ = 902;
+const TRUNCATED = "The chain is missing event 902 and everything after it.";
+const DID_NOT_VERIFY = "The chain did not verify.";
+const ANCHOR_LINE = "Checked against the anchored head, event 902.";
+const NO_ANCHOR_LINE = "No head has been anchored yet, so a removed tail would not show here.";
+
+/** The healthy four-field answer every case that does not care inherits. */
+const INTACT_ANSWER = {
+  ok: true,
+  broken_at: null,
+  truncated_at: null,
+  anchored_seq: ANCHORED_SEQ,
+} as const;
+
 const fetchStub = vi.fn<typeof fetch>();
 const assign = vi.fn<(url: string) => void>();
 
 type VerifyAnswer = () => Response | Promise<Response>;
 
-let verifyAnswer: VerifyAnswer = () => jsonResponse({ ok: true, broken_at: null }, 200);
+let verifyAnswer: VerifyAnswer = () => jsonResponse(INTACT_ANSWER, 200);
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -130,7 +151,7 @@ async function check(user: ReturnType<typeof userEvent.setup>): Promise<void> {
 }
 
 beforeEach(() => {
-  verifyAnswer = () => jsonResponse({ ok: true, broken_at: null }, 200);
+  verifyAnswer = () => jsonResponse(INTACT_ANSWER, 200);
   assign.mockReset();
   fetchStub.mockReset();
   fetchStub.mockImplementation(async (input) => {
@@ -219,7 +240,7 @@ describe("AuditVerify — the call it makes", () => {
       expect(await verifyButton()).toBeDisabled();
     });
 
-    release(jsonResponse({ ok: true, broken_at: null }, 200));
+    release(jsonResponse(INTACT_ANSWER, 200));
     await waitFor(async () => {
       expect(await verifyButton()).toBeEnabled();
     });
@@ -233,15 +254,44 @@ describe("AuditVerify — what the chain says", () => {
     // panel rendering the raw `{"ok":true,"broken_at":null}` at an auditor, and
     // kills one that says nothing at all on success — a check whose only signal
     // is the absence of an error is a check nobody can report. The broken
-    // sentence is asserted ABSENT, so a panel rendering both is red.
-    verifyAnswer = () => jsonResponse({ ok: true, broken_at: null }, 200);
+    // sentence is asserted ABSENT, so a panel rendering both is red. The
+    // anchor line is 30bc §1's "on EVERY verdict" half on the good answer: it
+    // kills a panel that says the chain is intact without saying which head it
+    // measured that against, which is the difference between a verified chain
+    // and one whose tail could have been removed unseen.
+    verifyAnswer = () => jsonResponse(INTACT_ANSWER, 200);
     const user = userEvent.setup();
     renderVerify();
 
     await check(user);
 
     expect(await screen.findByText(INTACT)).toBeInTheDocument();
+    expect(within(await region()).getByText(ANCHOR_LINE)).toBeInTheDocument();
+    expect(screen.queryByText(NO_ANCHOR_LINE)).toBeNull();
     expect(screen.queryByText(BROKEN)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("renders the intact sentence and the no-anchor line for a chain never anchored", async () => {
+    // 30bc decision C, the half that makes `anchored_seq` worth rendering at
+    // all. Kills a panel that prints one anchor line for both states — or none
+    // — because `ok: true` with an anchor and `ok: true` without one are
+    // different amounts of evidence: an unanchored tenant's chain can have had
+    // its whole tail removed and still walk cleanly, so a page that reported
+    // that as plain good news would hide exactly the failure 30ba and 30bb
+    // were built to surface. The anchored line is asserted ABSENT, so a panel
+    // hardcoding one sentence cannot satisfy both this case and its neighbour.
+    verifyAnswer = () =>
+      jsonResponse({ ok: true, broken_at: null, truncated_at: null, anchored_seq: null }, 200);
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    const panel = within(await region());
+    expect(await panel.findByText(INTACT)).toBeInTheDocument();
+    expect(panel.getByText(NO_ANCHOR_LINE)).toBeInTheDocument();
+    expect(screen.queryByText(ANCHOR_LINE)).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -254,16 +304,132 @@ describe("AuditVerify — what the chain says", () => {
     // any non-200-shaped answer as an error: a broken chain is a SUCCESSFUL
     // read whose content is bad news, and rendering it as "the chain could not
     // be checked" would report tampering as an outage. The generic failure
-    // sentence is asserted absent for exactly that reason.
-    verifyAnswer = () => jsonResponse({ ok: false, broken_at: BROKEN_SEQ }, 200);
+    // sentence is asserted absent for exactly that reason. The anchor line is
+    // asserted here too (30bc §1): which head a FAILED check was measured
+    // against is part of reading the failure, and a panel that renders the line
+    // only on the happy path leaves the one verdict an auditor escalates
+    // without the fact that qualifies it.
+    verifyAnswer = () =>
+      jsonResponse(
+        { ok: false, broken_at: BROKEN_SEQ, truncated_at: null, anchored_seq: ANCHORED_SEQ },
+        200,
+      );
     const user = userEvent.setup();
     renderVerify();
 
     await check(user);
 
     expect(await screen.findByText(BROKEN)).toBeInTheDocument();
+    expect(within(await region()).getByText(ANCHOR_LINE)).toBeInTheDocument();
     expect(screen.queryByText(INTACT)).toBeNull();
+    expect(screen.queryByText(TRUNCATED)).toBeNull();
     expect(screen.queryByText(AUDIT_VERIFY_READ_MESSAGE)).toBeNull();
+  });
+
+  it("renders the missing-tail sentence for a truncated chain and no alert", async () => {
+    // The two halves of 30bc §1's truncated criterion in one case, and the
+    // defect at HEAD. Kills the panel as it stands, which reads `ok` and
+    // `broken_at` only and prints `The chain is broken at event null.` for the
+    // one failure mode the anchor was added to detect. It also kills the
+    // wording decision B refused: `truncated_at` is a seq that is GONE, so a
+    // sentence naming it as where the chain is truncated sends an auditor to a
+    // row that is not there. The absent `role="alert"` is the second half — a
+    // truncated verdict is a SUCCESSFUL read whose content is bad news, and
+    // rendering it in the refusal channel reports tampering as an outage,
+    // which is the wrong escalation.
+    verifyAnswer = () =>
+      jsonResponse(
+        { ok: false, broken_at: null, truncated_at: ANCHORED_SEQ, anchored_seq: ANCHORED_SEQ },
+        200,
+      );
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    const panel = within(await region());
+    expect(await panel.findByText(TRUNCATED)).toBeInTheDocument();
+    expect(panel.getByText(ANCHOR_LINE)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(INTACT)).toBeNull();
+  });
+
+  it("renders no broken sentence at all for a truncated chain", async () => {
+    // The same answer, asserted from the other side: the broken sentence is
+    // queried by its STEM, so `The chain is broken at event null.` and `...at
+    // event 902.` are both caught. Kills a panel branching on `ok` alone and
+    // reusing 24bb's one failure sentence for both facts — which is exactly
+    // what HEAD does — where the case above alone could be satisfied by a panel
+    // that rendered the missing-tail sentence AND the broken one together, one
+    // answer saying two different things about the same chain.
+    verifyAnswer = () =>
+      jsonResponse(
+        { ok: false, broken_at: null, truncated_at: ANCHORED_SEQ, anchored_seq: ANCHORED_SEQ },
+        200,
+      );
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    expect(await within(await region()).findByText(TRUNCATED)).toBeInTheDocument();
+    expect(screen.queryByText(/The chain is broken at event/)).toBeNull();
+  });
+
+  it("renders only the broken sentence when both seqs arrive non-null", async () => {
+    // Decision D, over the shape `verify_chain` never emits. Kills a panel
+    // rendering whatever is non-null: two verdict sentences on one answer is
+    // the page inventing a verdict shape the engine does not have, and an
+    // auditor reading both has no way to tell which seq to open the log at.
+    // The engine answers the earlier, more specific fact first, so the panel
+    // does too. This case cannot be satisfied by the truncated case's
+    // implementation nor by HEAD's: one branch must win, and it must be
+    // `broken_at`.
+    verifyAnswer = () =>
+      jsonResponse(
+        {
+          ok: false,
+          broken_at: BROKEN_SEQ,
+          truncated_at: ANCHORED_SEQ,
+          anchored_seq: ANCHORED_SEQ,
+        },
+        200,
+      );
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    expect(await within(await region()).findByText(BROKEN)).toBeInTheDocument();
+    expect(screen.queryByText(TRUNCATED)).toBeNull();
+  });
+
+  it("renders the did-not-verify sentence and never the words event null", async () => {
+    // 30bc §1's unhappy path and §5's fourth risk. Kills a panel with no
+    // fallback branch, which is HEAD: `ok: false` with both seqs null renders
+    // `The chain is broken at event null.` — a sentence that names no row, for
+    // an answer that says only that the walk did not come out clean. The
+    // substring assertion is over the whole rendered document rather than one
+    // sentence, so `event null` cannot reappear through the anchor line or any
+    // later addition either. It is paired with the positive sentence so a panel
+    // rendering NOTHING at all — which would also hold no `event null` — is
+    // still red, and it kills a panel claiming the chain intact for a false
+    // `ok`.
+    verifyAnswer = () =>
+      jsonResponse(
+        { ok: false, broken_at: null, truncated_at: null, anchored_seq: ANCHORED_SEQ },
+        200,
+      );
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    const panel = within(await region());
+    expect(await panel.findByText(DID_NOT_VERIFY)).toBeInTheDocument();
+    expect(panel.getByText(ANCHOR_LINE)).toBeInTheDocument();
+    expect(screen.queryByText(INTACT)).toBeNull();
+    expect(document.body.textContent ?? "").not.toContain("event null");
   });
 });
 
@@ -354,6 +520,30 @@ describe("AuditVerify — a check that did not come back", () => {
     expect(alert).toHaveTextContent(AUDIT_VERIFY_READ_MESSAGE);
     expect(screen.queryByText(INTACT)).toBeNull();
     expect(screen.queryByText(BROKEN)).toBeNull();
+  });
+
+  it("refuses a 200 carrying the old two-field body and renders no verdict", async () => {
+    // Decision A asserted from the component side: the two new fields are
+    // REQUIRED, so a wire that stopped sending the truncation fact is a payload
+    // the page must refuse rather than render half of. Kills an implementation
+    // that declares `truncated_at` and `anchored_seq` `.optional()` — this body
+    // would then parse, `ok: true` would print `The chain is intact.`, and the
+    // anchor line would be rendered from an `undefined` nobody sent, which is
+    // the page reporting evidence it does not have. The old body is used
+    // verbatim because it is what every deploy of this route before 30bb
+    // answered, so the case also pins that a rollback shows a failure sentence
+    // rather than a false all-clear.
+    verifyAnswer = () => jsonResponse({ ok: true, broken_at: null }, 200);
+    const user = userEvent.setup();
+    renderVerify();
+
+    await check(user);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(AUDIT_VERIFY_READ_MESSAGE);
+    expect(screen.queryByText(INTACT)).toBeNull();
+    expect(screen.queryByText(ANCHOR_LINE)).toBeNull();
+    expect(screen.queryByText(NO_ANCHOR_LINE)).toBeNull();
   });
 
   it("pins the read failure sentence exactly", async () => {

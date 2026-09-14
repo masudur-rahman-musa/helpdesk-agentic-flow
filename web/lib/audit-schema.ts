@@ -14,7 +14,8 @@
  * Every field is REQUIRED, and nullable exactly where the tool's own model is:
  * an event's `actor_ref` and `subject_id` (a system actor has no reference and
  * some subjects have no id), the page's `next_before_seq`, and the
- * verification's `broken_at`. An `.optional()` field would let a dropped column
+ * verification's `broken_at`, `truncated_at` and `anchored_seq`. An
+ * `.optional()` field would let a dropped column
  * reach the page as `undefined` and render as a blank cell instead of a refused
  * payload; `tests/audit-schema.test.ts` rejects an event row with any one of
  * the nine missing, one case per field.
@@ -67,15 +68,33 @@ export const auditSearchSchema = z.object({
 });
 
 /**
- * An earlier change's `GET /admin/audit/verify` answer, unchanged.
+ * An earlier change's `GET /admin/audit/verify` answer, as an earlier change left it: four
+ * fields, not two.
  *
  * `broken_at` is the `seq` of the first event whose hash does not follow from
  * the one before it, and null on an intact chain — so `ok: false` with a number
  * is the only shape that says where to look.
+ *
+ * `truncated_at` is the `seq` of the first event that is GONE: rows removed
+ * from the tail leave no broken link behind them, so the anchored head is the
+ * only thing that notices, and this is a separate fact from `broken_at` rather
+ * than a second way of spelling it (30bb decision E).
+ *
+ * `anchored_seq` is the head the check was measured against, and null where
+ * this tenant has never anchored one — which makes `ok: true` a weaker claim,
+ * because an unanchored chain cannot report a removed tail at all.
+ *
+ * All three are REQUIRED and nullable, never `.optional()`: an absent
+ * `anchored_seq` arriving as `undefined` would render as "never anchored",
+ * which is a different claim about the system than "the proxy dropped the
+ * field". `tests/audit-schema.test.ts::rejects a four-field answer missing %s`
+ * refuses each of the four in turn.
  */
 export const auditVerifySchema = z.object({
   ok: z.boolean(),
   broken_at: z.number().nullable(),
+  truncated_at: z.number().nullable(),
+  anchored_seq: z.number().nullable(),
 });
 
 export type AuditEventRow = z.infer<typeof auditEventRowSchema>;

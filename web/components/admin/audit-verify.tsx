@@ -32,8 +32,9 @@ import { Button } from "@/components/ui/field";
  * GET, with no query string at all` pins from this side.
  *
  * Nothing here decides anything. Whether this caller may ask, whether the chain
- * is intact and where it broke all come from an earlier change's route; this renders one
- * sentence about the answer.
+ * is intact, where it broke, where it was cut and which head it was measured
+ * against all come from an earlier change's route as an earlier change left it; this renders one
+ * sentence about the answer and one line naming the head.
  *
  * The read goes through `lib/wire-read.ts`, which owns the redirect, the
  * status, the the design vocabulary check and the `safeParse` for every board
@@ -61,8 +62,64 @@ import { Button } from "@/components/ui/field";
  */
 export const AUDIT_VERIFY_READ_MESSAGE = "The chain could not be checked. Try again in a moment.";
 
-/** An earlier change's answer, as this panel holds it. */
-type ChainVerdict = { ok: boolean; brokenAt: number | null };
+/**
+ * An earlier change's answer as an earlier change left it, as this panel holds it: one shape with
+ * all four facts, never a second type beside it, so `verdictSentence` cannot be
+ * called with half an answer.
+ */
+type ChainVerdict = {
+  ok: boolean;
+  brokenAt: number | null;
+  truncatedAt: number | null;
+  anchoredSeq: number | null;
+};
+
+/**
+ * The one sentence for one answer.
+ *
+ * `broken_at` wins where both seqs arrive non-null — a shape `verify_chain`
+ * never emits, because it answers the earlier and more specific fact when a
+ * chain is both edited and shortened. Two sentences on screen would be this
+ * page inventing a verdict shape the engine does not have. Pinned by
+ * `tests/audit-verify-panel.test.tsx::renders only the broken sentence when
+ * both seqs arrive non-null`.
+ *
+ * The truncated sentence says MISSING rather than "truncated at", because
+ * `truncated_at` is a seq that is gone: an auditor sent to event 902 would find
+ * no row there. Pinned by `::renders the missing-tail sentence for a truncated
+ * chain and no alert`.
+ *
+ * A false `ok` with neither seq is the fallback, and it never claims intact and
+ * never prints a null into a sentence — the defect this function replaces.
+ * Pinned by `::renders the did-not-verify sentence and never the words event
+ * null`.
+ */
+function verdictSentence(verdict: ChainVerdict): string {
+  if (verdict.ok) {
+    return "The chain is intact.";
+  }
+  if (verdict.brokenAt !== null) {
+    return `The chain is broken at event ${verdict.brokenAt}.`;
+  }
+  if (verdict.truncatedAt !== null) {
+    return `The chain is missing event ${verdict.truncatedAt} and everything after it.`;
+  }
+  return "The chain did not verify.";
+}
+
+/**
+ * Which head the check was measured against, on EVERY verdict including the
+ * failed ones: an intact chain checked against an anchor and an intact chain
+ * with no anchor at all are different amounts of evidence, and a reader of a
+ * break needs to know what it was compared to. Pinned by `::renders the intact
+ * sentence and the no-anchor line for a chain never anchored`.
+ */
+function anchorLine(anchoredSeq: number | null): string {
+  if (anchoredSeq === null) {
+    return "No head has been anchored yet, so a removed tail would not show here.";
+  }
+  return `Checked against the anchored head, event ${anchoredSeq}.`;
+}
 
 export function AuditVerify() {
   const verify = useMutation<ChainVerdict | null>({ mutationFn: fetchVerify });
@@ -87,17 +144,16 @@ export function AuditVerify() {
       ) : null}
 
       {verdict !== null ? (
-        <p className="text-sm">
-          {/* A broken chain is a SUCCESSFUL read whose content is bad news, so
-              it is a verdict and never an alert: rendering it as a failure
-              would report tampering as an outage. The seq is named because it
-              is the single fact plan 07 computed — "the chain is broken" alone
-              leaves an auditor to search the log by hand for the event that
-              does not follow from the one before it. */}
-          {verdict.ok
-            ? "The chain is intact."
-            : `The chain is broken at event ${verdict.brokenAt}.`}
-        </p>
+        <div className="flex flex-col gap-1">
+          {/* A broken or truncated chain is a SUCCESSFUL read whose content is
+              bad news, so it is a verdict and never an alert: rendering it as a
+              failure would report tampering as an outage. The seq is named
+              because it is the single fact plan 07 computed — "the chain is
+              broken" alone leaves an auditor to search the log by hand for the
+              event that does not follow from the one before it. */}
+          <p className="text-sm">{verdictSentence(verdict)}</p>
+          <p className="text-sm text-muted-foreground">{anchorLine(verdict.anchoredSeq)}</p>
+        </div>
       ) : null}
     </section>
   );
@@ -121,5 +177,10 @@ async function fetchVerify(): Promise<ChainVerdict | null> {
   if (payload === null) {
     return null;
   }
-  return { ok: payload.ok, brokenAt: payload.broken_at };
+  return {
+    ok: payload.ok,
+    brokenAt: payload.broken_at,
+    truncatedAt: payload.truncated_at,
+    anchoredSeq: payload.anchored_seq,
+  };
 }
