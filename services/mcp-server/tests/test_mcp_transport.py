@@ -125,6 +125,13 @@ EXPECTED_TOOL_NAMES = {
     # literal is the wire surface, and it is part of every diff adding a
     # REGISTRY entry).
     "list_policy_documents",
+    # An earlier change: the re-ingest, the first MUTATION on the policy corpus.
+    # Twenty-eight names become twenty-nine - an edited corpus file could be
+    # made live only from a shell on the ingest host, so `/admin/policies`
+    # could show a stale version and do nothing about it (a project rule:
+    # this literal is the wire surface, and it is part of every diff adding a
+    # REGISTRY entry).
+    "reingest_policy_document",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

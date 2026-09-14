@@ -259,6 +259,24 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
+    # An earlier change: the WRITE half of the row above, with the same two cells. SPEC
+    # section 14 gives `/admin/policies` to `it_admin` and `platform_admin`,
+    # and this is the action on that page, so a wider row would hand somebody
+    # a button the page never shows them - and a narrower one (`platform_admin`
+    # alone, copied from `set_kill_switch` by habit) would leave the `it_admin`
+    # who reads the board unable to act on it. `auditor` is absent on ADR
+    # 0021's reasoning, and `employee` is absent even though every principal
+    # may SEARCH the corpus: reading a policy is not rewriting the evidence
+    # every access decision cites.
+    "reingest_policy_document": {
+        "employee": None,
+        "manager": None,
+        "system_owner": None,
+        "hr": None,
+        "it_admin": "any",
+        "auditor": None,
+        "platform_admin": "any",
+    },
 }
 
 ALL_CASES: list[tuple[str, str, str | None]] = [

@@ -110,6 +110,22 @@ class CorpusDirectoryNotFoundError(ToolError):
     code = ErrorCode.VALIDATION
 
 
+class CorpusDocumentNotFoundError(ToolError):
+    """The corpus file this re-ingest was pointed at is not on disk.
+
+    `NOT_FOUND`, and raised before any effect: the file
+    is the source of truth, so a slug with no `policy_documents` row is still
+    ingestable and only the FILE's absence is an absence. A success reporting
+    zero documents would read, on the admin page, exactly like an unchanged
+    source that wrote nothing, and an unguarded read would cross the tool
+    boundary as an untyped `INTERNAL`. Pinned, with the vector store, the
+    gateway and the embedder all asserted untouched, by
+    `test_rag_pipeline.py::test_a_missing_corpus_file_is_not_found_before_any_effect`.
+    """
+
+    code = ErrorCode.NOT_FOUND
+
+
 @dataclass(frozen=True)
 class IngestResult:
     """What one document's ingest did.
@@ -243,6 +259,67 @@ async def ingest_version(
                 )
             )
     return results
+
+
+async def ingest_one_document(
+    session: AsyncSession,
+    client: AsyncQdrantClient,
+    *,
+    corpus_root: Path,
+    tenant_slug: str,
+    slug: str,
+    version: str,
+    redactor: Redactor,
+    embedder: Embedder,
+    ingested_at: datetime,
+) -> IngestResult:
+    """Ingest ONE corpus document, addressed by its slug and version.
+
+    The single-file twin of `ingest_version`, and it
+    owns the same two things that function owns and nothing else: where a
+    corpus file lives (`{corpus_root}/{tenant_slug}/{version}/{slug}.md`) and
+    what its `source_path` string is (`{tenant_slug}/{version}/{slug}.md`,
+    corpus-relative). Keeping both here is what stops the MCP tool holding a
+    second copy of the corpus layout; pinned as exact strings, against three
+    decoy files planted at the layouts a wrong composition would reach, by
+    `test_rag_pipeline.py::test_ingest_one_document_reads_the_version_directorys_file`.
+
+    A session rather than a factory, unlike `ingest_version`: the write runs
+    in the CALLER's transaction, which for the admin tool is the MCP
+    pipeline's, so the ingest and the tool's own records commit together.
+
+    All three of `slug`, `version` and `tenant_slug` are checked before the
+    path is composed, so the one argument that becomes a path SEGMENT cannot
+    traverse out of the corpus and no file is opened on a refusal;
+    `::test_a_traversing_slug_is_refused_before_the_filesystem_is_touched`
+    plants a real decoy at each traversed path, so deleting `check_slug`
+    fails the case rather than merely changing which error is raised.
+    """
+    check_slug(tenant_slug)
+    check_slug(slug)
+    check_version(version)
+
+    name = f"{slug}{MARKDOWN_SUFFIX}"
+    path = corpus_root / tenant_slug / version / name
+    if not path.is_file():
+        raise CorpusDocumentNotFoundError(
+            f"no corpus document {slug!r} in tenant {tenant_slug!r} version {version!r}"
+        )
+
+    source = path.read_bytes()
+    return await ingest_document(
+        session,
+        client,
+        tenant_slug=tenant_slug,
+        slug=slug,
+        title=_title_of(source, fallback=slug),
+        version=version,
+        source_path=f"{tenant_slug}/{version}/{name}",
+        source=source,
+        redactor=redactor,
+        embedder=embedder,
+        ingested_at=ingested_at,
+    )
 
 
 def _title_of(source: bytes, *, fallback: str) -> str:

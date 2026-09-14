@@ -43,6 +43,13 @@ Not asserted here, and why (a project rule - already pinned, not duplicated):
   absent-or-malformed row below is kept because it is the one that also pins
   that THIS router reaches the seam at all.
 
+An earlier change extends this file with the re-ingest POST (``POST
+/admin/policies/reingest``); its own expected surface is written out above its
+three cases, at the end of the file. Its bearer and refusal cases carry their
+own names rather than 31a section 6's, because the board's cases already hold
+those names in this module and a duplicate definition would silently replace
+one of them.
+
 Cost and isolation: NO backing service at all, exactly as
 ``test_rules_routes.py`` and ``test_killswitch_routes.py``. The lifespan is
 never entered - this route reads nothing off ``app.state`` - so nothing here
@@ -62,14 +69,19 @@ from agent_api import deps, policies_routes
 from agent_api.main import app
 from agent_api.mcp_client import (
     RemoteForbiddenError,
+    RemoteNotFoundError,
     RemoteToolDisabledError,
     RemoteToolError,
+    RemoteValidationError,
     ToolCaller,
 )
 from helpdesk.auth.jwt import issue_token
 from helpdesk.core.settings import Settings
 from helpdesk.errors import ErrorCode
-from mcp_server.tools.admin import ListPolicyDocumentsOutput
+from mcp_server.tools.admin import (
+    ListPolicyDocumentsOutput,
+    ReingestPolicyDocumentOutput,
+)
 from pydantic import BaseModel
 
 LIST_POLICY_DOCUMENTS = "list_policy_documents"
@@ -643,3 +655,204 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     assert response.status_code == status
     assert response.json() == {"code": code.value}
     assert caller.entered == 1
+
+
+# --- an earlier change: the re-ingest POST ---------------------------------------------
+#
+# Surface under test (written before it exists; the three cases below are red
+# on one of these names until step 6 lands):
+#
+# ``agent_api.policies_routes``
+#     ``REINGEST_PATH = "/admin/policies/reingest"`` - SPEC section 14's page
+#     with the action appended, identical upstream and browser-side (24eb
+#     decision C, 31a decision I).
+#     ``REINGEST_POLICY_DOCUMENT_TOOL = "reingest_policy_document"``.
+#     ``ReingestPolicyDocumentArgs(BaseModel)`` - exactly ``slug``, ``version``
+#     and ``idempotency_key``, the three keys the tool's own input declares.
+#     ``POST REINGEST_PATH`` over the same ``deps`` seam as the GET above:
+#     ``call_tool_route`` verifies the bearer, opens ONE session under the
+#     caller's own token and renders the tool's structured output unchanged.
+#
+# Nothing new in ``deps.STATUS_FOR_CODE`` (31a criterion 15): four of its
+# existing five codes cross this route, and the map itself is pinned as an
+# exact mapping by ``test_killswitch_routes.py::
+# test_the_shared_status_map_answers_exactly_five_codes_with_no_internal_row``
+# (a project rule - already held, not duplicated here).
+
+REINGEST_PATH = "/admin/policies/reingest"
+REINGEST_POLICY_DOCUMENT = "reingest_policy_document"
+
+REINGEST_SLUG = "fake-aa-access-policy"
+REINGEST_VERSION = "v9"
+REINGEST_KEY = "fake-reingest-key-0123456789abcdef"
+
+REINGEST_BODY: Mapping[str, Any] = {
+    "slug": REINGEST_SLUG,
+    "version": REINGEST_VERSION,
+    "idempotency_key": REINGEST_KEY,
+}
+"""The browser's request body: the three keys and nothing else."""
+
+REINGEST_PAYLOAD: Mapping[str, Any] = {
+    "slug": REINGEST_SLUG,
+    "version": REINGEST_VERSION,
+    "created": True,
+    "chunk_count": 4,
+    "is_current": True,
+    "sha256": "e5" * 32,
+    "ingested_at": "2026-05-04T09:30:00Z",
+    "summary": "Re-ingested fake-aa-access-policy v9: 4 chunks, now current.",
+}
+"""One re-ingest exactly as `reingest_policy_document` answers it (31a
+criterion 10): seven values and the human-readable summary FIELD."""
+
+
+def _post(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    caller: ToolCaller,
+    body: Mapping[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
+) -> tuple[httpx.Response, CallerSpy]:
+    """One re-ingest against the app, with the tool caller replaced at the seam.
+
+    The same seam, the same reason and the same absent lifespan as `_get`: this
+    route reads nothing off `app.state`, so nothing here opens a socket.
+    """
+    spy = CallerSpy(caller)
+    monkeypatch.setattr(deps, "build_tool_caller", spy.build)
+
+    async def scenario(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post(
+            REINGEST_PATH,
+            json=dict(REINGEST_BODY if body is None else body),
+            headers=dict(headers or {}),
+        )
+
+    return _drive(scenario), spy
+
+
+def test_the_reingest_route_sends_its_exact_three_key_argument_set(
+    policies_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Section 1's "hands `call_tool_route` exactly `{slug, version,
+    idempotency_key}` and the caller's own `Authorization` header, reshapes
+    nothing on the way out", as an EXACT dict.
+
+    Catches a route that passes the caller's tenant or user id along as a
+    fourth argument: `ReingestPolicyDocumentInput` forbids extras, so the call
+    would cross back as a `VALIDATION` and the control would never work - and a
+    `tenant_id` in particular is the browser asking to rewrite another tenant's
+    corpus, which the token is the only authority on (a project rule: nothing
+    here leans on a cross-tenant guard, because the argument must not exist at
+    all). It equally catches a route that DROPS the idempotency key or mints
+    one of its own, which would turn every retry of a re-ingest into a second
+    ingest rather than a replay.
+
+    The bearer half is a project rule: the token the caller presented is forwarded
+    VERBATIM, so RBAC, the kill switch and the tool's `policy.reingested` event
+    name this admin. A route that minted a service token fails on that
+    assertion alone.
+
+    The staged answer is validated against the tool's own output model first: a payload invented here rather than read off
+    `mcp_server/tools/admin.py` would let the body assertion pass while the
+    route answered a shape the web parser refuses.
+    """
+    assert ReingestPolicyDocumentOutput.model_validate(REINGEST_PAYLOAD).model_dump(
+        mode="json"
+    ) == dict(REINGEST_PAYLOAD)
+    caller = ScriptedToolCaller(REINGEST_PAYLOAD)
+    token = _token()
+
+    response, spy = _post(monkeypatch=monkeypatch, caller=caller, headers=_auth(token))
+
+    assert response.status_code == 200
+    assert response.json() == dict(REINGEST_PAYLOAD)
+    assert caller.calls == [(REINGEST_POLICY_DOCUMENT, dict(REINGEST_BODY))]
+    assert spy.bearer_tokens == [token]
+    assert policies_routes.REINGEST_PATH == REINGEST_PATH
+    assert policies_routes.REINGEST_POLICY_DOCUMENT_TOOL == REINGEST_POLICY_DOCUMENT
+    assert set(policies_routes.ReingestPolicyDocumentArgs.model_fields) == set(REINGEST_BODY)
+    assert ("POST", REINGEST_PATH) in {
+        (method, getattr(route, "path", None))
+        for route in app.routes
+        for method in getattr(route, "methods", set())
+    }
+
+
+@pytest.mark.parametrize(
+    ("error_class", "code", "status"),
+    [
+        pytest.param(RemoteValidationError, ErrorCode.VALIDATION, 400, id="validation-400"),
+        pytest.param(RemoteForbiddenError, ErrorCode.FORBIDDEN, 403, id="forbidden-403"),
+        pytest.param(RemoteNotFoundError, ErrorCode.NOT_FOUND, 404, id="not-found-404"),
+        pytest.param(RemoteToolDisabledError, ErrorCode.TOOL_DISABLED, 503, id="disabled-503"),
+    ],
+)
+def test_a_reingest_tool_refusal_answers_its_own_typed_code(
+    policies_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+    error_class: type[RemoteToolError],
+    code: ErrorCode,
+    status: int,
+) -> None:
+    """Section 1's criterion 15: four of `deps.STATUS_FOR_CODE`'s existing five
+    cross THIS route, each as its own typed code.
+
+    Catches a route that maps every refusal onto one status. All four are
+    reachable here and all four mean different things to the admin holding the
+    button: a traversing slug or a malformed version is a `VALIDATION` they can
+    fix by typing something else (400), a corpus file that is not on the host
+    is a `NOT_FOUND` that needs the file deployed (404), a matrix denial is a
+    permission they do not hold (403), and a tripped kill switch is "not right
+    now" (503). Collapsing them - or letting the `ToolError` escape into
+    FastAPI's untyped 500 - sends every one of those admins to look for an
+    outage.
+
+    Catches a router that built its own status map too, which is what 23c
+    decision C moved the map to stop. The bearer verifies and the body is
+    valid, so neither the token gate nor FastAPI's own validation can decide
+    these rows: only the `except ToolError` branch can.
+    """
+    caller = RefusingToolCaller(error_class(code.value))
+
+    response, _spy = _post(monkeypatch=monkeypatch, caller=caller, headers=_auth(_token()))
+
+    assert response.status_code == status
+    assert response.json() == {"code": code.value}
+    assert caller.entered == 1
+
+
+@pytest.mark.parametrize(
+    "headers", [case[1] for case in BAD_BEARERS], ids=[case[0] for case in BAD_BEARERS]
+)
+def test_an_absent_or_malformed_bearer_on_the_reingest_route_is_a_typed_401(
+    policies_env: None, monkeypatch: pytest.MonkeyPatch, headers: Mapping[str, str]
+) -> None:
+    """The MUTATING twin of the board's 401 case, and the sharper one: this
+    route rewrites a tenant's corpus.
+
+    Catches a route with no token check at all, and one that checks the token
+    AFTER opening the MCP session: the caller is scripted with NOTHING, so a
+    route that entered it or called a tool fails outright rather than showing
+    up as a count read afterwards. An unauthenticated caller who reached the
+    tool would be re-ingesting under whatever identity the far side derived.
+
+    KILL: `deps.call_tool_route` calls `authenticated`
+    exactly once and this route derives no identity of its own, so deleting
+    that single call is the only thing that flips these rows. The body is
+    perfectly valid, so FastAPI's own 422 cannot answer them either - a 422
+    here would mean the route declared the body in a way that is checked before
+    the bearer is.
+    """
+    caller = ScriptedToolCaller()
+
+    response, spy = _post(
+        monkeypatch=monkeypatch, caller=caller, body=REINGEST_BODY, headers=headers
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"code": ErrorCode.FORBIDDEN.value}
+    assert caller.entered == 0
+    assert caller.calls == []
+    assert spy.bearer_tokens == []

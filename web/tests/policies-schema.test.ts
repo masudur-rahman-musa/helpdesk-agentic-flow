@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   policyDocumentSchema,
   policyDocumentsBoardSchema,
+  policyReingestResultSchema,
   policyVersionSchema,
 } from "@/lib/policies-schema";
 
@@ -252,5 +253,108 @@ describe("policyDocumentSchema", () => {
     expect(policyDocumentSchema.safeParse({ ...ACCESS_DOCUMENT, versions: null }).success).toBe(
       false,
     );
+  });
+});
+
+/**
+ * An earlier change §6, extending this file: the RESULT envelope the re-ingest POST
+ * returns, one rejection case per required field.
+ *
+ * Surface under test (written before it exists):
+ * - `web/lib/policies-schema.ts` also exports `policyReingestResultSchema` and
+ *   the inferred type `PolicyReingestResult`.
+ * - the envelope is the tool's `ReingestPolicyDocumentOutput` verbatim: eight
+ *   REQUIRED fields, `slug`, `version`, `created`, `chunk_count`,
+ *   `is_current`, `sha256`, `ingested_at` and `summary` — read off
+ *   `mcp_server/tools/admin.py`, never invented here.
+ * - nothing is `.strict()`, for the same reason nothing above it is, and
+ *   nothing is coerced: the instant and the digest cross as strings, the count
+ *   as a number and the two flags as booleans.
+ */
+
+/** One re-ingest that landed: every field present, obviously fake. */
+const REINGEST_RESULT: Record<string, unknown> = {
+  slug: "fake-access-policy",
+  version: "v9",
+  created: true,
+  chunk_count: 4,
+  is_current: true,
+  sha256: "e5".repeat(32),
+  ingested_at: "2026-05-04T09:30:00Z",
+  summary: "Re-ingested fake-access-policy v9: 4 chunks, now current.",
+};
+
+/** The eight field names, written out rather than derived from the object. */
+const REINGEST_FIELDS = [
+  "slug",
+  "version",
+  "created",
+  "chunk_count",
+  "is_current",
+  "sha256",
+  "ingested_at",
+  "summary",
+] as const;
+
+describe("policyReingestResultSchema", () => {
+  it("accepts a landed re-ingest and an unchanged one", () => {
+    // The premise every rejection row below depends on: a schema that refused
+    // the complete payload would make all eight of them pass while the control
+    // reported failure on a re-ingest that worked. The UNCHANGED shape is the
+    // second half — `created: false` with `chunk_count: 0` is what the tool
+    // answers for a source whose sha256 already matched, and a schema written
+    // `z.number().positive()` or `z.literal(true)` refuses exactly the answer
+    // the admin gets when nothing needed doing.
+    expect(policyReingestResultSchema.safeParse(REINGEST_RESULT).success).toBe(true);
+    expect(REINGEST_FIELDS).toHaveLength(8);
+    expect(
+      policyReingestResultSchema.safeParse({
+        ...REINGEST_RESULT,
+        created: false,
+        chunk_count: 0,
+        is_current: false,
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each(REINGEST_FIELDS)("rejects a re-ingest result with no %s", (field) => {
+    // Catches a parser that declares the field `.optional()` (or omits it
+    // altogether). Each is a different silent lie on the one surface that says
+    // what the mutation did: an undefined `created` or `chunk_count` leaves the
+    // page unable to tell a re-ingest that wrote four chunks from one that
+    // wrote nothing, an undefined `is_current` loses whether the version just
+    // made live is the live one (decision E's whole visible effect), an
+    // undefined `sha256` removes the only evidence the file on disk differed,
+    // an undefined `ingested_at` leaves no time to show, and an undefined
+    // `slug` or `version` leaves the answer unattached to the row it belongs
+    // to. A missing `summary` leaves the control with nothing to say, which is
+    // the field the design requires beside the values rather than instead of
+    // them.
+    expect(policyReingestResultSchema.safeParse(without(REINGEST_RESULT, field)).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects coerced values and accepts an unknown extra key", () => {
+    // The other half of "never coerced", and the `.strict()` check this file
+    // already makes for the board. Catches `z.coerce.boolean()` on `created`,
+    // which turns the string "false" into `true` — a re-ingest that did
+    // nothing reported as one that landed — and `z.coerce.number()` on
+    // `chunk_count`, which accepts "0" and hands the page a value no
+    // comparison can use. The extra key is the deploy-safety row: the wire may
+    // grow, and a page that refused a payload carrying one new key would break
+    // on a deploy that changed nothing it reads.
+    expect(
+      policyReingestResultSchema.safeParse({ ...REINGEST_RESULT, created: "false" }).success,
+    ).toBe(false);
+    expect(
+      policyReingestResultSchema.safeParse({ ...REINGEST_RESULT, chunk_count: "4" }).success,
+    ).toBe(false);
+    expect(
+      policyReingestResultSchema.safeParse({ ...REINGEST_RESULT, ingested_at: 1 }).success,
+    ).toBe(false);
+    expect(
+      policyReingestResultSchema.safeParse({ ...REINGEST_RESULT, requested_by: "fake" }).success,
+    ).toBe(true);
   });
 });

@@ -105,9 +105,15 @@ ADMIN_TOOLS: frozenset[str] = frozenset(
         # reaches the corpus through `search_policy`, which answers the spans
         # an employee may read rather than the ingest's version history.
         "list_policy_documents",
+        # An earlier change decision G: the re-ingest, registered as a tool and
+        # deliberately left out of the catalogue. Sharper than the five above -
+        # a model that can re-ingest a corpus can change the evidence its own
+        # next answer cites, so the only caller is a person on
+        # `/admin/policies`, exactly as `set_kill_switch` is person-only.
+        "reingest_policy_document",
     }
 )
-"""The six tools row 24 owns, which this catalogue must NOT register."""
+"""The seven tools rows 24 and 31a own, which this catalogue must NOT register."""
 
 CATALOGUED_TOOLS: frozenset[str] = frozenset(
     {
@@ -134,7 +140,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
 )
 """Every tool the agent may reach, as a literal: nineteen.
 
-Counted from the server's own `REGISTRY` — twenty-eight specs — less the six
+Counted from the server's own `REGISTRY` — twenty-nine specs — less the seven
 in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools row 23ga
 deliberately leaves out (decision E): a tool the model may call is
 model-driven behaviour and owes golden cases before it merges, and the
@@ -165,6 +171,10 @@ mcp-server (the design): these are exactly the tools whose wire input carries
 an `idempotency_key`, and the twelve rows below are what hold that copy true."""
 
 IDEMPOTENCY_KEY = "idempotency_key"
+
+REINGEST_POLICY_DOCUMENT = "reingest_policy_document"
+"""An earlier change's tool, named here as a literal: the catalogue must know it only as
+a name it does NOT register (decision G)."""
 
 
 def _advertised(env: SeededMcp) -> dict[str, Any]:
@@ -238,6 +248,26 @@ def test_the_citation_model_carries_exactly_the_seven_wire_fields() -> None:
     not be able to edit one on the way."""
     assert set(Citation.model_fields) == set(CITATION_FIELDS)
     assert Citation.model_config.get("frozen") is True
+
+
+def test_the_reingest_tool_is_advertised_but_is_not_the_models_to_call() -> None:
+    """An earlier change decision G, both halves.
+
+    KILL: a `TOOL_INPUTS` entry for `reingest_policy_document`. The agent
+    proposes tools from this mapping, so an entry is a model that can re-ingest
+    a tenant's corpus mid-turn - rewriting the very `policy_chunks` its next
+    `search_policy` cites, with no person in the loop and no golden case over
+    the behaviour. `set_kill_switch` is the precedent, and this is the same
+    class of control: the page asks the wire directly.
+
+    The membership assertion is the other half. `ADMIN_TOOLS` is what the
+    catalogue-size case measures itself against, so a name simply forgotten
+    here would leave the tool absent from both sets and nothing red - the
+    disjointness check is satisfied by a name that is in neither.
+    """
+    assert REINGEST_POLICY_DOCUMENT in ADMIN_TOOLS
+    assert REINGEST_POLICY_DOCUMENT not in TOOL_INPUTS
+    assert REINGEST_POLICY_DOCUMENT not in CATALOGUED_TOOLS
 
 
 # --- decision C: the drift test ------------------------------------------------

@@ -142,6 +142,10 @@ def test_the_registry_declares_the_non_success_event_types_exactly() -> None:
         "ticket.created",
         "request.classified",
         "request.created",
+        # An earlier change decision D: the corpus is what every access decision cites,
+        # so a change to it is a governance record and not a generic
+        # `tool.succeeded`. SPEC section 13.1's list is explicitly a minimum.
+        "policy.reingested",
     }
 
 
@@ -334,6 +338,14 @@ MUTATING_TOOL_NAMES = frozenset(
         # written. A `True` here would demand an idempotency key for a call
         # the guard never protects, so `/admin/policies` could not render
         # without minting one.
+        #
+        # An earlier change: `reingest_policy_document` DOES belong here. It reads a
+        # corpus file, registers a version and writes points and chunk rows,
+        # so a retried call must replay the stored response rather than run
+        # the ingest a second time - which, on a source the first call already
+        # registered, answers `created=false, chunk_count=0` for a call the
+        # caller saw land four chunks.
+        "reingest_policy_document",
     }
 )
 
@@ -579,6 +591,58 @@ def test_the_kill_switch_board_is_registered_once_under_its_matrix_name(
     is identical (`it_admin` and `platform_admin` at `Scope.ANY`), so no
     permission test anywhere would notice and every kill switch the pipeline
     checked for the corpus board would be keyed on the rules board's name.
+    """
+    spec = REGISTRY[name]
+
+    assert spec.name == name == tool.value
+    assert spec.tool is tool
+    assert spec.event_type == event_type
+    assert spec.mutating is mutating
+    assert name not in registry.WIRE_NAME_ALIASES
+
+
+# --- the admin board's write half ------------------------------------
+
+
+ADMIN_MUTATION_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
+    # An earlier change: the re-ingest. A MUTATION over the filesystem, Qdrant and
+    # Postgres, so it rides the idempotency guard and IS on
+    # `MUTATING_TOOL_NAMES` above - and it declares its OWN success event
+    # (decision D) rather than the generic one, which is what separates it
+    # from every row of the admin READ table above.
+    (
+        "reingest_policy_document",
+        rbac.Tool.REINGEST_POLICY_DOCUMENT,
+        "policy.reingested",
+        True,
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "tool", "event_type", "mutating"),
+    ADMIN_MUTATION_TOOL_EXPECTATIONS,
+    ids=[name for name, _, _, _ in ADMIN_MUTATION_TOOL_EXPECTATIONS],
+)
+def test_the_reingest_tool_is_registered_once_under_its_matrix_name(
+    name: str, tool: rbac.Tool, event_type: str, mutating: bool
+) -> None:
+    """Catches the spec pointed at `rbac.Tool.LIST_POLICY_DOCUMENTS`, whose
+    SPEC section 7 row is identical (`it_admin` and `platform_admin` at
+    `Scope.ANY`) and whose module and page it shares, so no permission test
+    anywhere would notice - and every kill switch the pipeline checked for the
+    re-ingest would be keyed on the board's name, leaving the mutation running
+    while an operator believed they had stopped it.
+
+    It also catches the tool declared as a READ, which skips the idempotency
+    guard entirely so a retried re-ingest runs the whole ingest again, and a
+    declared `tool.succeeded`, which would leave `search_audit` with no way to
+    answer "when was this corpus last rewritten" - the one question decision D
+    exists for.
+
+    The name and the event type are written out literally rather than derived
+    from the registry: reading the value under test back out of the code under
+    test would assert nothing.
     """
     spec = REGISTRY[name]
 

@@ -335,6 +335,23 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # An earlier change. SPEC section 7's re-ingest row: the WRITE on `/admin/policies`,
+    # with the same two cells as the board directly above. `platform_admin`
+    # alone - the shape `set_kill_switch` has, and the one a mutation this
+    # dangerous invites by habit - would leave the `it_admin` who reads the
+    # board unable to act on it, and any wider row hands somebody a tool that
+    # rewrites the evidence every access decision cites (a project rule:
+    # this literal is SPEC section 7, and it is part of every diff that adds a
+    # tool or changes a cell).
+    "reingest_policy_document": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # An earlier change: the design gives the policy search every principal at
     # `Scope.ANY` — everyone who can ask a question can read the policy behind
     # the answer, and a single False here would be a corpus an employee cannot
@@ -396,6 +413,15 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
         # matrix. A row of the caller's OWN would succeed instead and the cell
         # would pin nothing about existence.
         "mark_notification_read",
+        # An earlier change. It runs no scope helper at all (SPEC section 7 gives it two
+        # `Scope.ANY` cells), so it tests EXISTENCE after permission and
+        # belongs here rather than in `SCOPE_BEFORE_EXISTENCE_TOOLS` (standing
+        # rule 25). The slug it is sent below names no corpus file under this
+        # run's `POLICY_DIR`, which the pipeline answers NOT_FOUND: a permitted
+        # caller must get past RBAC and be refused by that read, and a
+        # permitted call that SUCCEEDED would re-ingest a document per
+        # (tool, principal) cell into the shared seeded database.
+        "reingest_policy_document",
     }
 )
 
@@ -540,6 +566,16 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # and the plain permitted branch of the sweep is the strict assertion
         # that pins the two cells.
         "list_policy_documents",
+        # An earlier change: `reingest_policy_document` takes a `slug` and a `version`,
+        # which name a file inside the TOKEN tenant's own corpus directory and
+        # are not ids of anybody's rows - there is no other tenant's slug to
+        # send, because the tenant segment of the path is resolved from the
+        # token through `find_tenant_by_id`. Its isolation is
+        # pinned instead by `test_mcp_reingest_policy_document.py::
+        # test_the_two_permitted_principals_re_ingest_and_the_other_five_are_refused`,
+        # whose written row carries the caller's own tenant slug in
+        # `source_path`.
+        "reingest_policy_document",
     }
 )
 # The five decision G names explicitly: everything they answer is decided by
@@ -700,6 +736,20 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         # `policy_chunks` and changes nothing, so the sweep leaves the shared
         # database as it found it.
         return {}
+    if tool_name == "reingest_policy_document":
+        # An earlier change. A slug that is VALID (so `check_slug` cannot answer) and
+        # names no file under this run's `POLICY_DIR` (so the pipeline answers
+        # NOT_FOUND), with a fresh idempotency key per call: a permitted
+        # principal is refused by the corpus read rather than re-ingesting a
+        # document per matrix cell into the shared seeded database, and the
+        # tool is therefore in `ALLOW_ANSWERS_NOT_FOUND` above. A traversing or
+        # over-long slug would be refused VALIDATION instead, and the cell
+        # would pin nothing about the matrix.
+        return {
+            "slug": f"fake-matrix-absent-{uuid.uuid4().hex[:12]}",
+            "version": "v1",
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
     if tool_name == "list_notifications":
         # An earlier change. No arguments at all: the list takes no id, and both of
         # its optional arguments have defaults, so a permitted caller reaches
@@ -756,9 +806,34 @@ NO_PRINCIPAL_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
 CASES = [(tool_name, principal) for tool_name in sorted(REGISTRY) for principal in PRINCIPALS]
 
 
+class _RefusingRedactor:
+    """A `Redactor` that fails if it is ever called.
+
+    `reingest_policy_document` is the second tool in the registry that reaches
+    beyond Postgres and Redis, and this file calls every tool once per
+    principal. Left real, each of those seven cells would build an httpx client
+    aimed at the configured redaction gateway, which no test run has.
+
+    It RAISES rather than answering, because the arguments this sweep sends
+    name a corpus file that does not exist: the pipeline refuses before the
+    document is redacted, so a call reaching here means the ingest ran past the
+    NOT_FOUND that makes this tool's permitted cells safe to exercise at all.
+    """
+
+    async def redact_document(self, text: str, tenant_slug: str) -> object:
+        raise AssertionError(
+            "the rbac sweep reached the redaction gateway: a re-ingest ran past "
+            "the missing corpus file the permitted cells rely on"
+        )
+
+
 @pytest.fixture(autouse=True)
 def _stub_policy_search(monkeypatch: pytest.MonkeyPatch) -> None:
     """An earlier change: this sweep never loads a model and never reaches Qdrant.
+
+    An earlier change adds the redaction gateway to the same fixture, as narrowly as
+    these fixtures allow: one module attribute, replaced for
+    the duration of one case, and named in STATUS.
 
     `search_policy` is the one registered tool with an external dependency,
     and this file calls every tool once per principal. Left real, each of
@@ -774,6 +849,7 @@ def _stub_policy_search(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr(rag_clients, "embedder", lambda: RecordingEmbedder())
     monkeypatch.setattr(rag_clients, "qdrant", lambda settings: as_client(RecordingQdrant()))
+    monkeypatch.setattr(rag_clients, "redactor", lambda *_settings: _RefusingRedactor())
 
 
 def test_the_principal_axis_is_the_whole_enum() -> None:

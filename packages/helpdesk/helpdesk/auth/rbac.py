@@ -60,6 +60,7 @@ class Tool(StrEnum):
     LIST_KILL_SWITCHES = "list_kill_switches"
     LIST_SOD_RULES = "list_sod_rules"
     LIST_POLICY_DOCUMENTS = "list_policy_documents"
+    REINGEST_POLICY_DOCUMENT = "reingest_policy_document"
     LIST_NOTIFICATIONS = "list_notifications"
     MARK_NOTIFICATION_READ = "mark_notification_read"
 
@@ -293,6 +294,15 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         # returns the spans an answer may cite, while this row is the ingest's
         # version history, which only an admin can act on.
         Tool.LIST_POLICY_DOCUMENTS: {
+            Principal.IT_ADMIN: Scope.ANY,
+            Principal.PLATFORM_ADMIN: Scope.ANY,
+        },
+        # An earlier change: making an edited corpus file live is the WRITE half of the
+        # row above, so it carries exactly that row's audience and no wider
+        # one. The five other principals are refused whether the corpus file
+        # exists or not, so the tool never reports on a tenant's corpus to
+        # someone who may not read it.
+        Tool.REINGEST_POLICY_DOCUMENT: {
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },

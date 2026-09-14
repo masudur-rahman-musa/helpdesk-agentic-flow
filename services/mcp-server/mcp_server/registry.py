@@ -458,6 +458,36 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=admin.list_policy_documents,
     ),
     ToolSpec(
+        # An earlier change: the WRITE half of the row above, and MUTATING -- it re-reads
+        # a corpus file and can write a `policy_documents` row, its chunk rows
+        # and a Qdrant upsert, so `MutatingToolInput` makes the idempotency key
+        # required, the pipeline's `run_once` spends it, and the name joins
+        # `test_mcp_registry.py::MUTATING_TOOL_NAMES`.
+        #
+        # It declares `policy.reingested` rather than the generic
+        # `tool.succeeded` (decision D): the corpus is what every access
+        # decision cites, so a change to it is a governance record in its own
+        # right, and the design's list is explicitly a minimum.
+        #
+        # It is NOT in `helpdesk.killswitch.PROTECTED_TOOLS`, whose one member
+        # stays `set_kill_switch`: a re-ingest can be stopped like any other
+        # tool. It is also absent from the agent's `TOOL_INPUTS` catalogue
+        # (decision G) -- the model may not change the evidence its own next
+        # answer cites, so the only caller is a person on `/admin/policies`.
+        name=rbac.Tool.REINGEST_POLICY_DOCUMENT.value,
+        tool=rbac.Tool.REINGEST_POLICY_DOCUMENT,
+        description=(
+            "Re-read one policy document from the corpus and make it live. Names the "
+            "document by its slug and its version directory (spelled v1). An unchanged "
+            "source writes nothing and answers created=false with zero chunks."
+        ),
+        input_model=admin.ReingestPolicyDocumentInput,
+        output_model=admin.ReingestPolicyDocumentOutput,
+        event_type=admin.REINGESTED_EVENT_TYPE,
+        mutating=True,
+        handler=admin.reingest_policy_document,
+    ),
+    ToolSpec(
         # A READ over Qdrant: nothing is written, so no idempotency key and no
         # domain event of its own — the pipeline's generic `tool.succeeded` is
         # the whole record a search leaves. The wire name, the matrix member,

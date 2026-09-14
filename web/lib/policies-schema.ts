@@ -1,5 +1,6 @@
 /**
- * The parser for what `/api/admin/policies` returns.
+ * The parsers for what `/api/admin/policies` returns and for what
+ * its re-ingest POST answers.
  *
  * Written over the ENVELOPE rather than over a bare row (24eb decision D), the
  * way `rules-schema.ts`, `killswitch-schema.ts` and `audit-schema.ts` carry
@@ -70,6 +71,33 @@ export const policyDocumentsBoardSchema = z.object({
   documents: z.array(policyDocumentSchema),
 });
 
+/**
+ * One re-ingest's result: `ReingestPolicyDocumentOutput`'s eight fields (31a).
+ *
+ * `created` and `chunk_count` are the pair that tells an admin whether the file
+ * they edited actually differed: an unchanged source answers `false` and `0`
+ * because nothing was written, never because the document has no chunks.
+ * `is_current` says which version is live afterwards, which re-ingesting an
+ * OLDER version moves (31a decision E). `summary` is a field beside the values
+ * and never the whole response (SPEC section 8.1), so the control renders the
+ * numbers and shows the sentence.
+ *
+ * Every field is REQUIRED here too, and nothing is coerced, for the reasons the
+ * file header gives: `z.coerce.boolean()` on `created` would read the string
+ * `"false"` as `true` and report an unchanged file as freshly ingested.
+ */
+export const policyReingestResultSchema = z.object({
+  slug: z.string(),
+  version: z.string(),
+  created: z.boolean(),
+  chunk_count: z.number(),
+  is_current: z.boolean(),
+  sha256: z.string(),
+  ingested_at: z.string(),
+  summary: z.string(),
+});
+
 export type PolicyVersion = z.infer<typeof policyVersionSchema>;
 export type PolicyDocument = z.infer<typeof policyDocumentSchema>;
 export type PolicyDocumentsBoard = z.infer<typeof policyDocumentsBoardSchema>;
+export type PolicyReingestResult = z.infer<typeof policyReingestResultSchema>;

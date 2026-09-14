@@ -10,10 +10,10 @@ validation against an advertised schema would instead be a mid-turn failure
 for a user.
 
 NINETEEN entries and no twentieth: the server registers
-twenty-eight tools, of which six belong to the admin surface row 24 owns
-(`test_agent_tool_catalogue.py::ADMIN_TOOLS`, the literal that goes red when a
-seventh is registered), `list_reviews` is read through its own route and the
-two notification tools are row 23ga's deliberate omission. A tool with no
+twenty-nine tools, of which seven belong to the admin surface rows 24 and 31a
+own (`test_agent_tool_catalogue.py::ADMIN_TOOLS`, the literal that goes red
+when an eighth is registered), `list_reviews` is read through its own route
+and the two notification tools are row 23ga's deliberate omission. A tool with no
 entry here cannot be proposed at all, which is defence in depth BEHIND the
 RBAC matrix rather than a replacement for it — the matrix still refuses what a
 principal may not call. Pinned by
