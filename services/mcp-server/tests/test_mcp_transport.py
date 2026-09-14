@@ -71,7 +71,7 @@ EXPECTED_TOOL_NAMES = {
     "revoke_access",
     # An earlier change: the design's joiner, mover and leaver. Added by
     # an earlier change, which is the first session to run this file since they landed
-    # — under `automode = checks` each of those plans ran only its own tests,
+    # — under `test-mode = related-tests` each of those plans ran only its own tests,
     # so this literal was stale for three rows rather than for one.
     "onboard_user",
     "transfer_user",

@@ -77,6 +77,6 @@ Dockerfile
 # private working files (never in an image either)
 notes.md
 his.md
-automode.md
+test-mode.md
 REQUIREMENTS.md
 pl

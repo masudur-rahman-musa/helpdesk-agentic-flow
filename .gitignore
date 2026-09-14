@@ -25,7 +25,7 @@ dist/
 build/
 
 # local working files
-automode.md
+test-mode.md
 notes.md
 REQUIREMENTS.md
 his.md
