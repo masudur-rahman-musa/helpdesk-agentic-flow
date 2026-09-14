@@ -257,7 +257,7 @@ function renderBoard(): void {
 
 async function table(): Promise<HTMLElement> {
   const region = await screen.findByRole("region", { name: "Kill switches" });
-  return within(region).getByRole("table", { name: "Tool kill switches" });
+  return await within(region).findByRole("table", { name: "Tool kill switches" });
 }
 
 /** The table's DATA rows: the ones holding cells rather than column headers. */

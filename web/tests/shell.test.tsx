@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "@/components/app-shell";
 import { DEMO_BANNER_TEXT } from "@/components/demo-banner";
@@ -13,7 +13,26 @@ import { THEME_STORAGE_KEY } from "@/components/theme-toggle";
  * Value the plan left open (a project rule, recorded in 22a's Deviations):
  * the theme control is located as a button whose accessible name matches
  * /theme/i, so the implementation owes it a name containing that word.
+ *
+ * The shell reaches `useRouter` through `MainNav`'s `SignOutButton`, and
+ * `next/navigation` throws `invariant expected app router to be mounted`
+ * outside a Next tree, so the module is mocked here. The
+ * mock is a test seam only: `replaceMock` is asserted by the sign-out case
+ * below, so a shell that stopped rendering the button, or a button that stopped
+ * routing, is red rather than silently satisfied by a mock nothing reads.
  */
+
+const replaceMock = vi.fn<(href: string) => void>();
+const refreshMock = vi.fn<() => void>();
+const pushMock = vi.fn<(href: string) => void>();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: replaceMock, refresh: refreshMock, push: pushMock }),
+  usePathname: () => "/chat",
+}));
+
+const fetchStub = vi.fn<typeof fetch>();
+vi.stubGlobal("fetch", fetchStub);
 
 const FOCUSABLE = 'a[href], button, input, [tabindex]:not([tabindex="-1"])';
 
@@ -27,6 +46,11 @@ function must<T>(value: T | null, what: string): T {
 beforeEach(() => {
   document.documentElement.className = "";
   localStorage.clear();
+  replaceMock.mockReset();
+  refreshMock.mockReset();
+  pushMock.mockReset();
+  fetchStub.mockReset();
+  fetchStub.mockResolvedValue(new Response(null, { status: 204 }));
 });
 
 describe("AppShell — demo banner", () => {
@@ -52,6 +76,25 @@ describe("AppShell — demo banner", () => {
     );
     const main = must(container.querySelector("main#main-content"), "<main id=main-content>");
     expect(main).toHaveTextContent("hello");
+  });
+
+  it("signs out through the router the shell mounts", async () => {
+    // The mock's kill: `next/navigation` is stubbed for every case in this file,
+    // so without this one a shell that dropped the nav entirely would still be
+    // green. It asserts the POST and the route the button owes together, which
+    // is the only pair that proves the mocked hook is the one the tree calls.
+    const user = userEvent.setup();
+    render(
+      <AppShell>
+        <p>hello</p>
+      </AppShell>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    expect(fetchStub).toHaveBeenCalledWith("/api/logout", { method: "POST" });
+    expect(refreshMock).toHaveBeenCalledTimes(1);
   });
 });
 

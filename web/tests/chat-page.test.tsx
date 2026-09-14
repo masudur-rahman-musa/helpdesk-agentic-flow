@@ -192,9 +192,12 @@ describe("ChatPanel — history", () => {
 
     renderPanel();
 
-    const messages = within(await screen.findByRole("log", { name: "Conversation" })).getAllByRole(
-      "article",
-    );
+    // The log itself paints on the first frame with its empty sentence, so the
+    // rows are AWAITED inside it: a sync query here reads the log before the
+    // history read resolves and finds no row at all.
+    const messages = await within(
+      await screen.findByRole("log", { name: "Conversation" }),
+    ).findAllByRole("article");
     expect(messages.map((element) => element.getAttribute("data-role"))).toEqual([
       "user",
       "assistant",

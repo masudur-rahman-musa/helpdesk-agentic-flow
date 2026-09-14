@@ -153,7 +153,7 @@ function rowsOf(list: HTMLElement): HTMLElement[] {
 
 async function requestRows(): Promise<HTMLElement[]> {
   const region = await screen.findByRole("region", { name: "My requests" });
-  return rowsOf(within(region).getByRole("list", { name: "Requests" }));
+  return rowsOf(await within(region).findByRole("list", { name: "Requests" }));
 }
 
 /** One element of a query's result, as a value the type checker can use. */

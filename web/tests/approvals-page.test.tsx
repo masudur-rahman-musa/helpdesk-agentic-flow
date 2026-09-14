@@ -184,7 +184,7 @@ function rowsOf(list: HTMLElement): HTMLElement[] {
 
 async function approvalRows(): Promise<HTMLElement[]> {
   const region = await screen.findByRole("region", { name: "Approvals" });
-  return rowsOf(within(region).getByRole("list", { name: "Pending approvals" }));
+  return rowsOf(await within(region).findByRole("list", { name: "Pending approvals" }));
 }
 
 /** One element of a query's result, as a value the type checker can use. */

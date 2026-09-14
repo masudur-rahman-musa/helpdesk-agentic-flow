@@ -35,13 +35,16 @@ import { Button, Input, Label } from "@/components/ui/field";
  * where the next page starts all come from 13b's tool. This composes a query
  * string, labels nothing (decision B) and renders.
  *
- * Two pieces of page-level state and no more: the APPLIED filters (what the last
- * `Search` committed, never the keystrokes) and the cursor stack. Both are in
- * the query key — `["admin", "audit", "search", filters, beforeSeq]` — so
- * TanStack Query does the caching, stepping back a page is a cache hit, and a
- * cursor from one filter can never page another. Pinned by `::committing a
- * filter after paging clears the cursor stack` and `::clears the cursor stack
- * when the page size changes too`.
+ * Three pieces of page-level state and no more: the APPLIED filters (what the
+ * last `Search` committed, never the keystrokes), the chosen page size and the
+ * cursor stack. All three are in the query key — `["admin", "audit", "search",
+ * filters, pageSize, beforeSeq]` — so TanStack Query does the caching, stepping
+ * back a page is a cache hit, and a cursor from one filter can never page
+ * another. The page size is in the key because it is in the REQUEST: a key
+ * without it answers the 50-row page from cache and the auditor's choice of 200
+ * fires no read at all. Pinned by `::committing a filter after paging clears the
+ * cursor stack`, `::choosing 200 refetches the log with limit=200` and
+ * `::clears the cursor stack when the page size changes too`.
  *
  * An empty control sends NO parameter rather than an empty one: `event_type=` is
  * a filter nothing matches, so a form submitting its empty siblings would answer
@@ -140,7 +143,7 @@ export function AuditSearch() {
   const beforeSeq = stack.length === 0 ? null : (stack[stack.length - 1] ?? null);
 
   const search = useQuery({
-    queryKey: ["admin", "audit", "search", applied, beforeSeq],
+    queryKey: ["admin", "audit", "search", applied, pageSize, beforeSeq],
     queryFn: () => fetchSearch(applied, pageSize, beforeSeq),
   });
 

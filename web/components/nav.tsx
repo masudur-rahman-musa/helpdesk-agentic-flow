@@ -25,8 +25,11 @@ import { SignOutButton } from "@/components/sign-out-button";
  * one sentence rather than a 404; conditional nav needs the principals in the
  * shell, which no row has done.
  *
- * A plain component on purpose — no `usePathname`, so the shell renders in a
- * test without a router context and `tests/shell.test.tsx` needs no mock.
+ * No `usePathname` here: the links are fixed and a nav that read the route
+ * would re-render the header on every navigation for nothing. That is NOT the
+ * same as being router-free, and this file said so until an earlier change —
+ * `SignOutButton` below calls `useRouter`, which throws outside a Next tree, so
+ * `tests/shell.test.tsx` mocks `next/navigation`.
  */
 export function MainNav() {
   return (

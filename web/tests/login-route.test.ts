@@ -92,7 +92,10 @@ describe("POST /api/login — agent-api answers 200", () => {
     const response = await loginPost(loginRequest(validBody()));
     const cookie = onlyCookie(response);
     expect(cookie).toContain("HttpOnly");
-    expect(cookie).toContain("SameSite=Lax");
+    // Next 15 serialises the attribute lowercase (`SameSite=lax`); the value is
+    // case-insensitive per RFC 6265bis, so the library's own casing is what is
+    // pinned here rather than the spelling the plan used.
+    expect(cookie).toContain("SameSite=lax");
     expect(cookie).toContain("Path=/");
   });
 
@@ -211,7 +214,10 @@ describe("lib/session cookie helpers", () => {
     setSessionCookie(response, BEARER);
     const cookie = onlyCookie(response);
     expect(cookie).toContain("HttpOnly");
-    expect(cookie).toContain("SameSite=Lax");
+    // Next 15 serialises the attribute lowercase (`SameSite=lax`); the value is
+    // case-insensitive per RFC 6265bis, so the library's own casing is what is
+    // pinned here rather than the spelling the plan used.
+    expect(cookie).toContain("SameSite=lax");
     expect(cookie).toContain("Path=/");
   });
 

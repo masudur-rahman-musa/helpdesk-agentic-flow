@@ -232,7 +232,7 @@ async function region(): Promise<HTMLElement> {
 }
 
 async function notificationRows(): Promise<HTMLElement[]> {
-  return rowsOf(within(await region()).getByRole("list", { name: "Your notifications" }));
+  return rowsOf(await within(await region()).findByRole("list", { name: "Your notifications" }));
 }
 
 /** One element of a query's result, as a value the type checker can use. */

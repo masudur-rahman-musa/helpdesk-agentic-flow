@@ -12,10 +12,9 @@ import { readWire } from "@/lib/wire-read";
  *.
  *
  * Its OWN client component with its own query (decision B), rendered inside
- * `MainNav` rather than replacing it: `nav.tsx` stays the plain component
- * `tests/shell.test.tsx` renders with no router, and a header on every
- * authenticated page never waits on the page's fifty rows to know whether to
- * show a number.
+ * `MainNav` rather than replacing it: `nav.tsx` keeps no hook of its own, and a
+ * header on every authenticated page never waits on the page's fifty rows to
+ * know whether to show a number.
  *
  * It reads `unread_only=true&limit=1` and renders `unread_count` ALONE — the
  * tool's whole tally (23ga decision B), never the length of what `limit=1`

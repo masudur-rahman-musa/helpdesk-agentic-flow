@@ -19,7 +19,8 @@ import { readAsk } from "@/lib/chat-prefill";
  * - accessible names: region `Active access`, list `Grants`, and per row a
  *   link named `Request renewal for {role_name}` (§6 fixes the link's name for
  *   the fixture role; it is the role name, not the slug).
- * - the countdown reads `9 days left` and the absent one reads `No expiry`
+ * - the countdown reads `9 days left` (whole days, floored) and the absent one
+ *   reads `No expiry`
  *   (§6's literals), and the granted date reads `2026-01-05` — the ISO prefix,
  *   the same unambiguous form the decision card and `/requests` print.
  * - the clock is frozen with `vi.useFakeTimers({ shouldAdvanceTime: true })`
@@ -40,10 +41,18 @@ import { readAsk } from "@/lib/chat-prefill";
 const EMPTY_ACCESS = "You hold no active access.";
 const LOGIN_URL = "http://localhost:3000/login";
 
-/** The instant every countdown below is measured from. */
-const NOW = new Date("2026-06-01T12:00:00Z");
+/**
+ * The instant every countdown below is measured from.
+ *
+ * A minute short of nine whole days before `EXPIRING_GRANT` ends, never exactly
+ * nine: `shouldAdvanceTime` lets real milliseconds pass between `setSystemTime`
+ * and the render, so a gap of exactly nine days floors to 8 by the time the row
+ * is painted. The extra minute is the render's headroom, and the arithmetic the
+ * countdown case asserts is unchanged.
+ */
+const NOW = new Date("2026-06-01T11:59:00Z");
 
-/** A grant that ends in exactly nine days from `NOW`. */
+/** A grant that ends nine whole days and a minute after `NOW`. */
 const EXPIRING_GRANT: Record<string, unknown> = {
   grant_id: "55555555-5555-5555-8555-555555555555",
   role_slug: "payroll-read",
@@ -108,7 +117,7 @@ function rowsOf(list: HTMLElement): HTMLElement[] {
 
 async function grantRows(): Promise<HTMLElement[]> {
   const region = await screen.findByRole("region", { name: "Active access" });
-  return rowsOf(within(region).getByRole("list", { name: "Grants" }));
+  return rowsOf(await within(region).findByRole("list", { name: "Grants" }));
 }
 
 /** One element of a query's result, as a value the type checker can use. */

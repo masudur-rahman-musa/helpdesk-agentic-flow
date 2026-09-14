@@ -237,7 +237,7 @@ async function region(): Promise<HTMLElement> {
 }
 
 async function reviewRows(): Promise<HTMLElement[]> {
-  return rowsOf(within(await region()).getByRole("list", { name: "Review queue" }));
+  return rowsOf(await within(await region()).findByRole("list", { name: "Review queue" }));
 }
 
 async function itemRows(): Promise<HTMLElement[]> {
