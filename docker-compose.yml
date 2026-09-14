@@ -1,6 +1,25 @@
-# Local infrastructure only: `docker compose up -d`.
-# App services run via uv on the host until they ship containers.
-# Credentials come from .env (compose reads it for ${...} substitution).
+# Two stacks in one file, separated by a profile.
+#
+#   docker compose up -d                  the three backing services alone
+#   docker compose --profile app up -d    those three plus the four containers
+#
+# The bare command is the one every test suite, `make run` and `make migrate`
+# depend on, so postgres, redis and qdrant carry NO profile: a profile on any
+# of them makes the bare command start nothing at all, and every host-run
+# service loses its database with no error naming the cause. Pinned by
+# packages/helpdesk/tests/test_container_build.py::
+# test_the_backing_services_carry_no_profile.
+#
+# The four app services carry `build:` and no `image:` on purpose. An earlier change's
+# weekly scan is pinned to the exact set of `image:` values here, and a built
+# image that named one would add a fourth name to that set for an image no
+# registry holds.
+#
+# Credentials come from .env (compose reads it for ${...} substitution). The
+# app services take it as an `env_file` as well, then override every variable
+# whose value names `localhost`: inside this network the hostname of a backing
+# service is its service name, and a container that read the host spelling
+# would dial its own loopback and find nothing.
 services:
   postgres:
     image: postgres:16.6-alpine
@@ -32,6 +51,116 @@ services:
     healthcheck:
       # The qdrant image ships no curl/wget; probe the TCP port via bash.
       test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  helpdesk-agent-api:
+    profiles: ["app"]
+    build:
+      context: .
+      args:
+        SERVICE: agent-api
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      MCP_URL: http://helpdesk-mcp-server:8081/mcp
+      WEB_ORIGIN: http://localhost:3000
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      qdrant: {condition: service_healthy}
+    healthcheck:
+      # /healthz, never /readyz: readiness is 503 wherever no gateway answers
+      # (the design), so a readiness-based healthcheck would hold this container
+      # unhealthy on a machine with no gateway and stop web from ever starting.
+      # The image ships no curl, so the probe is the interpreter already in it.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  helpdesk-mcp-server:
+    profiles: ["app"]
+    build:
+      context: .
+      args:
+        SERVICE: mcp-server
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      POLICY_DIR: /srv/policies
+    volumes:
+      # Read-only, and mounted rather than baked in: a compromised tool process
+      # must not be able to edit the corpus that decides access, and the corpus
+      # must not be pinned to a build.
+      #
+      # The host side is written `./policies` and not `${POLICY_DIR}`. A bind
+      # mount's source has to start with `.` or `/` or compose reads it as a
+      # NAMED VOLUME, and .env ships POLICY_DIR as the bare relative `policies`
+      # -- which would silently mount an empty volume and ingest zero chunks. A
+      # corpus kept elsewhere is mounted through
+      # docker-compose.override.example.yml, not by editing this line.
+      - "./policies:/srv/policies:ro"
+    ports: ["8081:8081"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      qdrant: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  helpdesk-scheduler:
+    profiles: ["app"]
+    build:
+      context: .
+      args:
+        SERVICE: scheduler
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      MCP_URL: http://helpdesk-mcp-server:8081/mcp
+    # Published because the loop's counters can only be scraped here (an earlier change
+    # decision H): a metric nothing can reach is not a metric.
+    ports: ["8082:8082"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/healthz').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  helpdesk-web:
+    profiles: ["app"]
+    build:
+      context: web
+    environment:
+      # The server side alone talks to agent-api, so this is a network-internal
+      # name and never reaches a browser.
+      AGENT_API_URL: http://helpdesk-agent-api:8000
+      # Plain http on the compose network, so the cookie cannot carry Secure or
+      # no session survives a login here.
+      SESSION_COOKIE_SECURE: "false"
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    ports: ["3000:3000"]
+    depends_on:
+      helpdesk-agent-api: {condition: service_started}
+    healthcheck:
+      # The node image ships no curl either, and this probe is liveness: it must
+      # not fail because agent-api is down, which is what /readyz is for.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 10

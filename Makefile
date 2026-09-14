@@ -1,9 +1,12 @@
-.PHONY: help setup run migrate ingest test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check e2e load-smoke
+.PHONY: help setup run migrate ingest test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check e2e load-smoke images app-up app-down
 # Where `scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
 # something to leave in the working tree.
 E2E_ACCOUNTS_FILE ?= .cache/e2e-accounts.json
+# The tag `make images` builds under. `local` rather than a version: nothing
+# here pushes, and the compose app profile builds its own images by name.
+IMAGE_TAG ?= local
 
 help:       ## Show all targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -56,3 +59,9 @@ eval:       ## Project evals: golden set vs project-evals/baseline.json
 	echo 'golden set is run by the companion console: see project-evals/README.md'
 infra-check: ## Validate infrastructure as code (no apply)
 	echo 'deployed by the companion console infra'
+images:     ## Build the four service images locally: make images TAG=local
+	uv run python scripts/build_images.py --tag $(IMAGE_TAG)
+app-up:     ## Backing services plus the four containers (needs .env and the images' build inputs)
+	docker compose --profile app up -d --build
+app-down:   ## Stop the app profile, leaving the backing services and their volumes
+	docker compose --profile app down

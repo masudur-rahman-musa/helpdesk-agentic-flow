@@ -3,7 +3,8 @@
 What is pinned: the gitleaks config and its three fake-credential exceptions, the
 CI `security` job and the four scanners it runs, the weekly image scan over the
 three images `docker-compose.yml` pins, the Dependabot ecosystems, the pinning of
-every GitHub Action, the STRIDE table, and the deletion of the stub `Dockerfile`.
+every GitHub Action, the STRIDE table, and the presence of a real root
+`Dockerfile` carrying no placeholder.
 
 Why the check is static rather than runtime: none of these files is read by the
 application at all. They are read by GitHub Actions, by Dependabot and by the
@@ -52,8 +53,11 @@ IMAGE_SCAN_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "image-scan.yml"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 THREAT_MODEL = REPO_ROOT / "docs" / "threat-model.md"
 DOCKERFILE = REPO_ROOT / "Dockerfile"
-"""The eight paths this module reads. `DOCKERFILE` is read only to prove it is
-GONE, by `test_the_stub_dockerfile_is_gone`."""
+"""The eight paths this module reads. `DOCKERFILE` is read only to prove the
+real one EXISTS and names no placeholder, by
+`test_the_root_dockerfile_exists_and_declares_the_three_services` (an earlier change
+§8); its `ARG SERVICE` guard is pinned in full by
+`test_container_build.py::test_the_root_dockerfile_declares_the_three_service_values`."""
 
 FAKE_CREDENTIAL_PATHS: frozenset[str] = frozenset(
     {".env.example", "docs/demo-accounts.md", "scripts/seed.py"}
@@ -417,7 +421,15 @@ def test_the_threat_model_has_no_adapt_placeholders() -> None:
     assert "ADAPT" not in THREAT_MODEL.read_text(encoding="utf-8")
 
 
-def test_the_stub_dockerfile_is_gone() -> None:
-    """Catches the unbuildable skeleton Dockerfile drifting back in, which would
-    give `trivy config` a file to report on and the next reader a trap."""
-    assert not DOCKERFILE.exists(), "the root Dockerfile is back (decision B deleted it)"
+def test_the_root_dockerfile_exists_and_declares_the_three_services() -> None:
+    """Catches the skeleton stub drifting back in under the real file's name: an
+    `ADAPT:` placeholder is an instruction nobody carried out, and a root
+    Dockerfile that names none of the three services builds an image whose
+    entrypoint is whatever the base image had. Flipped by an earlier change §8: an earlier change
+    deleted an unbuildable skeleton and left this row to write the real one."""
+    assert DOCKERFILE.is_file(), "the root Dockerfile does not exist"
+    text = DOCKERFILE.read_text(encoding="utf-8")
+
+    for service in ("agent-api", "mcp-server", "scheduler"):
+        assert service in text, f"the root Dockerfile never names {service}"
+    assert "ADAPT:" not in text, "the root Dockerfile still carries an ADAPT placeholder"

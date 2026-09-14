@@ -8,12 +8,16 @@ name: image-scan
 # --ignore-unfixed for the same reason from the other direction: every finding
 # here has an upgrade available, so every red run has an action.
 #
-# These are the three images docker-compose.yml pins. The demo stack ships them,
-# so a fixable critical in the postgres we pin is our finding. The service images
-# this project builds itself are scanned by the row that builds them.
+# Two jobs, because the images come from two places. `base` scans the three
+# images docker-compose.yml pins: the demo stack ships them, so a fixable
+# critical in the postgres we pin is our finding. `built` builds this
+# repository's own four images and scans those, which an earlier change added with the
+# Dockerfiles that make them buildable.
 #
 # Pinned by packages/helpdesk/tests/test_security_config.py::
-# test_the_image_scan_covers_exactly_the_three_pinned_compose_images.
+# test_the_image_scan_covers_exactly_the_three_pinned_compose_images and by
+# packages/helpdesk/tests/test_container_build.py::
+# test_the_image_scan_job_covers_the_four_built_images.
 on:
   schedule:
     # 04:00 UTC every Monday.
@@ -32,4 +36,31 @@ jobs:
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
               aquasec/trivy:0.58.1 image \
               --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "$image"
+          done
+
+  built:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # The four builds are minutes, which is why they live here and not in
+      # pytest: `test_container_build.py` proves the Dockerfiles' shape by
+      # parsing them, and this job is the only place the images themselves are
+      # ever produced in CI. A build that breaks is caught here as a red job,
+      # not as a surprise at deploy time.
+      - name: Build the four service images
+        run: |
+          docker build --build-arg SERVICE=agent-api -t helpdesk-agent-api:scan .
+          docker build --build-arg SERVICE=mcp-server -t helpdesk-mcp-server:scan .
+          docker build --build-arg SERVICE=scheduler -t helpdesk-scheduler:scan .
+          docker build -t helpdesk-web:scan web
+
+      - name: Scan the four built images
+        run: |
+          for image in helpdesk-agent-api helpdesk-mcp-server helpdesk-scheduler helpdesk-web; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:0.58.1 image \
+              --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "$image:scan"
           done

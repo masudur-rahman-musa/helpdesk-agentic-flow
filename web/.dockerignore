@@ -1,0 +1,42 @@
+# The web build context is `web/`, so the repository root's .dockerignore does
+# not apply to it and this file is the only thing standing between `COPY . .`
+# and the host's own node_modules tree.
+#
+# Nothing here reaches the runtime image in any case: that stage copies
+# `.next/standalone` and `.next/static` alone. What this file buys is the
+# builder stage -- a context that does not carry a platform-specific
+# node_modules over the daemon socket, and a build whose cache is not busted by
+# a local test run writing into .next.
+
+# installed and built artefacts: the image builds its own
+node_modules
+.next
+out
+dist
+coverage
+tsconfig.tsbuildinfo
+
+# verification: nothing the server runs
+tests
+e2e
+playwright.config.ts
+vitest.config.ts
+test-results
+playwright-report
+
+# local config and caches (real config is injected at runtime)
+.env
+.env.*
+!.env.example
+.cache
+
+# version control and editor
+.git
+.gitignore
+.DS_Store
+.vscode
+.idea
+
+# the image's own recipe
+Dockerfile
+.dockerignore

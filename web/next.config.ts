@@ -34,6 +34,14 @@ const EVERY_ROUTE = "/(.*)";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Next traces the files the server actually imports and emits a self-contained
+  // `.next/standalone` tree, which is what `web/Dockerfile` copies (an earlier change
+  // decision E1). Without it the image carries the whole dependency tree for a
+  // server that needs a fraction of it. It changes no header, so 27a's
+  // `tests/security-headers.test.ts` reads the same config object; the pairing
+  // of this line with the Dockerfile's COPY is pinned by
+  // `packages/helpdesk/tests/test_container_build.py::test_the_web_image_is_built_from_the_standalone_output`.
+  output: "standalone",
   // The app never needs a powered-by header and it names the framework
   // version to anyone scanning.
   poweredByHeader: false,
