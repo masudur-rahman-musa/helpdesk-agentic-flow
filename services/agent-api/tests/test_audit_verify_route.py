@@ -4,8 +4,12 @@ Expected implementation surface (`agent_api.admin_routes`, mounted on
 `agent_api.main.app`):
 
     GET /admin/audit/verify   Authorization: Bearer <plan-05 JWT>
-      200 -> {"ok": true,  "broken_at": null}          intact chain
-      200 -> {"ok": false, "broken_at": <seq>}         first broken link
+      200 -> {"ok": true,  "broken_at": null,
+              "truncated_at": null, "anchored_seq": null}   intact chain
+      200 -> {"ok": false, "broken_at": <seq>,
+              "truncated_at": null, "anchored_seq": ...}    first broken link
+      200 -> {"ok": false, "broken_at": null,
+              "truncated_at": <seq>, "anchored_seq": <seq>} tail truncated
       403 -> {"code": "FORBIDDEN"}   token valid, principal outside
              {auditor, it_admin, platform_admin} (the design, an earlier change decision D)
       401 -> {"code": "FORBIDDEN"}   missing, malformed, wrongly signed or
@@ -35,6 +39,7 @@ import pytest
 from agent_api import admin_routes
 from agent_api.main import app
 from helpdesk.audit import AuditEventInput
+from helpdesk.audit.anchor import anchor_tenant_chain
 from helpdesk.audit.writer import append_event
 from helpdesk.auth.jwt import issue_token
 from helpdesk.core.db import create_engine, create_session_factory, tenant_session
@@ -211,6 +216,55 @@ def _tamper(database_url: str, tenant_id: uuid.UUID, seq: int) -> None:
     asyncio.run(_run())
 
 
+def _anchor(database_url: str, tenant_id: uuid.UUID) -> int:
+    """Anchor the tenant's verified head and return the seq that was stored.
+
+    An earlier change: this is what the scheduler's `chain_anchor` job does, called
+    directly so the route case does not need a running scheduler.
+    """
+
+    async def _run() -> int:
+        engine = create_engine(database_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, tenant_id) as session:
+                written = await anchor_tenant_chain(session)
+                await session.commit()
+            assert written is not None, "a clean chain with events must anchor"
+            return int(written.audit_seq)
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_run())
+
+
+def _truncate_tail(database_url: str, tenant_id: uuid.UUID, keep: int) -> None:
+    """Delete every event past the `keep`th: superuser, triggers disabled.
+
+    The surviving rows still link perfectly, which is why nothing but the
+    stored anchor can notice.
+    """
+
+    async def _run() -> None:
+        engine = create_async_engine(database_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("ALTER TABLE audit_events DISABLE TRIGGER USER"))
+                await conn.execute(
+                    text(
+                        "DELETE FROM audit_events WHERE tenant_id = :t AND seq > ("
+                        "SELECT seq FROM audit_events WHERE tenant_id = :t "
+                        "ORDER BY seq OFFSET :offset LIMIT 1)"
+                    ),
+                    {"t": tenant_id, "offset": keep - 1},
+                )
+                await conn.execute(text("ALTER TABLE audit_events ENABLE TRIGGER USER"))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+
 def _token(
     tenant_id: uuid.UUID,
     principals: list[str],
@@ -254,7 +308,12 @@ def test_clean_chain_verifies_ok_for_each_allowed_principal(audit_env: str, prin
     response = _get_verify(_auth(_token(tenant_id, [principal])))
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"ok": True, "broken_at": None}
+    assert response.json() == {
+        "ok": True,
+        "broken_at": None,
+        "truncated_at": None,
+        "anchored_seq": None,
+    }
 
 
 def test_empty_chain_verifies_ok(audit_env: str) -> None:
@@ -263,7 +322,12 @@ def test_empty_chain_verifies_ok(audit_env: str) -> None:
     response = _get_verify(_auth(_token(tenant_id, ["auditor"])))
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"ok": True, "broken_at": None}
+    assert response.json() == {
+        "ok": True,
+        "broken_at": None,
+        "truncated_at": None,
+        "anchored_seq": None,
+    }
 
 
 # --- tampering ----------------------------------------------------------------
@@ -280,7 +344,12 @@ def test_tampered_row_is_reported_at_its_seq(audit_env: str, position: int) -> N
     response = _get_verify(_auth(_token(tenant_id, ["auditor"])))
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"ok": False, "broken_at": seqs[position]}
+    assert response.json() == {
+        "ok": False,
+        "broken_at": seqs[position],
+        "truncated_at": None,
+        "anchored_seq": None,
+    }
 
 
 def test_verify_covers_the_callers_tenant_only(audit_env: str) -> None:
@@ -292,9 +361,43 @@ def test_verify_covers_the_callers_tenant_only(audit_env: str) -> None:
     clean = _get_verify(_auth(_token(tenant_a, ["auditor"])))
     broken = _get_verify(_auth(_token(tenant_b, ["auditor"])))
 
-    assert clean.status_code == 200 and clean.json() == {"ok": True, "broken_at": None}
+    assert clean.status_code == 200 and clean.json() == {
+        "ok": True,
+        "broken_at": None,
+        "truncated_at": None,
+        "anchored_seq": None,
+    }
     assert broken.status_code == 200
     assert broken.json()["ok"] is False
+
+
+def test_a_truncated_chain_is_reported_as_truncated_not_as_broken(audit_env: str) -> None:
+    """An earlier change: the route carries the new verdict through unchanged.
+
+    Catches a route that keeps its own response model, or picks two fields out
+    of the verdict: `admin_routes` returns `result.model_dump()`, so the two
+    new fields are the body's, and an endpoint that dropped them would leave
+    the web panel and any operator curl reading `ok=false` with `broken_at`
+    null and nothing at all to say why.
+
+    Catches the whole detection being absent end to end: without it this same
+    request answers `{"ok": true, ...}`, which is what every other case in
+    this file asserted before the plan. The seq is read back from the anchor
+    that was actually written, never a literal.
+    """
+    tenant_id = _seed_tenant_with_events(audit_env, "verify-truncated", 5)
+    anchored_seq = _anchor(audit_env, tenant_id)
+    _truncate_tail(audit_env, tenant_id, keep=2)
+
+    response = _get_verify(_auth(_token(tenant_id, ["auditor"])))
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "ok": False,
+        "broken_at": None,
+        "truncated_at": anchored_seq,
+        "anchored_seq": anchored_seq,
+    }
 
 
 # --- authorization ------------------------------------------------------------
@@ -318,7 +421,12 @@ def test_one_allowed_principal_among_several_is_enough(audit_env: str) -> None:
     response = _get_verify(_auth(_token(tenant_id, ["employee", "auditor"])))
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"ok": True, "broken_at": None}
+    assert response.json() == {
+        "ok": True,
+        "broken_at": None,
+        "truncated_at": None,
+        "anchored_seq": None,
+    }
 
 
 def test_unknown_principal_string_never_widens_access(audit_env: str) -> None:

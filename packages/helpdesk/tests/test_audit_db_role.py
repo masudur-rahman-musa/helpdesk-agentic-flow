@@ -20,9 +20,16 @@ raises" is decided by the neighbouring guard and pins nothing. Each case here
 asserts the SQLSTATE is exactly `42501` (`insufficient_privilege`) over a row
 the statement really matches, so it flips if and only if the grant restriction
 this plan adds is missing.
+
+An earlier change section 8 changes one thing here: `EXPECTED_GRANTS` is no longer
+written out in this file. It is the UNION of each migration's own
+`TABLE_GRANTS` (decision D), so an applied revision stays frozen history and
+each one keeps saying for itself what it granted. Everything else — the role
+name, the SQLSTATE cases, the sequence check — is untouched.
 """
 
 import asyncio
+import importlib.util
 import json
 import os
 import subprocess
@@ -50,46 +57,71 @@ ROLE_NAME = "helpdesk_app"
 # IDENTITY` after the table and column. A table grant does not carry it.
 AUDIT_SEQUENCE_NAME = "audit_events_seq_seq"
 
+ROLE_MIGRATION_PARENT = "a4d71c9b3e50"
+"""The revision an earlier change's role migration revises.
+
+Downgrading TO it undoes the role migration and everything stacked on top,
+whatever later plans added. Written out because a relative `-1` means a
+different revision on the day a new head lands."""
+
 # SQLSTATE 42501 is `insufficient_privilege`; P0001 is `raise_exception`, what
 # the append-only trigger raises. The whole plan is about which one arrives.
 INSUFFICIENT_PRIVILEGE = "42501"
 TRIGGER_RAISED = "P0001"
 
-# The decision table of an earlier change: what each table's grant set must be. Written
-# out table by table rather than derived, so that a table added to the schema
-# with no deliberate grant decision fails `expected_grants_for` by name
-# (a project rule: an allowlist covering a set the code extends is never
-# generated from the code).
+# An earlier change decision D: the expected map is the UNION of each migration's own
+# `TABLE_GRANTS`, read out of the revision files themselves, rather than a
+# second copy maintained here or a shared constant both migrations import. An
+# applied migration is frozen history: a shared constant that a later edit
+# changed would silently rewrite what an already-run revision claims to have
+# granted, and this file would still pass.
 #
-# The three rows that differ from the default:
-# - `audit_events` is append-only, so SELECT and INSERT only.
-# - `idempotency_keys` is purged of expired keys (`core/repository.py` purge),
-#   so it needs DELETE.
+# It is still a hand-kept allowlist in the sense a project rule means (it is
+# not derived from `Base.metadata`), so a table added to the schema with no
+# grant line in any migration fails `expected_grants_for` by name, and the
+# count below fails too.
+#
+# The three rows that differ from read-write, all stated in the migrations:
+# - `audit_events` and `audit_chain_anchors` are append-only, SELECT and
+#   INSERT only.
+# - `idempotency_keys` is purged of expired keys (`core/repository.py`).
 # - `policy_chunks` has a document's chunks deleted on reingest
-#   (`rag/chunks.py`), so it needs DELETE.
-_DEFAULT = frozenset({"SELECT", "INSERT", "UPDATE"})
-_WITH_DELETE = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE"})
+#   (`rag/chunks.py`).
+_VERSIONS_DIR = REPO_ROOT / "alembic" / "versions"
+
+
+def _migration_table_grants(pattern: str) -> Mapping[str, frozenset[str]]:
+    """One revision file's `TABLE_GRANTS`, loaded by path.
+
+    `alembic/versions` is not an importable package, and the revision hash of
+    a migration that does not exist yet cannot be written here, so the file is
+    found by the slug the plan fixes and loaded through `importlib`. Exactly
+    one match is required: two files claiming the same slug would make which
+    map is read depend on filesystem order.
+    """
+    matches = sorted(_VERSIONS_DIR.glob(pattern))
+    assert len(matches) == 1, (
+        f"expected exactly one alembic revision matching {pattern!r}, "
+        f"found {[match.name for match in matches]}"
+    )
+    spec = importlib.util.spec_from_file_location(f"_revision_{matches[0].stem}", matches[0])
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    grants: dict[str, tuple[str, ...]] = module.TABLE_GRANTS
+    return {name: frozenset(privileges) for name, privileges in grants.items()}
+
+
+ROLE_MIGRATION_GRANTS = _migration_table_grants("*_audit_app_role.py")
+"""An earlier change's map: the eighteen directory and application tables, plus
+`audit_events`."""
+
+ANCHOR_MIGRATION_GRANTS = _migration_table_grants("*_audit_chain_anchors.py")
+"""An earlier change's map: `audit_chain_anchors`, SELECT and INSERT."""
 
 EXPECTED_GRANTS: Mapping[str, frozenset[str]] = {
-    "tenants": _DEFAULT,
-    "departments": _DEFAULT,
-    "users": _DEFAULT,
-    "systems": _DEFAULT,
-    "roles": _DEFAULT,
-    "role_templates": _DEFAULT,
-    "sod_rules": _DEFAULT,
-    "grants": _DEFAULT,
-    "tickets": _DEFAULT,
-    "audit_events": frozenset({"SELECT", "INSERT"}),
-    "idempotency_keys": _WITH_DELETE,
-    "access_requests": _DEFAULT,
-    "access_reviews": _DEFAULT,
-    "review_items": _DEFAULT,
-    "policy_documents": _DEFAULT,
-    "policy_chunks": _WITH_DELETE,
-    "sessions": _DEFAULT,
-    "messages": _DEFAULT,
-    "notifications": _DEFAULT,
+    **ROLE_MIGRATION_GRANTS,
+    **ANCHOR_MIGRATION_GRANTS,
 }
 
 
@@ -348,10 +380,23 @@ def test_restricted_role_holds_usage_on_the_audit_events_sequence(migrated_db_ur
 
 def test_expected_grant_map_covers_exactly_the_metadata_tables() -> None:
     """Catches a schema that grew a table without a grant decision: the map is
-    hand-kept, so this is the only thing that notices a nineteenth-plus table
-    before a service meets 42501 in production."""
+    hand-kept, so this is the only thing that notices a
+    twenty-first table before a service meets 42501 in production.
+
+    The count is read off the two migrations, not carried over from plan
+    30ba's row: 19 tables in the role revision and 1 in the
+    anchor revision.
+
+    The disjointness assertion is an earlier change decision D's other half: two
+    revisions granting the same table would leave one map silently overwriting
+    the other in the union, so the file would report the LAST grant applied
+    while the database holds the union of both."""
     assert set(EXPECTED_GRANTS) == set(Base.metadata.tables)
-    assert len(EXPECTED_GRANTS) == 19
+    assert len(ROLE_MIGRATION_GRANTS) == 19
+    assert len(ANCHOR_MIGRATION_GRANTS) == 1
+    assert set(ROLE_MIGRATION_GRANTS) & set(ANCHOR_MIGRATION_GRANTS) == set()
+    assert len(EXPECTED_GRANTS) == 20
+    assert ANCHOR_MIGRATION_GRANTS["audit_chain_anchors"] == frozenset({"SELECT", "INSERT"})
 
 
 def test_expected_grants_for_names_a_table_that_has_no_grant_decision() -> None:
@@ -428,9 +473,13 @@ def test_append_event_and_verify_chain_through_a_restricted_role_session(
 def test_migration_round_trips_and_downgrade_leaves_no_grant_on_audit_events(
     fresh_db_url: str,
 ) -> None:
-    """Catches a migration whose downgrade forgets the REVOKE: the check runs one
-    step down, while `audit_events` still exists, so an empty grant set means
-    the revoke ran and not merely that the table was dropped."""
+    """Catches a migration whose downgrade forgets the REVOKE: the check runs
+    with `audit_events` still in place, so an empty grant set means the revoke
+    ran and not merely that the table was dropped.
+
+    The target is the revision the role migration REVISES, not `-1`: an earlier change
+    put a new revision on top, and a relative step would now undo that one
+    instead and leave every grant this case is about still held."""
     _alembic("upgrade", "head", database_url=fresh_db_url)
 
     async def after_upgrade() -> None:
@@ -439,7 +488,7 @@ def test_migration_round_trips_and_downgrade_leaves_no_grant_on_audit_events(
 
     asyncio.run(after_upgrade())
 
-    _alembic("downgrade", "-1", database_url=fresh_db_url)
+    _alembic("downgrade", ROLE_MIGRATION_PARENT, database_url=fresh_db_url)
 
     async def after_downgrade() -> None:
         async with _engine(fresh_db_url) as engine, engine.connect() as conn:

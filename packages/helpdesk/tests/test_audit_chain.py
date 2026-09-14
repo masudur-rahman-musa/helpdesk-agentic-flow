@@ -24,6 +24,24 @@ clock, no imports from models or services):
     order the walk). ``VerifyResult`` has ``ok: bool`` and
     ``broken_at: int | None`` — the ``seq`` of the FIRST event whose stored
     hash or link does not recompute, or ``None`` when the chain is intact.
+
+An earlier change section 6 adds the ANCHOR cases at the bottom of this file; every
+case above it is an earlier change's and is left exactly as it was. Surface that plan
+adds to the same pure module:
+
+``class ChainAnchor(BaseModel)``
+    ``audit_seq: int`` (>= 1) and ``audit_hash: str`` (``re.fullmatch`` of
+    ``[0-9a-f]{64}``), both refused with a typed error. The validation itself
+    is pinned in ``test_audit_anchor.py``; this file only builds valid ones.
+
+``verify_chain(events, anchor: ChainAnchor | None = None) -> VerifyResult``
+    ``VerifyResult`` gains ``truncated_at: int | None`` and
+    ``anchored_seq: int | None``. Precedence is one
+    verdict per case and the RECOMPUTE wins: a walk that breaks answers
+    ``broken_at`` with ``truncated_at=None``, whatever the anchor says. With
+    no anchor the verdict is byte-for-byte today's, which is why
+    ``test_truncating_the_tail_is_not_detected_by_the_walk_alone`` above
+    stays green unchanged: it is about the walk alone.
 """
 
 import hashlib
@@ -34,7 +52,14 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from helpdesk.audit.chain import GENESIS_HASH, canonical_json, event_hash, verify_chain
+from helpdesk.audit.chain import (
+    GENESIS_HASH,
+    ChainAnchor,
+    VerifyResult,
+    canonical_json,
+    event_hash,
+    verify_chain,
+)
 
 # --- fixed, obviously fake sample values --------------------------------------
 
@@ -277,3 +302,190 @@ def test_non_contiguous_seq_values_are_accepted_when_links_hold() -> None:
     result = verify_chain(events)
     assert result.ok is True
     assert result.broken_at is None
+
+
+# --- verify_chain against an anchor -------------------------------
+
+
+def _hashed(event: Mapping[str, Any]) -> dict[str, Any]:
+    """One stored event's hashed fields: everything except seq, prev_hash, hash.
+
+    Written out here rather than imported from the module under test, so a
+    re-chaining case cannot inherit the same mistake from the code it judges.
+    """
+    return {key: value for key, value in event.items() if key not in {"seq", "prev_hash", "hash"}}
+
+
+def _tampered_chain(length: int, seq: int) -> list[dict[str, Any]]:
+    """`length` linked events with the row at `seq` edited and its hash left alone."""
+    events = _chain(length)
+    events[seq - 1]["payload"] = {"fake": "tampered"}
+    return events
+
+
+def _anchor_at(events: list[dict[str, Any]], index: int) -> ChainAnchor:
+    """The anchor a verified sweep would have written for `events[index]`.
+
+    Read off the SAME list the case verifies, so the
+    anchored hash is the one that list really carries and a case that expects
+    a MATCH cannot pass because of a typo in a literal digest.
+    """
+    return ChainAnchor(
+        audit_seq=int(str(events[index]["seq"])), audit_hash=str(events[index]["hash"])
+    )
+
+
+def test_an_anchor_naming_a_surviving_seq_with_its_hash_verifies_ok() -> None:
+    """Catches an implementation that treats the presence of an anchor as
+    suspicion in itself — one that reports `truncated_at` or `ok=False`
+    whenever an anchor is passed — and, through `anchored_seq`, one that
+    verifies against the anchor and then forgets to say it did. A reader
+    cannot tell "verified against a head" from "never anchored" without that
+    field, and every intact tenant would look unanchored for ever.
+    """
+    events = _chain(5)
+
+    result = verify_chain(events, anchor=_anchor_at(events, 2))
+
+    assert result.ok is True
+    assert result.broken_at is None
+    assert result.truncated_at is None
+    assert result.anchored_seq == 3
+
+
+def test_a_tail_removed_past_the_anchor_is_reported_as_truncated() -> None:
+    """The whole point of the plan. Catches the implementation this module has
+    shipped until now: the walk alone recomputes perfectly over a shortened
+    chain, so without the anchor being consulted at all this answers `ok=True`
+    — which is exactly what the untouched
+    `test_truncating_the_tail_is_not_detected_by_the_walk_alone` above asserts
+    for the no-anchor call. The two cases differ in one argument, so this one
+    fails if and only if the anchor branch is missing.
+
+    `broken_at` is asserted None as well, to catch reporting truncation
+    through the old field (decision E): "broken at event 5" naming a row that
+    no longer exists is a false sentence, and a web panel reading `broken_at`
+    would point an auditor at the wrong row.
+    """
+    events = _chain(5)
+    anchor = _anchor_at(events, 4)
+
+    result = verify_chain(events[:2], anchor=anchor)
+
+    assert result.ok is False
+    assert result.truncated_at == 5
+    assert result.broken_at is None
+
+
+def test_a_rechained_log_is_caught_by_the_anchored_hash() -> None:
+    """The second gap, the one a hash chain cannot see at all: an attacker who
+    edits a row and re-chains every link from genesis leaves a log that
+    recomputes cleanly end to end.
+
+    Catches an implementation whose anchor branch only asks whether the
+    anchored SEQ still exists (the truncation test) and never compares the
+    stored hash: seq 3 is present here, the walk is flawless, and only the
+    remembered digest disagrees. Also catches one that reports this through
+    `truncated_at` — nothing was truncated, a row was rewritten, and the two
+    facts send an auditor to different places.
+    """
+    original = _chain(5)
+    anchor = _anchor_at(original, 2)
+    rechained = _chain(5)
+    rechained[1]["payload"] = {"fake": "rewritten"}
+    prev = str(rechained[0]["hash"])
+    for event in rechained[1:]:
+        event["prev_hash"] = prev
+        event["hash"] = event_hash(prev, _hashed(event))
+        prev = str(event["hash"])
+
+    assert verify_chain(rechained).ok is True, "premise: the rewritten log recomputes cleanly"
+    assert str(rechained[2]["hash"]) != anchor.audit_hash, "premise: the anchored row moved"
+
+    result = verify_chain(rechained, anchor=anchor)
+
+    assert result.ok is False
+    assert result.broken_at == 3
+    assert result.truncated_at is None
+
+
+def test_a_broken_link_wins_over_a_truncated_tail() -> None:
+    """Plan §1's precedence criterion: one verdict per case, and the recompute
+    wins.
+
+    Catches an implementation that checks the anchor FIRST and returns, which
+    would answer `truncated_at=5` here and hide the tampered row at seq 2
+    entirely — the log has been edited AND shortened, and the earlier, more
+    specific fact is the one an auditor has to be given. Both fields are
+    asserted, so an implementation reporting both at once fails too.
+    """
+    events = _chain(5)
+    anchor = _anchor_at(events, 4)
+    surviving = events[:3]
+    surviving[1]["payload"] = {"fake": "tampered"}
+
+    result = verify_chain(surviving, anchor=anchor)
+
+    assert result.ok is False
+    assert result.broken_at == 2
+    assert result.truncated_at is None
+
+
+def test_an_empty_list_with_an_anchor_is_truncated() -> None:
+    """The boundary row of the truncation decision: nothing at all survives.
+
+    Catches an implementation that short-circuits on an empty list before it
+    reads the anchor — the `for` loop has nothing to walk, so `ok=True` falls
+    straight out and a tenant whose whole log was deleted reads as healthy,
+    which is the loudest failure this plan exists to prevent.
+    """
+    events = _chain(3)
+    anchor = _anchor_at(events, 2)
+
+    result = verify_chain([], anchor=anchor)
+
+    assert result.ok is False
+    assert result.truncated_at == 3
+    assert result.broken_at is None
+
+
+def test_an_empty_list_with_no_anchor_is_ok_and_never_anchored() -> None:
+    """The other half of the same boundary, and the one a false positive would
+    break: a tenant that has never emitted an event and has never been
+    anchored is healthy, not truncated.
+
+    Catches an implementation that invents an anchor (a zero, a genesis row)
+    when none was passed, which would make every new tenant's first scrape
+    report a tampered log. `anchored_seq is None` is the fact that separates
+    this from the case above.
+    """
+    result = verify_chain([], anchor=None)
+
+    assert result.ok is True
+    assert result.broken_at is None
+    assert result.truncated_at is None
+    assert result.anchored_seq is None
+
+
+@pytest.mark.parametrize(
+    ("label", "events", "expected"),
+    [
+        ("intact", _chain(3), VerifyResult(ok=True, broken_at=None)),
+        ("tampered", _tampered_chain(3, 2), VerifyResult(ok=False, broken_at=2)),
+        ("truncated", _chain(5)[:2], VerifyResult(ok=True, broken_at=None)),
+    ],
+)
+def test_verify_chain_without_an_anchor_returns_todays_verdict(
+    label: str, events: list[dict[str, Any]], expected: VerifyResult
+) -> None:
+    """Plan §1: with no anchor the answer is exactly today's.
+
+    The comparison is against a whole `VerifyResult` built from the two OLD
+    fields, so both new fields must default to None. Catches an anchor
+    argument made mandatory (every existing caller — the route, the gauge, the
+    MCP path — would raise), and catches an implementation that fills
+    `truncated_at` or `anchored_seq` from somewhere other than an anchor it
+    was given, which would put the `truncated` row above at `ok=False` with no
+    head to justify it.
+    """
+    assert verify_chain(events) == expected, label

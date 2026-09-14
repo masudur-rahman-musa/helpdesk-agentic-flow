@@ -1,12 +1,27 @@
 """Append-only hash-chained audit log (the design, an earlier change).
 
-`chain` is the pure core; `writer`, `verify` and `search` are the thin I/O
-halves. Reading the log back under a filter lives here rather than in a
-service, so every statement against `audit_events` is in one package.
+`chain` is the pure core; `writer`, `verify`, `search` and `anchor` are the
+thin I/O halves. Reading the log back under a filter lives here rather than in
+a service, so every statement against `audit_events` and `audit_chain_anchors`
+is in one package.
+
+The anchor is what the chain cannot hold about itself: a head remembered
+outside the walk, so a log shortened at the end or re-chained from genesis
+stops verifying.
 """
 
+from helpdesk.audit.anchor import (
+    AnchorRegressionError,
+    anchor_tenant_chain,
+    latest_chain_anchor,
+    write_chain_anchor,
+)
 from helpdesk.audit.chain import (
+    ANCHOR_HASH_PATTERN,
     GENESIS_HASH,
+    MIN_ANCHOR_SEQ,
+    ChainAnchor,
+    InvalidChainAnchorError,
     VerifyResult,
     canonical_json,
     event_hash,
@@ -22,16 +37,24 @@ from helpdesk.audit.verify import verify_tenant_chain
 from helpdesk.audit.writer import AuditEventInput, append_event
 
 __all__ = [
+    "ANCHOR_HASH_PATTERN",
     "GENESIS_HASH",
+    "MIN_ANCHOR_SEQ",
     "SCAN_CAP",
+    "AnchorRegressionError",
     "AuditEventInput",
     "AuditSearchPage",
+    "ChainAnchor",
+    "InvalidChainAnchorError",
     "InvalidTimeRangeError",
     "VerifyResult",
+    "anchor_tenant_chain",
     "append_event",
     "canonical_json",
     "event_hash",
+    "latest_chain_anchor",
     "search_audit_events",
     "verify_chain",
     "verify_tenant_chain",
+    "write_chain_anchor",
 ]

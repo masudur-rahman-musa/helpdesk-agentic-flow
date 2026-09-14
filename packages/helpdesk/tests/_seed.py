@@ -62,6 +62,7 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "sessions",  # an earlier change
     "messages",  # an earlier change (decision B: the child table carries tenant_id too)
     "notifications",  # an earlier change
+    "audit_chain_anchors",  # an earlier change
 )
 ALL_TABLES: tuple[str, ...] = ("tenants", *TENANT_SCOPED_TABLES)
 

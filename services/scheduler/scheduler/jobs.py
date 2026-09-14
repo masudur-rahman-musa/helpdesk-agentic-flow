@@ -5,10 +5,10 @@ opened and the instant the runner is answering for, and calls into `helpdesk`;
 each sweep's rules, its audit events and its notifications belong to a module
 of the library — `helpdesk.access.expiry`, `helpdesk.access.leavers`,
 `helpdesk.access.review_schedule`, `helpdesk.access.gauges`,
-`helpdesk.audit.health` — so they can be exercised with a session and a fixed
-`now` and no scheduler anywhere near the test. One wrapper calls TWO of them
-(`run_metrics_sweep`, an earlier change decision A) and still decides nothing: it takes
-two readings that belong on one scrape at one age.
+`helpdesk.audit.health`, `helpdesk.audit.anchor` — so they can be exercised
+with a session and a fixed `now` and no scheduler anywhere near the test. One
+wrapper calls TWO of them (`run_metrics_sweep`, an earlier change decision A) and still
+decides nothing: it takes two readings that belong on one scrape at one age.
 
 21a registered one job; 21b adds the two DAILY ones, the expiry warnings and
 the leaver sweep. 21c takes the design's last pair, the quarterly review
@@ -17,7 +17,10 @@ quarterly by its PERIOD and not by its cadence (21c decision A), so a missed
 run is made good on the next tick rather than in three months. 21d adds the
 sixth, which is not one of the design's jobs at all — §11 lists the jobs that
 CHANGE access, and `metrics_sweep` changes nothing: it takes the design's two
-gauge readings, because a reading needs something to take it.
+gauge readings, because a reading needs something to take it. 30bb adds the
+seventh on the same footing: `chain_anchor` changes no access either, and it
+is the one job here that WRITES a row, which is why it is not folded into the
+sweep that changes nothing (30bb decision C).
 """
 
 from datetime import datetime
@@ -27,6 +30,7 @@ from helpdesk.access.expiry import expire_grants, warn_expiring_grants
 from helpdesk.access.gauges import refresh_active_grants_gauge
 from helpdesk.access.leavers import sweep_leavers
 from helpdesk.access.review_schedule import generate_reviews, send_review_reminders
+from helpdesk.audit.anchor import anchor_tenant_chain
 from helpdesk.audit.health import refresh_chain_gauge
 from helpdesk.obs import metrics
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -174,3 +178,32 @@ async def run_metrics_sweep(session: AsyncSession, now: datetime) -> None:
     """
     await refresh_active_grants_gauge(session, now=now)
     await refresh_chain_gauge(session)
+
+
+CHAIN_ANCHOR_JOB_NAME = "chain_anchor"
+"""The name of the anchor sweep, and the segment of its Redis lock key.
+
+Not one of the design's jobs either: it changes no access. It is a job of its own
+rather than a line inside `metrics_sweep`, because that
+sweep changes nothing at all and this one writes a row, and because the rate
+at which a head is anchored should not be tied to how fresh a gauge is.
+Pinned together with the key it produces by
+`test_scheduler_chain_anchor_job.py::test_the_chain_anchor_job_constants_are_exactly_the_planned_values`."""
+
+
+async def run_chain_anchor(session: AsyncSession, now: datetime) -> None:
+    """Anchor the bound tenant's verified chain head.
+
+    `now` is accepted because every job takes the tick's instant, and dropped
+    because an anchor is a statement about the rows that exist: the engine
+    reads no clock of its own beyond the moment it records the row, and an
+    instant handed down would be a second, disagreeing record of when the head
+    was taken. Pinned by
+    `test_scheduler_chain_anchor_job.py::test_the_chain_anchor_wrapper_hands_its_session_to_the_engine`,
+    whose double takes no `now` at all.
+
+    The return value is dropped for the reason every other wrapper here drops
+    its own: the anchor row and its log line are the record, and the decision
+    not to write one was already made inside the engine.
+    """
+    await anchor_tenant_chain(session)

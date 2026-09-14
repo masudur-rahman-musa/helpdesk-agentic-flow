@@ -43,17 +43,17 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 def test_metadata_contains_exactly_the_declared_tables() -> None:
     """The hand-kept schema literal, and how many tables it names.
 
-    The count is asserted beside the set (an earlier change §8: 18 tables before this
-    plan, 19 after it — `tenants` plus the 18 tenant-scoped ones). Standing
-    rule 27's allowlist is not derived from the code, so a plan that adds a
-    table to BOTH `Base.metadata` and `_seed.py` still has to say so here;
-    without the count, extending the allowlist is the whole of what it takes
-    to keep this file green, and the one file meant to notice a new table
-    never notices one.
+    The count is asserted beside the set (an earlier change: 19 tenant-scoped tables
+    with `audit_chain_anchors`, plus `tenants`). a project rule's allowlist
+    is not derived from the code, so a plan that adds a table to BOTH
+    `Base.metadata` and `_seed.py` still has to say so here; without the
+    count, extending the allowlist is the whole of what it takes to keep this
+    file green, and the one file meant to notice a new table never notices
+    one.
     """
     assert set(Base.metadata.tables) == set(ALL_TABLES)
-    assert len(ALL_TABLES) == 19
-    assert len(TENANT_SCOPED_TABLES) == 18
+    assert len(ALL_TABLES) == 20
+    assert len(TENANT_SCOPED_TABLES) == 19
 
 
 @pytest.mark.parametrize("table_name", ALL_TABLES)

@@ -4,6 +4,13 @@ The thin I/O half of `chain.verify_chain`: it loads rows and hands them over
 as mappings. Writer and verifier hash through the same `chain` functions, so
 a drift between them would surface as a false break rather than a silent
 pass.
+
+It also loads the tenant's anchored head and hands it down, which is what
+makes every caller that never learned about anchors — the verify route, the
+chain gauge, the MCP read path — report a truncated or re-chained log without
+changing a line of its own. Pinned by
+`test_audit_anchor.py::test_verify_reports_truncation_against_the_stored_anchor`
+and `::test_a_truncated_tenant_drives_the_chain_gauge_to_zero`.
 """
 
 import uuid
@@ -13,6 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.audit.anchor import latest_chain_anchor
 from helpdesk.audit.chain import VerifyResult, verify_chain
 from helpdesk.models import AuditEvent
 
@@ -45,8 +53,13 @@ def as_chain_event(row: AuditEvent) -> Mapping[str, Any]:
 
 
 async def verify_tenant_chain(session: AsyncSession, tenant_id: uuid.UUID) -> VerifyResult:
-    """Walk `tenant_id`'s events in `seq` order and report the first broken link."""
+    """Walk `tenant_id`'s events in `seq` order and hold them to its anchor.
+
+    A tenant that has never been anchored gets exactly the verdict it got
+    before an earlier change, with `anchored_seq` None to say so.
+    """
+    anchor = await latest_chain_anchor(session, tenant_id)
     result = await session.execute(
         select(AuditEvent).where(AuditEvent.tenant_id == tenant_id).order_by(AuditEvent.seq)
     )
-    return verify_chain([as_chain_event(row) for row in result.scalars().all()])
+    return verify_chain([as_chain_event(row) for row in result.scalars().all()], anchor=anchor)

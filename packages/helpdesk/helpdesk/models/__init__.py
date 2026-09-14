@@ -11,7 +11,7 @@ from helpdesk.models.access import (
     ReviewItem,
     ReviewStatus,
 )
-from helpdesk.models.audit import AuditEvent
+from helpdesk.models.audit import AuditChainAnchor, AuditEvent
 from helpdesk.models.base import Base, TenantScoped
 from helpdesk.models.conversation import (
     MAX_MESSAGE_CHARS,
@@ -48,6 +48,7 @@ __all__ = [
     "PERIOD_LENGTH",
     "AccessRequest",
     "AccessReview",
+    "AuditChainAnchor",
     "AuditEvent",
     "Base",
     "Department",

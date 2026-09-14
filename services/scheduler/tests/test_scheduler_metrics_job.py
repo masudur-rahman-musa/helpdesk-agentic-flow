@@ -15,7 +15,7 @@ must provide exactly this):
 ``scheduler.runner``
     ``METRICS_SWEEP_CADENCE_SECONDS = 300`` (decision C) — the cadence and,
     by 21a decision B, the `PX` of the lock key.
-    ``METRICS_SWEEP_JOB`` and a sixth ``REGISTRY`` row, under a name that
+    ``METRICS_SWEEP_JOB`` and one more ``REGISTRY`` row, under a name that
     passes the existing ``check_job_name``.
 
 What this file deliberately does NOT re-test: `check_job_name`'s inclusive
@@ -90,10 +90,12 @@ ALL_JOB_NAMES = frozenset(
         "review_generation",
         "review_reminders",
         "metrics_sweep",
+        "chain_anchor",
     }
 )
 """Every job this service runs, counted off the code: 21a's
-five-minute sweep, 21b's daily pair, 21c's pair, and this plan's."""
+five-minute sweep, 21b's daily pair, 21c's pair, this plan's, and an earlier change's
+`chain_anchor`."""
 
 _FAKE_SESSION = object()
 """The session double the wrapper case hands through.
@@ -180,7 +182,7 @@ def test_the_metrics_job_is_registered_at_its_cadence_under_a_valid_name() -> No
     assert job_lock_key(job.name) == METRICS_SWEEP_KEY
 
 
-def test_the_registry_holds_all_six_jobs_under_six_distinct_names() -> None:
+def test_the_registry_holds_all_seven_jobs_under_seven_distinct_names() -> None:
     """Catches a registration that REPLACES the registry rather than extending
     it — a `REGISTRY = {...}` rebuilt from this plan's job, which silently
     stops 21a's expiry sweep, 21b's daily pair and 21c's review pair and would
@@ -191,14 +193,17 @@ def test_the_registry_holds_all_six_jobs_under_six_distinct_names() -> None:
     the two without complaining, and the survivor would run at the wrong
     cadence.
 
-    Six is counted off the code, not carried over from 21c's row (standing
-    rule 6): `expire_grants`, `expiry_warnings`, `leaver_sweep`,
-    `review_generation`, `review_reminders`, and this plan's `metrics_sweep`.
+    Seven is counted off the code, not carried over from this file's previous
+    row: `expire_grants`, `expiry_warnings`, `leaver_sweep`,
+    `review_generation`, `review_reminders`, this plan's `metrics_sweep`, and
+    an earlier change's `chain_anchor`. This is the ONE case in the tree that names
+    the whole set, so an earlier change's job is registered beside the other six here
+    and nowhere else.
     """
     assert set(REGISTRY) == set(ALL_JOB_NAMES)
     assert {job.name for job in REGISTRY.values()} == set(ALL_JOB_NAMES)
     assert len({job.name for job in REGISTRY.values()}) == len(REGISTRY)
-    assert len(REGISTRY) == 6
+    assert len(REGISTRY) == 7
 
 
 # --- the wrapper (plan §1: it decides nothing) -------------------------------
