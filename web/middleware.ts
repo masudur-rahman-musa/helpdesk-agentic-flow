@@ -15,13 +15,21 @@
  *
  * `/api/*` is outside the matcher: `POST /api/login` is how a visitor with no
  * cookie gets one, so gating it would make signing in impossible.
+ *
+ * `/healthz` and `/readyz` are exempt for the same class of reason.
+ * A probe carries no cookie, so the gate answered both with a 307 to `/login`:
+ * compose's healthcheck reads `r.ok` and a kubelet reads the status, so the web
+ * container was never healthy on a machine where nothing had signed in. They
+ * are exempt rather than excluded from the matcher because the matcher is a
+ * negative pattern, and a third alternative in it is harder to read than a
+ * second entry in the set below.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
-const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/login"]);
+const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/login", "/healthz", "/readyz"]);
 
 export function middleware(request: NextRequest): NextResponse {
   if (PUBLIC_PATHS.has(request.nextUrl.pathname)) {

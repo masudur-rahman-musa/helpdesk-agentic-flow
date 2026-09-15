@@ -22,24 +22,16 @@
  * `AGENT_API_URL` is read per call rather than at module load, the same
  * convention `lib/agent-api.ts` documents, so a reconfigured process and a test
  * that sets the variable per case both see the change.
+ *
+ * The timeout is imported from `lib/readyz-timeout.ts` rather than declared
+ * here: a route module may export only handlers and Next's own config fields,
+ * and the test that pins the value needs to import it.
  */
+
+import { READYZ_TIMEOUT_MS } from "@/lib/readyz-timeout";
 
 /** Never cached and never prerendered: a probe answers for the live process. */
 export const dynamic = "force-dynamic";
-
-/**
- * Two seconds on the readiness call.
- *
- * Far below `lib/agent-api.ts`'s ten, because this is not a user's request: a
- * kubelet re-probes on its own period, so an answer that arrives after that
- * period is worthless, and a probe with no timeout at all fails by HANGING past
- * the kubelet's deadline rather than by answering "not ready". Failing fast is
- * the correct reading of a socket that has not answered in two seconds.
- * Pinned, with its signal traced onto the outgoing call, by
- * `tests/health-routes.test.ts`'s "pins the readyz timeout at exactly 2000ms
- * and carries its signal on the outgoing call".
- */
-export const READYZ_TIMEOUT_MS = 2_000;
 
 /** The same default as `lib/agent-api.ts`, read per call for the same reason. */
 function agentApiBaseUrl(): string {

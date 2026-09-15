@@ -81,6 +81,19 @@ services:
       QDRANT_URL: http://qdrant:6333
       MCP_URL: http://helpdesk-mcp-server:8081/mcp
       WEB_ORIGIN: http://localhost:3000
+      # The one localhost variable whose target is NOT on this network: the
+      # model gateway is the companion console's service, run separately. Left
+      # to `.env` it would arrive as `http://localhost:8080/v1` and this
+      # container would dial its own loopback, so `/readyz` reported unready
+      # with a gateway running the whole time. `host.docker.internal`
+      # is the host as seen from inside, which is where 8080 is published.
+      # A gateway somewhere else is pointed at through
+      # docker-compose.override.example.yml, not by editing this line.
+      GATEWAY_URL: ${GATEWAY_URL_IN_COMPOSE:-http://host.docker.internal:8080/v1}
+    extra_hosts:
+      # Linux does not resolve host.docker.internal on its own; Docker Desktop
+      # does. Declaring it here makes the name mean the same thing on both.
+      - "host.docker.internal:host-gateway"
     ports: ["8000:8000"]
     depends_on:
       postgres: {condition: service_healthy}

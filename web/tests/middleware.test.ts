@@ -46,6 +46,22 @@ describe("middleware — authenticated app routes", () => {
   });
 });
 
+describe("middleware — the probe routes are never gated", () => {
+  const probes: ReadonlyArray<{ path: string }> = [{ path: "/healthz" }, { path: "/readyz" }];
+
+  it.each(probes)("does not redirect $path when no session cookie is present", ({ path }) => {
+    // Kills the gate that sent both probes to /login with a 307: a
+    // probe carries no cookie, compose's healthcheck reads `r.ok` and a kubelet
+    // reads the status, so a gated /healthz means the container is never
+    // healthy on a machine where nobody has signed in. Deleting either entry
+    // from PUBLIC_PATHS fails the matching row here; the /login case above
+    // cannot see it, because /login was exempt the whole time.
+    const response = middleware(requestFor(path, { withCookie: false }));
+    expect(response.status).not.toBe(REDIRECT_STATUS);
+    expect(response.headers.get("location")).toBeNull();
+  });
+});
+
 describe("middleware — /login is never the target of its own redirect", () => {
   it("does not redirect /login when no session cookie is present", () => {
     // Kills the infinite redirect loop: a gate that guards every path including

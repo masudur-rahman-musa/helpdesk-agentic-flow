@@ -78,7 +78,16 @@ export function ChatPanel() {
   const streaming = useRef(false);
   // Read once, at mount: a later render must not put text back in a box the
   // user has since emptied.
-  const [prefill] = useState(() => readAsk(window.location.search) ?? "");
+  //
+  // The `typeof window` guard is for the SERVER pass, not for a browser that
+  // might lack the global: a lazy `useState` initialiser runs during the
+  // prerender as well as on mount, and an unguarded read there fails
+  // `next build` with "window is not defined" on this route. The
+  // server has no query string to read, so "" is the right answer for that
+  // pass, and the client's first render supplies the real one.
+  const [prefill] = useState(() =>
+    typeof window === "undefined" ? "" : (readAsk(window.location.search) ?? ""),
+  );
 
   const messages = [...(history.data ?? []), ...turn];
 

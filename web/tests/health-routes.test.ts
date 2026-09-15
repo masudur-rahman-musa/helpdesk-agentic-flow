@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GET as healthzGET } from "@/app/healthz/route";
-import { GET as readyzGET, READYZ_TIMEOUT_MS } from "@/app/readyz/route";
+import { GET as readyzGET } from "@/app/readyz/route";
+import { READYZ_TIMEOUT_MS } from "@/lib/readyz-timeout";
 
 /**
  * An earlier change §6, `health-routes.test.ts`: the web container's two probe routes
@@ -21,7 +22,9 @@ import { GET as readyzGET, READYZ_TIMEOUT_MS } from "@/app/readyz/route";
  * - `/readyz` asks agent-api's own `/readyz`, at `${AGENT_API_URL}/readyz`,
  *   with `AGENT_API_URL` read per call the way `lib/agent-api.ts` reads it.
  * - the readiness fetch carries `AbortSignal.timeout(READYZ_TIMEOUT_MS)` with
- *   `READYZ_TIMEOUT_MS` exported at exactly 2000.
+ *   `READYZ_TIMEOUT_MS` exported at exactly 2000. It
+ *   is imported from `lib/readyz-timeout.ts`, not from the route: Next refuses
+ *   any export from a route module but its handlers and config.
  *
  * No backing service: the only seam is `fetch`, stubbed exactly as
  * `tests/agent-api.test.ts` stubs it.

@@ -22,15 +22,24 @@ ARG NODE_IMAGE=node:22.12.0-bookworm-slim
 # --- dependency stage --------------------------------------------------------
 FROM ${NODE_IMAGE} AS deps
 
-RUN corepack enable
-
 WORKDIR /app
+
+# pnpm arrives from npm rather than through corepack. corepack
+# verifies every package manager it installs against signing keys baked into
+# the node image, npm has since rotated those keys, and a pinned node image can
+# never learn the new ones: `corepack enable` fails on a signature error for
+# pnpm@10.20.0 itself, not only for the "latest" it resolves by default. The
+# version here is the same one `web/package.json`'s `packageManager` names; the
+# two are kept in step by test_container_build.py::
+# test_the_web_image_installs_the_pinned_package_manager.
+RUN npm install --global pnpm@10.20.0
 
 # The manifests alone, so an install layer survives every source-only change.
 # --frozen-lockfile: a manifest that drifted from the lockfile fails here
 # rather than resolving to a tree nobody tested, the same contract `make
 # web-verify` holds on a developer's machine.
 COPY package.json pnpm-lock.yaml ./
+
 RUN --mount=type=cache,target=/root/.pnpm-store \
     pnpm config set store-dir /root/.pnpm-store \
  && pnpm install --frozen-lockfile
@@ -39,7 +48,10 @@ RUN --mount=type=cache,target=/root/.pnpm-store \
 # --- build stage -------------------------------------------------------------
 FROM ${NODE_IMAGE} AS builder
 
-RUN corepack enable
+# The same pinned pnpm as the deps stage, installed the same way and for the
+# same reason. Both lines move together or the two stages run different
+# package managers.
+RUN npm install --global pnpm@10.20.0
 
 WORKDIR /app
 
