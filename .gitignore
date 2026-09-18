@@ -21,6 +21,7 @@ web/coverage/
 web/next-env.d.ts
 web/test-results/
 web/playwright-report/
+.playwright-mcp/
 dist/
 build/
 
