@@ -1,0 +1,191 @@
+name: build
+
+# Publishes the four service images to GHCR. This is the only place an image
+# of this repository is ever pushed to a registry; `make images` and
+# `scripts/build_images.py` stay the local path, and neither can do a
+# multi-architecture build or an attestation, which is why this file drives
+# docker/build-push-action directly instead of shelling out to that script.
+#
+# Four build steps rather than a matrix: the web image takes a different
+# Dockerfile and a different context from the three Python ones, and a matrix
+# carrying that exception is longer than the four steps it would replace.
+#
+# Triggers are a push to main, a v* tag and a manual dispatch. A fork's
+# proposed-change event is deliberately absent: it would reach the GHCR login
+# below while this job holds `packages: write`, which hands a stranger's branch
+# a token that can publish. Nothing in this file may reintroduce that trigger.
+#
+# One tag per image, the full commit SHA, and no floating tag beside it. A
+# rollback names a SHA, and a `latest` moving under a running cluster makes
+# "the image that was running" unrecoverable. The SHA tag is not immutable
+# either: a manual re-run of this workflow re-pushes under it, so pin a digest
+# in a manifest where two nodes must be guaranteed the same build.
+#
+# Both architectures on all four: the deploy target's nodes are arm64, and an
+# amd64-only image pulls cleanly and then dies with `exec format error`.
+#
+# Pinned by packages/helpdesk/tests/test_build_workflow.py.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Never cancels. A cancelled publish leaves a half-pushed multi-architecture
+# manifest in the registry, which is worse than a queued run.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+
+    # Exactly three. `contents: read` to check out and `packages: write` to
+    # push are consumed below. `id-token: write` is NOT: the `provenance:`
+    # input is a BuildKit attestation assembled from the Actions environment
+    # and mints no OIDC token. The scope is deliberate headroom for a signing
+    # step (actions/attest-build-provenance, cosign) that would need it, and it
+    # is pinned as required so that step does not have to argue for it later.
+    # A fourth entry is a scope every third-party action in this job runs
+    # inside.
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # QEMU is what makes the arm64 half buildable on an amd64 runner. It is
+      # emulation, so that half is minutes per image; the buildx GitHub cache
+      # below is what keeps the whole job bearable.
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `provenance: true` takes BuildKit's own default mode, which is `min`:
+      # the builder, the source commit and the materials' digests, without the
+      # full build-step log a `max` attestation carries. That is the decision
+      #: `max` embeds the build environment, and this
+      # job's environment is the one holding the push token.
+      #
+      # Each build gets its OWN cache scope. A shared scope makes the four
+      # builds evict each other's layers, which on the emulated arm64 half is
+      # the difference between a warm cache and a rebuild from the base image.
+      - name: Build and push the agent API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          build-args: |
+            SERVICE=agent-api
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api:${{ github.sha }}
+          sbom: true
+          provenance: true
+          cache-from: type=gha,scope=agent-api
+          cache-to: type=gha,scope=agent-api,mode=max
+
+      - name: Build and push the MCP server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          build-args: |
+            SERVICE=mcp-server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server:${{ github.sha }}
+          sbom: true
+          provenance: true
+          cache-from: type=gha,scope=mcp-server
+          cache-to: type=gha,scope=mcp-server,mode=max
+
+      - name: Build and push the scheduler image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          build-args: |
+            SERVICE=scheduler
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler:${{ github.sha }}
+          sbom: true
+          provenance: true
+          cache-from: type=gha,scope=scheduler
+          cache-to: type=gha,scope=scheduler,mode=max
+
+      # The web image is the exception the matrix would have had to carry: its
+      # own Dockerfile, and a context of `web` rather than the repository root,
+      # because Next's standalone output is the only thing it copies.
+      - name: Build and push the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          file: web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-web:${{ github.sha }}
+          sbom: true
+          provenance: true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      # Every pushed reference is scanned after the push rather than before,
+      # because what is scanned has to be the manifest a node will pull. The
+      # gate is exit-code 1 on CRITICAL and HIGH, with ignore-unfixed so that
+      # every red run has an upgrade available and therefore an action.
+      #
+      # A red scan here does NOT unpublish the image: the push already
+      # happened, so the reference stays pullable and only the run goes red.
+      # Treat a red publish as "do not deploy that SHA", not as "that SHA does
+      # not exist".
+      #
+      # The thresholds match the weekly image-scan workflow, but the scanner
+      # does not: that file runs the pinned `aquasec/trivy:0.58.1` image
+      # because it needs argument forms the action does not pass through, while
+      # this file needs a registry pull the action already handles. The two can
+      # therefore disagree on one image, on different database snapshots,
+      # without either being wrong.
+      - name: Scan the agent API image
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Scan the MCP server image
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Scan the scheduler image
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Scan the web image
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-web:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
