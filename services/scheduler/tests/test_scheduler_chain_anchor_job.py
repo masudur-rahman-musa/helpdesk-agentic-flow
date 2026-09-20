@@ -24,9 +24,10 @@ What this file deliberately does NOT re-test:
   name, which is asserted to PASS that same gate below rather than copied
   through the neighbouring guard's cases.
 - "the registry holds SEVEN jobs under seven distinct names" (plan §1 and
-  §6). That pin already exists and plan §8 moves it to seven in place:
-  ``test_scheduler_metrics_job.py::test_the_registry_holds_all_seven_jobs_
-  under_seven_distinct_names``. Writing it twice would make one of the two
+  §6). That pin already exists and plan §8 moves it in place:
+  ``test_scheduler_metrics_job.py::test_the_registry_holds_all_eight_jobs_
+  under_eight_distinct_names``, which an earlier change moved on to eight when it
+  registered the retention sweep. Writing it twice would make one of the two
   green for the other's reason.
 - "the wrapper verifies before it anchors, asserted on the call order" (§6).
   The wrapper makes ONE call: ``anchor_tenant_chain`` verifies inside itself,

@@ -838,7 +838,6 @@ def test_restricted_role_insert_into_the_anchor_table_succeeds(
     ("label", "statement"),
     [
         ("UPDATE", f"UPDATE {ANCHOR_TABLE} SET audit_seq = 2 WHERE tenant_id = :t"),
-        ("DELETE", f"DELETE FROM {ANCHOR_TABLE} WHERE tenant_id = :t"),
     ],
 )
 def test_a_row_matching_write_on_the_anchor_table_is_refused_by_privilege(
@@ -854,8 +853,16 @@ def test_a_row_matching_write_on_the_anchor_table_is_refused_by_privilege(
     role that can disable a trigger.
 
     An UPDATE that lands is how an attacker moves the head DOWN to the
-    truncation they just made; a DELETE that lands removes the head entirely,
-    and a tenant with no anchor reads as healthy.
+    truncation they just made.
+
+    An earlier change §8 took the DELETE row out of this table. Decision A of that plan
+    grants `helpdesk_app` DELETE so the retention job can run, so a DELETE is
+    no longer refused by the grants at all: the head at the time of the
+    statement, and every anchor inside the window, are refused one SQLSTATE
+    later, by the trigger, for every role including the owner. That guarantee is pinned by
+    `test_audit_anchor_retention.py::test_a_delete_of_the_head_as_the_restricted_role_is_refused_by_the_trigger`,
+    `::test_a_delete_of_a_recent_non_head_anchor_as_the_restricted_role_is_refused`
+    and `::test_a_delete_of_the_head_as_the_table_owner_is_refused_by_the_trigger`.
     """
 
     tenant_id = _tenant_with_events(migrated_db_url, 1)
@@ -971,7 +978,12 @@ def test_the_anchor_migration_round_trips_and_its_downgrade_takes_the_grants(
 
     async def after_upgrade() -> None:
         granted = await _role_table_privileges(fresh_db_url)
-        assert granted.get(ANCHOR_TABLE, frozenset()) == frozenset({"SELECT", "INSERT"})
+        # An earlier change §8: this reads the live catalogue at HEAD, not an earlier change's
+        # revision alone, so it sees that plan's `DELETE` too. Which revision
+        # granted which privilege is the union map's business
+        # (`test_audit_db_role.py`); what this case still pins is that the
+        # downgrade to `c7f4a1d2e8b3` takes every one of them away.
+        assert granted.get(ANCHOR_TABLE, frozenset()) == frozenset({"SELECT", "INSERT", "DELETE"})
 
     asyncio.run(after_upgrade())
 

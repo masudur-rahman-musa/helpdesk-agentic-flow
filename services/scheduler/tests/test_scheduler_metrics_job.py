@@ -91,11 +91,12 @@ ALL_JOB_NAMES = frozenset(
         "review_reminders",
         "metrics_sweep",
         "chain_anchor",
+        "anchor_retention",
     }
 )
 """Every job this service runs, counted off the code: 21a's
-five-minute sweep, 21b's daily pair, 21c's pair, this plan's, and an earlier change's
-`chain_anchor`."""
+five-minute sweep, 21b's daily pair, 21c's pair, this plan's, an earlier change's
+`chain_anchor`, and an earlier change's `anchor_retention`."""
 
 _FAKE_SESSION = object()
 """The session double the wrapper case hands through.
@@ -182,7 +183,7 @@ def test_the_metrics_job_is_registered_at_its_cadence_under_a_valid_name() -> No
     assert job_lock_key(job.name) == METRICS_SWEEP_KEY
 
 
-def test_the_registry_holds_all_seven_jobs_under_seven_distinct_names() -> None:
+def test_the_registry_holds_all_eight_jobs_under_eight_distinct_names() -> None:
     """Catches a registration that REPLACES the registry rather than extending
     it — a `REGISTRY = {...}` rebuilt from this plan's job, which silently
     stops 21a's expiry sweep, 21b's daily pair and 21c's review pair and would
@@ -193,17 +194,17 @@ def test_the_registry_holds_all_seven_jobs_under_seven_distinct_names() -> None:
     the two without complaining, and the survivor would run at the wrong
     cadence.
 
-    Seven is counted off the code, not carried over from this file's previous
+    Eight is counted off the code, not carried over from this file's previous
     row: `expire_grants`, `expiry_warnings`, `leaver_sweep`,
-    `review_generation`, `review_reminders`, this plan's `metrics_sweep`, and
-    an earlier change's `chain_anchor`. This is the ONE case in the tree that names
-    the whole set, so an earlier change's job is registered beside the other six here
-    and nowhere else.
+    `review_generation`, `review_reminders`, this plan's `metrics_sweep`, plan
+    30bb's `chain_anchor`, and an earlier change's `anchor_retention`. This is the ONE
+    case in the tree that names the whole set, so an earlier change's job is registered
+    beside the other seven here and nowhere else.
     """
     assert set(REGISTRY) == set(ALL_JOB_NAMES)
     assert {job.name for job in REGISTRY.values()} == set(ALL_JOB_NAMES)
     assert len({job.name for job in REGISTRY.values()}) == len(REGISTRY)
-    assert len(REGISTRY) == 7
+    assert len(REGISTRY) == 8
 
 
 # --- the wrapper (plan §1: it decides nothing) -------------------------------

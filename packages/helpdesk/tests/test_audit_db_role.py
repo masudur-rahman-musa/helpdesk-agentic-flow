@@ -26,6 +26,14 @@ written out in this file. It is the UNION of each migration's own
 `TABLE_GRANTS` (decision D), so an applied revision stays frozen history and
 each one keeps saying for itself what it granted. Everything else — the role
 name, the SQLSTATE cases, the sequence check — is untouched.
+
+An earlier change section 8 makes that union a real one, per table rather than a `**`
+merge: its revision grants DELETE on `audit_chain_anchors`, the table plan
+30bb already granted SELECT and INSERT on, so a merge would drop one
+revision's set on the floor. `audit_chain_anchors` therefore reads SELECT,
+INSERT and DELETE from here on, and the head and every anchor inside the
+90-day window are refused by that plan's trigger instead
+(`test_audit_anchor_retention.py`).
 """
 
 import asyncio
@@ -82,8 +90,9 @@ TRIGGER_RAISED = "P0001"
 # count below fails too.
 #
 # The three rows that differ from read-write, all stated in the migrations:
-# - `audit_events` and `audit_chain_anchors` are append-only, SELECT and
-#   INSERT only.
+# - `audit_events` is append-only, SELECT and INSERT only.
+# - `audit_chain_anchors` is append-only plus the DELETE an earlier change's retention
+#   job needs, which its trigger holds to old non-head rows.
 # - `idempotency_keys` is purged of expired keys (`core/repository.py`).
 # - `policy_chunks` has a document's chunks deleted on reingest
 #   (`rag/chunks.py`).
@@ -119,10 +128,34 @@ ROLE_MIGRATION_GRANTS = _migration_table_grants("*_audit_app_role.py")
 ANCHOR_MIGRATION_GRANTS = _migration_table_grants("*_audit_chain_anchors.py")
 """An earlier change's map: `audit_chain_anchors`, SELECT and INSERT."""
 
-EXPECTED_GRANTS: Mapping[str, frozenset[str]] = {
-    **ROLE_MIGRATION_GRANTS,
-    **ANCHOR_MIGRATION_GRANTS,
-}
+RETENTION_MIGRATION_GRANTS = _migration_table_grants("*_audit_chain_anchor_retention.py")
+"""An earlier change's map: `audit_chain_anchors` again, DELETE and nothing else."""
+
+
+def _union_grants(*maps: Mapping[str, frozenset[str]]) -> Mapping[str, frozenset[str]]:
+    """The per-table UNION of several revisions' `TABLE_GRANTS`.
+
+    A `**` merge was correct while every revision named a different table.
+    An earlier change grants DELETE on a table an earlier change already granted SELECT and
+    INSERT on, and a merge would keep only the LAST map's set — this file
+    would then expect DELETE alone and read the database's SELECT, INSERT and
+    DELETE as a failure, or, with the maps the other way round, would report
+    the role as holding no DELETE while it holds one. The privileges a role
+    ends up with are the union of every grant ever made to it, so the expected
+    map is built the same way.
+    """
+    merged: dict[str, set[str]] = {}
+    for one_map in maps:
+        for table_name, privileges in one_map.items():
+            merged.setdefault(table_name, set()).update(privileges)
+    return {table_name: frozenset(privileges) for table_name, privileges in merged.items()}
+
+
+EXPECTED_GRANTS: Mapping[str, frozenset[str]] = _union_grants(
+    ROLE_MIGRATION_GRANTS,
+    ANCHOR_MIGRATION_GRANTS,
+    RETENTION_MIGRATION_GRANTS,
+)
 
 
 def expected_grants_for(table_name: str) -> frozenset[str]:
@@ -383,20 +416,29 @@ def test_expected_grant_map_covers_exactly_the_metadata_tables() -> None:
     hand-kept, so this is the only thing that notices a
     twenty-first table before a service meets 42501 in production.
 
-    The count is read off the two migrations, not carried over from plan
-    30ba's row: 19 tables in the role revision and 1 in the
-    anchor revision.
+    The counts are read off the three migrations, not carried over from the
+    previous row: 19 tables in the role revision, 1 in the
+    anchor revision and 1 in an earlier change's retention revision, which names the
+    same table as the anchor one. The table total is still 20, because that
+    plan adds no table.
 
-    The disjointness assertion is an earlier change decision D's other half: two
-    revisions granting the same table would leave one map silently overwriting
-    the other in the union, so the file would report the LAST grant applied
-    while the database holds the union of both."""
+    The last three assertions are an earlier change §8's whole point, and the one
+    thing a `**` merge would fail: two revisions now grant the same table, so a
+    merge keeps only the last map's set and this file would expect DELETE
+    alone on `audit_chain_anchors` while the database holds all three. Each
+    revision's own set is asserted beside the union, so a privilege moved from
+    one revision to the other — which would silently rewrite what an applied
+    migration claims to have granted (decision D) — fails here too."""
     assert set(EXPECTED_GRANTS) == set(Base.metadata.tables)
     assert len(ROLE_MIGRATION_GRANTS) == 19
     assert len(ANCHOR_MIGRATION_GRANTS) == 1
+    assert len(RETENTION_MIGRATION_GRANTS) == 1
     assert set(ROLE_MIGRATION_GRANTS) & set(ANCHOR_MIGRATION_GRANTS) == set()
+    assert set(ROLE_MIGRATION_GRANTS) & set(RETENTION_MIGRATION_GRANTS) == set()
     assert len(EXPECTED_GRANTS) == 20
     assert ANCHOR_MIGRATION_GRANTS["audit_chain_anchors"] == frozenset({"SELECT", "INSERT"})
+    assert RETENTION_MIGRATION_GRANTS["audit_chain_anchors"] == frozenset({"DELETE"})
+    assert EXPECTED_GRANTS["audit_chain_anchors"] == frozenset({"SELECT", "INSERT", "DELETE"})
 
 
 def test_expected_grants_for_names_a_table_that_has_no_grant_decision() -> None:

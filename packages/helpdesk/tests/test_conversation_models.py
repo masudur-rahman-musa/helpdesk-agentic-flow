@@ -71,6 +71,13 @@ from sqlalchemy import BigInteger, Integer, String, UniqueConstraint, text
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+CONVERSATION_METADATA_PARENT = "d8b2f6c41a97"
+"""The revision BELOW `f1a7c0d4e2b9`, the one the downgrade case undoes.
+
+Written out rather than reached with a relative `-1`: that step names whatever
+sits under the CURRENT head, so it stops pointing at this revision the moment
+a new one lands, and the case then asserts the wrong migration's effect."""
+
 TENANT_A_SLUG = "conversation-tenant-a"
 TENANT_B_SLUG = "conversation-tenant-b"
 
@@ -473,11 +480,15 @@ def test_the_metadata_column_is_not_null_after_the_migration_and_nullable_after_
     Catches a revision whose `upgrade` does not reach the column, and one whose
     `downgrade` is not its inverse - a downgrade that left NOT NULL standing
     would make the revision unrepeatable on any database that ran it once.
+
+    The downgrade names the revision BELOW the one under test rather than
+    stepping `-1`. A relative step means a different revision on the day a new
+    head lands, which is how this case broke when an earlier change added one.
     """
     _alembic("upgrade", "head", database_url=fresh_db_url)
     assert _metadata_is_nullable(fresh_db_url) is False
 
-    _alembic("downgrade", "-1", database_url=fresh_db_url)
+    _alembic("downgrade", CONVERSATION_METADATA_PARENT, database_url=fresh_db_url)
     assert _metadata_is_nullable(fresh_db_url) is True
 
     _alembic("upgrade", "head", database_url=fresh_db_url)

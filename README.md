@@ -130,7 +130,7 @@ each named test.
 ## Design decisions
 
 Non-obvious choices are recorded as decision records in
-[docs/adr/](docs/adr/). Twenty-two of them so far; these are the ones that
+[docs/adr/](docs/adr/). Twenty-three of them so far; these are the ones that
 shape the product.
 
 - **LangGraph orchestrates and decides nothing.** It owns the node sequence,

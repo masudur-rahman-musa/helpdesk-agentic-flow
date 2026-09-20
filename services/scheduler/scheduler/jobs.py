@@ -20,7 +20,9 @@ CHANGE access, and `metrics_sweep` changes nothing: it takes the design's two
 gauge readings, because a reading needs something to take it. 30bb adds the
 seventh on the same footing: `chain_anchor` changes no access either, and it
 is the one job here that WRITES a row, which is why it is not folded into the
-sweep that changes nothing (30bb decision C).
+sweep that changes nothing (30bb decision C). 30cc adds the eighth for the
+same reason one step on: `anchor_retention` is the one job here that DELETES
+rows, so it is not folded into the job that writes them (30cc decision C).
 """
 
 from datetime import datetime
@@ -32,6 +34,7 @@ from helpdesk.access.leavers import sweep_leavers
 from helpdesk.access.review_schedule import generate_reviews, send_review_reminders
 from helpdesk.audit.anchor import anchor_tenant_chain
 from helpdesk.audit.health import refresh_chain_gauge
+from helpdesk.audit.retention import purge_chain_anchors
 from helpdesk.obs import metrics
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -207,3 +210,30 @@ async def run_chain_anchor(session: AsyncSession, now: datetime) -> None:
     not to write one was already made inside the engine.
     """
     await anchor_tenant_chain(session)
+
+
+ANCHOR_RETENTION_JOB_NAME = "anchor_retention"
+"""The name of the retention sweep, and the segment of its Redis lock key.
+
+Not one of the design's jobs either: it changes no access. It is a job of its own
+rather than a second statement inside `chain_anchor`,
+because that job's docstring says what it writes and a job that also deleted
+rows would falsify it, and because a deletion rate should not be tied to how
+often a head is taken. Pinned together with the key it produces by
+`test_scheduler_anchor_retention_job.py::test_the_anchor_retention_job_constants_are_exactly_the_planned_values`."""
+
+
+async def run_anchor_retention(session: AsyncSession, now: datetime) -> None:
+    """Purge the bound tenant's anchors past the retention window.
+
+    The tick's `now` is handed down rather than read here, so every job of one
+    tick answers for one instant and the cutoff deletes the set of rows the
+    tick claims to be about. Pinned by
+    `test_scheduler_anchor_retention_job.py::test_the_anchor_retention_wrapper_hands_its_session_and_the_ticks_now_to_the_engine`,
+    which compares the recorded instant to the tick's own.
+
+    The count is dropped for the reason every other wrapper here drops its
+    return: the engine's log line is the record, and the decision not to emit
+    one over a purge that removed nothing was already made inside it.
+    """
+    await purge_chain_anchors(session, now)
