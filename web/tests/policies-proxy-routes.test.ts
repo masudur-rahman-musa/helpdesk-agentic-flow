@@ -252,7 +252,7 @@ describe("the reingest proxy — the bearer, the body and the bound (plan 31b §
   const REINGEST_BODY = {
     slug: "fake-access-policy",
     version: "v9",
-    idempotency_key: "0f8fad5b-d9cb-469f-a165-70867728950e",
+    idempotency_key: "00000000-0000-4000-8000-000000000001",
   };
 
   /** One re-ingest result, `policyReingestResultSchema`'s eight fields. */

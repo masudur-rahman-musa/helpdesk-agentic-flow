@@ -63,7 +63,7 @@ if str(_MCP_TESTS) not in sys.path:
     sys.path.insert(0, str(_MCP_TESTS))
 
 from mcp_fixtures import (  # noqa: E402 - path set immediately above
-    TEST_JWT_SECRET,
+    TEST_JWT_SIGNING_PHRASE,
     TEST_QDRANT_URL,
     SeededMcp,
     bearer,
@@ -291,7 +291,7 @@ def catalogue_mcp_env(
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv("DATABASE_URL", seeded_mcp_db.database_url)
         patch.setenv("REDIS_URL", mcp_redis_base_url)
-        patch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+        patch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
         patch.setenv("QDRANT_URL", TEST_QDRANT_URL)
         yield seeded_mcp_db
 

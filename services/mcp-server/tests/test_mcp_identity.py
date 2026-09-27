@@ -32,8 +32,8 @@ import pytest
 from helpdesk.auth.jwt import TokenClaims
 from helpdesk.errors import ErrorCode, ToolError
 from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
-    TEST_JWT_SECRET,
-    WRONG_JWT_SECRET,
+    TEST_JWT_SIGNING_PHRASE,
+    WRONG_JWT_SIGNING_PHRASE,
     SeededMcp,
     bearer,
     call_tool,
@@ -72,7 +72,9 @@ REFUSAL_CASES: tuple[tuple[str, HeaderBuilder], ...] = (
     ("malformed token, not a JWT at all", lambda seeded: "Bearer not-a-jwt"),
     (
         "token signed with a different secret",
-        lambda seeded: f"Bearer {token_for(seeded.tenant_a, now=NOW, secret=WRONG_JWT_SECRET)}",
+        lambda seeded: (
+            f"Bearer {token_for(seeded.tenant_a, now=NOW, secret=WRONG_JWT_SIGNING_PHRASE)}"
+        ),
     ),
     (
         "expired token, otherwise valid",
@@ -123,7 +125,7 @@ def test_identity_from_header_refuses(
     build: HeaderBuilder,
 ) -> None:
     with pytest.raises(IdentityRefused) as refusal:
-        identity_from_header(build(seeded_mcp_db), TEST_JWT_SECRET, NOW)
+        identity_from_header(build(seeded_mcp_db), TEST_JWT_SIGNING_PHRASE, NOW)
 
     assert refusal.value.code == ErrorCode.FORBIDDEN, label
 
@@ -134,7 +136,7 @@ def test_identity_from_header_accepts_a_valid_bearer_token(
     user = seeded_mcp_db.tenant_a
     token = token_for(user, now=NOW)
 
-    identity = identity_from_header(f"Bearer {token}", TEST_JWT_SECRET, NOW)
+    identity = identity_from_header(f"Bearer {token}", TEST_JWT_SIGNING_PHRASE, NOW)
 
     assert isinstance(identity, Identity)
     assert identity.user_id == user.user_id
@@ -153,7 +155,7 @@ def test_the_bearer_scheme_is_case_insensitive(
     must not be told it lacks permission."""
     token = token_for(seeded_mcp_db.tenant_a, now=NOW)
 
-    identity = identity_from_header(f"{scheme} {token}", TEST_JWT_SECRET, NOW)
+    identity = identity_from_header(f"{scheme} {token}", TEST_JWT_SIGNING_PHRASE, NOW)
 
     assert identity.user_id == seeded_mcp_db.tenant_a.user_id
 
@@ -168,11 +170,13 @@ def test_a_token_expiring_exactly_now_is_refused(
     # One microsecond earlier the same token still verifies: the pair proves
     # the boundary is where it is claimed, not merely that expiry happens.
     assert (
-        identity_from_header(f"Bearer {token}", TEST_JWT_SECRET, NOW - timedelta(seconds=1)).user_id
+        identity_from_header(
+            f"Bearer {token}", TEST_JWT_SIGNING_PHRASE, NOW - timedelta(seconds=1)
+        ).user_id
         == seeded_mcp_db.tenant_a.user_id
     )
     with pytest.raises(IdentityRefused):
-        identity_from_header(f"Bearer {token}", TEST_JWT_SECRET, NOW)
+        identity_from_header(f"Bearer {token}", TEST_JWT_SIGNING_PHRASE, NOW)
 
 
 # --- the same table, through the real transport -------------------------------

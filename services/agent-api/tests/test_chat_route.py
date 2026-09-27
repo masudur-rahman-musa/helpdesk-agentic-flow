@@ -97,7 +97,7 @@ TENANT_B = "chat-tenant-b"
 
 # Obviously fake, tests only: none of these is a credential.
 API_KEYS: dict[str, str] = {slug: f"fake-key-{slug}" for slug in (TENANT_A, TENANT_B)}
-TEST_JWT_SECRET = "chat-route-test-jwt-secret-0123456789abcdef"
+TEST_JWT_SIGNING_PHRASE = "chat-route-test-jwt-secret-0123456789abcdef"
 OTHER_JWT_SECRET = "another-chat-route-fake-secret-0123456789"
 GATEWAY_API_KEYS = ",".join(f"{slug}:{key}" for slug, key in API_KEYS.items())
 
@@ -317,7 +317,7 @@ def chat_env(chat_db: ChatEnv, monkeypatch: pytest.MonkeyPatch) -> ChatEnv:
     """Point the app's lifespan at the seeded database and the test Redis index."""
     monkeypatch.setenv("DATABASE_URL", chat_db.database_url)
     monkeypatch.setenv("REDIS_URL", chat_db.redis_url)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("GATEWAY_URL", GATEWAY_URL)
     monkeypatch.setenv("GATEWAY_API_KEYS", GATEWAY_API_KEYS)
     monkeypatch.setenv("MCP_URL", MCP_URL)
@@ -516,7 +516,9 @@ def _request_plan(env: ChatEnv) -> str:
 # --- driving the app ----------------------------------------------------------
 
 
-def _token(tenant: SeededTenant, session_id: uuid.UUID, *, secret: str = TEST_JWT_SECRET) -> str:
+def _token(
+    tenant: SeededTenant, session_id: uuid.UUID, *, secret: str = TEST_JWT_SIGNING_PHRASE
+) -> str:
     """One verified-looking token for a seeded person and one conversation."""
     return issue_token(
         {

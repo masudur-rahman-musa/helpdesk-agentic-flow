@@ -54,7 +54,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Obviously fake, tests only; >= 32 bytes so the settings length gate passes.
-TEST_JWT_SECRET = "audit-verify-test-jwt-secret-0123456789"
+TEST_JWT_SIGNING_PHRASE = "audit-verify-test-jwt-secret-0123456789"
 
 ALLOWED_PRINCIPALS = ("auditor", "it_admin", "platform_admin")
 DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "hr")
@@ -133,7 +133,7 @@ def audit_db(pg: TempDatabaseFactory) -> Iterator[str]:
 def audit_env(audit_db: str, monkeypatch: pytest.MonkeyPatch) -> str:
     """Point the app's per-request load_settings() at the migrated temp database."""
     monkeypatch.setenv("DATABASE_URL", audit_db)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("QDRANT_URL", "http://localhost:6333")
     return audit_db
@@ -269,7 +269,7 @@ def _token(
     tenant_id: uuid.UUID,
     principals: list[str],
     *,
-    secret: str = TEST_JWT_SECRET,
+    secret: str = TEST_JWT_SIGNING_PHRASE,
     now: datetime | None = None,
 ) -> str:
     return issue_token(

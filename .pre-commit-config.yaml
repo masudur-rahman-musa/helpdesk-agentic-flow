@@ -12,9 +12,18 @@ repos:
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.24.3
     hooks:
+      # --baseline-path is passed for the same reason the CI job passes it, plus
+      # one the job does not have: gitleaks skips the baseline FILE only when the
+      # flag names it (detect.go's fragment.FilePath check), so without this the
+      # hook reads the baseline's own nine entries as ten fresh leaks and blocks
+      # every commit. The hook's entry hardcodes --redact, which stops a baseline
+      # ENTRY from matching, but the file skip is independent of that and still
+      # engages. Pinned by test_security_config.py::
+      # test_the_gitleaks_hook_and_the_ci_job_pass_the_same_baseline.
       - id: gitleaks
+        args: [--baseline-path=.gitleaks-baseline.json]
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.11
+    rev: v0.16.5
     hooks:
       - id: ruff-format
       - id: ruff-check

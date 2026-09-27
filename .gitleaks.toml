@@ -6,6 +6,12 @@
 #
 # The hook in .pre-commit-config.yaml reads the working tree; the security job in
 # .github/workflows/ci.yml reads the full git history. Both read this file.
+#
+# History is not editable, so the findings that predate a fix cannot be removed
+# by changing today's code. Those live in .gitleaks-baseline.json, which BOTH
+# invocations pass with --baseline-path. That file excuses named findings at named
+# COMMITS; this file excuses paths. A new path belongs in neither without the
+# argument FAKE_CREDENTIAL_PATHS exists to force.
 
 [extend]
 useDefault = true

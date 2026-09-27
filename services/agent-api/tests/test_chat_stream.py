@@ -86,7 +86,7 @@ TENANT_A = "stream-route-tenant-a"
 
 # Obviously fake, tests only: none of these is a credential.
 API_KEYS: dict[str, str] = {TENANT_A: f"fake-key-{TENANT_A}"}
-TEST_JWT_SECRET = "chat-stream-test-jwt-secret-0123456789abcdef"
+TEST_JWT_SIGNING_PHRASE = "chat-stream-test-jwt-secret-0123456789abcdef"
 OTHER_JWT_SECRET = "another-chat-stream-fake-secret-0123456789"
 GATEWAY_API_KEYS = ",".join(f"{slug}:{key}" for slug, key in API_KEYS.items())
 
@@ -351,7 +351,7 @@ def stream_env(stream_route_db: StreamRouteEnv, monkeypatch: pytest.MonkeyPatch)
     """Point the app's lifespan at the seeded database and the test Redis index."""
     monkeypatch.setenv("DATABASE_URL", stream_route_db.database_url)
     monkeypatch.setenv("REDIS_URL", stream_route_db.redis_url)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("GATEWAY_URL", GATEWAY_URL)
     monkeypatch.setenv("GATEWAY_API_KEYS", GATEWAY_API_KEYS)
     monkeypatch.setenv("MCP_URL", MCP_URL)
@@ -484,7 +484,9 @@ def _one_turn(answers: Sequence[str] = ()) -> list[str]:
 # --- driving the app ----------------------------------------------------------
 
 
-def _token(tenant: SeededTenant, session_id: uuid.UUID, *, secret: str = TEST_JWT_SECRET) -> str:
+def _token(
+    tenant: SeededTenant, session_id: uuid.UUID, *, secret: str = TEST_JWT_SIGNING_PHRASE
+) -> str:
     """One verified-looking token for a seeded person and one conversation."""
     return issue_token(
         {

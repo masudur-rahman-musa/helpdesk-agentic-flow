@@ -21,6 +21,9 @@ web/coverage/
 web/next-env.d.ts
 web/test-results/
 web/playwright-report/
+# Rewritten by every tsc run, so a tracked copy churns on each web build and the
+# end-of-file-fixer hook rewrites it back.
+web/tsconfig.tsbuildinfo
 .playwright-mcp/
 dist/
 build/

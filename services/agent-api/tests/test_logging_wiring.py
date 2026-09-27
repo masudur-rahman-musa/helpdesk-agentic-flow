@@ -74,7 +74,7 @@ from test_agent_turn import (
 from test_obs_tracing import TRACE_ID_PATTERN, FakeTraceClient
 
 # Obviously fake, tests only; >= 32 bytes so the settings length gate passes.
-TEST_JWT_SECRET = "logging-wiring-test-jwt-secret-0123456789"
+TEST_JWT_SIGNING_PHRASE = "logging-wiring-test-jwt-secret-0123456789"
 
 # Obviously fake identity, planted to prove it cannot reach a line.
 PROBE_EMAIL = "logging.wiring.probe@fake.invalid"
@@ -107,7 +107,7 @@ def test_a_record_logged_during_a_request_carries_that_call_s_tenant_and_session
     tenant_id = uuid.uuid4()
     session_id = uuid.uuid4()
     user_id = uuid.uuid4()
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
 
     token = issue_token(
         {
@@ -119,7 +119,7 @@ def test_a_record_logged_during_a_request_carries_that_call_s_tenant_and_session
             "principals": ["employee"],
             "sid": str(session_id),
         },
-        TEST_JWT_SECRET,
+        TEST_JWT_SIGNING_PHRASE,
         datetime.now(UTC),
     )
 

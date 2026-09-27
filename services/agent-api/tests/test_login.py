@@ -64,7 +64,7 @@ from scripts.seed import seed_all  # noqa: E402
 DEMO_ACCOUNTS_DOC = _REPO_ROOT / "docs" / "demo-accounts.md"
 
 # Obviously fake, tests only; >= 32 bytes so the settings length gate passes.
-TEST_JWT_SECRET = "login-test-jwt-secret-0123456789abcdef"
+TEST_JWT_SIGNING_PHRASE = "login-test-jwt-secret-0123456789abcdef"
 LEAVER_PASSWORD = "Leaver-Known-Test-Password-2026!"  # obviously fake, tests only
 
 EIGHT_HOURS = 8 * 60 * 60
@@ -227,7 +227,7 @@ def seeded_login_db(pg: TempDatabaseFactory) -> Iterator[SeededLogin]:
 def login_env(seeded_login_db: SeededLogin, monkeypatch: pytest.MonkeyPatch) -> SeededLogin:
     """Point the app's per-request load_settings() at the seeded temp database."""
     monkeypatch.setenv("DATABASE_URL", seeded_login_db.database_url)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.setenv("QDRANT_URL", "http://localhost:6333")
     return seeded_login_db
@@ -295,7 +295,7 @@ def test_login_happy_path_token_matches_seeded_user(login_env: SeededLogin) -> N
     body = response.json()
     assert body["token_type"] == "bearer"
 
-    claims = verify_token(body["access_token"], TEST_JWT_SECRET, datetime.now(UTC))
+    claims = verify_token(body["access_token"], TEST_JWT_SIGNING_PHRASE, datetime.now(UTC))
     assert isinstance(claims, TokenClaims)
 
     user_id, tenant_id, department_id, principals, slug = _seeded_user(
@@ -320,8 +320,8 @@ def test_each_login_gets_a_fresh_sid(login_env: SeededLogin) -> None:
     second = _post_login(account.tenant_slug, account.email, account.password)
 
     assert first.status_code == 200 and second.status_code == 200
-    sid_a = verify_token(first.json()["access_token"], TEST_JWT_SECRET, now).sid
-    sid_b = verify_token(second.json()["access_token"], TEST_JWT_SECRET, now).sid
+    sid_a = verify_token(first.json()["access_token"], TEST_JWT_SIGNING_PHRASE, now).sid
+    sid_b = verify_token(second.json()["access_token"], TEST_JWT_SIGNING_PHRASE, now).sid
     assert sid_a != sid_b, "sid must be a fresh UUID per login (plan 05 decision B)"
 
 
@@ -397,7 +397,7 @@ def test_every_documented_demo_account_can_log_in(login_env: SeededLogin) -> Non
             f"({account.tenant_slug}/{account.principal}): "
             f"{response.status_code} {response.text}"
         )
-        claims = verify_token(response.json()["access_token"], TEST_JWT_SECRET, now)
+        claims = verify_token(response.json()["access_token"], TEST_JWT_SIGNING_PHRASE, now)
         _user_id, tenant_id, _dept, _principals, slug = _seeded_user(
             login_env.database_url, account.email
         )

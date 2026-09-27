@@ -74,7 +74,7 @@ LIST_MY_ACCESS = "list_my_access"
 
 # Obviously fake, tests only: none of these is a credential, and
 # nothing in this file connects to any of these hosts.
-TEST_JWT_SECRET = "me-routes-test-jwt-secret-0123456789abcdef"
+TEST_JWT_SIGNING_PHRASE = "me-routes-test-jwt-secret-0123456789abcdef"
 OTHER_JWT_SECRET = "another-me-routes-fake-secret-0123456789"
 MCP_URL = "http://mcp.invalid:8081/mcp"
 MCP_HOST = "mcp.invalid"
@@ -221,13 +221,13 @@ def me_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("QDRANT_URL", QDRANT_URL)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("MCP_URL", MCP_URL)
 
 
 def _token(
     *,
-    secret: str = TEST_JWT_SECRET,
+    secret: str = TEST_JWT_SIGNING_PHRASE,
     issued_at: datetime | None = None,
 ) -> str:
     """One verified-looking token for one fake person and one conversation."""

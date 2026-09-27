@@ -89,7 +89,7 @@ KILLSWITCH_PATH = "/admin/killswitch"
 
 # Obviously fake, tests only: none of these is a credential, and
 # nothing in this file connects to any of these hosts.
-TEST_JWT_SECRET = "killswitch-routes-test-jwt-secret-0123456789"
+TEST_JWT_SIGNING_PHRASE = "killswitch-routes-test-jwt-secret-0123456789"
 OTHER_JWT_SECRET = "another-killswitch-routes-fake-secret-01234"
 MCP_URL = "http://mcp.invalid:8081/mcp"
 MCP_HOST = "mcp.invalid"
@@ -283,14 +283,14 @@ def killswitch_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("QDRANT_URL", QDRANT_URL)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("MCP_URL", MCP_URL)
 
 
 def _token(
     *,
     user_id: uuid.UUID = ADMIN_ID,
-    secret: str = TEST_JWT_SECRET,
+    secret: str = TEST_JWT_SIGNING_PHRASE,
     issued_at: datetime | None = None,
 ) -> str:
     """One verified-looking token for one fake platform admin and one session."""
@@ -393,7 +393,7 @@ def _tenant_id_off_the_token(token: str) -> str:
     off the claims the route itself will derive it from, never written as a
     second literal beside `TENANT_ID`.
     """
-    return verify_token(token, TEST_JWT_SECRET, datetime.now(UTC)).tenant_id
+    return verify_token(token, TEST_JWT_SIGNING_PHRASE, datetime.now(UTC)).tenant_id
 
 
 # --- the board (GET) ----------------------------------------------------------

@@ -36,10 +36,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      # --baseline-path excuses the nine findings that live only in history: the
+      # renamed test constants, the web idempotency_key and .env.example's
+      # placeholder, each against a commit no rename can reach. A baseline entry
+      # is matched on every field including Commit, so a secret in a NEW commit
+      # is never covered by it. Pinned by test_security_config.py::
+      # test_the_gitleaks_step_passes_a_baseline_path.
+      #
+      # --redact is deliberately absent: it rewrites Match and Secret to
+      # "REDACTED", and gitleaks compares both against the baseline, so the two
+      # flags cannot both be on. Every baselined value is a fake test fixture or
+      # a placeholder, so printing them costs nothing; a real secret would be a
+      # NEW finding and must be readable to be fixed.
       - name: Secrets over the full history
         run: |
           docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 \
-            detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner
+            detect --source=/repo --config=/repo/.gitleaks.toml --no-banner \
+            --baseline-path=/repo/.gitleaks-baseline.json
 
       - uses: astral-sh/setup-uv@v6
         with:

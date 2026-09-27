@@ -115,7 +115,7 @@ LIMIT_DEFAULT = 50
 
 # Obviously fake, tests only: none of these is a credential, and
 # nothing in this file connects to any of these hosts.
-TEST_JWT_SECRET = "notification-routes-test-jwt-secret-01234"
+TEST_JWT_SIGNING_PHRASE = "notification-routes-test-jwt-secret-01234"
 OTHER_JWT_SECRET = "another-notification-routes-fake-secret-1"
 MCP_URL = "http://mcp.invalid:8081/mcp"
 MCP_HOST = "mcp.invalid"
@@ -144,7 +144,7 @@ STAMP_PATH = f"/notifications/{NOTIFICATION_ID}/read"
 # bare concatenation of the same two uuids is
 # `8f4294b8-4169-56c9-b448-95073f9abdff`, which is what this literal separates
 # from the documented one.
-EXPECTED_READ_KEY = "157149bd-4d3a-5f66-87b1-aa756d2177fe"
+EXPECTED_READ_FINGERPRINT = "157149bd-4d3a-5f66-87b1-aa756d2177fe"
 
 # A token issued nine hours ago: `issue_token` gives an 8-hour `exp`, so this
 # one verifies its signature and fails on expiry alone.
@@ -299,14 +299,14 @@ def notifications_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("QDRANT_URL", QDRANT_URL)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("MCP_URL", MCP_URL)
 
 
 def _token(
     *,
     user_id: uuid.UUID = READER_ID,
-    secret: str = TEST_JWT_SECRET,
+    secret: str = TEST_JWT_SIGNING_PHRASE,
     issued_at: datetime | None = None,
 ) -> str:
     """One verified-looking token for one fake reader and one conversation."""
@@ -1067,7 +1067,7 @@ def test_the_key_is_the_uuid5_of_the_two_values_under_the_modules_namespace() ->
     namespaces (decision B's whole reason for putting this function in that
     module rather than beside the routes).
 
-    `EXPECTED_READ_KEY` is hand-computed and written as a literal, and the
+    `EXPECTED_READ_FINGERPRINT` is hand-computed and written as a literal, and the
     constructive form is asserted beside it so the two cannot drift. The
     separator is pinned by construction: a bare concatenation of the same two
     uuids gives a different value, and a derivation joining them that way fails
@@ -1077,10 +1077,10 @@ def test_the_key_is_the_uuid5_of_the_two_values_under_the_modules_namespace() ->
         uuid.uuid5(KEY_NAMESPACE, SEPARATOR.join([str(READER_ID), str(NOTIFICATION_ID)]))
     )
 
-    assert expected == EXPECTED_READ_KEY
+    assert expected == EXPECTED_READ_FINGERPRINT
     assert (
         derive_notification_read_key(reader_user_id=READER_ID, notification_id=NOTIFICATION_ID)
-        == EXPECTED_READ_KEY
+        == EXPECTED_READ_FINGERPRINT
     )
 
 

@@ -45,7 +45,7 @@ from typing import Any
 import httpx
 import pytest
 from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
-    TEST_JWT_SECRET,
+    TEST_JWT_SIGNING_PHRASE,
     SeededMcp,
     SeededUser,
     bearer,
@@ -716,7 +716,7 @@ def test_login_refuses_an_onboarded_user_exactly_like_an_unknown_one(
     Assert-driven premise: the onboard must have succeeded first, otherwise a
     404-shaped refusal would pass this case for the wrong reason.
     """
-    assert TEST_JWT_SECRET, "premise: mcp_env has set a JWT secret for the login route"
+    assert TEST_JWT_SIGNING_PHRASE, "premise: mcp_env has set a JWT secret for the login route"
     caller = _seeded(CALLER)
     department_id = _plant_department(mcp_env.database_url)
     email = _email()

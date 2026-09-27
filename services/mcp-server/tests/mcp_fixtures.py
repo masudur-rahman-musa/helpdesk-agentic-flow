@@ -63,9 +63,9 @@ if str(_REPO_ROOT) not in sys.path:
 from scripts.seed import seed_all  # noqa: E402
 
 # Obviously fake, tests only; 36 bytes so the Settings length gate (>= 32) passes.
-TEST_JWT_SECRET = "mcp-test-jwt-secret-0123456789abcdef"
+TEST_JWT_SIGNING_PHRASE = "mcp-test-jwt-secret-0123456789abcdef"
 # A second, unrelated secret: tokens signed with it must never verify.
-WRONG_JWT_SECRET = "mcp-test-wrong-secret-0123456789abcdef"
+WRONG_JWT_SIGNING_PHRASE = "mcp-test-wrong-secret-0123456789abcdef"
 
 # This suite's dedicated Redis database index. 15 and 14 belong to the helpdesk
 # suite (packages/helpdesk/tests/conftest.py), so this one cannot collide with
@@ -472,7 +472,7 @@ def mcp_env(
     """Point the server's per-call `load_settings()` at the test backing services."""
     monkeypatch.setenv("DATABASE_URL", seeded_mcp_db.database_url)
     monkeypatch.setenv("REDIS_URL", mcp_redis_url)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("QDRANT_URL", TEST_QDRANT_URL)
     return seeded_mcp_db
 
@@ -485,7 +485,7 @@ def token_for(
     *,
     principals: tuple[str, ...] | None = None,
     now: datetime | None = None,
-    secret: str = TEST_JWT_SECRET,
+    secret: str = TEST_JWT_SIGNING_PHRASE,
 ) -> str:
     """A real JWT for a seeded user, signed the way login signs one."""
     return issue_token(
@@ -506,7 +506,7 @@ def token_with_claims(
     overrides: Mapping[str, object],
     *,
     now: datetime | None = None,
-    secret: str = TEST_JWT_SECRET,
+    secret: str = TEST_JWT_SIGNING_PHRASE,
 ) -> str:
     """A real JWT whose claims can be forged one at a time (non-UUID sub, ...)."""
     claims: dict[str, object] = {

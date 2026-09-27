@@ -19,6 +19,7 @@ exists yet, `ci.yml` has only a `check` job, and `docs/threat-model.md` is still
 the skeleton stub.
 """
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -53,11 +54,20 @@ IMAGE_SCAN_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "image-scan.yml"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 THREAT_MODEL = REPO_ROOT / "docs" / "threat-model.md"
 DOCKERFILE = REPO_ROOT / "Dockerfile"
-"""The eight paths this module reads. `DOCKERFILE` is read only to prove the
+PRE_COMMIT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
+PYPROJECT = REPO_ROOT / "pyproject.toml"
+UV_LOCK = REPO_ROOT / "uv.lock"
+GITLEAKS_BASELINE = REPO_ROOT / ".gitleaks-baseline.json"
+"""The twelve paths this module reads. `DOCKERFILE` is read only to prove the
 real one EXISTS and names no placeholder, by
 `test_the_root_dockerfile_exists_and_declares_the_three_services` (an earlier change
 §8); its `ARG SERVICE` guard is pinned in full by
-`test_container_build.py::test_the_root_dockerfile_declares_the_three_service_values`."""
+`test_container_build.py::test_the_root_dockerfile_declares_the_three_service_values`.
+
+The last four are an earlier change's: the pre-commit config and `pyproject.toml` whose
+ruff versions must agree, `uv.lock` as the record of which ruff version this
+project actually resolves, and the gitleaks baseline that records the nine
+findings living only in history."""
 
 FAKE_CREDENTIAL_PATHS: frozenset[str] = frozenset(
     {".env.example", "docs/demo-accounts.md", "scripts/seed.py"}
@@ -67,6 +77,31 @@ one is deliberately fake: a placeholder file, a documented demo password, and
 hard-rule-8 seed data. Asserted as an EXACT set by
 `test_gitleaks_allowlists_exactly_the_three_fake_credential_paths`, so a fourth
 exception has to be argued rather than added."""
+
+RUFF_PRE_COMMIT_REPO = "https://github.com/astral-sh/ruff-pre-commit"
+"""The repo entry of `.pre-commit-config.yaml` whose `rev` runs ruff in the hook,
+matched exactly so a renamed or forked mirror is a miss rather than a silent pass.
+Read by `test_the_pre_commit_ruff_rev_matches_the_dev_dependency`."""
+
+VERSION_NUMBER = re.compile(r"(\d+(?:\.\d+)*)")
+"""The numeric part of a version string, used to read `v0.16.5` off a pre-commit
+`rev` and `0.16.5` off `uv.lock` as the same three numbers. Applied with `search`
+because the pre-commit form carries a leading `v` the lock form does not, and
+compared as an int tuple so `0.16.5` sorts above `0.12.11` (string order does
+not: "0.12" > "0.16" is false only by luck of the second digit)."""
+
+RUFF_FLOOR_SPECIFIER = re.compile(r"^ruff\s*>=\s*(\d+(?:\.\d+)*)$")
+"""`pyproject.toml`'s dev-group ruff entry, whose whole value at HEAD is
+`ruff>=0.12`. Anchored so an entry carrying an upper bound or an extra marker is
+not silently read as a bare floor by a partial match."""
+
+BASELINED_FINDING_COUNT = 9
+"""The exact number of findings `.gitleaks-baseline.json` excuses, every one of
+them against a commit already in history (an earlier change decision B, corrected while
+implementing: a rename cannot reach a committed line, so all nine are baselined
+rather than two). Asserted with the not-at-HEAD property by
+`test_the_baseline_records_only_the_historical_findings`, so a tenth entry has to
+be argued rather than regenerated in."""
 
 SCANNERS: tuple[str, ...] = ("gitleaks", "pip-audit", "pnpm audit", "trivy")
 """The four scanners the `security` job runs, counted as four by
@@ -175,6 +210,70 @@ def _step_running(job: dict[str, Any], marker: str) -> dict[str, Any]:
     return matching[0]
 
 
+def _version_tuple(raw: str, source: str) -> tuple[int, ...]:
+    """The numeric version inside `raw` as an int tuple, failing with `source`.
+
+    Kept local rather than reaching for `packaging`, which this project does not
+    declare as a dependency; the three versions compared here are plain dotted
+    numbers with no pre-release or epoch part.
+    """
+    found = VERSION_NUMBER.search(raw)
+    assert found is not None, f"{source} carries no version number: {raw!r}"
+    return tuple(int(part) for part in found.group(1).split("."))
+
+
+def _pre_commit_ruff_rev() -> str:
+    """The `rev` of the ruff-pre-commit repo entry, asserted to be exactly one."""
+    repos = _load_yaml(PRE_COMMIT_CONFIG).get("repos")
+    assert isinstance(repos, list) and repos, ".pre-commit-config.yaml declares no repos"
+
+    matching = [
+        entry
+        for entry in repos
+        if isinstance(entry, dict) and str(entry.get("repo")) == RUFF_PRE_COMMIT_REPO
+    ]
+    assert len(matching) == 1, (
+        f"expected 1 {RUFF_PRE_COMMIT_REPO} entry, found {len(matching)}: "
+        f"repos are {[entry.get('repo') for entry in repos if isinstance(entry, dict)]}"
+    )
+    return str(matching[0]["rev"])
+
+
+def _locked_ruff_version() -> str:
+    """The ruff version `uv.lock` resolves, asserted to be a single locked entry.
+
+    The lockfile rather than `importlib.metadata` so the case reads a file this
+    repo commits: the answer cannot change with whichever virtualenv happens to
+    be active when the suite runs.
+    """
+    packages = tomllib.loads(UV_LOCK.read_text(encoding="utf-8")).get("package")
+    assert isinstance(packages, list) and packages, "uv.lock declares no packages"
+
+    versions = [
+        str(entry["version"])
+        for entry in packages
+        if isinstance(entry, dict) and entry.get("name") == "ruff"
+    ]
+    assert len(versions) == 1, f"uv.lock locks {len(versions)} ruff versions: {versions}"
+    return versions[0]
+
+
+def _ruff_dev_floor() -> str:
+    """The lower bound of `pyproject.toml`'s dev-group `ruff` specifier."""
+    groups = tomllib.loads(PYPROJECT.read_text(encoding="utf-8")).get("dependency-groups")
+    assert isinstance(groups, dict), "pyproject.toml declares no dependency-groups"
+    dev = groups.get("dev")
+    assert isinstance(dev, list) and dev, "pyproject.toml declares no dev dependency group"
+
+    floors = [
+        match.group(1)
+        for match in (RUFF_FLOOR_SPECIFIER.match(str(entry).strip()) for entry in dev)
+        if match is not None
+    ]
+    assert len(floors) == 1, f"expected 1 `ruff>=` dev entry, found {len(floors)}: {floors}"
+    return floors[0]
+
+
 def _uses_refs(document: dict[str, Any]) -> list[str]:
     """Every `uses:` string in every job of one workflow document."""
     jobs = document.get("jobs")
@@ -226,6 +325,141 @@ def test_gitleaks_allowlists_exactly_the_three_fake_credential_paths() -> None:
     paths = {str(path) for entry in allowlists for path in entry.get("paths", [])}
 
     assert paths == set(FAKE_CREDENTIAL_PATHS)
+
+
+def test_the_pre_commit_ruff_rev_matches_the_dev_dependency() -> None:
+    """Catches the drift that made CI red at HEAD: a pre-commit rev of `v0.12.11`
+    while the project resolves ruff `0.16.5`, so `ruff check` locally and `ruff
+    check` in the hook are two different linters and an I001 CI reports cannot be
+    reproduced. Asserts the rev IS the locked version, not merely above the
+    `>=0.12` floor, which `v0.12.11` already satisfies."""
+    rev = _pre_commit_ruff_rev()
+    locked = _locked_ruff_version()
+    floor = _ruff_dev_floor()
+
+    assert _version_tuple(rev, ".pre-commit-config.yaml rev") == _version_tuple(
+        locked, "uv.lock ruff version"
+    ), f"pre-commit pins ruff {rev}, uv.lock resolves {locked}"
+
+    assert _version_tuple(locked, "uv.lock ruff version") >= _version_tuple(
+        floor, "pyproject.toml ruff floor"
+    ), f"uv.lock resolves ruff {locked}, below the pyproject floor {floor}"
+
+
+def test_the_gitleaks_step_passes_a_baseline_path() -> None:
+    """Catches the flag being dropped, which sends the `security` job back to all
+    nine findings that made it red. Every one of them lives only in history, across
+    seven commits, so no rename can reach any of them and without a baseline the job
+    fails forever.
+
+    Also asserts `--redact` is ABSENT, which is load-bearing rather than cosmetic:
+    redaction rewrites `Match` and `Secret` to "REDACTED", and gitleaks compares
+    both when deciding whether a finding is baselined, so re-adding the flag makes
+    every entry stop matching and reddens the job again."""
+    run = str(_step_running(_security_job(), "gitleaks").get("run", ""))
+
+    assert "--baseline-path" in run, f"the gitleaks step passes no --baseline-path: {run!r}"
+
+    assert "--redact" not in run, (
+        "the gitleaks step passes --redact, which rewrites Match and Secret to "
+        f"REDACTED so no baseline entry can match: {run!r}"
+    )
+
+    flag = re.search(r"--baseline-path[=\s]+(\S+)", run)
+    assert flag is not None, f"--baseline-path names no file: {run!r}"
+
+    named = flag.group(1).strip("\"'\\")
+    mount = re.search(r'-v\s+"?\$PWD:(/\S+?)"?\s', run)
+    assert mount is not None, f"the gitleaks step mounts no $PWD: {run!r}"
+
+    container_root = mount.group(1).rstrip("/")
+    assert named.startswith(f"{container_root}/"), (
+        f"--baseline-path names {named}, which is not under the mount {container_root}"
+    )
+
+    baseline = REPO_ROOT / named[len(container_root) + 1 :]
+    assert baseline.is_file(), f"{baseline.relative_to(REPO_ROOT)} does not exist"
+
+
+def test_the_gitleaks_hook_and_the_ci_job_pass_the_same_baseline() -> None:
+    """Catches the divergence that made the baseline unlandable: gitleaks skips its
+    own baseline FILE only when `--baseline-path` names it, so a hook without the
+    flag reads the baseline's nine entries as fresh leaks and blocks every commit.
+    The two invocations are the only two in the repo, and they have to agree on
+    which file is the baseline."""
+    config = _load_yaml(PRE_COMMIT_CONFIG)
+    repos = config.get("repos")
+    assert isinstance(repos, list), ".pre-commit-config.yaml declares no repos list"
+
+    hooks = [
+        hook
+        for repo in repos
+        if isinstance(repo, dict)
+        for hook in repo.get("hooks", [])
+        if isinstance(hook, dict) and hook.get("id") == "gitleaks"
+    ]
+    assert len(hooks) == 1, f"expected exactly one gitleaks hook, found {len(hooks)}"
+
+    args = [str(arg) for arg in hooks[0].get("args", [])]
+    hook_flag = [arg for arg in args if arg.startswith("--baseline-path")]
+    assert hook_flag, f"the gitleaks hook passes no --baseline-path: {args}"
+
+    hook_named = hook_flag[0].split("=", 1)[1].strip("\"'")
+    assert (REPO_ROOT / hook_named).is_file(), f"the hook's baseline {hook_named} does not exist"
+
+    run = str(_step_running(_security_job(), "gitleaks").get("run", ""))
+    job_flag = re.search(r"--baseline-path[=\s]+(\S+)", run)
+    assert job_flag is not None, f"the gitleaks step names no baseline: {run!r}"
+
+    job_named = job_flag.group(1).strip("\"'\\").rsplit("/", 1)[-1]
+    assert job_named == hook_named.rsplit("/", 1)[-1], (
+        f"the hook baselines {hook_named} while the job baselines {job_named}"
+    )
+
+
+def test_the_baseline_records_only_the_historical_findings() -> None:
+    """Catches a baseline regenerated wholesale from a dirty run, which is the one
+    way this file turns into a blanket excuse.
+
+    The property asserted is that every baselined finding is really HISTORICAL: the
+    LINE gitleaks matched no longer reads that way at HEAD. A comparison against
+    HEAD's SHA cannot express this, because entries are written by scanning commits
+    that already exist and HEAD advances past them on the next commit, so such a
+    check is vacuous forever. Comparing the line is not: baseline a finding in live
+    code and this case fails while the SHA check passes.
+
+    The line rather than the bare secret, because the fix for the seven test
+    constants was renaming the IDENTIFIER while deliberately keeping the value, so
+    the value is still in the tree and only the matched line is gone. `.env.example`
+    is exempt: its placeholder is unchanged and its whole path is allowlisted.
+
+    Each entry must also name a commit, because gitleaks compares `Commit` when
+    matching a baseline entry, and that is what stops an entry covering a later
+    secret in the same file and line."""
+    assert GITLEAKS_BASELINE.is_file(), ".gitleaks-baseline.json does not exist"
+    entries = json.loads(GITLEAKS_BASELINE.read_text(encoding="utf-8"))
+    assert isinstance(entries, list), ".gitleaks-baseline.json is not a JSON array"
+
+    assert len(entries) == BASELINED_FINDING_COUNT, (
+        f"baseline records {len(entries)} findings, not {BASELINED_FINDING_COUNT}"
+    )
+
+    for entry in entries:
+        path = str(entry["File"])
+        assert str(entry["Commit"]), f"baseline entry for {path} names no commit"
+
+        matched = str(entry["Match"]).strip()
+        assert matched, f"baseline entry for {path} records no match to compare"
+
+        tracked = REPO_ROOT / path
+        if not tracked.is_file() or path in FAKE_CREDENTIAL_PATHS:
+            continue
+
+        lines = tracked.read_text(encoding="utf-8", errors="replace").splitlines()
+        assert matched not in (line.strip() for line in lines), (
+            f"baseline excuses a line still present in {path}; a finding in "
+            "current code is fixed, never baselined"
+        )
 
 
 def test_ci_declares_a_security_job_that_needs_no_other_job() -> None:

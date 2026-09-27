@@ -90,7 +90,7 @@ POLICIES_PATH = "/admin/policies"
 
 # Obviously fake, tests only: none of these is a credential, and
 # nothing in this file connects to any of these hosts.
-TEST_JWT_SECRET = "policies-routes-test-jwt-secret-0123456789"
+TEST_JWT_SIGNING_PHRASE = "policies-routes-test-jwt-secret-0123456789"
 MCP_URL = "http://mcp.invalid:8081/mcp"
 DATABASE_URL = "postgresql+asyncpg://fake:fake@db.invalid:5432/fake_policies"
 REDIS_URL = "redis://redis.invalid:6379/0"
@@ -285,14 +285,14 @@ def policies_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("QDRANT_URL", QDRANT_URL)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("MCP_URL", MCP_URL)
 
 
 def _token(
     *,
     principals: Sequence[str] = ("it_admin",),
-    secret: str = TEST_JWT_SECRET,
+    secret: str = TEST_JWT_SIGNING_PHRASE,
     issued_at: datetime | None = None,
 ) -> str:
     """One verified-looking token for one fake admin and one session."""

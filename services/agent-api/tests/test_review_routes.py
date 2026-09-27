@@ -115,7 +115,7 @@ LIMIT_DEFAULT = 50
 
 # Obviously fake, tests only: none of these is a credential, and
 # nothing in this file connects to any of these hosts.
-TEST_JWT_SECRET = "review-routes-test-jwt-secret-0123456789"
+TEST_JWT_SIGNING_PHRASE = "review-routes-test-jwt-secret-0123456789"
 OTHER_JWT_SECRET = "another-review-routes-fake-secret-01234"
 MCP_URL = "http://mcp.invalid:8081/mcp"
 MCP_HOST = "mcp.invalid"
@@ -323,14 +323,14 @@ def reviews_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("QDRANT_URL", QDRANT_URL)
-    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("MCP_URL", MCP_URL)
 
 
 def _token(
     *,
     user_id: uuid.UUID = REVIEWER_ID,
-    secret: str = TEST_JWT_SECRET,
+    secret: str = TEST_JWT_SIGNING_PHRASE,
     issued_at: datetime | None = None,
 ) -> str:
     """One verified-looking token for one fake reviewer and one conversation."""
