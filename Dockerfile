@@ -24,10 +24,21 @@
 # test_the_policy_dir_is_mounted_read_only_into_the_mcp_server.
 
 # Pinned by digest-free exact tags so a rebuild is reproducible within a patch
-# line and a bump is a visible diff here. The weekly image scan reports what
-# these carry; see .github/workflows/image-scan.yml.
-ARG PYTHON_IMAGE=python:3.12.8-slim-bookworm
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.5.11
+# line and a bump is a visible diff here. A floating minor would go green by
+# drifting, which is reproducible for nobody and visible to nobody.
+#
+# Staleness is a red TEST, not a red scan nine months later: these two tags sat
+# at their December 2024 patch until the build scan found 44 fixed Debian CVEs
+# in them. packages/helpdesk/tests/test_container_build.py::
+# test_the_python_base_is_not_older_than_the_recorded_floor and
+# ::test_the_uv_image_is_not_older_than_the_recorded_floor hold each tag at or
+# above a floor recorded with the date it was measured, and
+# ::test_the_pinned_tags_are_exact_patch_versions refuses a two-component tag.
+# Raising the floor is how a bump is asked for; the scan only confirms it.
+# The weekly scan still reports what these carry; see
+# .github/workflows/image-scan.yml.
+ARG PYTHON_IMAGE=python:3.12.14-slim-bookworm
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.19
 
 
 # The installer arrives as a stage rather than a curl into the build: a global

@@ -16,7 +16,12 @@
 # packages/helpdesk/tests/test_container_build.py::
 # test_the_web_image_is_built_from_the_standalone_output.
 
-ARG NODE_IMAGE=node:22.12.0-bookworm-slim
+# Pinned by an exact patch tag for the reason the root Dockerfile gives at its
+# own ARG block: a floating minor drifts green and nobody ever sees the bump.
+# Held at or above a recorded floor by packages/helpdesk/tests/
+# test_container_build.py::test_the_node_base_is_not_older_than_the_recorded_floor,
+# and kept three-component by ::test_the_pinned_tags_are_exact_patch_versions.
+ARG NODE_IMAGE=node:22.23.3-bookworm-slim
 
 
 # --- dependency stage --------------------------------------------------------
@@ -77,6 +82,21 @@ ENV NODE_ENV=production \
 # `node` user on 1000, which is not it.
 RUN groupadd --gid 10001 helpdesk \
  && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --no-create-home helpdesk
+
+# npm is deleted rather than ignored. This stage runs `node server.js` and
+# never invokes a package manager: the standalone tree is already traced and
+# copied, so nothing here installs, resolves or audits anything. What the
+# bundled npm does carry is 8 HIGH findings the node image cannot shed within
+# its own patch line (pacote, sigstore, brace-expansion, ip-address,
+# picomatch), and a .trivyignore would keep both the findings and the code that
+# produces them. Removing it deletes the finding and the attack surface at
+# once. Both the package tree and the two entry points go, because the
+# symlinks alone would leave `npm` on PATH pointing at nothing. Pinned by
+# packages/helpdesk/tests/test_container_build.py::
+# test_the_web_runtime_stage_removes_npm, which reads the RUNTIME stage only:
+# the same deletion written into the deps or builder stage is discarded with
+# that stage and never ships.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 WORKDIR /app
 
