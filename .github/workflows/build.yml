@@ -159,7 +159,7 @@ jobs:
       # therefore disagree on one image, on different database snapshots,
       # without either being wrong.
       - name: Scan the agent API image
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api:${{ github.sha }}
           severity: CRITICAL,HIGH
@@ -167,7 +167,7 @@ jobs:
           exit-code: "1"
 
       - name: Scan the MCP server image
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server:${{ github.sha }}
           severity: CRITICAL,HIGH
@@ -175,7 +175,7 @@ jobs:
           exit-code: "1"
 
       - name: Scan the scheduler image
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler:${{ github.sha }}
           severity: CRITICAL,HIGH
@@ -183,7 +183,7 @@ jobs:
           exit-code: "1"
 
       - name: Scan the web image
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-web:${{ github.sha }}
           severity: CRITICAL,HIGH
