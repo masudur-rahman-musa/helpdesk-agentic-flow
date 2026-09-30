@@ -19,9 +19,11 @@ from pathlib import Path
 
 import pytest
 from helpdesk.core.settings import (
+    DEFAULT_MCP_ALLOWED_HOSTS,
     DEFAULT_WEB_ORIGIN,
     Settings,
     load_settings,
+    mcp_allowed_hosts_from_env,
     web_origin_from_env,
 )
 from pydantic import ValidationError
@@ -506,3 +508,214 @@ def test_a_policy_dir_with_an_interior_space_is_accepted(
     monkeypatch.setenv("POLICY_DIR", "my policies")
 
     assert Settings(_env_file=None).policy_dir == Path("my policies")
+
+
+# --- an earlier change: MCP_ALLOWED_HOSTS, what the transport matches Host against ------
+#
+# `MCP_ALLOWED_HOSTS` is not in `ENV_NAMES` for the reason `MCP_URL`,
+# `WEB_ORIGIN` and `POLICY_DIR` are not: it carries a default, so `_set_env`
+# must not clear it for the cases above, and
+# `test_missing_required_value_fails_validation` asserts every name in that
+# tuple is REQUIRED, which `mcp_allowed_hosts` is not. These cases clear it
+# themselves, so a developer with `MCP_ALLOWED_HOSTS` exported in their own
+# shell cannot make the default row pass or fail by accident.
+
+MCP_ALLOWED_HOSTS_DEFAULT = [
+    "127.0.0.1:*",
+    "localhost:*",
+    "[::1]:*",
+    "helpdesk-mcp-server:*",
+]
+"""The default the field and `mcp_allowed_hosts_from_env` share, written out.
+
+a project rule: importing `DEFAULT_MCP_ALLOWED_HOSTS` and asserting it equals
+itself pins nothing. These four values are exactly what the MCP transport's
+DNS-rebinding middleware matches an incoming `Host` header against when the
+environment says nothing, so this list decides whether the shipped compose
+stack can reach the server at all."""
+
+# The DNS name limit, and the boundary an earlier change criterion 9 makes inclusive. The
+# check is on the HOST PART of an entry, not on the whole entry: a pattern
+# carries a `:*` or a `:<port>` suffix that no DNS name contains, so measuring
+# the whole string would refuse a legal 253-byte name written as `<name>:*`.
+MCP_ALLOWED_HOST_MAX_BYTES = 253
+
+
+def _set_env_without_mcp_allowed_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_env(monkeypatch, VALID_ENV)
+    monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+
+
+def test_the_default_mcp_allowed_hosts_are_exactly_the_planned_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches an implementation whose unconfigured default is the SDK's own
+    loopback three - `127.0.0.1:*`, `localhost:*`, `[::1]:*` and nothing else -
+    which is the an earlier change F1 defect exactly: agent-api dials
+    `helpdesk-mcp-server:8081` inside compose, the middleware matches that
+    header against a list the service name is not in, and every call is
+    answered 421 before any project code runs.
+
+    Asserted as an exact ORDERED list of four values, not as a membership
+    check, so it also catches a widening default: `*`, a bare `*:*` or an extra
+    hostname added later would leave a `"helpdesk-mcp-server:*" in ...` check
+    green while the protection was effectively off. The list
+    is compared to a literal written out here rather than to the imported
+    constant, so the constant CHANGING is what turns this red.
+
+    The second assertion reads `mcp_allowed_hosts_from_env` with the variable
+    unset, so it also catches a helper that does not share the field's default
+    (decision A1's point): a helper defaulting to `[]` or to its own literal is
+    red here even though `DEFAULT_MCP_ALLOWED_HOSTS` is right, and an empty
+    allow-list refuses every host including the loopback ones.
+    """
+    _set_env_without_mcp_allowed_hosts(monkeypatch)
+
+    assert DEFAULT_MCP_ALLOWED_HOSTS == MCP_ALLOWED_HOSTS_DEFAULT
+    assert mcp_allowed_hosts_from_env() == MCP_ALLOWED_HOSTS_DEFAULT
+    assert Settings(_env_file=None).mcp_allowed_hosts == MCP_ALLOWED_HOSTS_DEFAULT
+
+
+def test_an_empty_mcp_allowed_hosts_is_refused_at_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches an implementation that reads `MCP_ALLOWED_HOSTS=` as "nothing
+    configured" and falls back to the default, and equally one that accepts the
+    empty list as configuration.
+
+    Both are wrong in the same direction the plan's decision D names: an empty
+    allow-list is not a disabled protection, it is a protection that matches
+    NOTHING, so `_validate_host` returns False for every header and the server
+    answers 421 to its own loopback callers too. An `os.environ.get(name,
+    DEFAULT)` helper hands back the empty string here, because the variable IS
+    set, and a `.split(",")` of it yields `[""]` - an entry no host can equal.
+    Nothing else in the load path refuses it: `list[str]` is satisfied.
+
+    The message must name the variable so the operator who wrote the empty line
+    is told which line, which is criterion 8's own requirement.
+    """
+    _set_env_without_mcp_allowed_hosts(monkeypatch)
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", "")
+
+    with pytest.raises(ValueError, match="MCP_ALLOWED_HOSTS"):
+        mcp_allowed_hosts_from_env()
+
+
+# Every row is a value a `list[str]` field accepts happily, and each differs
+# from an accepted pattern only by whitespace. No other clause can decide them:
+# they are non-empty, and their host parts are far under 253 bytes, so deleting
+# the whitespace clause is the only edit that turns them green.
+MCP_ALLOWED_HOSTS_WHITESPACE_CASES: tuple[tuple[str, str], ...] = (
+    ("trailing newline", "helpdesk-mcp-server:*\n"),
+    ("trailing CRLF", "helpdesk-mcp-server:*\r\n"),
+    ("trailing space", "helpdesk-mcp-server:* "),
+    ("leading space", " helpdesk-mcp-server:*"),
+    ("an interior space", "helpdesk mcp server:*"),
+    ("a tab inside", "helpdesk\tmcp-server:*"),
+    ("whitespace on the second entry only", "127.0.0.1:*,helpdesk-mcp-server:*\n"),
+)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [value for _label, value in MCP_ALLOWED_HOSTS_WHITESPACE_CASES],
+    ids=[label for label, _value in MCP_ALLOWED_HOSTS_WHITESPACE_CASES],
+)
+def test_an_mcp_allowed_host_with_whitespace_is_refused_at_load(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """Catches a helper that splits the variable on commas and hands the parts
+    to `TransportSecuritySettings` unexamined, and equally one that silently
+    `strip()`s them.
+
+    The middleware compares a pattern to the request's `Host` header byte for
+    byte (exact match, or `startswith(base + ":")` for the `host:*` form), so
+    `helpdesk-mcp-server:*\\n` copied out of a `.env` matches no request that
+    was ever sent. The failure then surfaces as every call answered 421 in the
+    deployed arrangement - the an earlier change F1 symptom again, with a configured
+    value that LOOKS correct in the file that produced it. The newline and CRLF
+    rows are the ones that matter most, because they are invisible there.
+
+    The last row carries the stray byte on the SECOND entry only, so it catches
+    a check applied to the joined string or to `parts[0]` rather than per
+    entry. A stripping implementation returns a valid list and raises nothing,
+    so every row also proves the refusal is not a quiet normalisation.
+    """
+    _set_env_without_mcp_allowed_hosts(monkeypatch)
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", value)
+
+    with pytest.raises(ValueError, match="MCP_ALLOWED_HOSTS"):
+        mcp_allowed_hosts_from_env()
+
+
+def test_an_mcp_allowed_host_of_exactly_253_bytes_is_accepted_and_254_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches an off-by-one on the length gate, in either direction, and a
+    gate measuring the WRONG PART of the entry.
+
+    Both sides are in one case because only the pair pins the boundary: a check
+    written `> 253` and one written `>= 253` agree on every value but 253
+    itself, and 253 is the DNS name limit, so a `>= 253` gate refuses the
+    longest legal cluster hostname an operator is entitled to configure
+    (criterion 9 makes the boundary inclusive). A `> 254` gate accepts a name
+    no resolver will answer, which the middleware then matches against nothing.
+
+    Both values are built as `"a" * N + ":*"`, so the entry is two bytes longer
+    than the part under test. That is deliberate and is the second kill: a gate
+    measuring `len(entry)` rather than the host part refuses the 253-byte row
+    (255 bytes of entry) and is red here, while a gate measuring only the host
+    part is green on it. No other clause can decide either row - both are
+    non-empty and carry no whitespace.
+    """
+    _set_env_without_mcp_allowed_hosts(monkeypatch)
+
+    accepted = "a" * MCP_ALLOWED_HOST_MAX_BYTES + ":*"
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", accepted)
+    assert mcp_allowed_hosts_from_env() == [accepted]
+
+    refused = "a" * (MCP_ALLOWED_HOST_MAX_BYTES + 1) + ":*"
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", refused)
+    with pytest.raises(ValueError, match="MCP_ALLOWED_HOSTS"):
+        mcp_allowed_hosts_from_env()
+
+
+def test_the_mcp_allowed_hosts_field_and_the_helper_share_one_validator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a diff that validates only in `mcp_allowed_hosts_from_env` and
+    leaves `Settings.mcp_allowed_hosts` as a plain `list[str]` field.
+
+    Decision A says one default and one rule in one place. Without a
+    `field_validator` on the field, every service that builds full `Settings`
+    (rather than calling the import-time helper `create_app()` needs) accepts a
+    malformed pattern, and the two paths drift: the mcp-server refuses a
+    trailing newline at startup while agent-api's settings load happily carries
+    the same value. The SAME bad value is fed to both paths in one case, so the
+    assertion is that they AGREE, not merely that each refuses something.
+
+    The field is given its value as a keyword argument rather than through the
+    environment, so the FIELD's own validation path is the only thing under
+    test: an env read on this object could be answered by the helper's check
+    and pass on its neighbour's behalf.
+    """
+    _clear_env(monkeypatch)
+    bad_value = "helpdesk-mcp-server:*\n"
+
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", bad_value)
+    with pytest.raises(ValueError, match="MCP_ALLOWED_HOSTS"):
+        mcp_allowed_hosts_from_env()
+    monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(
+            _env_file=None,
+            database_url=VALID_ENV["DATABASE_URL"],
+            redis_url=VALID_ENV["REDIS_URL"],
+            qdrant_url=VALID_ENV["QDRANT_URL"],
+            jwt_secret=VALID_ENV["JWT_SECRET"],
+            mcp_allowed_hosts=[bad_value],
+        )
+
+    failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
+    assert "MCP_ALLOWED_HOSTS" in failed_fields

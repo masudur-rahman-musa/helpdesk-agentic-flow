@@ -266,12 +266,9 @@ edit: the app profile already points the containers at
 `http://host.docker.internal:8080/v1`, which is where the console's gateway
 listens.
 
-For a working demo, run the services as host processes instead: `uv sync` and
-`make run`, after `docker compose up -d` brings up the backing services alone.
-The containers start and report healthy, but agent-api cannot reach the MCP
-server inside the compose network yet, so no turn completes. The cause and the
-symptom are in [docs/runbook.md](docs/runbook.md) under "The same stack in
-containers".
+To run the services as host processes instead: `uv sync` and `make run`, after
+`docker compose up -d` brings up the backing services alone. Both arrangements
+answer a turn.
 
 The seed is deterministic and safe to re-run. Logins for every seeded role are
 in [docs/demo-accounts.md](docs/demo-accounts.md); the data is invented and the

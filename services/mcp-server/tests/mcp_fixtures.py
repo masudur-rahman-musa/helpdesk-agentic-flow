@@ -54,6 +54,7 @@ from redis.asyncio import Redis
 from sqlalchemy import insert, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from starlette.routing import Mount
 
 # Make repo-root `scripts/` importable, same as packages/helpdesk/tests/conftest.py.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -531,8 +532,9 @@ def bearer(token: str) -> dict[str, str]:
 # test drives its own `asyncio.run` loop. Building the ASGI app is in-process
 # and cheap; the backing services it talks to stay session-scoped.
 #
-# The base URL must be `127.0.0.1:<port>`: the SDK turns on DNS-rebinding
-# protection for a localhost host and allows `127.0.0.1:*` only.
+# The base URL must be a name `MCP_ALLOWED_HOSTS` carries: the transport's
+# DNS-rebinding protection is configured, not inferred, and the
+# default list holds the three loopback names plus the compose service name.
 _BASE_URL = "http://127.0.0.1:8000"
 
 
@@ -615,6 +617,96 @@ def http_get(path: str) -> httpx2.Response:
             await pipeline.close_shared_connections()
 
     return asyncio.run(scenario())
+
+
+# The smallest well-formed JSON-RPC envelope the transport will read. The body
+# only has to get PAST the middleware, so `tools/list` is used rather than a
+# tool call: it needs no token and touches no tenant row.
+_TOOLS_LIST_BODY: dict[str, Any] = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/list",
+    "params": {},
+}
+
+# `TransportSecurityMiddleware.validate_request` checks Content-Type BEFORE the
+# Host header and answers 400 when it is not `application/json`, so a POST that
+# omits it never reaches `_validate_host` and a Host case built on one would be
+# red for the wrong reason. `accept` carries both
+# media types because the streamable HTTP transport answers 406 without them,
+# which is likewise not the refusal a Host case is about.
+_MCP_POST_HEADERS: dict[str, str] = {
+    "content-type": "application/json",
+    "accept": "application/json, text/event-stream",
+}
+
+
+def mcp_post(
+    headers: Mapping[str, str] | None = None, *, drop_host: bool = False
+) -> httpx2.Response:
+    """One raw JSON-RPC POST to `/mcp`, with the caller's headers verbatim.
+
+    The only way to choose the `Host` header the transport sees: every other
+    helper here drives the SDK `Client`, which builds its own request from
+    `_BASE_URL` and always sends the loopback name.
+
+    `drop_host=True` sends NO `Host` header at all. httpx derives one from the
+    URL, so the request is built first and the header deleted off the built
+    object; `httpx2.Request` is used rather than a client kwarg because a
+    `None` value in a header mapping is not a removal. Verified against the
+    installed SDK, which logs "Missing Host header in request" and answers 421.
+    """
+
+    async def scenario() -> httpx2.Response:
+        from mcp_server import pipeline
+        from mcp_server.main import create_app
+
+        app = create_app()
+        try:
+            async with (
+                app.router.lifespan_context(app),
+                httpx2.AsyncClient(
+                    transport=httpx2.ASGITransport(app=app), base_url=_BASE_URL
+                ) as http,
+            ):
+                request = httpx2.Request("POST", f"{_BASE_URL}{'/mcp'}", json=_TOOLS_LIST_BODY)
+                for name, value in {**_MCP_POST_HEADERS, **dict(headers or {})}.items():
+                    request.headers[name] = value
+                if drop_host:
+                    del request.headers["host"]
+                return await http.send(request)
+        finally:
+            # Same reason as `_drive`: this loop is about to die and its pooled
+            # Postgres and Redis connections would die with it, unclosed.
+            await pipeline.close_shared_connections()
+
+    return asyncio.run(scenario())
+
+
+def transport_security_of_a_fresh_app() -> object:
+    """The `TransportSecuritySettings` the constructed app's transport holds.
+
+    Read off the built application rather than off `build_server()`: an earlier change
+    criterion 1 is about what `create_app()` PASSES, and the settings object
+    reaches `StreamableHTTPSessionManager(security_settings=...)` inside
+    `Server.streamable_http_app`. The path is the mount `create_app()` adds at
+    `/`, that Starlette app's `/mcp` route, and the `StreamableHTTPASGIApp`
+    endpoint's own `session_manager` (a project rule: read off the SDK body,
+    not guessed). Returns `object` so the caller carries the narrowing
+    annotation itself.
+    """
+    from mcp_server.main import create_app
+
+    app = create_app()
+    for route in app.routes:
+        if isinstance(route, Mount) and route.path == "":
+            for inner in route.app.routes:  # type: ignore[attr-defined]
+                endpoint = getattr(inner, "endpoint", None)
+                manager = getattr(endpoint, "session_manager", None)
+                if manager is not None:
+                    settings: object = manager.security_settings
+                    return settings
+    raise AssertionError("no streamable HTTP transport found on the constructed app")
 
 
 # --- Qdrant --------------------------------------------------------

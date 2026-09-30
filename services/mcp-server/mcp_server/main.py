@@ -11,14 +11,19 @@ things an earlier change's criteria 5 and 6 forbid.
 `StreamableHTTPSessionManager` refuses a second `run()` on one instance, so
 one app per process (module-level `app`, for uvicorn) and one per test.
 
-Deployment constraint, decided rather than inherited:
-`host=LOOPBACK_HOST` turns on the SDK's DNS-rebinding protection, which
-answers 421 to any `Host` header that is not `127.0.0.1:<port>`,
-`localhost:<port>` or `[::1]:<port>`. Behind a service name or an ingress
-hostname that refuses every call before identity is reached, so row 30 must
-pass `transport_security` with the deployed hostnames. Left as the safe
-default here because the alternative -- disabling the protection to make a
-container work -- is the wrong way round.
+DNS-rebinding protection is on and its allow-list is CONFIGURED, never
+inferred. `transport_security` is
+passed explicitly, so the SDK reads no `host=` argument and cannot fall back to
+the loopback names alone: that inference is what answered 421 to every call
+agent-api made inside compose, where the server is reached by its service name.
+The patterns come from `MCP_ALLOWED_HOSTS`, defaulting to
+`helpdesk.core.settings.DEFAULT_MCP_ALLOWED_HOSTS` -- the three loopback names
+plus this repository's compose service name -- and a deployment reached by any
+other name sets the variable to its own list. The protection itself is never
+disabled and the list is never empty: an unlisted host is still answered 421,
+pinned by
+`test_mcp_transport.py::test_an_unlisted_host_is_refused_with_421`, and the
+explicit pass by `::test_the_transport_receives_explicit_security_settings`.
 
 `tools/list` is deliberately unauthenticated (decision I): it advertises
 names and schemas, and every call still passes the whole pipeline. Row 12
@@ -34,12 +39,14 @@ from typing import Any
 import mcp.types as types
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse
+from helpdesk.core.settings import mcp_allowed_hosts_from_env
 from helpdesk.errors import ToolError
 from helpdesk.obs.logging import configure_logging
 from helpdesk.obs.metrics import render as render_metrics
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
 from starlette.requests import Request
 
@@ -53,11 +60,26 @@ SERVER_VERSION = "0.1.0"
 MCP_PATH = "/mcp"
 """Where the streamable HTTP transport is mounted (the design)."""
 
-LOOPBACK_HOST = "127.0.0.1"
-"""The host the transport's DNS-rebinding protection is configured for.
 
-Passed explicitly so the protection is a choice with its consequence written
-next to it, not an SDK default nobody decided on. See the module docstring."""
+def transport_security() -> TransportSecuritySettings:
+    """The transport's DNS-rebinding settings, built from configuration.
+
+    Explicit rather than inferred from a `host=` argument:
+    the SDK reads `host` only when `transport_security` is None, so passing both
+    would leave a dead argument reading as if it still decided something. The
+    protection stays ON -- there is no flag and no empty value that turns it off
+    (decision D) -- and only the allow-list is configurable.
+
+    `allowed_origins` is deliberately left empty (decision C): nothing in a
+    browser calls `/mcp`, agent-api being a server-side httpx client that sends
+    no `Origin` header, and the middleware accepts an absent one. A configured
+    origin list would be a value nobody reads. Pinned by
+    `test_mcp_transport.py::test_the_transport_receives_explicit_security_settings`.
+    """
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=mcp_allowed_hosts_from_env(),
+    )
 
 
 class HealthResponse(BaseModel):
@@ -133,7 +155,9 @@ def create_app() -> FastAPI:
     `test_mcp_metrics.py::test_the_metrics_route_answers_before_the_mcp_mount`.
     """
     mcp_app = build_server().streamable_http_app(
-        streamable_http_path=MCP_PATH, stateless_http=True, host=LOOPBACK_HOST
+        streamable_http_path=MCP_PATH,
+        stateless_http=True,
+        transport_security=transport_security(),
     )
 
     @asynccontextmanager

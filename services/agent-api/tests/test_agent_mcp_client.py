@@ -72,8 +72,9 @@ from mcp_fixtures import (  # noqa: E402 - path set immediately above
     token_with_claims,
 )
 
-# The SDK turns on DNS-rebinding protection for a localhost host and allows
-# `127.0.0.1:*` only, so the in-process app must be addressed by that literal.
+# The MCP transport's DNS-rebinding protection accepts the patterns in
+# `MCP_ALLOWED_HOSTS`, whose default carries `127.0.0.1:*`, so the
+# in-process app is addressed by that literal.
 LIVE_URL = "http://127.0.0.1:8000/mcp"
 
 # A host and a path that appear nowhere else, so "the message names neither"

@@ -35,6 +35,7 @@ from typing import Any
 import mcp.types as mcp_types
 import pytest
 from mcp import Client, StdioServerParameters, stdio_client
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
@@ -42,10 +43,12 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     list_tools,
     mcp_env,
     mcp_pg,
+    mcp_post,
     mcp_redis_base_url,
     mcp_redis_url,
     seeded_mcp_db,
     token_for,
+    transport_security_of_a_fresh_app,
 )
 from mcp_server import readiness
 from mcp_server.registry import REGISTRY
@@ -261,3 +264,174 @@ def test_readyz_against_the_live_compose_stack_is_ready(
         "status": "ready",
         "checks": {"postgres": True, "redis": True, "qdrant": True},
     }
+
+
+# --- an earlier change: the Host header the transport accepts ---------------------------
+#
+# Every case here drives `mcp_post`, not the SDK `Client`: the client builds its
+# own request from `mcp_fixtures._BASE_URL` and always sends the loopback name,
+# so no existing case in this file can choose a `Host` header (an earlier change section
+# 8's grep). `mcp_post` sends `content-type: application/json` for a reason that
+# decides whether these cases mean anything at all:
+# `TransportSecurityMiddleware.validate_request` checks Content-Type FIRST for a
+# POST and answers 400, so a case omitting it would be "red" at HEAD on the
+# Content-Type refusal and would stay red after the fix.
+MISDIRECTED_REQUEST = 421
+"""The status the SDK's `_validate_host` failure answers with, pinned exactly.
+
+a project rule: a `>= 400` band would let the Content-Type 400 and the
+transport's own 406 satisfy a case about the Host header."""
+
+COMPOSE_HOST = "helpdesk-mcp-server:8081"
+"""The `Host` agent-api sends inside compose: the service name and the published
+port, exactly as `MCP_URL`'s deployed value produces it."""
+
+
+def test_the_compose_service_name_reaches_the_transport(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches the an earlier change F1 defect itself: a `create_app()` that lets the SDK
+    INFER its transport security from `host="127.0.0.1"`, which builds an
+    allow-list of the loopback three and nothing else, so the middleware refuses
+    `Host: helpdesk-mcp-server:8081` with 421 before identity, RBAC or any
+    project code is reached and no turn completes in the app profile.
+
+    The assertion is "not 421" rather than "200" on purpose: this case is about
+    the middleware letting the request THROUGH, and the response the transport
+    then produces is every other case in this file's business. Pinning 200 here
+    would make the case red for a body or an Accept-header reason that has
+    nothing to do with the Host list.
+
+    Nothing adjacent can decide this: the request carries a valid Content-Type
+    (so the 400 clause passes), no `Origin` header (so `_validate_origin`
+    returns True), and a well-formed JSON-RPC envelope. Removing
+    `helpdesk-mcp-server:*` from the configured list is the only change that
+    flips it.
+    """
+    response = mcp_post({"host": COMPOSE_HOST})
+
+    assert response.status_code != MISDIRECTED_REQUEST, response.text
+
+
+def test_a_loopback_host_still_reaches_the_transport(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches a fix that REPLACES the loopback names with the deployed one
+    instead of shipping both in the default.
+
+    That is the plausible wrong fix: the defect is stated as "the service name
+    is refused", and a default of `["helpdesk-mcp-server:*"]` alone closes it
+    while breaking every other path at once - the host-process arrangement
+    `uvicorn` serves on 127.0.0.1, this suite's own `_BASE_URL`, and the SDK
+    `Client` every other case in this file drives. This case is the guard on
+    criterion 3, and it is green at HEAD by design: HEAD already allows the
+    loopback names, and its job is to STAY green through the fix.
+    """
+    response = mcp_post({"host": "127.0.0.1:8081"})
+
+    assert response.status_code != MISDIRECTED_REQUEST, response.text
+
+
+def test_an_unlisted_host_is_refused_with_421(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches a fix that DISABLES the protection rather than configuring it:
+    `enable_dns_rebinding_protection=False`, an `allowed_hosts` of `["*"]`, or
+    no `transport_security` at all with `host=` set to something other than a
+    loopback name, which makes the SDK skip its auto-enable entirely. Every one
+    of those turns the compose case above green while answering a
+    DNS-rebinding attacker's forged `Host` just as happily.
+
+    `evil.example` carries no port, so it cannot be matched by the `host:*`
+    wildcard form of any legitimate entry, and it is not a prefix of one:
+    `_validate_host`'s `startswith(base + ":")` needs the colon. The status is
+    pinned exactly rather than as a band, so a 400 on Content-Type or a 406 on
+    Accept cannot satisfy it on the Host check's behalf.
+    """
+    response = mcp_post({"host": "evil.example"})
+
+    assert response.status_code == MISDIRECTED_REQUEST, response.text
+
+
+def test_a_request_with_no_host_header_is_refused_with_421(
+    mcp_env: SeededMcp,  # noqa: F811
+) -> None:
+    """Catches an allow-list check that treats a MISSING header as nothing to
+    validate - `if host and host not in allowed: refuse`, which is the shape a
+    hand-written check takes, and which lets an HTTP/1.0 client or a crafted
+    ASGI scope past the protection entirely by simply omitting the header.
+
+    The SDK's own `_validate_host` returns False on a falsy host, so this case
+    pins that the fix does not replace the middleware with a check of its own,
+    and pins it at the exact status. `drop_host=True` deletes the header off the
+    built request rather than setting it empty, and the middleware logs
+    "Missing Host header in request" for it, so the case really exercises the
+    missing-header branch and not the unlisted-value one the case above covers.
+    """
+    response = mcp_post(drop_host=True)
+
+    assert response.status_code == MISDIRECTED_REQUEST, response.text
+
+
+def test_a_configured_list_replaces_the_default_set(
+    mcp_env: SeededMcp,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a helper that UNIONS the configured value with its default -
+    `DEFAULT_MCP_ALLOWED_HOSTS + parsed` - which reads as harmless and makes
+    the variable unable to NARROW anything.
+
+    That matters because narrowing is the only reason the variable is
+    per-deployment: an operator who sets `MCP_ALLOWED_HOSTS` to their own
+    cluster name is stating that nothing else may reach the transport, and a
+    union silently keeps this repository's own compose service name on the list
+    of accepted hostnames in their production deployment.
+
+    The two assertions are the kill in one case: the configured name being
+    accepted alone is satisfied by a union too, and the compose name being
+    refused alone would be satisfied by a broken parse that configured nothing.
+    Only the pair separates a replace from a union. The environment is set with
+    monkeypatch BEFORE `mcp_post` calls `create_app()`, because the helper reads
+    the variable when the app is built, not per request.
+    """
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", "mcp.internal.example:*")
+
+    configured = mcp_post({"host": "mcp.internal.example:8081"})
+    assert configured.status_code != MISDIRECTED_REQUEST, configured.text
+
+    default_name = mcp_post({"host": COMPOSE_HOST})
+    assert default_name.status_code == MISDIRECTED_REQUEST, default_name.text
+
+
+def test_the_transport_receives_explicit_security_settings(
+    mcp_env: SeededMcp,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches criterion 1 being satisfied by the SDK's INFERENCE rather than by
+    an explicit pass: `streamable_http_app(host="127.0.0.1")` with no
+    `transport_security` builds a `TransportSecuritySettings` of its own, and
+    `allowed_hosts` is then the SDK's hardcoded loopback three, which no
+    configuration can widen.
+
+    Read off the constructed app rather than the behaviour, because behaviour
+    alone cannot tell the two apart for the loopback case: the settings object
+    is reached through the mount `create_app()` adds at `/`, that Starlette
+    app's `/mcp` route and the `StreamableHTTPASGIApp` endpoint's own
+    `session_manager.security_settings` (a project rule: the union-typed
+    attribute carries its narrowing annotation here).
+
+    `allowed_hosts` is asserted as the CONFIGURED list, so the case also catches
+    a diff that passes a `TransportSecuritySettings` built from a literal
+    instead of from `mcp_allowed_hosts_from_env()` - that implementation
+    satisfies the flag and the explicit pass while ignoring the variable
+    entirely. `allowed_origins` is deliberately not asserted: an earlier change decision C
+    configures hosts only, and `_validate_origin` returns True when no `Origin`
+    header is present, which is every request agent-api sends.
+    """
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", "mcp.internal.example:*,127.0.0.1:*")
+
+    settings = transport_security_of_a_fresh_app()
+
+    assert isinstance(settings, TransportSecuritySettings), settings
+    assert settings.enable_dns_rebinding_protection is True
+    assert settings.allowed_hosts == ["mcp.internal.example:*", "127.0.0.1:*"]

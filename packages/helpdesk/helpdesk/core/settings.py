@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_WEB_ORIGIN = "http://localhost:3000"
@@ -61,6 +61,91 @@ def _validated_web_origin(value: str) -> str:
     if parsed.path or parsed.query or parsed.fragment:
         raise ValueError("WEB_ORIGIN must be a bare origin with no path, query or fragment")
     return value
+
+
+DEFAULT_MCP_ALLOWED_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*", "helpdesk-mcp-server:*"]
+"""The `Host` headers the MCP transport's DNS-rebinding protection accepts.
+
+The SDK infers `127.0.0.1:*`, `localhost:*` and `[::1]:*` when it is handed a
+loopback `host=` argument, which is why every call from inside compose was
+answered 421: agent-api dials the service name. The fourth value is this
+repository's own compose service name, so the shipped stack works with no edit, and the wildcard port is used rather than `:8081` because
+a republished port is not a security boundary while the name is (decision E).
+
+A deployment reaching the server by any other name -- a cluster service, an
+ingress hostname -- sets `MCP_ALLOWED_HOSTS` to its own list, which REPLACES
+this one so the variable can narrow as well as widen. Pinned by
+`test_settings.py::test_the_default_mcp_allowed_hosts_are_exactly_the_planned_values`
+and, for the replacing half, by
+`test_mcp_transport.py::test_a_configured_list_replaces_the_default_set`.
+"""
+
+MCP_ALLOWED_HOST_MAX_BYTES = 253
+"""The DNS name limit, and the inclusive cap on an entry's host part."""
+
+
+def _validated_mcp_allowed_hosts(value: list[str]) -> list[str]:
+    """Return `value` unchanged if every entry is a usable pattern, else raise.
+
+    The entries are matched against a request's `Host` header byte for byte
+    (exact, or `startswith(base + ":")` for the `host:*` form), so a pattern
+    carrying a stray byte does not fail loudly -- it matches no request that was
+    ever sent, and the deployment reports 421 on every call with a value that
+    looks correct in the `.env` that produced it. Whitespace is refused per
+    ENTRY for that reason, the same rule `WEB_ORIGIN` applies to its own value.
+
+    An empty list is refused because an empty allow-list is not a disabled
+    protection but one that matches NOTHING, including the loopback callers
+    (an earlier change decision D: there is no escape hatch, and this is where the
+    absence is enforced).
+
+    The length cap is measured on the HOST PART, not the whole entry: the `:*`
+    or `:<port>` suffix is not part of any DNS name, so measuring the string
+    would refuse a legal 253-byte name. 253 is accepted and 254 is not.
+
+    One function rather than two checks: the
+    field validator and `mcp_allowed_hosts_from_env` both call it, so a service
+    building full `Settings` and `create_app()`'s import-time read apply the
+    same rule. Pinned by
+    `test_settings.py::test_an_empty_mcp_allowed_hosts_is_refused_at_load`,
+    `::test_an_mcp_allowed_host_with_whitespace_is_refused_at_load`,
+    `::test_an_mcp_allowed_host_of_exactly_253_bytes_is_accepted_and_254_is_not`
+    and, for the two paths agreeing,
+    `::test_the_mcp_allowed_hosts_field_and_the_helper_share_one_validator`.
+    """
+    if not value:
+        raise ValueError("MCP_ALLOWED_HOSTS must list at least one host pattern")
+    for entry in value:
+        if not entry:
+            raise ValueError("MCP_ALLOWED_HOSTS must contain no empty entry")
+        if any(character.isspace() for character in entry):
+            raise ValueError("MCP_ALLOWED_HOSTS entries must contain no whitespace")
+        host_part = entry.rsplit(":", 1)[0] if ":" in entry else entry
+        if len(host_part.encode()) > MCP_ALLOWED_HOST_MAX_BYTES:
+            raise ValueError(
+                f"MCP_ALLOWED_HOSTS host parts must be at most {MCP_ALLOWED_HOST_MAX_BYTES} bytes"
+            )
+    return value
+
+
+def mcp_allowed_hosts_from_env() -> list[str]:
+    """The transport's allowed `Host` patterns, read at import time.
+
+    `create_app()` cannot call `load_settings()`: it needs the four
+    backing-service values no test process has, which is the wall an earlier change
+    decision A1 already hit for `WEB_ORIGIN`. This helper reads the one
+    variable, shares `Settings.mcp_allowed_hosts`'s default and runs the same
+    validator, so there is one default, one rule and one env name.
+
+    The configured list REPLACES the default rather than extending it, so a
+    deployment can narrow the set as well as widen it. Pinned by
+    `test_settings.py::test_the_default_mcp_allowed_hosts_are_exactly_the_planned_values`
+    and `test_mcp_transport.py::test_a_configured_list_replaces_the_default_set`.
+    """
+    configured = os.environ.get("MCP_ALLOWED_HOSTS")
+    if configured is None:
+        return list(DEFAULT_MCP_ALLOWED_HOSTS)
+    return _validated_mcp_allowed_hosts(configured.split(","))
 
 
 def web_origin_from_env() -> str:
@@ -204,6 +289,24 @@ class Settings(BaseSettings):
     `test_settings.py::test_the_settings_field_and_the_helper_share_one_validator`.
     """
 
+    mcp_allowed_hosts: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: list(DEFAULT_MCP_ALLOWED_HOSTS)
+    )
+    """The `Host` headers the MCP transport accepts, from `MCP_ALLOWED_HOSTS`.
+
+    A field as well as `mcp_allowed_hosts_from_env`'s env read so every service
+    building full `Settings` validates it too: without it
+    the value would be checked on the import-time path only, and a malformed
+    pattern would reach whatever reads `settings.mcp_allowed_hosts` later.
+
+    `NoDecode` because pydantic-settings JSON-decodes a `list` field before any
+    validator sees it, so the configured `a,b` form would fail as a JSON parse
+    error naming neither the entry nor the reason. A `default_factory` rather
+    than the constant itself so no caller can mutate the shared default. Pinned
+    by
+    `test_settings.py::test_the_mcp_allowed_hosts_field_and_the_helper_share_one_validator`.
+    """
+
     @field_validator("jwt_secret")
     @classmethod
     def _jwt_secret_at_least_32_bytes(cls, value: str) -> str:
@@ -266,6 +369,27 @@ class Settings(BaseSettings):
         `test_settings.py::test_the_settings_field_and_the_helper_share_one_validator`.
         """
         return _validated_web_origin(value)
+
+    @field_validator("mcp_allowed_hosts", mode="before")
+    @classmethod
+    def _mcp_allowed_hosts_are_usable_patterns(cls, value: object) -> object:
+        """Split the configured string, then delegate to the shared rule.
+
+        Before validation, not after, because `NoDecode` hands the environment's
+        `a,b` string through untouched: the split belongs with the check that
+        judges the parts, and an after-mode validator would see a one-element
+        list holding the whole line. A value already given as a list (a service
+        constructing `Settings` in code, or a test) is validated as it stands.
+
+        A body rather than a second copy of the checks: decision A's point is
+        that the field and the import-time helper cannot disagree. Pinned by
+        `test_settings.py::test_the_mcp_allowed_hosts_field_and_the_helper_share_one_validator`.
+        """
+        if isinstance(value, str):
+            return _validated_mcp_allowed_hosts(value.split(","))
+        if isinstance(value, list):
+            return _validated_mcp_allowed_hosts([str(entry) for entry in value])
+        return value
 
     @field_validator("gateway_api_keys", mode="before")
     @classmethod
