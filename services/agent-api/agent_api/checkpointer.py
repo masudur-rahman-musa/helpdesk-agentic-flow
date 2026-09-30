@@ -37,15 +37,29 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 __all__ = [
+    "CHECKPOINT_PRIVILEGES",
+    "CHECKPOINT_TABLES",
     "COMMAND_TIMEOUT_MILLISECONDS",
     "CONNECT_TIMEOUT_SECONDS",
+    "RESTRICTED_ROLE_NAME",
     "InvalidCheckpointerUrlError",
     "build_checkpointer",
     "build_pool",
+    "grant_checkpoint_access",
     "psycopg_dsn",
     "setup_checkpointer",
     "thread_config",
 ]
+
+RESTRICTED_ROLE_NAME = "helpdesk_app"
+"""The role the three services connect as, and the one this module grants to.
+
+The same literal Alembic revision `c7f4a1d2e8b3` defines as `ROLE_NAME`, and
+not an import of it: that revision is a version of the schema, so importing a
+constant out of it would make application code depend on one revision staying
+head. An earlier change decision C is what keeps it a constant in both places rather
+than configuration.
+"""
 
 ASYNCPG_SCHEME = "postgresql+asyncpg://"
 """The one URL scheme the settings carry and this module converts.
@@ -150,6 +164,48 @@ def build_checkpointer(pool: AsyncConnectionPool) -> AsyncPostgresSaver:
     return AsyncPostgresSaver(conn=cast(Any, pool))
 
 
+CHECKPOINT_TABLES = ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
+"""The library's tables the services read and write through the restricted role.
+
+`checkpoint_migrations` is deliberately absent: only `setup()` touches it, and
+`setup()` runs as the owner from the migrate target, so granting the services
+anything on the library's own version record would widen their reach for no
+caller.
+"""
+
+CHECKPOINT_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
+"""What a turn needs on a checkpoint table.
+
+DELETE included because the saver's thread deletion issues one; the other three
+are one turn's own load and write. It is the shape revision c7f4a1d2e8b3 calls
+`_READ_WRITE_DELETE`, written out here rather than imported because that
+migration owns the project's OWN tables and these are the library's.
+"""
+
+
+async def grant_checkpoint_access(pool: AsyncConnectionPool, role_name: str) -> None:
+    """Grant the restricted role what a turn needs on the checkpoint tables.
+
+    Here rather than in an Alembic revision, for the same reason decision B
+    keeps the DDL out of one: the tables do not exist until the library's
+    `setup()` has run, so a revision granting on them would fail on a fresh
+    database, and a revision is not allowed to know their names anyway. The
+    grant belongs with the creation, and this is where the creation is.
+
+    Idempotent: a repeated `GRANT` of a privilege already held is a no-op in
+    Postgres, so the migrate target stays re-runnable.
+
+    The role name is passed in rather than read here, and it is interpolated as
+    an identifier, so the caller supplies the constant
+    `c7f4a1d2e8b3.ROLE_NAME` carries rather than anything configurable.
+    """
+    async with pool.connection() as conn:
+        for table_name in CHECKPOINT_TABLES:
+            await conn.execute(
+                f'GRANT {", ".join(CHECKPOINT_PRIVILEGES)} ON TABLE {table_name} TO "{role_name}"'
+            )
+
+
 async def setup_checkpointer(pool: AsyncConnectionPool) -> None:
     """Create LangGraph's own checkpoint tables (decision B).
 
@@ -158,8 +214,14 @@ async def setup_checkpointer(pool: AsyncConnectionPool) -> None:
     `checkpoint_migrations` before anything runs. Pinned by
     `test_agent_checkpointer.py::test_setup_is_idempotent`, which compares the
     table set across two calls.
+
+    Creating them is not enough to make a turn work: the three services connect
+    as the restricted role, which holds nothing on a table it does not own, so
+    the grant runs here too. Without it every turn fails on the first
+    checkpoint read with `InsufficientPrivilege`.
     """
     await build_checkpointer(pool).setup()
+    await grant_checkpoint_access(pool, RESTRICTED_ROLE_NAME)
 
 
 def thread_config(thread_id: str) -> RunnableConfig:

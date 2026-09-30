@@ -47,7 +47,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from agent_api.checkpointer import build_pool, psycopg_dsn, setup_checkpointer, thread_config
+from agent_api.checkpointer import (
+    CHECKPOINT_PRIVILEGES,
+    CHECKPOINT_TABLES,
+    RESTRICTED_ROLE_NAME,
+    build_pool,
+    psycopg_dsn,
+    setup_checkpointer,
+    thread_config,
+)
 from helpdesk.core.settings import load_settings
 from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.rag.naming import SLUG_LENGTH
@@ -74,6 +82,9 @@ unit the wire uses.
 
 CHECKPOINTS_TABLE = "checkpoints"
 """LangGraph's own checkpoint table: what `setup_checkpointer` must create."""
+
+CHECKPOINT_MIGRATIONS_TABLE = "checkpoint_migrations"
+"""The library's version record, which the restricted role must NOT be granted."""
 
 _UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
@@ -276,6 +287,41 @@ def test_setup_is_idempotent(checkpoint_env: CheckpointEnv) -> None:
 
     assert CHECKPOINTS_TABLE in after_first
     assert after_second == after_first
+
+
+def test_setup_grants_the_restricted_role_access_to_every_checkpoint_table(
+    checkpoint_env: CheckpointEnv,
+) -> None:
+    """Catches a `setup_checkpointer` that creates the tables and grants
+    nothing: the three services connect as `helpdesk_app`, which holds no
+    privilege on a table it does not own, so every turn fails on its first
+    checkpoint read with `InsufficientPrivilege` while `make migrate` reports
+    success. That is an earlier change F1, found only when the MCP transport stopped
+    refusing the call that reached it.
+
+    Read out of `information_schema` per table and compared as an exact SET, so
+    a grant that covers `checkpoints` and forgets `checkpoint_writes` is red,
+    and so is one that hands over more than a turn needs. `checkpoint_migrations`
+    is asserted to carry NO grant: only the owner's `setup()` touches it."""
+
+    async def scenario(pool: Any) -> dict[str, frozenset[str]]:
+        await setup_checkpointer(pool)
+        granted: dict[str, frozenset[str]] = {}
+        for table_name in (*CHECKPOINT_TABLES, CHECKPOINT_MIGRATIONS_TABLE):
+            async with pool.connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT privilege_type FROM information_schema.table_privileges "
+                    "WHERE grantee = %s AND table_name = %s",
+                    (RESTRICTED_ROLE_NAME, table_name),
+                )
+                granted[table_name] = frozenset(row[0] for row in await cursor.fetchall())
+        return granted
+
+    granted = _with_pool(checkpoint_env.dsn, scenario)
+
+    for table_name in CHECKPOINT_TABLES:
+        assert granted[table_name] == frozenset(CHECKPOINT_PRIVILEGES), table_name
+    assert granted[CHECKPOINT_MIGRATIONS_TABLE] == frozenset()
 
 
 # --- the thread id, pre-checked -----------------------------
