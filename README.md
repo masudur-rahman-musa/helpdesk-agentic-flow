@@ -245,13 +245,33 @@ difference between an automated decision and an unexplainable one.
 
 ## Quickstart
 
+Every model call goes through the companion console's gateway, so that stack
+starts first. The two run side by side: the console publishes its backing
+services on shifted host ports, and nothing here has to be stopped for it.
+
 ```
-docker compose up -d
-uv sync
+cd ../ai-operations-console && docker compose up -d --wait
+```
+
+Then, back in this repository:
+
+```
+docker compose --profile app up -d --wait
 uv run alembic upgrade head
 uv run python scripts/seed.py
-make run
 ```
+
+The web is on [localhost:3000](http://localhost:3000). `GATEWAY_URL` needs no
+edit: the app profile already points the containers at
+`http://host.docker.internal:8080/v1`, which is where the console's gateway
+listens.
+
+For a working demo, run the services as host processes instead: `uv sync` and
+`make run`, after `docker compose up -d` brings up the backing services alone.
+The containers start and report healthy, but agent-api cannot reach the MCP
+server inside the compose network yet, so no turn completes. The cause and the
+symptom are in [docs/runbook.md](docs/runbook.md) under "The same stack in
+containers".
 
 The seed is deterministic and safe to re-run. Logins for every seeded role are
 in [docs/demo-accounts.md](docs/demo-accounts.md); the data is invented and the
