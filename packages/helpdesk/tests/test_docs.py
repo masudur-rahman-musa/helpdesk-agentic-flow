@@ -21,7 +21,7 @@ deleted test breaks the README here instead of hollowing it quietly.
 
 Two sets are READ OFF the repository rather than retyped: the four ADR
 headings come from `docs/adr/0000-template.md`, and the alert subsections the
-runbook owes come from the files in `project-obs/alerts/`. Each carries a
+runbook owes come from the files in `infra/monitoring/alerts/`. Each carries a
 tripwire literal of its state at HEAD, so a change to the
 source names itself in the failure message.
 
@@ -54,8 +54,7 @@ ADR_TEMPLATE = ADR_DIR / "0000-template.md"
 ADR_0001 = ADR_DIR / "0001-langgraph-orchestration-only.md"
 DIAGRAM_DIR = DOCS / "diagrams"
 RUNBOOK = DOCS / "runbook.md"
-OBS = REPO_ROOT / "project-obs"
-ALERT_DIR = OBS / "alerts"
+ALERT_DIR = REPO_ROOT / "infra" / "monitoring" / "alerts"
 
 README_SECTIONS: tuple[str, ...] = (
     "Problem statement",
@@ -168,7 +167,7 @@ Case-sensitive, as written: these are file names, and a committed document has
 no reason to carry any of them in any casing that matters."""
 
 DOC_SUFFIXES: frozenset[str] = frozenset({".md", ".txt", ".yml", ".yaml", ".json"})
-"""The text suffixes the privacy sweep reads under `docs/` and `project-obs/`."""
+"""The text suffixes the privacy sweep reads under `docs/`."""
 
 RUNBOOK_COMMAND_SECTIONS: tuple[str, ...] = ("deploy", "roll back", "restore", "rotate")
 """The four operational sections that owe at least one fenced command block."""
@@ -282,25 +281,27 @@ def _adr_files() -> list[Path]:
 
 
 def _alert_stems() -> list[str]:
-    """The file stems in `project-obs/alerts/`, dotfiles excluded.
+    """The file stems in `infra/monitoring/alerts/`, dotfiles excluded.
 
-    `.gitkeep` is how an empty directory is committed, not an alert, so it is
-    filtered out here rather than owing the runbook a `### .gitkeep`.
+    The directory does not exist until the first alert rule lands, so a missing
+    one answers no stems. `.gitkeep` is how an empty directory is committed, not
+    an alert, so it is filtered out here rather than owing the runbook a
+    `### .gitkeep`.
     """
-    assert ALERT_DIR.is_dir(), f"missing alert directory: {ALERT_DIR}"
+    if not ALERT_DIR.is_dir():
+        return []
     return sorted(path.stem for path in ALERT_DIR.iterdir() if not path.name.startswith("."))
 
 
 def _documented_files() -> list[Path]:
     """Every committed text document the privacy sweep covers."""
     files: list[Path] = [README, CUSTOMIZING]
-    for root in (DOCS, OBS):
-        assert root.is_dir(), f"missing documentation root: {root}"
-        files.extend(
-            path
-            for path in sorted(root.rglob("*"))
-            if path.is_file() and path.suffix in DOC_SUFFIXES
-        )
+    assert DOCS.is_dir(), f"missing documentation root: {DOCS}"
+    files.extend(
+        path
+        for path in sorted(DOCS.rglob("*"))
+        if path.is_file() and path.suffix in DOC_SUFFIXES
+    )
     return files
 
 
@@ -690,7 +691,7 @@ def test_no_runbook_section_is_empty() -> None:
 def test_the_runbook_has_a_subsection_per_alert() -> None:
     """Catches the first alert that lands with no written response.
 
-    Nothing else in the repository connects `project-obs/alerts/` to
+    Nothing else in the repository connects `infra/monitoring/alerts/` to
     `docs/runbook.md`: the no-empty-section case is green on an alert section
     holding one line of prose, however many alerts exist. The expected
     subsections are read off the directory, so this passes vacuously today,

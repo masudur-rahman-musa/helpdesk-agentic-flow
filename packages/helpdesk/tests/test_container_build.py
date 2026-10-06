@@ -86,10 +86,9 @@ PRIVATE_PATHS: tuple[str, ...] = (
     ".git",
     "docs",
     "project-evals",
-    "project-obs",
 )
-"""The eleven paths no image may carry: the seven of criterion 6 plus version
-control, the docs tree and the two evaluation trees. Asserted as a required
+"""The ten paths no image may carry: the seven of criterion 6 plus version
+control, the docs tree and the evaluation tree. Asserted as a required
 subset, not as the whole file: the build artefacts a real image must also
 exclude (`.venv`, `node_modules`, `.next`) are the implementation's business."""
 

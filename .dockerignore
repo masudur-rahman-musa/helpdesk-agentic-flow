@@ -37,7 +37,6 @@ CLAUDE.md
 tests
 **/tests
 project-evals
-project-obs
 infra
 .github
 .pre-commit-config.yaml
