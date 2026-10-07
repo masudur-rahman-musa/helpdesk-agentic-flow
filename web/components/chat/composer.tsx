@@ -15,7 +15,7 @@ import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/lib/chat-schema";
  * disagree about what is sendable. It runs before `onSend`, so an empty or
  * oversized message opens no request at all.
  *
- * There is no `maxLength` on the textarea: capping the input silently would
+ * There is no `maxLength` on the input: capping the input silently would
  * make the refusal unreachable and the counter a decoration. The count is
  * shown instead, and going over is refused with the same typed code the server
  * uses.
@@ -60,13 +60,13 @@ export function Composer({
       <Label htmlFor="chat-message" className="sr-only">
         Message
       </Label>
-      <textarea
+      <input
         id="chat-message"
         name="message"
-        rows={3}
+        type="text"
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-sm shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full rounded-full border border-border bg-background px-4 py-3 text-sm shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
       <div className="flex items-center justify-between gap-4">
         <span className="text-xs text-muted-foreground">
