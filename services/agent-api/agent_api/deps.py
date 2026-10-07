@@ -13,7 +13,7 @@ socket. A test that wants to stub this module's own seam patches
 `agent_api.deps.build_tool_caller`; a test of the chat routes patches theirs.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -157,7 +157,10 @@ def authenticated(authorization: str | None) -> tuple[str, TokenClaims] | None:
 
 
 async def call_tool_route(
-    authorization: str | None, tool: str, arguments: BaseModel
+    authorization: str | None,
+    tool: str,
+    arguments: BaseModel,
+    extend: Callable[[TokenClaims], Mapping[str, Any]] | None = None,
 ) -> JSONResponse:
     """Verify the caller, call one tool under their own bearer, render it.
 
@@ -183,15 +186,21 @@ async def call_tool_route(
     an unreachable server raises `RemoteInternalError`, which is a `ToolError`
     too and falls through the map to 500 carrying the code alone
     (`::test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor_path`).
+
+    `extend` adds keys computed from the VERIFIED claims to a
+    successful body; a refusal never carries them.
     """
     verified = authenticated(authorization)
     if verified is None:
         return unauthenticated()
-    token, _claims = verified
+    token, verified_claims = verified
 
     try:
         async with build_tool_caller(load_settings(), token) as tools:
             payload: Mapping[str, Any] = await tools.call_tool(tool, arguments)
     except ToolError as exc:
         return typed_refusal(exc.code)
-    return JSONResponse(status_code=200, content=dict(payload))
+    body = dict(payload)
+    if extend is not None:
+        body.update(extend(verified_claims))
+    return JSONResponse(status_code=200, content=body)

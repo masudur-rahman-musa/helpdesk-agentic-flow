@@ -521,3 +521,169 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
     assert MCP_HOST not in body
     assert MCP_PATH not in body
     assert TRANSPORT_FAILURE_MESSAGE not in body
+
+
+# --- an earlier change: GET /me --------------------------------------------------------
+
+# An earlier change section 6. `GET /me` calls the `get_me` tool through the same seam and
+# adds `tabs`, computed by `helpdesk.auth.rbac.tabs_for` from the TOKEN's
+# principals. Shapes fixed here that the plan left open (a project rule and
+# 55; they belong in 42's Deviations):
+# - the body carries `display_name`, `principals` and `tabs` (a list of the ten
+#   stable keys, universal four included); other keys the tool answers may ride
+#   along and are not asserted.
+# - `display_name` and `principals` are the tool's own answer; `tabs` is read
+#   off the token. Every case below gives the token and the tool the SAME
+#   principals, so no case decides which of the two `tabs` is read from.
+
+ME_PATH = "/me"
+GET_ME = "get_me"
+
+ME_UNIVERSAL: frozenset[str] = frozenset({"chat", "requests", "access", "notifications"})
+ME_ALL: frozenset[str] = ME_UNIVERSAL | {
+    "approvals",
+    "reviews",
+    "audit",
+    "killswitch",
+    "rules",
+    "policies",
+}
+
+
+def _me_payload(principals: list[str]) -> Mapping[str, Any]:
+    """`get_me`'s output as the tool answers it, for one fake person."""
+    return {
+        "user_id": str(USER_ID),
+        "tenant_id": str(TENANT_ID),
+        "email": "fake.person@example.invalid",
+        "display_name": "Fake Person One",
+        "department_id": str(DEPARTMENT_ID),
+        "principals": principals,
+        "status": "active",
+    }
+
+
+def _token_for(principals: list[str]) -> str:
+    return issue_token(
+        {
+            "sub": str(USER_ID),
+            "tenant_id": str(TENANT_ID),
+            "department_id": str(DEPARTMENT_ID),
+            "principals": principals,
+            "sid": str(SESSION_ID),
+        },
+        TEST_JWT_SIGNING_PHRASE,
+        datetime.now(UTC),
+    )
+
+
+ME_ROWS: tuple[tuple[str, list[str], frozenset[str]], ...] = (
+    ("employee", ["employee"], ME_UNIVERSAL),
+    ("manager", ["manager"], ME_UNIVERSAL | {"approvals", "reviews", "audit"}),
+    ("platform_admin", ["platform_admin"], ME_ALL),
+)
+
+
+@pytest.mark.parametrize(
+    ("principals", "expected_tabs"),
+    [(row[1], row[2]) for row in ME_ROWS],
+    ids=[row[0] for row in ME_ROWS],
+)
+def test_the_me_route_answers_name_principals_and_the_tabs_of_the_token(
+    me_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+    principals: list[str],
+    expected_tabs: frozenset[str],
+) -> None:
+    """Catches a `/me` that returns the tool's body without `tabs`, one that
+    returns every tab to everyone, and one that calls a tool other than `get_me`.
+
+    Employee four, manager seven, platform_admin ten are literals here, so a
+    route that computed tabs from something other than the token's principals
+    (or hardcoded a list) fails the rows it gets wrong. The bearer is forwarded
+    verbatim and `get_me` is sent no arguments.
+    """
+    caller = ScriptedToolCaller(_me_payload(principals))
+    token = _token_for(principals)
+
+    response, spy = _get(monkeypatch=monkeypatch, path=ME_PATH, caller=caller, headers=_auth(token))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["display_name"] == "Fake Person One"
+    assert body["principals"] == principals
+    assert set(body["tabs"]) == expected_tabs
+    assert len(body["tabs"]) == len(expected_tabs)
+    assert caller.calls == [(GET_ME, {})]
+    assert spy.bearer_tokens == [token]
+
+
+def test_an_unknown_principal_string_on_the_token_never_adds_a_tab(
+    me_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a route that turns a near-miss principal string into a real one.
+
+    The token carries `employee` plus `PLATFORM_ADMIN` (wrong case) and a
+    made-up `admin`. The token verifies and the tool answers, so no gate other
+    than the matrix's own enum match can keep the answer at four tabs.
+    """
+    principals = ["employee", "PLATFORM_ADMIN", "admin"]
+    caller = ScriptedToolCaller(_me_payload(principals))
+
+    response, _spy = _get(
+        monkeypatch=monkeypatch,
+        path=ME_PATH,
+        caller=caller,
+        headers=_auth(_token_for(principals)),
+    )
+
+    assert response.status_code == 200
+    assert set(response.json()["tabs"]) == ME_UNIVERSAL
+
+
+@pytest.mark.parametrize(
+    "headers", [case[1] for case in BAD_BEARERS], ids=[c[0] for c in BAD_BEARERS]
+)
+def test_the_me_route_without_a_usable_bearer_is_a_typed_401_and_opens_no_session(
+    me_env: None, monkeypatch: pytest.MonkeyPatch, headers: Mapping[str, str]
+) -> None:
+    """Catches a `/me` with no token check, or one that opens the MCP session
+    before checking: the caller is scripted with nothing, so entering it fails.
+
+    Same 401 and same `FORBIDDEN` body as the two sibling `/me/*` routes
+    (`test_an_absent_or_malformed_bearer_is_a_typed_401_and_opens_no_session`);
+    the token check is the only guard on this path, so deleting it flips every
+    row.
+    """
+    caller = ScriptedToolCaller()
+
+    response, spy = _get(monkeypatch=monkeypatch, path=ME_PATH, caller=caller, headers=headers)
+
+    assert response.status_code == 401
+    assert response.json() == {"code": ErrorCode.FORBIDDEN.value}
+    assert caller.entered == 0
+    assert spy.bearer_tokens == []
+
+
+def test_a_forbidden_from_get_me_is_dressed_as_the_sibling_routes_dress_it(
+    me_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a `/me` that lets the tool's `ToolError` escape as an untyped 500.
+
+    The bearer verifies, so the token gate cannot decide this row; only the
+    `except ToolError` branch can. 403 with the typed body is what
+    `/me/requests` answers for the same refusal (a tripped kill switch or a
+    matrix refusal), and no `tabs` key may ride along on a refusal.
+    """
+    caller = RefusingToolCaller(RemoteForbiddenError(ErrorCode.FORBIDDEN.value))
+
+    response, _spy = _get(
+        monkeypatch=monkeypatch,
+        path=ME_PATH,
+        caller=caller,
+        headers=_auth(_token_for(["manager"])),
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {"code": ErrorCode.FORBIDDEN.value}
+    assert caller.entered == 1

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   decisionLabel,
+  principalLabel,
   reasonSentence,
   riskLabel,
   slotLabel,
@@ -158,5 +159,32 @@ describe("an unknown value in any of the four maps", () => {
     // showing the value someone can grep for. Parametrised because a fallback
     // added to three of the four is the shape this actually ships as.
     expect(lookup("chief_of_staff")).toBe("chief_of_staff");
+  });
+});
+
+describe("principalLabel (plan 42 decision D)", () => {
+  const principals = [
+    { value: "employee", label: "Employee" },
+    { value: "manager", label: "Manager" },
+    { value: "system_owner", label: "System owner" },
+    { value: "hr", label: "HR" },
+    { value: "it_admin", label: "IT admin" },
+    { value: "auditor", label: "Auditor" },
+    { value: "platform_admin", label: "Platform admin" },
+  ] as const;
+
+  it.each(principals)("$value reads $label", ({ value, label }) => {
+    // Seven members of `helpdesk.auth.rbac.Principal`, one assertion each.
+    // Catches a map keyed by the Python member name (`PLATFORM_ADMIN`), which
+    // misses every lookup and falls back to the raw value, and the two labels a
+    // hand-written map gets wrong by eye: `hr` is "HR" and not "Hr", and
+    // `it_admin` is "IT admin" and not "It admin".
+    expect(principalLabel(value)).toBe(label);
+  });
+
+  it("answers an unknown principal with the value itself", () => {
+    // Catches a bare index (`undefined` at the user) and a vague default such
+    // as "Unknown", which hides the drift the raw value makes greppable.
+    expect(principalLabel("chief_of_staff")).toBe("chief_of_staff");
   });
 });

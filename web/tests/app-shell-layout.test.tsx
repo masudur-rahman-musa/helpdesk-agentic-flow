@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,7 +44,55 @@ function renderShell(showNav?: boolean) {
   );
 }
 
+/**
+ * An earlier change §8: the nav lists the links `/api/me` returns, so the current-page
+ * cases below answer it as a platform_admin to keep all ten present. The
+ * marker logic they pin is unchanged.
+ */
+function stubMeAsPlatformAdmin() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) =>
+      String(input) === "/api/me"
+        ? new Response(
+            JSON.stringify({
+              display_name: "Fake Person One",
+              principals: ["platform_admin"],
+              tabs: [
+                "chat",
+                "requests",
+                "access",
+                "approvals",
+                "reviews",
+                "notifications",
+                "audit",
+                "killswitch",
+                "rules",
+                "policies",
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )
+        : new Response("{}", { status: 500 }),
+    ),
+  );
+}
+
+function renderShellWithAllTabs() {
+  stubMeAsPlatformAdmin();
+  return render(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
+      <AppShell>
+        <p>hello</p>
+      </AppShell>
+    </QueryClientProvider>,
+  );
+}
+
 beforeEach(() => {
+  vi.unstubAllGlobals();
   document.documentElement.className = "";
   localStorage.clear();
   nav.pathname = "/chat";
@@ -53,28 +102,36 @@ describe("MainNav — current page", () => {
   it.each([
     ["My requests", "/requests"],
     ["Audit log", "/admin/audit"],
-  ] as const)("marks only %s current on %s", (name, pathname) => {
+  ] as const)("marks only %s current on %s", async (name, pathname) => {
     // Catches a nav that never sets `aria-current` (the current page is
     // invisible to screen readers), one that hard-codes Chat as current, and
     // one matching on the first segment, which marks every `/admin/*` link
     // current on `/admin/audit`.
     nav.pathname = pathname;
-    renderShell();
+    renderShellWithAllTabs();
+    await screen.findByRole("link", { name: "Policies" });
 
-    expect(screen.getByRole("link", { name })).toHaveAttribute("aria-current", "page");
+    const main = screen.getByRole("navigation", { name: "Main" });
+
+    expect(within(main).getByRole("link", { name })).toHaveAttribute("aria-current", "page");
     for (const other of LINK_NAMES.filter((n) => n !== name)) {
-      expect(screen.getByRole("link", { name: other }), other).not.toHaveAttribute("aria-current");
+      expect(within(main).getByRole("link", { name: other }), other).not.toHaveAttribute(
+        "aria-current",
+      );
     }
   });
 
-  it("marks no link current on /", () => {
+  it("marks no link current on /", async () => {
     // Catches a reversed prefix test (`href.startsWith(pathname)`), which on
     // `/` marks all ten links current because every href starts with `/`.
     nav.pathname = "/";
-    renderShell();
+    renderShellWithAllTabs();
+    await screen.findByRole("link", { name: "Policies" });
+
+    const main = screen.getByRole("navigation", { name: "Main" });
 
     for (const name of LINK_NAMES) {
-      expect(screen.getByRole("link", { name }), name).not.toHaveAttribute("aria-current");
+      expect(within(main).getByRole("link", { name }), name).not.toHaveAttribute("aria-current");
     }
   });
 });

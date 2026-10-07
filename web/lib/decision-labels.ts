@@ -12,14 +12,14 @@
  * keyed by member name misses on every lookup and the fallback makes it
  * silently green.
  *
- * Five vocabularies, five lookups, all total by construction. A value the map
+ * Six vocabularies, six lookups, all total by construction. A value the map
  * does not know answers THE VALUE ITSELF (decision B): a reason exists to
  * explain, a vague default explains nothing and hides the drift, and the raw
  * code is greppable against `ReasonCode` the moment someone reports it. That
  * is the opposite of `chat-errors.ts`'s `default` on purpose — there a code is
  * all the wire sends and the sentence is the whole message.
  *
- * The maps are a HAND-KEPT mirror of five Python enums: a member
+ * The maps are a HAND-KEPT mirror of six Python enums: a member
  * added on the Python side renders as its raw code with nothing red, so
  * `tests/decision-labels.test.ts` lists all ten reason codes and every member
  * of the other four as LITERALS. Adding one is a deliberate edit to that list.
@@ -77,6 +77,17 @@ export const STATUS_LABELS: Record<string, string> = {
   failed: "Failed",
 };
 
+/** `helpdesk.auth.rbac.Principal`, in the enum's own order. */
+export const PRINCIPAL_LABELS: Record<string, string> = {
+  employee: "Employee",
+  manager: "Manager",
+  system_owner: "System owner",
+  hr: "HR",
+  it_admin: "IT admin",
+  auditor: "Auditor",
+  platform_admin: "Platform admin",
+};
+
 /** The label for a known member, or the wire value itself for anything else. */
 function labelled(labels: Record<string, string>, value: string): string {
   return labels[value] ?? value;
@@ -108,4 +119,8 @@ export function slotLabel(slot: string): string {
 
 export function statusLabel(status: string): string {
   return labelled(STATUS_LABELS, status);
+}
+
+export function principalLabel(principal: string): string {
+  return labelled(PRINCIPAL_LABELS, principal);
 }

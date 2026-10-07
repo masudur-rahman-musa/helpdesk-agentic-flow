@@ -1,4 +1,4 @@
-"""GET /me/requests and GET /me/access: the two reads the web pages render.
+"""GET /me, GET /me/requests and GET /me/access: the reads the web renders.
 
 The same two MCP tools the agent already calls, reached over HTTP instead of
 over a turn. Nothing here reads the database: the call
@@ -31,6 +31,8 @@ No lifespan resource is touched: these two routes read nothing off
 
 from fastapi import APIRouter, Header, Query
 from fastapi.responses import JSONResponse
+from helpdesk.auth.jwt import TokenClaims
+from helpdesk.auth.rbac import tabs_for
 from pydantic import BaseModel
 
 # `STATUS_FOR_CODE` is re-exported rather than used here: 23c moved the map
@@ -103,3 +105,23 @@ async def my_access(authorization: str | None = Header(default=None)) -> JSONRes
     size to ask for and no argument to send.
     """
     return await call_tool_route(authorization, "list_my_access", ListMyAccessArgs())
+
+
+class GetMeArgs(BaseModel):
+    """No arguments: the person is the token's own."""
+
+
+def _tabs(claims: TokenClaims) -> dict[str, list[str]]:
+    return {"tabs": tabs_for(claims.principals)}
+
+
+@router.get("/me")
+async def me(authorization: str | None = Header(default=None)) -> JSONResponse:
+    """Who the caller is, and which web tabs their principals may see.
+
+    The `get_me` tool's body plus `tabs`, computed from the token's own
+    principals by `helpdesk.auth.rbac.tabs_for`, so the web holds no copy of
+    the matrix. Cosmetic only: each page's tool still refuses. Pinned by
+    `test_me_routes.py::test_the_me_route_answers_name_principals_and_the_tabs_of_the_token`.
+    """
+    return await call_tool_route(authorization, "get_me", GetMeArgs(), extend=_tabs)

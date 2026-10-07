@@ -21,7 +21,7 @@ error cannot mask it, but no principal allows it — the system invokes it
 internally, never a user.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -360,3 +360,41 @@ def _as_principal(raw: str) -> Principal | None:
         return Principal(raw)
     except ValueError:
         return None
+
+
+# An earlier change: the web shell's ten tabs by stable key, in link order. The first
+# four are open to every principal and gated by no tool; each other key is
+# tied to the ONE read tool its page calls, so a tab shows exactly when the
+# page's own read would not be refused. Pinned by
+# `test_rbac_tabs.py::test_a_gated_tab_is_shown_exactly_when_its_tool_is_allowed`.
+_TAB_TOOLS: Mapping[str, Tool | None] = MappingProxyType(
+    {
+        "chat": None,
+        "requests": None,
+        "access": None,
+        "approvals": Tool.LIST_PENDING_APPROVALS,
+        "reviews": Tool.LIST_REVIEWS,
+        "notifications": None,
+        "audit": Tool.SEARCH_AUDIT,
+        "killswitch": Tool.LIST_KILL_SWITCHES,
+        "rules": Tool.LIST_SOD_RULES,
+        "policies": Tool.LIST_POLICY_DOCUMENTS,
+    }
+)
+
+
+def tabs_for(principals: Sequence[str]) -> list[str]:
+    """The tab keys these principal strings may see, in link order.
+
+    Reads `_MATRIX` with the same enum match `authorize` uses, so an unknown
+    string (`PLATFORM_ADMIN`, `platform_admin `) is dropped and never widens
+    (`test_rbac_tabs.py::test_an_unknown_principal_string_never_adds_a_tab`).
+    The four universal keys come back even for an empty list. Hiding a tab is
+    cosmetic: the tool's own `authorize` stays the gate.
+    """
+    held = {principal for raw in principals if (principal := _as_principal(raw)) is not None}
+    return [
+        key
+        for key, tool in _TAB_TOOLS.items()
+        if tool is None or any(principal in _MATRIX[tool] for principal in held)
+    ]

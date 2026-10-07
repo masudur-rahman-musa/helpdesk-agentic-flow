@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "@/components/app-shell";
 import { DEMO_BANNER_TEXT } from "@/components/demo-banner";
+import { QueryProvider } from "@/components/query-provider";
 import { THEME_STORAGE_KEY } from "@/components/theme-toggle";
 
 /**
@@ -204,19 +205,52 @@ describe("MainNav — the routes it links to", () => {
     { name: "Policies", href: "/admin/policies" },
   ] as const;
 
-  it.each(LINKS)("links $name to $href", ({ name, href }) => {
+  it.each(LINKS)("links $name to $href", async ({ name, href }) => {
+    // An earlier change §8: the ten links are asserted for a platform_admin profile only,
+    // since the shell is role-aware now (the employee's four are held by
+    // `tests/role-nav.test.tsx`). `/api/me` is stubbed to answer all ten keys,
+    // and each link is AWAITED, because the six gated ones only exist once the
+    // read has resolved.
     // Catches a nav that names the destination but points elsewhere — a link
     // labelled "My access" going to `/chat` is invisible to every other case in
     // this file — and catches a label written as the route (`/requests` at the
     // user). `Chat` rides along so a rearranged nav that loses the existing
     // link while adding two is red here rather than at a user.
+    fetchStub.mockImplementation(async (input) =>
+      String(input) === "/api/me"
+        ? new Response(
+            JSON.stringify({
+              display_name: "Fake Person One",
+              principals: ["platform_admin"],
+              tabs: [
+                "chat",
+                "requests",
+                "access",
+                "approvals",
+                "reviews",
+                "notifications",
+                "audit",
+                "killswitch",
+                "rules",
+                "policies",
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )
+        : new Response(null, { status: 204 }),
+    );
     render(
-      <AppShell>
-        <p>hello</p>
-      </AppShell>,
+      <QueryProvider>
+        <AppShell>
+          <p>hello</p>
+        </AppShell>
+      </QueryProvider>,
     );
 
-    expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    // Scoped to the main nav: with a query client mounted the bell renders a
+    // second link to `/notifications`, so an unscoped lookup is ambiguous.
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(await within(nav).findByRole("link", { name })).toHaveAttribute("href", href);
   });
 
   // An earlier change §8: `NOT_YET` and its case are DELETED. `/admin/policies` was its
