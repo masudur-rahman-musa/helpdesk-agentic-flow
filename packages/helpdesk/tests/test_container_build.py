@@ -523,3 +523,272 @@ def test_the_web_runtime_stage_removes_npm() -> None:
             f"the web runtime stage leaves the {entry_point} entry point in place, "
             f"so `command -v npm` still succeeds; its RUN commands are {runs}"
         )
+
+
+# --- an earlier change: watch mode through the compose override example -----------------
+
+OVERRIDE_EXAMPLE = REPO_ROOT / "docker-compose.override.example.yml"
+GITIGNORE = REPO_ROOT / ".gitignore"
+
+LOCAL_OVERRIDE_LINE = "docker-compose.override.yml"
+"""The exact `.gitignore` line keeping a developer's copied override out of git."""
+
+PYTHON_RELOAD_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("agent-api", "agent_api", "8000"),
+    ("mcp-server", "mcp_server", "8081"),
+    ("scheduler", "scheduler", "8082"),
+)
+"""One row per Python app service: the folder under `services/`, the importable
+module holding `main:app`, and the port the base file publishes and probes."""
+
+PYTHON_RELOAD_IDS: tuple[str, ...] = tuple(row[0] for row in PYTHON_RELOAD_ROWS)
+
+SHARED_PACKAGE_DIR = "/app/packages/helpdesk"
+"""The editable install of the shared library inside every Python image."""
+
+VENV_DIR = "/app/.venv"
+"""The image's virtualenv, which no mount may land on or under."""
+
+WEB_SERVICE = "helpdesk-web"
+WEB_DEV_IMAGE = "helpdesk-web:dev"
+WEB_BUILD_TARGET = "deps"
+WEB_SOURCE_MOUNT = "./web:/app"
+WEB_NAMED_VOLUME_TARGETS: tuple[str, ...] = ("/app/node_modules", "/app/.next")
+WEB_INSTALL = "pnpm install --frozen-lockfile"
+WEB_DEV_COMMANDS: tuple[str, ...] = ("next dev", "pnpm dev")
+"""Either spelling starts the dev server: `pnpm dev` runs the package script
+`next dev`, so the case accepts the script or the binary."""
+
+WEB_START_PERIOD = "60s"
+
+ALLOWED_ENVIRONMENT: dict[str, dict[str, str]] = {WEB_SERVICE: {"WATCHPACK_POLLING": "true"}}
+"""The whole environment the override example may set, as an exact mapping per
+service: web's polling switch, and nothing for any other service."""
+
+
+def _override_document() -> dict[str, Any]:
+    """The override example parsed as a YAML mapping."""
+    assert OVERRIDE_EXAMPLE.is_file(), "docker-compose.override.example.yml does not exist"
+    document = yaml.safe_load(OVERRIDE_EXAMPLE.read_text(encoding="utf-8"))
+    assert isinstance(document, dict), "docker-compose.override.example.yml is not a mapping"
+    return document
+
+
+def _override_services() -> dict[str, Any]:
+    """The override example's `services` mapping."""
+    services = _override_document().get("services")
+    assert isinstance(services, dict), "docker-compose.override.example.yml declares no services"
+    return services
+
+
+def _override_service(name: str) -> dict[str, Any]:
+    """One override service, failing with the service list when it is missing."""
+    services = _override_services()
+    service = services.get(name)
+    assert isinstance(service, dict), (
+        f"the override example has no service {name}, its services are {sorted(services)}"
+    )
+    return service
+
+
+def _volume_target(volume: Any) -> str:
+    """The container-side path of one compose volume, short or long syntax."""
+    if isinstance(volume, dict):
+        return str(volume.get("target", ""))
+    parts = str(volume).split(":")
+    return parts[1] if len(parts) > 1 else parts[0]
+
+
+def _volume_source(volume: Any) -> str:
+    """The host-side source of one compose volume, empty for an anonymous one."""
+    if isinstance(volume, dict):
+        return str(volume.get("source", ""))
+    parts = str(volume).split(":")
+    return parts[0] if len(parts) > 1 else ""
+
+
+def _flag_values(arguments: list[str], flag: str) -> list[str]:
+    """Every value that immediately follows `flag` in an argument list."""
+    return [
+        arguments[index + 1]
+        for index, argument in enumerate(arguments)
+        if argument == flag and index + 1 < len(arguments)
+    ]
+
+
+def _environment_keys(environment: Any) -> set[str]:
+    """The variable names one `environment` block sets, mapping or list syntax."""
+    if environment is None:
+        return set()
+    if isinstance(environment, dict):
+        return {str(key) for key in environment}
+    return {str(entry).split("=", 1)[0] for entry in environment}
+
+
+@pytest.mark.parametrize(("service", "module", "port"), PYTHON_RELOAD_ROWS, ids=PYTHON_RELOAD_IDS)
+def test_the_override_example_reloads_every_python_service(
+    service: str, module: str, port: str
+) -> None:
+    """Catches a Python service left on its production entrypoint (no `--reload`),
+    an entrypoint copied from agent-api that serves `agent_api.main:app` on 8000
+    inside mcp-server or scheduler, a server bound to loopback that the published
+    port cannot reach, and reload dirs that miss the service's own folder or widen
+    to `/app`, where the watcher walks the whole virtualenv."""
+    entrypoint = _override_service(f"helpdesk-{service}").get("entrypoint")
+    assert isinstance(entrypoint, list), (
+        f"helpdesk-{service} declares no list-form entrypoint: {entrypoint!r}"
+    )
+    arguments = [str(argument) for argument in entrypoint]
+
+    assert arguments[:2] == ["uvicorn", f"{module}.main:app"], arguments
+    assert _flag_values(arguments, "--host") == ["0.0.0.0"], arguments
+    assert _flag_values(arguments, "--port") == [port], arguments
+    assert "--reload" in arguments, arguments
+    assert sorted(_flag_values(arguments, "--reload-dir")) == sorted(
+        [SHARED_PACKAGE_DIR, f"/app/services/{service}"]
+    ), arguments
+
+
+@pytest.mark.parametrize("service", PYTHON_SERVICES)
+def test_the_override_example_mounts_python_source_read_only(service: str) -> None:
+    """Catches a writable source mount, where the container can edit the host
+    tree; catches a mount of the whole repo or of a sibling service's folder,
+    which drags in what the image never carried; and catches a missing
+    `packages/helpdesk` mount, which leaves edits to the shared library invisible
+    to a reloader that is watching an unchanged image copy."""
+    volumes = _override_service(f"helpdesk-{service}").get("volumes")
+    assert isinstance(volumes, list), f"helpdesk-{service} mounts nothing: {volumes!r}"
+
+    assert {str(volume) for volume in volumes} == {
+        "./packages/helpdesk:/app/packages/helpdesk:ro",
+        f"./services/{service}:/app/services/{service}:ro",
+    }
+    assert len(volumes) == 2, volumes
+
+
+def test_the_override_example_never_mounts_over_the_venv() -> None:
+    """Catches the host's `.venv` (macOS wheels) mounted over the container's
+    Linux virtualenv on ANY service, including web, which the per-service exact
+    mount case above does not read; a mount at `/app/.venv/lib` shadows a part of
+    it just as surely, so the prefix is checked too."""
+    targets = [
+        _volume_target(volume)
+        for service in _override_services().values()
+        if isinstance(service, dict)
+        for volume in service.get("volumes") or []
+    ]
+    assert targets, "the override example mounts nothing, so this case would prove nothing"
+
+    shadowing = [
+        target
+        for target in targets
+        if target.rstrip("/") == VENV_DIR or target.startswith(f"{VENV_DIR}/")
+    ]
+    assert shadowing == [], f"mounts land on the virtualenv: {shadowing}"
+
+
+def test_the_override_example_runs_web_in_dev_mode() -> None:
+    """Catches web left on the production `runtime` stage (no pnpm, no source),
+    a dev image without `pull_policy: build` that compose tries to pull from a
+    registry holding no `helpdesk-web:dev`, a command that never installs so a
+    stale `node_modules` volume breaks start after a lockfile change, and one
+    that starts the dev server BEFORE the install, where the install never runs
+    while the server is up."""
+    web = _override_service(WEB_SERVICE)
+
+    build = web.get("build")
+    assert isinstance(build, dict), f"helpdesk-web declares no build mapping: {build!r}"
+    assert build.get("target") == WEB_BUILD_TARGET, build
+    assert web.get("image") == WEB_DEV_IMAGE, web.get("image")
+    assert web.get("pull_policy") == "build", web.get("pull_policy")
+
+    command = web.get("command")
+    text = " ".join(str(part) for part in command) if isinstance(command, list) else str(command)
+    assert WEB_INSTALL in text, f"helpdesk-web never runs {WEB_INSTALL}: {text!r}"
+    starts = [text.find(spelling) for spelling in WEB_DEV_COMMANDS if spelling in text]
+    assert starts, f"helpdesk-web starts no dev server: {text!r}"
+    assert text.find(WEB_INSTALL) < min(starts), (
+        f"the dev server starts before the install: {text!r}"
+    )
+
+
+def test_the_override_example_keeps_web_dependencies_in_named_volumes() -> None:
+    """Catches `node_modules` or `.next` left inside the `./web` bind mount, where
+    the host's macOS binaries replace the container's Linux ones; catches an
+    anonymous volume, which is recreated empty on every `up`; and catches a named
+    volume never declared at top level, which compose refuses to start."""
+    web = _override_service(WEB_SERVICE)
+    volumes = web.get("volumes")
+    assert isinstance(volumes, list), f"helpdesk-web mounts nothing: {volumes!r}"
+    assert WEB_SOURCE_MOUNT in [str(volume) for volume in volumes], volumes
+
+    declared = _override_document().get("volumes")
+    assert isinstance(declared, dict), f"the override example declares no volumes: {declared!r}"
+
+    by_target = {_volume_target(volume): _volume_source(volume) for volume in volumes}
+    for target in WEB_NAMED_VOLUME_TARGETS:
+        source = by_target.get(target)
+        assert source, f"helpdesk-web has no named volume at {target}: {volumes}"
+        assert not source.startswith((".", "/", "~")), f"{target} is a bind mount from {source}"
+        assert source in declared, f"volume {source} is not declared at top level: {declared}"
+
+
+def test_the_override_example_gives_web_a_start_period() -> None:
+    """Catches a web healthcheck with no grace for the first dev compile, which
+    marks the container unhealthy before `/healthz` has ever been built; catches
+    equally a `test` restated in the override, which silently diverges from the
+    base file's liveness probe."""
+    healthcheck = _override_service(WEB_SERVICE).get("healthcheck")
+    assert isinstance(healthcheck, dict), f"helpdesk-web has no healthcheck: {healthcheck!r}"
+
+    assert healthcheck.get("start_period") == WEB_START_PERIOD, healthcheck
+    assert "test" not in healthcheck, healthcheck
+
+
+def test_the_override_example_adds_no_service_and_no_profile() -> None:
+    """Catches a service the base file does not define (a typo such as
+    `helpdesk-api`), which compose starts as a second, half-configured container;
+    catches equally a `profiles` key, which on a backing service makes a bare
+    `docker compose up -d` start nothing."""
+    base = set(_compose_services())
+    services = _override_services()
+
+    assert set(services) <= base, f"unknown services: {sorted(set(services) - base)}"
+    with_profiles = sorted(
+        name for name, body in services.items() if isinstance(body, dict) and "profiles" in body
+    )
+    assert with_profiles == [], f"services carrying profiles: {with_profiles}"
+
+
+def test_the_override_example_sets_only_allowlisted_environment() -> None:
+    """Catches the override replacing an in-network hostname (`DATABASE_URL`,
+    `MCP_URL`, `AGENT_API_URL` pointed at localhost) or carrying a secret, and an
+    `env_file` that loads a second credentials file; catches equally the polling
+    switch written as a YAML boolean, which compose does not pass through as
+    the string Next reads."""
+    services = _override_services()
+
+    keys = set().union(
+        *(
+            _environment_keys(body.get("environment"))
+            for body in services.values()
+            if isinstance(body, dict)
+        )
+    )
+    assert keys == {"WATCHPACK_POLLING"}, sorted(keys)
+
+    with_env_file = sorted(
+        name for name, body in services.items() if isinstance(body, dict) and "env_file" in body
+    )
+    assert with_env_file == [], f"services carrying env_file: {with_env_file}"
+
+    for name, environment in ALLOWED_ENVIRONMENT.items():
+        assert _override_service(name).get("environment") == environment
+
+
+def test_the_local_override_is_gitignored() -> None:
+    """Catches a developer's copied `docker-compose.override.yml` (local ports,
+    a gateway URL) showing as untracked and being committed by `git add .`."""
+    lines = [line.strip() for line in GITIGNORE.read_text(encoding="utf-8").splitlines()]
+
+    assert LOCAL_OVERRIDE_LINE in lines, f".gitignore carries no line {LOCAL_OVERRIDE_LINE}"

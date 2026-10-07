@@ -29,6 +29,7 @@ dist/
 build/
 
 # local working files
+docker-compose.override.yml
 test-mode.md
 notes.md
 REQUIREMENTS.md

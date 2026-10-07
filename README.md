@@ -253,9 +253,13 @@ services on shifted host ports, and nothing here has to be stopped for it.
 cd ../ai-operations-console && docker compose up -d --wait
 ```
 
-Then, back in this repository:
+Then, back in this repository, copy the override example once. It runs the
+four app services in watch mode from this checkout, so a saved file shows up
+in seconds with no rebuild; add `--build` only after a dependency change
+(`uv.lock` or `web/pnpm-lock.yaml`).
 
 ```
+cp docker-compose.override.example.yml docker-compose.override.yml
 docker compose --profile app up -d --wait
 uv run alembic upgrade head
 uv run python scripts/seed.py
