@@ -207,7 +207,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
+    <div className="mx-auto flex min-h-[calc(100vh-7rem)] w-full max-w-3xl flex-col gap-4">
       <h1 className="text-lg font-semibold">Chat</h1>
 
       <Conversation messages={messages} live={live} />
@@ -222,11 +222,13 @@ export function ChatPanel() {
       <ToolSteps steps={steps} />
       <Citations citations={citations} />
 
-      <Composer
-        onSend={(message) => void send(message)}
-        onRefuse={setFailure}
-        initialValue={prefill}
-      />
+      <div className="sticky bottom-0 bg-background pb-4 pt-2">
+        <Composer
+          onSend={(message) => void send(message)}
+          onRefuse={setFailure}
+          initialValue={prefill}
+        />
+      </div>
     </div>
   );
 }

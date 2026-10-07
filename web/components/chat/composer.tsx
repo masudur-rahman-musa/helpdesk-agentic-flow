@@ -57,14 +57,16 @@ export function Composer({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
-      <Label htmlFor="chat-message">Message</Label>
+      <Label htmlFor="chat-message" className="sr-only">
+        Message
+      </Label>
       <textarea
         id="chat-message"
         name="message"
         rows={3}
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-sm shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
       <div className="flex items-center justify-between gap-4">
         <span className="text-xs text-muted-foreground">

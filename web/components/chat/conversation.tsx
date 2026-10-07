@@ -23,7 +23,7 @@ export function Conversation({ messages, live }: { messages: ChatMessage[]; live
       role="log"
       aria-label="Conversation"
       aria-live="polite"
-      className="flex flex-col gap-3 rounded-md border border-border p-4"
+      className="flex flex-1 flex-col gap-3 py-4"
     >
       {messages.length === 0 && live.length === 0 ? (
         <p className="text-sm text-muted-foreground">
