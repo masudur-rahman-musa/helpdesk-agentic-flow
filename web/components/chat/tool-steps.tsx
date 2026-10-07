@@ -42,7 +42,11 @@ export function ToolSteps({ steps }: { steps: StepEvent[] }) {
               {step.tools.map((tool) => (
                 <span
                   key={tool.tool}
-                  className="rounded-md bg-muted px-2 py-1 text-xs text-foreground"
+                  className={
+                    tool.ok
+                      ? "rounded-md bg-muted px-2 py-1 text-xs text-foreground"
+                      : "rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive"
+                  }
                 >
                   {tool.tool}{" "}
                   <span className={tool.ok ? "text-muted-foreground" : "font-medium"}>
