@@ -16,9 +16,17 @@ import type { NextConfig } from "next";
  * with exactly the planned values", and the two clauses above are pinned
  * separately by "never widens frame-ancestors or object-src".
  */
+// `next dev` only: Fast Refresh evaluates updated modules with `eval`, which
+// the browser refuses without `'unsafe-eval'`. A build never runs as
+// development, so the image and the test above see the production string.
+const SCRIPT_SRC =
+  process.env.NODE_ENV === "development"
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+    : "script-src 'self' 'unsafe-inline'";
+
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  SCRIPT_SRC,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
