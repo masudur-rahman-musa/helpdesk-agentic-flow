@@ -1,11 +1,10 @@
 import { DemoBanner } from "@/components/demo-banner";
 import { MainNav } from "@/components/nav";
 import { NotificationBell } from "@/components/notifications/notification-bell";
-import { RoleHeader } from "@/components/role-header";
-import { SignOutButton } from "@/components/sign-out-button";
 import { SkipLink } from "@/components/skip-link";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Container } from "@/components/ui/container";
+import { UserMenu } from "@/components/user-menu";
 
 /**
  * Every page's frame: skip link, demo banner, a two-row header and the
@@ -19,14 +18,15 @@ import { Container } from "@/components/ui/container";
  *
  * The header: the brand on the left and the "Account"
  * group on the right of the top row, holding the bell, the theme toggle and
- * Sign out in that order; `MainNav` alone on the row below, scrolling inside
+ * the user menu in that order; `MainNav` alone on the row below, scrolling inside
  * itself at phone width. Both rows and the page content sit in one
  * `Container`, so their edges line up (`tests/app-shell-layout.test.tsx`,
  * "groups the account actions on the right" and "renders page content inside
  * the max-w-6xl container").
  *
- * `RoleHeader` sits between the two rows: the signed-in person's
- * name and account type, absent until `/api/me` answers.
+ * `UserMenu` is the signed-in person's name and account type as one
+ * button that opens Sign out. Until `/api/me` answers it renders the plain
+ * Sign out button, so signing out never waits on that read (decision C).
  *
  * `showNav` is off on `/login`: the nav links to authenticated routes, and a
  * sign-out button or an unread count on the sign-in page is nonsense. The
@@ -59,10 +59,9 @@ export function AppShell({
             <div role="group" aria-label="Account" className="flex items-center gap-2">
               {showNav ? <NotificationBell /> : null}
               <ThemeToggle />
-              {showNav ? <SignOutButton /> : null}
+              {showNav ? <UserMenu /> : null}
             </div>
           </div>
-          {showNav ? <RoleHeader /> : null}
           {showNav ? <MainNav /> : null}
         </Container>
       </header>
