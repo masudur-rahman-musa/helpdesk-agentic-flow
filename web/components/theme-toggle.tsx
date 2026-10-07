@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { buttonVariants } from "@/components/ui/button";
+
 /**
  * Dark mode: the system preference is the starting value, a stored choice
  * overrides it, and the class goes on `<html>` because Tailwind is configured
@@ -70,7 +72,7 @@ export function ThemeToggle() {
       type="button"
       onClick={toggle}
       aria-label={`Switch to ${next} theme`}
-      className="rounded-md border border-border px-2 py-1 text-xs text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={buttonVariants({ variant: "ghost", size: "sm" })}
     >
       <span aria-hidden="true">{theme === "dark" ? "Light" : "Dark"}</span>
     </button>

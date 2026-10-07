@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { buttonVariants } from "@/components/ui/button";
+
 /**
  * Ends the session by asking the server to expire the cookie. The browser
  * cannot clear it itself — that is what `httpOnly` buys — so a sign-out is a
@@ -28,7 +30,7 @@ export function SignOutButton() {
       type="button"
       onClick={() => void signOut()}
       disabled={pending}
-      className="rounded-md border border-border px-2 py-1 text-xs text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+      className={buttonVariants({ variant: "secondary", size: "sm" })}
     >
       Sign out
     </button>

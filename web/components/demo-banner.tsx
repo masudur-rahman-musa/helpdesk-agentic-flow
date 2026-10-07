@@ -5,7 +5,8 @@
  *
  * The text is exported so tests assert the constant rather than a literal:
  * rewording it stays green, dropping it goes red (`tests/shell.test.tsx`,
- * "renders the demo banner text on the shell").
+ * "renders the demo banner text on the shell"). Styled quietly as of an earlier change:
+ * a thin muted strip, still `role="note"` and still on every page.
  */
 export const DEMO_BANNER_TEXT =
   "Demo data, invented company. Nothing on this site describes a real organisation or person.";
@@ -14,7 +15,7 @@ export function DemoBanner() {
   return (
     <div
       role="note"
-      className="border-b border-border bg-muted px-4 py-1.5 text-center text-xs text-muted-foreground"
+      className="bg-muted/60 px-4 py-1 text-center text-[11px] leading-5 text-muted-foreground"
     >
       {DEMO_BANNER_TEXT}
     </div>

@@ -8,13 +8,12 @@ import { notificationPageSchema } from "@/lib/notifications-schema";
 import { readWire } from "@/lib/wire-read";
 
 /**
- * The unread count in the shell's nav, and the route into `/notifications`
+ * The unread count in the shell's header, and the route into `/notifications`
  *.
  *
- * Its OWN client component with its own query (decision B), rendered inside
- * `MainNav` rather than replacing it: `nav.tsx` keeps no hook of its own, and a
- * header on every authenticated page never waits on the page's fifty rows to
- * know whether to show a number.
+ * Its OWN client component with its own query (decision B), rendered in the
+ * shell's "Account" group: a header on every authenticated page
+ * never waits on the page's fifty rows to know whether to show a number.
  *
  * It reads `unread_only=true&limit=1` and renders `unread_count` ALONE — the
  * tool's whole tally (23ga decision B), never the length of what `limit=1`
@@ -42,7 +41,7 @@ import { readWire } from "@/lib/wire-read";
  */
 export function NotificationBell() {
   // Deviation from §2, recorded in the plan: `tests/shell.test.tsx` renders
-  // `AppShell` — and so this component, through `MainNav` — with no
+  // `AppShell` — and so this component, in its "Account" group — with no
   // `QueryClientProvider` above it, which a bare `useQuery` throws on in every
   // one of that file's cases. §8 authorises no provider wrapper there and §3
   // puts `app-shell.tsx` under "will NOT touch", so the absence of a client is
@@ -71,7 +70,7 @@ function UnreadBell() {
     <Link
       href="/notifications"
       aria-label={count === undefined ? "Notifications" : `Notifications, ${count} unread`}
-      className="flex items-center gap-1 rounded-sm text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex h-8 items-center gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-accent-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {/* Decorative: the accessible name is the label above, and a glyph with a
           name of its own would be read out twice. */}
@@ -87,7 +86,9 @@ function UnreadBell() {
         <path d="M6.5 12.5a1.5 1.5 0 0 0 3 0" strokeLinecap="round" />
       </svg>
       {count !== undefined && count > 0 ? (
-        <span className="rounded-full border border-border px-1.5 text-xs">{count}</span>
+        <span className="rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">
+          {count}
+        </span>
       ) : null}
     </Link>
   );

@@ -10,19 +10,40 @@ const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Every colour token in `app/globals.css`, read as `hsl(var(--name))`
+      //.
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        card: "hsl(var(--card))",
+        "card-foreground": "hsl(var(--card-foreground))",
         muted: "hsl(var(--muted))",
         "muted-foreground": "hsl(var(--muted-foreground))",
         border: "hsl(var(--border))",
         ring: "hsl(var(--ring))",
         primary: "hsl(var(--primary))",
         "primary-foreground": "hsl(var(--primary-foreground))",
-        destructive: "hsl(var(--destructive))",
-        "destructive-foreground": "hsl(var(--destructive-foreground))",
+        secondary: "hsl(var(--secondary))",
+        "secondary-foreground": "hsl(var(--secondary-foreground))",
         accent: "hsl(var(--accent))",
         "accent-foreground": "hsl(var(--accent-foreground))",
+        destructive: "hsl(var(--destructive))",
+        "destructive-foreground": "hsl(var(--destructive-foreground))",
+        success: "hsl(var(--success))",
+        "success-foreground": "hsl(var(--success-foreground))",
+        warning: "hsl(var(--warning))",
+        "warning-foreground": "hsl(var(--warning-foreground))",
+        info: "hsl(var(--info))",
+        "info-foreground": "hsl(var(--info-foreground))",
+        danger: "hsl(var(--danger))",
+        "danger-foreground": "hsl(var(--danger-foreground))",
+      },
+      fontFamily: {
+        sans: "var(--font-sans)",
+      },
+      spacing: {
+        gutter: "var(--space-gutter)",
+        section: "var(--space-section)",
       },
       borderRadius: {
         lg: "var(--radius)",

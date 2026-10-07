@@ -2,40 +2,89 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens (plan 39a). Every colour is an `H S% L%` triple that
+   `tailwind.config.ts` reads as `hsl(var(--name))`. Both blocks declare the
+   same names, and every text pair clears 4.5:1 in both themes
+   (`tests/design-tokens.test.ts`, "declares the same colour tokens in light
+   and dark" and "meets 4.5:1 for %s in %s"). The status tones
+   (success, warning, info, danger) are soft fills with a dark text in light
+   mode and the reverse in dark, which is what `components/ui/badge.tsx`
+   paints with. */
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 220 20% 98%;
     --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
     --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 40%;
+    --muted-foreground: 215 16% 37%;
     --border: 214 32% 88%;
-    --ring: 222 47% 40%;
+    --ring: 222 60% 45%;
     --primary: 222 47% 20%;
     --primary-foreground: 210 40% 98%;
-    --destructive: 0 72% 45%;
-    --destructive-foreground: 210 40% 98%;
+    --secondary: 214 32% 93%;
+    --secondary-foreground: 222 47% 15%;
     --accent: 210 40% 94%;
     --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 210 40% 98%;
+    --success: 142 60% 94%;
+    --success-foreground: 142 72% 22%;
+    --warning: 48 96% 91%;
+    --warning-foreground: 28 80% 24%;
+    --info: 214 95% 94%;
+    --info-foreground: 222 70% 32%;
+    --danger: 0 86% 95%;
+    --danger-foreground: 0 70% 35%;
+
     --radius: 0.5rem;
+    --font-sans:
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+      sans-serif;
+    --space-gutter: 1rem;
+    --space-section: 1.5rem;
+    /* What sits above the chat column: banner, the two header rows and
+       main's top and bottom padding. `chat-panel.tsx` subtracts it so an
+       empty chat shows the composer pinned with no page scroll. */
+    --shell-offset: 11.5rem;
+  }
+
+  /* Under `sm` the demo banner wraps to a second line. */
+  @media (max-width: 639px) {
+    :root {
+      --shell-offset: 13rem;
+    }
   }
 
   .dark {
     --background: 222 47% 7%;
     --foreground: 210 40% 96%;
+    --card: 222 40% 10%;
+    --card-foreground: 210 40% 96%;
     --muted: 217 33% 15%;
     --muted-foreground: 215 20% 70%;
     --border: 217 33% 20%;
     --ring: 210 40% 70%;
     --primary: 210 40% 92%;
     --primary-foreground: 222 47% 11%;
-    --destructive: 0 63% 50%;
-    --destructive-foreground: 210 40% 98%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 96%;
     --accent: 217 33% 18%;
     --accent-foreground: 210 40% 96%;
+    --destructive: 0 63% 50%;
+    --destructive-foreground: 210 40% 98%;
+    --success: 142 50% 13%;
+    --success-foreground: 142 70% 75%;
+    --warning: 38 60% 14%;
+    --warning-foreground: 45 90% 72%;
+    --info: 214 50% 17%;
+    --info-foreground: 213 90% 80%;
+    --danger: 0 50% 17%;
+    --danger-foreground: 0 90% 82%;
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background font-sans text-foreground antialiased;
   }
 
   /* A visible focus ring on every keyboard-focused element, not only the ones

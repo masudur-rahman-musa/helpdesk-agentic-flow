@@ -207,7 +207,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-7rem)] w-full max-w-3xl flex-col gap-4">
+    <div className="mx-auto flex min-h-[calc(100dvh-var(--shell-offset))] w-full max-w-3xl flex-col gap-4">
       <h1 className="text-lg font-semibold">Chat</h1>
 
       <Conversation messages={messages} live={live} />

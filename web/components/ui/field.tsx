@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 /**
- * The two primitives this plan actually uses. shadcn/ui is a copy-in library,
+ * The form primitives. shadcn/ui is a copy-in library,
  * so what belongs in the repo is the components in use and nothing else —
  * `components.json` is here for the next plan that needs a dialog or a table.
  */
@@ -23,15 +23,8 @@ export function Input({ className, ...props }: React.ComponentProps<"input">) {
   );
 }
 
-export function Button({ className, ...props }: React.ComponentProps<"button">) {
-  return (
-    <button
-      className={cn(
-        "rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
+/**
+ * `Button` moved to `./button`. Re-exported so its nine
+ * importers compile unchanged; an earlier change repoints them and deletes this line.
+ */
+export { Button } from "./button";
