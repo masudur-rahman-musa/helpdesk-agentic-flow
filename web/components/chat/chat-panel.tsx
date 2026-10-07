@@ -213,7 +213,7 @@ export function ChatPanel() {
       <Conversation messages={messages} live={live} />
 
       {failure !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
+        <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {failureMessage(failure)}
         </p>
       ) : null}
