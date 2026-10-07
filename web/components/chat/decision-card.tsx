@@ -43,7 +43,7 @@ export function DecisionCard({ card }: { card: Card }) {
     <section
       aria-label="Decision"
       data-request-id={card.requestId ?? undefined}
-      className="rounded-md border border-border p-4"
+      className="rounded-md bg-muted p-4"
     >
       <h2 className="text-sm font-semibold">Decision</h2>
 

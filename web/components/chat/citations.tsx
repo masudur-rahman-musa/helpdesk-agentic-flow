@@ -25,7 +25,7 @@ export function Citations({ citations }: { citations: Citation[] }) {
   }
 
   return (
-    <section className="rounded-md border border-border p-4">
+    <section className="rounded-md bg-muted p-4">
       <h2 className="text-sm font-semibold">Sources</h2>
       <ul className="mt-2 flex flex-col gap-2">
         {citations.map((citation) => (

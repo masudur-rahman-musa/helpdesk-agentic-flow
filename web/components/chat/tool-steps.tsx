@@ -30,7 +30,7 @@ export function ToolSteps({ steps }: { steps: StepEvent[] }) {
   }
 
   return (
-    <section className="rounded-md border border-border p-4">
+    <section className="rounded-md bg-muted p-4">
       <h2 className="text-sm font-semibold">Tool steps</h2>
       <ul aria-label="Tool steps" className="mt-2 flex flex-col gap-2">
         {steps.map((step, index) => (
@@ -44,7 +44,7 @@ export function ToolSteps({ steps }: { steps: StepEvent[] }) {
                   key={tool.tool}
                   className={
                     tool.ok
-                      ? "rounded-md bg-muted px-2 py-1 text-xs text-foreground"
+                      ? "rounded-md bg-background px-2 py-1 text-xs text-foreground"
                       : "rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive"
                   }
                 >
