@@ -317,7 +317,7 @@ The five things an adopter changes first are listed in
 method in [docs/directory-adapter.md](docs/directory-adapter.md).
 
 Companion project:
-[ai-operations-console](https://github.com/developermusa/ai-operations-console),
+[ai-operations-console](https://github.com/masudur-rahman-musa/ai-operations-console),
 the gateway, evaluation harness and observability layer this system runs on.
 
 License: Apache-2.0
