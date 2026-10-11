@@ -76,6 +76,19 @@ must be clean, and the allowlist is pinned to exactly these three by
 `test_only_the_readiness_modules_build_or_run_a_statement`, so a fourth module
 taking this path is a failure rather than a silent extension."""
 
+SETUP_GRANT_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "services/agent-api/agent_api/checkpointer.py",
+    }
+)
+"""The one service module sanctioned to call `.execute` outside readiness, added 2026-10-12.
+
+`grant_checkpointer_access` runs a constant `GRANT` on LangGraph's own checkpoint
+tables, through a psycopg pool, from the migrate target only. It never runs on a
+request, reads no row, and touches no tenant data; the role name it interpolates
+is the migration's constant, never configuration. It builds no SQLAlchemy
+statement, so it is kept apart from `READINESS_ALLOWLIST`, whose members must."""
+
 TEXT_ALLOWLIST: frozenset[str] = frozenset(
     {
         "packages/helpdesk/helpdesk/idempotency/guard.py",
@@ -257,15 +270,15 @@ def test_no_service_module_calls_execute(source_file: Path) -> None:
     relative = str(source_file.relative_to(REPO_ROOT))
     findings = _execute_findings(source_file.read_text(encoding="utf-8"), relative)
 
-    if relative in READINESS_ALLOWLIST:
+    if relative in READINESS_ALLOWLIST | SETUP_GRANT_ALLOWLIST:
         assert findings, f"{relative} is allowlisted but calls no .execute; drop it from the list"
         return
     assert findings == [], f"{relative} executes a statement directly: {findings}"
 
 
 def test_only_the_readiness_modules_build_or_run_a_statement() -> None:
-    """Catches a FOURTH service module joining the sanctioned raw-connection path:
-    the allowlist is proven against the tree, not merely declared."""
+    """Catches any further service module joining the sanctioned raw-statement
+    paths: both allowlists are proven against the tree, not merely declared."""
     offenders: set[str] = set()
     for source_file in SERVICE_FILES:
         relative = str(source_file.relative_to(REPO_ROOT))
@@ -273,8 +286,9 @@ def test_only_the_readiness_modules_build_or_run_a_statement() -> None:
         if _builder_findings(source, relative) or _execute_findings(source, relative):
             offenders.add(relative)
 
-    assert offenders == set(READINESS_ALLOWLIST), (
-        f"raw-statement modules {sorted(offenders)} != allowlist {sorted(READINESS_ALLOWLIST)}"
+    allowed = READINESS_ALLOWLIST | SETUP_GRANT_ALLOWLIST
+    assert offenders == set(allowed), (
+        f"raw-statement modules {sorted(offenders)} != allowlist {sorted(allowed)}"
     )
 
 
