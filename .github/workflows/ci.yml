@@ -13,12 +13,25 @@ jobs:
           python-version: "3.12"
       - run: uv sync
       - run: uv run pre-commit run --all-files
+      # `make verify` ends in `web-verify`, so the job needs pnpm, pinned by the
+      # `packageManager` field in web/package.json.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # The suite needs the compose Postgres, Redis and Qdrant. The same compose
+      # file as a laptop, so the app role init script runs here too, with the
+      # placeholder credentials from .env.example.
+      - name: Start the backing services
+        run: |
+          cp .env.example .env
+          docker compose up -d --wait postgres redis qdrant
       - run: make verify
 
   # Four scanners, no compose stack, and no `needs:` — so this job runs beside
-  # `check` rather than behind it. That matters: `check` runs `make verify`,
-  # which needs Postgres, Redis and Qdrant that CI does not have, so chaining
-  # the security job behind it would make it unrunnable too.
+  # `check` rather than behind it, and a red suite never hides a red scan.
   #
   # gitleaks and trivy run from their own pinned images rather than from an
   # action, because both need argument forms the actions do not pass through
@@ -70,6 +83,8 @@ jobs:
           uvx pip-audit --strict -r requirements-audit.txt
 
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
