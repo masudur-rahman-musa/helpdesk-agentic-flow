@@ -163,9 +163,9 @@ RUN_TOKEN = "${{ secrets.GITHUB_TOKEN }}"
 personal access token pasted into a secret."""
 
 CONSOLE_IMAGE_PATH = "developermusa/ai-helpdesk-governed-access"
-"""The path the companion console's `infra/k8s/apps/kustomization.yaml` names.
-It is neither this repository's owner nor its spelling, and `docs/deploy.md`
-records the correction as owed there."""
+"""The path the companion console's `infra/k8s/apps/kustomization.yaml` once named.
+It is neither this repository's owner nor its spelling; the console has since
+moved to this repository's own path, so the doc must not repeat the old one."""
 
 PUBLISHED_IMAGES_HEADING = "Published images"
 """The heading of the section `docs/deploy.md` owes."""
@@ -635,14 +635,13 @@ def test_the_deploy_doc_publishes_the_registry_path() -> None:
         assert architecture in document, f"docs/deploy.md does not name {architecture}"
 
 
-def test_the_deploy_doc_records_the_console_path_mismatch() -> None:
-    """Catches the known blocker going unrecorded: the console's kustomization
-    names a different owner and a different spelling, so an apply after this
-    plan fails at the pull. Undocumented, the next person debugs a
-    `ImagePullBackOff` instead of reading that the correction is owed in the
-    other repository."""
+def test_the_deploy_doc_no_longer_names_the_old_console_path() -> None:
+    """Catches the resolved mismatch coming back as live advice: the console's
+    kustomization now names this repository's own GHCR path (fixed there, and
+    the note dropped here by an earlier change), so a reader told to expect the old path
+    would chase a blocker that no longer exists."""
     document = _deploy_doc()
 
-    assert CONSOLE_IMAGE_PATH in document, (
-        f"docs/deploy.md does not name the console's path {CONSOLE_IMAGE_PATH}"
+    assert CONSOLE_IMAGE_PATH not in document, (
+        f"docs/deploy.md still names the old console path {CONSOLE_IMAGE_PATH}"
     )
