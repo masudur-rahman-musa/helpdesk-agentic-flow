@@ -43,7 +43,7 @@ RUN npm install --global pnpm@10.20.0
 # --frozen-lockfile: a manifest that drifted from the lockfile fails here
 # rather than resolving to a tree nobody tested, the same contract `make
 # web-verify` holds on a developer's machine.
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 RUN --mount=type=cache,target=/root/.pnpm-store \
     pnpm config set store-dir /root/.pnpm-store \
