@@ -98,6 +98,13 @@ RUN groupadd --gid 10001 helpdesk \
 # that stage and never ships.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
+# The pinned node image still ships perl-base 5.36.0-7+deb12u3, which carries
+# three CRITICAL CVEs fixed in deb12u4. Upgrading that one package here clears
+# them without waiting for a new node image; drop this once the base has it.
+RUN apt-get update \
+ && apt-get install -y --only-upgrade --no-install-recommends perl-base \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Both pieces of a standalone deployment. `server.js` and its traced
