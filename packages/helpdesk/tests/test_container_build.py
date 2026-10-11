@@ -323,7 +323,7 @@ def test_the_image_scan_job_covers_the_four_built_images(image: str) -> None:
 # --- an earlier change: the pinned base images and the web runtime's attack surface -----
 
 IMAGE_FLOORS: tuple[tuple[str, Path, str, tuple[int, ...], str], ...] = (
-    ("PYTHON_IMAGE", DOCKERFILE, "python:3.12.14-slim-bookworm", (3, 12, 14), "2026-09-28"),
+    ("PYTHON_IMAGE", DOCKERFILE, "python:3.12.15-slim-bookworm", (3, 12, 15), "2026-10-12"),
     ("UV_IMAGE", DOCKERFILE, "ghcr.io/astral-sh/uv:0.12.19", (0, 12, 19), "2026-09-28"),
     ("NODE_IMAGE", WEB_DOCKERFILE, "node:22.23.3-bookworm-slim", (22, 23, 3), "2026-09-28"),
 )

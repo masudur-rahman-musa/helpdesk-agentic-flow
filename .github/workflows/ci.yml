@@ -61,9 +61,11 @@ jobs:
       # --strict fails the job on an advisory with a fix available, which is the
       # only kind Dependabot can act on. No --ignore-vuln flag exists today; one
       # is added only with a comment carrying the reason and the date.
+      # --no-emit-workspace drops the local `-e ./packages/...` lines, which
+      # pip-audit cannot hash and which are this repo's own code anyway.
       - name: Python advisories
         run: |
-          uv export --frozen --no-emit-project --format requirements-txt \
+          uv export --frozen --no-emit-project --no-emit-workspace --format requirements-txt \
             --output-file requirements-audit.txt
           uvx pip-audit --strict -r requirements-audit.txt
 

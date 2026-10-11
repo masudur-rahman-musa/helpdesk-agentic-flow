@@ -37,7 +37,7 @@
 # Raising the floor is how a bump is asked for; the scan only confirms it.
 # The weekly scan still reports what these carry; see
 # .github/workflows/image-scan.yml.
-ARG PYTHON_IMAGE=python:3.12.14-slim-bookworm
+ARG PYTHON_IMAGE=python:3.12.15-slim-bookworm
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.19
 
 

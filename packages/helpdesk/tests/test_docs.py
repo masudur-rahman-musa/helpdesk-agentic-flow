@@ -298,9 +298,7 @@ def _documented_files() -> list[Path]:
     files: list[Path] = [README, CUSTOMIZING]
     assert DOCS.is_dir(), f"missing documentation root: {DOCS}"
     files.extend(
-        path
-        for path in sorted(DOCS.rglob("*"))
-        if path.is_file() and path.suffix in DOC_SUFFIXES
+        path for path in sorted(DOCS.rglob("*")) if path.is_file() and path.suffix in DOC_SUFFIXES
     )
     return files
 
