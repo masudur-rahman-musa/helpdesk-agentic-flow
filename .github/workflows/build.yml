@@ -2,8 +2,8 @@ name: build
 
 # Publishes the four service images to GHCR. This is the only place an image
 # of this repository is ever pushed to a registry; `make images` and
-# `scripts/build_images.py` stay the local path, and neither can do a
-# multi-architecture build or an attestation, which is why this file drives
+# `scripts/build_images.py` stay the local path, and neither can do an
+# attestation, which is why this file drives
 # docker/build-push-action directly instead of shelling out to that script.
 #
 # Four build steps rather than a matrix: the web image takes a different
@@ -21,8 +21,9 @@ name: build
 # either: a manual re-run of this workflow re-pushes under it, so pin a digest
 # in a manifest where two nodes must be guaranteed the same build.
 #
-# Both architectures on all four: the deploy target's nodes are arm64, and an
-# amd64-only image pulls cleanly and then dies with `exec format error`.
+# linux/amd64 only on all four: the live node is x86_64, and an emulated arm64
+# half made each run 14 to 24 minutes. An arm64 target has to add it back,
+# ideally on native arm64 runners rather than under emulation.
 #
 # Pinned by packages/helpdesk/tests/test_build_workflow.py.
 
@@ -32,8 +33,8 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-# Never cancels. A cancelled publish leaves a half-pushed multi-architecture
-# manifest in the registry, which is worse than a queued run.
+# Never cancels. A cancelled publish leaves a half-pushed manifest in the
+# registry, which is worse than a queued run.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: false
@@ -58,11 +59,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # QEMU is what makes the arm64 half buildable on an amd64 runner. It is
-      # emulation, so that half is minutes per image; the buildx GitHub cache
-      # below is what keeps the whole job bearable.
-      - uses: docker/setup-qemu-action@v3
-
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -79,8 +75,8 @@ jobs:
       # job's environment is the one holding the push token.
       #
       # Each build gets its OWN cache scope. A shared scope makes the four
-      # builds evict each other's layers, which on the emulated arm64 half is
-      # the difference between a warm cache and a rebuild from the base image.
+      # builds evict each other's layers, which is the difference between a
+      # warm cache and a rebuild from the base image.
       - name: Build and push the agent API image
         uses: docker/build-push-action@v6
         with:
@@ -88,7 +84,7 @@ jobs:
           file: Dockerfile
           build-args: |
             SERVICE=agent-api
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api:${{ github.sha }}
           sbom: true
@@ -103,7 +99,7 @@ jobs:
           file: Dockerfile
           build-args: |
             SERVICE=mcp-server
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server:${{ github.sha }}
           sbom: true
@@ -118,7 +114,7 @@ jobs:
           file: Dockerfile
           build-args: |
             SERVICE=scheduler
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler:${{ github.sha }}
           sbom: true
@@ -134,7 +130,7 @@ jobs:
         with:
           context: web
           file: web/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-web:${{ github.sha }}
           sbom: true

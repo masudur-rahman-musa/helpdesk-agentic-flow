@@ -96,13 +96,13 @@ WEB_CONTEXT = "web"
 """The build context of the web image: Next's standalone output lives under
 `web/`, and a root context copies the whole repository into the daemon."""
 
-PLATFORMS = "linux/amd64,linux/arm64"
-"""The exact `platforms` value on all four builds. The deploy target's nodes are
-arm64; an amd64-only image fails at the pull with `exec format error`."""
+PLATFORMS = "linux/amd64"
+"""The exact `platforms` value on all four builds. The live node is x86_64, and an
+emulated arm64 half made every run 14 to 24 minutes."""
 
-ARCHITECTURES: tuple[str, ...] = ("linux/amd64", "linux/arm64")
-"""The same two architectures as separate strings, which is how `docs/deploy.md`
-has to name them for a reader who never opens the workflow."""
+ARCHITECTURES: tuple[str, ...] = ("linux/amd64",)
+"""The architectures as separate strings, which is how `docs/deploy.md` has to
+name them for a reader who never opens the workflow."""
 
 SHA_TAG_SUFFIX = ":${{ github.sha }}"
 """The only tag suffix any pushed reference carries. A rollback names a SHA, so
@@ -175,12 +175,11 @@ _TRUE_SPELLINGS: frozenset[str] = frozenset({"true"})
 `"true"` are the same value; both are accepted and nothing else is."""
 
 QEMU_ACTION = "docker/setup-qemu-action"
-"""The action that registers the emulator. Without it the arm64 half of every
-build fails on the amd64 runner, so its absence is not a missing optimisation
-but a missing architecture."""
+"""The action that registers the emulator. Its return is the arm64 half coming
+back under emulation, which is what made every run 14 to 24 minutes."""
 
 BUILDX_ACTION = "docker/setup-buildx-action"
-"""The action that provides the builder a multi-platform build needs."""
+"""The action that provides the builder the attestations and the GHA cache need."""
 
 _STEP_START = re.compile(r"^\s*-\s+(name|uses):")
 
@@ -402,11 +401,10 @@ def test_the_web_image_builds_from_its_own_context() -> None:
 
 
 @pytest.mark.parametrize("image", sorted(IMAGE_NAMES))
-def test_every_image_is_built_for_both_architectures(image: str) -> None:
-    """Catches a build step left at the runner's default platform or narrowed to
-    amd64 only, which publishes an image the arm64 nodes cannot run: the pull
-    succeeds and the container dies with `exec format error` at deploy, not
-    here."""
+def test_every_image_is_built_for_the_live_nodes_architecture(image: str) -> None:
+    """Catches a build step left at the runner's default platform, set to arm64,
+    which the x86_64 node cannot run, or widened back to an emulated arm64 half,
+    which made every run 14 to 24 minutes."""
     step = _build_step_by_image().get(image)
     assert step is not None, f"no build step pushes {image}"
 
@@ -553,20 +551,19 @@ def test_every_image_is_actually_pushed() -> None:
         )
 
 
-def test_the_emulator_and_the_builder_are_set_up() -> None:
-    """Catches the QEMU or buildx setup step being dropped while `platforms:`
-    stays. The job then fails on the arm64 half of the first build, which looks
-    like a Dockerfile problem and is not; nothing else in this file notices,
-    because every platforms value is still correct."""
-    for action in (QEMU_ACTION, BUILDX_ACTION):
-        assert _steps_using(action), f"build.yml has no {action} step"
+def test_the_builder_is_set_up_and_the_emulator_is_not() -> None:
+    """Catches the buildx setup step being dropped, which loses the attestations
+    and the GHA cache, and the QEMU step coming back, which is the emulated arm64
+    half returning with its 14 to 24 minute runs."""
+    assert _steps_using(BUILDX_ACTION), f"build.yml has no {BUILDX_ACTION} step"
+    assert not _steps_using(QEMU_ACTION), f"build.yml still has a {QEMU_ACTION} step"
 
 
 def test_every_build_has_its_own_cache_scope() -> None:
     """Catches a scope copied from a neighbour, under which two builds share one
     cache entry and evict each other's layers on every run. It never fails a
-    build, so the only symptom is a job that quietly takes the emulated arm64
-    path from scratch every time."""
+    build, so the only symptom is a job that quietly rebuilds from scratch
+    every time."""
     scopes: list[str] = []
     for step in _build_steps():
         arguments = _inputs(step)
@@ -626,8 +623,8 @@ def test_the_login_is_ghcr_with_the_run_token() -> None:
 def test_the_deploy_doc_publishes_the_registry_path() -> None:
     """Catches the workflow landing with no operator-facing record of it: without
     this section a reader deploying by hand has no way to know the registry
-    path, that a tag is a commit SHA and never `latest`, or that both
-    architectures exist, and reads it off the workflow or guesses."""
+    path, that a tag is a commit SHA and never `latest`, or which
+    architecture is built, and reads it off the workflow or guesses."""
     document = _deploy_doc()
 
     assert PUBLISHED_IMAGES_HEADING in document, (
