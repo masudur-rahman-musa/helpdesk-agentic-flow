@@ -21,8 +21,9 @@ ingest:     ## Ingest one tenant's corpus version from POLICY_DIR: make ingest T
 # Per-test coverage contexts feed `select-tests` on a laptop and slow the suite a
 # lot. CI keeps the 80% floor and sets COV_CONTEXT= to skip the recording.
 COV_CONTEXT ?= --cov-context=test
-# Parallel workers (pytest-xdist), empty for a plain run. CI sets `-n 2`, its
-# runner's CPU count. At most 3: each worker needs its own Redis indexes.
+# Parallel workers (pytest-xdist), empty for a plain run. For a laptop with
+# CPUs to spare: `make test TEST_WORKERS="-n 3"`. At most 3: each worker needs
+# its own Redis indexes. CI stays on one; two were slower on its 2-CPU runner.
 TEST_WORKERS ?=
 test:       ## Run tests with the coverage gate (needs the compose Postgres: docker compose up -d)
 	COVERAGE_FILE=.coverage-baseline uv run pytest -q --cov=helpdesk --cov=agent_api --cov=mcp_server \

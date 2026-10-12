@@ -31,9 +31,10 @@ jobs:
           cp .env.example .env
           docker compose up -d --wait postgres redis qdrant
       # COV_CONTEXT= skips per-test coverage contexts, which only `select-tests`
-      # on a laptop reads; the coverage floor still applies. TEST_WORKERS runs
-      # the suite on both of the runner's CPUs.
-      - run: make verify COV_CONTEXT= TEST_WORKERS="-n 2"
+      # on a laptop reads; the coverage floor still applies. One worker on
+      # purpose: `-n 2` was measured slower here (22 minutes against 16), the
+      # runner's two CPUs being shared with Postgres, Redis, Qdrant and coverage.
+      - run: make verify COV_CONTEXT=
 
   # Four scanners, no compose stack, and no `needs:` — so this job runs beside
   # `check` rather than behind it, and a red suite never hides a red scan.
