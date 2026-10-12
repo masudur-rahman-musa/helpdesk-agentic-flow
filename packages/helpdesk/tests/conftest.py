@@ -122,6 +122,27 @@ def fresh_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
 TEST_REDIS_DB = 15
 _FALLBACK_TEST_REDIS_DB = 14
 
+
+# Under pytest-xdist each worker gets its own Redis index: this file's base
+# minus 4 per worker. The four suites that flush Redis use bases 15, 12 and 10
+# (the rate limit shares 15, as it always has), so three workers fit in Redis's
+# 16 indexes with no two suites or workers on one index. A plain run is worker 0.
+_MAX_REDIS_WORKERS = 3
+
+
+def _worker_redis_index(base: int, fallback: int, configured: int) -> int:
+    number = os.environ.get("PYTEST_XDIST_WORKER", "gw0").removeprefix("gw")
+    worker = int(number) if number.isdigit() else 0
+    if worker >= _MAX_REDIS_WORKERS:
+        pytest.fail(
+            f"pytest-xdist worker gw{worker}: at most {_MAX_REDIS_WORKERS} workers get "
+            "their own Redis index. Run with -n 3 or fewer.",
+            pytrace=False,
+        )
+    index = base - 4 * worker
+    return index if index != configured else fallback - 4 * worker
+
+
 _REDIS_UNREACHABLE_MSG = (
     "Redis is unreachable at the configured REDIS_URL.\n"
     "Plan 09b tests require the compose stack: run `docker compose up -d` first.\n"
@@ -185,7 +206,7 @@ def redis_base_url() -> str:
         )
     _assert_local(settings.redis_url)
     configured = _redis_db_index(settings.redis_url)
-    test_index = TEST_REDIS_DB if configured != TEST_REDIS_DB else _FALLBACK_TEST_REDIS_DB
+    test_index = _worker_redis_index(TEST_REDIS_DB, _FALLBACK_TEST_REDIS_DB, configured)
     url = _redis_url_for_db(settings.redis_url, test_index)
     try:
         asyncio.run(_redis_flushdb(url))

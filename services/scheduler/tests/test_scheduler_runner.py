@@ -48,6 +48,7 @@ No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
 """
 
 import asyncio
+import os
 import sys
 import uuid
 from collections.abc import Iterator
@@ -95,6 +96,27 @@ NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 # suite and 12/11 to mcp-server, so this pair cannot collide with either.
 TEST_REDIS_DB = 10
 _FALLBACK_TEST_REDIS_DB = 9
+
+
+# Under pytest-xdist each worker gets its own Redis index: this file's base
+# minus 4 per worker. The four suites that flush Redis use bases 15, 12 and 10
+# (the rate limit shares 15, as it always has), so three workers fit in Redis's
+# 16 indexes with no two suites or workers on one index. A plain run is worker 0.
+_MAX_REDIS_WORKERS = 3
+
+
+def _worker_redis_index(base: int, fallback: int, configured: int) -> int:
+    number = os.environ.get("PYTEST_XDIST_WORKER", "gw0").removeprefix("gw")
+    worker = int(number) if number.isdigit() else 0
+    if worker >= _MAX_REDIS_WORKERS:
+        pytest.fail(
+            f"pytest-xdist worker gw{worker}: at most {_MAX_REDIS_WORKERS} workers get "
+            "their own Redis index. Run with -n 3 or fewer.",
+            pytrace=False,
+        )
+    index = base - 4 * worker
+    return index if index != configured else fallback - 4 * worker
+
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 
@@ -197,7 +219,7 @@ def scheduler_redis_url() -> str:
             pytrace=False,
         )
     configured = _redis_db_index(settings.redis_url)
-    index = TEST_REDIS_DB if configured != TEST_REDIS_DB else _FALLBACK_TEST_REDIS_DB
+    index = _worker_redis_index(TEST_REDIS_DB, _FALLBACK_TEST_REDIS_DB, configured)
     url = _redis_url_for_db(settings.redis_url, index)
 
     async def ping() -> None:

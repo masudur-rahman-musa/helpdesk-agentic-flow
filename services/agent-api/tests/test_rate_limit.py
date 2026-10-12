@@ -41,6 +41,7 @@ this module rather than a conftest, because a second ``conftest`` under
 """
 
 import asyncio
+import os
 import socket
 import uuid
 from collections.abc import AsyncIterator, Iterator
@@ -85,6 +86,27 @@ EXPECTED_KEY = f"ratelimit:{KEY_TENANT_ID}:{KEY_SESSION_ID}:{WINDOW_INDEX}"
 
 TEST_REDIS_DB = 15
 _FALLBACK_TEST_REDIS_DB = 14
+
+
+# Under pytest-xdist each worker gets its own Redis index: this file's base
+# minus 4 per worker. The four suites that flush Redis use bases 15, 12 and 10
+# (the rate limit shares 15, as it always has), so three workers fit in Redis's
+# 16 indexes with no two suites or workers on one index. A plain run is worker 0.
+_MAX_REDIS_WORKERS = 3
+
+
+def _worker_redis_index(base: int, fallback: int, configured: int) -> int:
+    number = os.environ.get("PYTEST_XDIST_WORKER", "gw0").removeprefix("gw")
+    worker = int(number) if number.isdigit() else 0
+    if worker >= _MAX_REDIS_WORKERS:
+        pytest.fail(
+            f"pytest-xdist worker gw{worker}: at most {_MAX_REDIS_WORKERS} workers get "
+            "their own Redis index. Run with -n 3 or fewer.",
+            pytrace=False,
+        )
+    index = base - 4 * worker
+    return index if index != configured else fallback - 4 * worker
+
 
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 
@@ -140,7 +162,7 @@ def redis_url() -> str:
             pytrace=False,
         )
     configured = _redis_db_index(settings.redis_url)
-    index = TEST_REDIS_DB if configured != TEST_REDIS_DB else _FALLBACK_TEST_REDIS_DB
+    index = _worker_redis_index(TEST_REDIS_DB, _FALLBACK_TEST_REDIS_DB, configured)
     url = _redis_url_for_db(settings.redis_url, index)
     try:
         asyncio.run(_ping(url))

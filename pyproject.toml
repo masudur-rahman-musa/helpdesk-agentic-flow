@@ -41,6 +41,7 @@ dev = [
     # k6 is the better load tool and is an install outside the project
     # folder, which a project rule makes an ask on every machine.
     "locust>=2.32",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.uv.workspace]
