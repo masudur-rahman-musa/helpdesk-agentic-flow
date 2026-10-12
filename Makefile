@@ -18,9 +18,12 @@ migrate:    ## Apply both schemas to the local compose database (hard rule 3)
 	uv run alembic upgrade head && uv run python scripts/checkpointer_setup.py
 ingest:     ## Ingest one tenant's corpus version from POLICY_DIR: make ingest TENANT=acme VERSION=v1
 	uv run python scripts/ingest.py --tenant $(TENANT) --version $(VERSION)
+# Per-test coverage contexts feed `select-tests` on a laptop and slow the suite a
+# lot. CI keeps the 80% floor and sets COV_CONTEXT= to skip the recording.
+COV_CONTEXT ?= --cov-context=test
 test:       ## Run tests with the coverage gate (needs the compose Postgres: docker compose up -d)
 	COVERAGE_FILE=.coverage-baseline uv run pytest -q --cov=helpdesk --cov=agent_api --cov=mcp_server \
-	  --cov-context=test --cov-fail-under=80
+	  $(COV_CONTEXT) --cov-fail-under=80
 select-tests: ## Print the tests whose recorded coverage touches this change
 	@uv run python scripts/select_tests.py --explain
 test-adjacent: ## Run only the tests whose coverage touches this change

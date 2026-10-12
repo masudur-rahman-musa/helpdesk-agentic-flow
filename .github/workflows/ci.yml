@@ -28,7 +28,9 @@ jobs:
         run: |
           cp .env.example .env
           docker compose up -d --wait postgres redis qdrant
-      - run: make verify
+      # COV_CONTEXT= skips per-test coverage contexts, which only `select-tests`
+      # on a laptop reads; the coverage floor still applies.
+      - run: make verify COV_CONTEXT=
 
   # Four scanners, no compose stack, and no `needs:` — so this job runs beside
   # `check` rather than behind it, and a red suite never hides a red scan.
