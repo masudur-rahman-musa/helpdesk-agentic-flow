@@ -2,12 +2,12 @@
 
 What is pinned: the gitleaks config and its three fake-credential exceptions, the
 CI `security` job and the four scanners it runs, the weekly image scan over the
-three images `docker-compose.yml` pins, the Dependabot ecosystems, the pinning of
+three images `docker-compose.yml` pins, Dependabot staying off, the pinning of
 every GitHub Action, the STRIDE table, and the presence of a real root
 `Dockerfile` carrying no placeholder.
 
 Why the check is static rather than runtime: none of these files is read by the
-application at all. They are read by GitHub Actions, by Dependabot and by the
+application at all. They are read by GitHub Actions and by the
 scanners themselves, so the only place their shape can be proven inside this
 repo is by parsing them. A green CI run proves the job that exists ran; it
 cannot prove the job that should exist was not deleted.
@@ -115,10 +115,6 @@ PINNED_IMAGES: frozenset[str] = frozenset(
 file and matched against the weekly scan by
 `test_the_image_scan_covers_exactly_the_three_pinned_compose_images`."""
 
-DEPENDABOT_ECOSYSTEMS: frozenset[str] = frozenset({"uv", "npm", "github-actions"})
-"""The three ecosystems this repo has a manifest for: the uv lockfile, `web/`'s
-package.json, and the workflow `uses:` refs whose pinning decision G relies on.
-Asserted exactly by `test_dependabot_declares_exactly_the_three_planned_ecosystems`."""
 
 ACTION_REF = re.compile(r"[\w.-]+/[\w.-]+(/[\w.-]+)*@[\w.\-+]+")
 """A `uses:` value pinned to a released tag: owner/repo[/path]@ref.
@@ -592,28 +588,12 @@ def test_the_image_scan_ignores_unfixed() -> None:
         assert "--severity HIGH,CRITICAL" in text
 
 
-def test_dependabot_declares_exactly_the_three_planned_ecosystems() -> None:
-    """Catches a manifest left unwatched (or a fourth ecosystem added blind), an
-    npm entry pointed at the repo root where there is no package.json, and
-    ungrouped updates that open one pull request per bumped package."""
-    updates = _load_yaml(DEPENDABOT).get("updates")
-    assert isinstance(updates, list) and updates, "dependabot.yml declares no updates"
-
-    ecosystems = {str(entry["package-ecosystem"]) for entry in updates}
-    assert ecosystems == set(DEPENDABOT_ECOSYSTEMS)
-    assert len(updates) == len(DEPENDABOT_ECOSYSTEMS) == 3
-
-    for entry in updates:
-        name = entry["package-ecosystem"]
-        assert entry["schedule"]["interval"] == "weekly", f"{name} is not weekly"
-        groups = entry.get("groups")
-        assert isinstance(groups, dict) and groups, f"{name} groups nothing"
-        update_types = {
-            str(kind) for group in groups.values() for kind in group.get("update-types", [])
-        }
-        assert {"minor", "patch"} <= update_types, f"{name} groups {sorted(update_types)}"
-        if name == "npm":
-            assert entry["directory"] == "/web"
+def test_dependabot_is_turned_off() -> None:
+    """2026-10-12: the owner turned automated upgrade pull requests off for this
+    project. Upgrades are made by hand on `dev`; the `pip-audit`, `pnpm audit` and
+    Trivy steps in CI still flag a known hole. Catches the config coming back and
+    reopening a weekly stream of pull requests nobody asked for."""
+    assert not DEPENDABOT.exists(), f"{DEPENDABOT} exists; Dependabot is turned off"
 
 
 def test_every_action_is_pinned_to_a_tag() -> None:
