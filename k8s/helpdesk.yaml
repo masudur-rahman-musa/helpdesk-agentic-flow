@@ -94,6 +94,13 @@ metadata:
     app.kubernetes.io/name: helpdesk-agent-api
 spec:
   replicas: 1
+  # Stop the old pod before starting the new one: the `apps` quota on the 4 GB
+  # node is full, and a pod started first is refused ("exceeded quota").
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: helpdesk-agent-api
@@ -170,6 +177,13 @@ metadata:
     app.kubernetes.io/name: helpdesk-mcp-server
 spec:
   replicas: 1
+  # Stop the old pod before starting the new one: the `apps` quota on the 4 GB
+  # node is full, and a pod started first is refused ("exceeded quota").
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: helpdesk-mcp-server
@@ -257,6 +271,13 @@ metadata:
     app.kubernetes.io/name: helpdesk-web
 spec:
   replicas: 1
+  # Stop the old pod before starting the new one: the `apps` quota on the 4 GB
+  # node is full, and a pod started first is refused ("exceeded quota").
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: helpdesk-web
