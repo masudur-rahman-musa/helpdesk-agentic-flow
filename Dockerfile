@@ -108,9 +108,25 @@ WORKDIR /app
 
 COPY --from=builder --chown=10001:10001 /app /app
 
+# `/app` itself belongs to root (WORKDIR made it), so the model cache folder the
+# mcp-server fills below is made here, as root, and handed to uid 10001.
+RUN mkdir -p /app/.cache/fastembed && chown -R 10001:10001 /app/.cache
+
 # After the last COPY, so no later --chown puts the process back on uid 0.
 # Pinned by test_container_build.py::test_the_root_dockerfile_runs_as_a_non_root_user.
 USER 10001:10001
+
+# The mcp-server's two embedding models, built into its image only. On the
+# the server node `apps` has no route to the internet, so the models cannot be
+# fetched at start; they land in `.cache/fastembed`, the path
+# `embedding_cache_dir` reads, and the Deployment sets `HF_HUB_OFFLINE=1`.
+# The other two services skip this, so their images stay small.
+RUN if [ "${SERVICE}" = mcp-server ]; then \
+      HF_HOME=/tmp/hf python -c "from fastembed import SparseTextEmbedding, TextEmbedding; \
+TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='.cache/fastembed'); \
+SparseTextEmbedding(model_name='Qdrant/bm25', cache_dir='.cache/fastembed')" \
+      && rm -rf /tmp/hf; \
+    fi
 
 # Documentation only, and all three are listed because the instruction cannot
 # branch on a build argument. The port a container actually publishes is set by

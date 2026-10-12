@@ -1,0 +1,33 @@
+# The Helpdesk on the node. `deploy.yml` builds this with
+# `kustomize build k8s`, after setting every image tag to the deployed commit
+# SHA with `kustomize edit set image` in the runner (never committed back).
+# `0.0.0-unbuilt` is the placeholder until then: no such tag exists on GHCR, so
+# an apply that skipped the tag step fails at the pull instead of running
+# something old.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: ai-help-desk-governed-access
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - helpdesk.yaml
+
+# Published by `build.yml` as private GHCR packages and pulled with the
+# `ghcr-pull` Secret every pod spec names.
+images:
+  - name: helpdesk-agent-api
+    newName: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api
+    newTag: 0.0.0-unbuilt
+  - name: helpdesk-mcp-server
+    newName: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server
+    newTag: 0.0.0-unbuilt
+  - name: helpdesk-scheduler
+    newName: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler
+    newTag: 0.0.0-unbuilt
+  - name: helpdesk-web
+    newName: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-web
+    newTag: 0.0.0-unbuilt
