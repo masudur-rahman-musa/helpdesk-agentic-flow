@@ -6,25 +6,34 @@
       "entities": {
         "system": "payments",
         "role": "payments.initiator",
+        "target_user": null,
+        "department": null,
+        "expiry_days": null,
         "justification": "I need to raise payment runs."
       },
-      "confidence": 0.95
+      "confidence": 0.95,
+      "clarifying_question": null
     },
-    "ToolPlan": [
-      { "calls": [{ "tool": "get_me", "arguments": {} }] },
+    "ToolPlanAnswer": [
+      {
+        "calls": [
+          {
+            "tool": "get_me",
+            "arguments": "{}"
+          }
+        ]
+      },
       {
         "calls": [
           {
             "tool": "create_access_request",
-            "arguments": {
-              "target_user_id": "{me.user_id}",
-              "role_id": "{resolved.role_id}",
-              "justification": "I need to raise payment runs."
-            }
+            "arguments": "{\"target_user_id\": \"{me.user_id}\", \"role_id\": \"{resolved.role_id}\", \"justification\": \"I need to raise payment runs.\"}"
           }
         ]
       },
-      { "calls": [] }
+      {
+        "calls": []
+      }
     ],
     "text": "I could not give you that one. It conflicts with access you already hold."
   }

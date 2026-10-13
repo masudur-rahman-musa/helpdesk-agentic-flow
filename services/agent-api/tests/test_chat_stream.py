@@ -71,6 +71,7 @@ from helpdesk.core.repository import Repository
 from helpdesk.core.settings import Settings, load_settings
 from helpdesk.errors import ErrorCode
 from helpdesk.gateway.client import ModelClient
+from helpdesk.gateway.strict_schema import strict_schema_problems
 from helpdesk.models import Base, Department, Message, Role, System, Tenant, User
 from helpdesk.models.conversation import MAX_MESSAGE_CHARS, MessageRole
 from pydantic import BaseModel, ValidationError
@@ -386,6 +387,11 @@ class StagedGateway:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        schema = json.loads(request.content).get("response_format", {}).get("json_schema", {})
+        if strict_schema_problems(schema.get("schema", {})):
+            # As OpenAI answers a schema strict mode refuses, so a
+            # non-strict schema cannot pass this suite unseen.
+            return httpx.Response(400, json={"error": "the schema breaks strict mode"})
         index = len(self.requests) - 1
         if index >= len(self._answers):
             raise AssertionError(
@@ -464,7 +470,14 @@ def _extraction_answer() -> str:
     return json.dumps(
         {
             "intent": "request_access",
-            "entities": {"system": "payroll", "role": "payroll-read"},
+            "entities": {
+                "system": "payroll",
+                "role": "payroll-read",
+                "target_user": None,
+                "department": None,
+                "expiry_days": None,
+                "justification": None,
+            },
             "confidence": 0.95,
             "clarifying_question": None,
         }

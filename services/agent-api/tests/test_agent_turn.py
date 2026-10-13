@@ -39,7 +39,7 @@ outcome; nothing is EXECUTED until 17d, so a turn still makes at most the one
     ``PLANNING_PROMPT = "tool_planning"``
     ``async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState`` —
         one ``complete_json`` call per round under ``ModelAlias.AGENT_STRONG``
-        (decision G), constrained to ``ToolPlan``; an intent with an empty
+        (decision G), constrained to ``ToolPlanAnswer``; an intent with an empty
         ``INTENT_TOOLS`` row makes NO call at all; a turn past any of the three
         budgets proposes nothing and records ``TurnOutcome.REFUSE``. Never
         raises: a gateway failure ends the turn as state, like every other
@@ -145,6 +145,7 @@ from helpdesk.core.repository import (
 from helpdesk.core.settings import load_settings
 from helpdesk.errors import ErrorCode
 from helpdesk.gateway.client import ModelAlias, ModelClient
+from helpdesk.gateway.strict_schema import strict_schema_problems
 from helpdesk.models import Base, Department, Message, Role, Session, System, Tenant, User
 from helpdesk.models.conversation import MAX_MESSAGE_CHARS, MessageRole, MessageTooLongError
 from helpdesk.rag.naming import check_slug
@@ -410,7 +411,7 @@ def _extraction_json(
     return json.dumps(
         {
             "intent": intent,
-            "entities": entities or {},
+            "entities": {**dict.fromkeys(IntentEntities.model_fields), **(entities or {})},
             "confidence": confidence,
             "clarifying_question": clarifying_question,
         }
@@ -430,6 +431,11 @@ class StagedGateway:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        schema = json.loads(request.content).get("response_format", {}).get("json_schema", {})
+        if strict_schema_problems(schema.get("schema", {})):
+            # As OpenAI answers a schema strict mode refuses, so a
+            # non-strict schema cannot pass this suite unseen.
+            return httpx.Response(400, json={"error": "the schema breaks strict mode"})
         index = len(self.requests) - 1
         if index >= len(self._answers):
             raise AssertionError(
@@ -639,12 +645,13 @@ ROLE_ID = "55555555-5555-5555-8555-555555555555"
 
 
 def _plan_json(*calls: dict[str, Any]) -> str:
-    """One planning answer, in the shape `ToolPlan` fixes."""
+    """One planning answer, in the shape `ToolPlanAnswer` fixes."""
     return json.dumps({"calls": list(calls)})
 
 
 def _proposal(tool: str, **arguments: Any) -> dict[str, Any]:
-    return {"tool": tool, "arguments": arguments}
+    """One planned call; its arguments travel as a JSON string."""
+    return {"tool": tool, "arguments": json.dumps(arguments)}
 
 
 EMPTY_PLAN = _plan_json()
@@ -1410,7 +1417,17 @@ def _planning_state(
         tenant_slug=TENANT_A,
         user_message="I need payroll access",
         extraction=IntentExtraction(
-            intent=intent, entities=IntentEntities(system="payroll"), confidence=0.95
+            intent=intent,
+            entities=IntentEntities(
+                system="payroll",
+                role=None,
+                target_user=None,
+                department=None,
+                expiry_days=None,
+                justification=None,
+            ),
+            confidence=0.95,
+            clarifying_question=None,
         ),
         started_at=NOW,
         tool_calls_made=tool_calls_made,
@@ -1990,3 +2007,100 @@ def test_the_recursion_limit_is_exactly_fifty_and_is_what_run_turn_passes(
     assert len(recorder.configs) == 1
     assert recorder.configs[0]["recursion_limit"] == GRAPH_RECURSION_LIMIT
     assert "deps" in recorder.configs[0]["configurable"]
+
+
+# --- an earlier change: strict structured outputs ---------------------------------------
+
+
+def _schema_request(schema: dict[str, Any]) -> httpx.Request:
+    """A structured-output request in the shape `complete_json` posts."""
+    return httpx.Request(
+        "POST",
+        f"{GATEWAY_URL}/chat/completions",
+        json={
+            "model": ModelAlias.AGENT_STRONG.value,
+            "messages": [{"role": "user", "content": "I need payroll access"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "Plan", "schema": schema, "strict": True},
+            },
+        },
+    )
+
+
+def _strict_object(*, note: dict[str, Any]) -> dict[str, Any]:
+    """One object schema meeting strict mode except for whatever `note` carries."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"tool": {"type": "string"}, "note": note},
+        "required": ["tool", "note"],
+    }
+
+
+def test_the_staged_gateway_refuses_a_non_strict_schema() -> None:
+    """An earlier change criterion: the fake gateway answers 400 to a schema OpenAI's
+    strict mode would refuse, so a non-strict schema cannot pass this suite
+    while the real gateway turns every chat away.
+
+    Catches a `StagedGateway.handler` that serves its staged answer whatever
+    schema it is sent. The two requests differ ONLY in the `default` key on
+    one property, and two answers are staged, so the 200 proves the check
+    does not refuse a legal schema and only that key can decide the 400."""
+    gateway = StagedGateway([EMPTY_PLAN, EMPTY_PLAN])
+    nullable: dict[str, Any] = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+
+    accepted = gateway.handler(_schema_request(_strict_object(note=nullable)))
+    refused = gateway.handler(_schema_request(_strict_object(note={**nullable, "default": None})))
+
+    assert accepted.status_code == 200
+    assert refused.status_code == 400
+
+
+def test_a_planner_answer_with_non_object_arguments_is_retried_once() -> None:
+    """Decision A's unhappy path through the node: an `arguments` string that
+    decodes to an array must fail inside `complete_json`, where the single
+    retry runs, and the second (legal) answer becomes the round.
+
+    Catches a `PlannedCallAnswer` validator that decodes without checking for
+    an object: `[1]` would validate, no retry would run, and mapping it onto
+    `ProposedCall` would fail outside the client, ending the turn instead.
+    Two answers staged, one bad plus one retry, so `call_count` is 2 and a
+    third request fails the test at the gateway.
+
+    The extraction names every entity field, absent ones as `None`, so the
+    state builds both before and after an earlier change drops the defaults."""
+    arguments = {"target_user_id": TARGET_USER_ID, "role_id": ROLE_ID}
+    bad = json.dumps({"calls": [{"tool": "classify_access_request", "arguments": "[1]"}]})
+    good = json.dumps(
+        {"calls": [{"tool": "classify_access_request", "arguments": json.dumps(arguments)}]}
+    )
+    gateway = StagedGateway([bad, good])
+    state = TurnState(
+        tenant_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        tenant_slug=TENANT_A,
+        user_message="I need payroll access",
+        extraction=IntentExtraction(
+            intent=Intent.REQUEST_ACCESS,
+            entities=IntentEntities(
+                system="payroll",
+                role=None,
+                target_user=None,
+                department=None,
+                expiry_days=None,
+                justification=None,
+            ),
+            confidence=0.95,
+            clarifying_question=None,
+        ),
+        started_at=NOW,
+    )
+
+    result = _run_plan_tools(state, gateway)
+
+    assert gateway.call_count == 2
+    assert result.outcome is TurnOutcome.CONTINUE
+    assert [call.tool for call in result.proposed] == ["classify_access_request"]
+    assert result.proposed[0].arguments == arguments

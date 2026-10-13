@@ -81,7 +81,7 @@ from helpdesk.gateway.client import (
     StructuredAnswer,
 )
 from helpdesk.gateway.traceparent import TRACEPARENT_PATTERN
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, ConfigDict, create_model
 
 BASE_URL = "http://gateway.invalid:8080"
 TENANT = "nordlicht"
@@ -109,13 +109,22 @@ GATEWAY_WORDING = (
 
 
 class Decision(BaseModel):
-    """The structured answer `complete_json` is asked for in these cases."""
+    """The structured answer `complete_json` is asked for in these cases.
+
+    Forbids extra keys so its schema meets strict mode, which the client now
+    checks before sending."""
+
+    model_config = ConfigDict(extra="forbid")
 
     decision: str
     reason: str
 
 
 VALID_DECISION: dict[str, str] = {"decision": "grant", "reason": "already entitled"}
+
+STRICT = ConfigDict(extra="forbid")
+"""The config a `create_model` schema needs to pass the client's strict-mode
+pre-check, so the schema-name cases are decided by the name alone."""
 
 
 def _ok_body(text: str = ANSWER_TEXT, model: str = "agent-strong") -> dict[str, Any]:
@@ -536,7 +545,9 @@ def test_a_schema_name_of_exactly_the_cap_is_accepted() -> None:
     accepts. 128 characters of `A` also matches `SCHEMA_NAME_PATTERN`, so
     only the length comparison can decide this row."""
     name = "A" * MAX_SCHEMA_NAME_LENGTH
-    schema_model: type[BaseModel] = create_model(name, decision=(str, ...), reason=(str, ...))
+    schema_model: type[BaseModel] = create_model(
+        name, __config__=STRICT, decision=(str, ...), reason=(str, ...)
+    )
     recorder = _Recorder(_ok_response(_ok_body(text=json.dumps(VALID_DECISION))))
     client = _client(recorder)
 
@@ -556,7 +567,9 @@ def test_a_schema_name_one_character_over_the_cap_is_refused_before_any_request(
     422, costing a round trip AND putting the prompt on the wire for a
     request that could never succeed."""
     name = "A" * (MAX_SCHEMA_NAME_LENGTH + 1)
-    schema_model: type[BaseModel] = create_model(name, decision=(str, ...), reason=(str, ...))
+    schema_model: type[BaseModel] = create_model(
+        name, __config__=STRICT, decision=(str, ...), reason=(str, ...)
+    )
     client = _client(_must_not_be_called)
 
     with pytest.raises(ModelRequestError) as excinfo:
@@ -577,7 +590,9 @@ def test_a_schema_name_outside_the_pattern_is_refused_before_any_request(name: s
     `SCHEMA_NAME_PATTERN` can. The last two also catch `re.match` in place of
     `re.fullmatch`, which accepts a name ending in a
     newline — a value that goes into a JSON body the console re-emits."""
-    schema_model: type[BaseModel] = create_model(name, decision=(str, ...), reason=(str, ...))
+    schema_model: type[BaseModel] = create_model(
+        name, __config__=STRICT, decision=(str, ...), reason=(str, ...)
+    )
     client = _client(_must_not_be_called)
 
     assert len(name) <= MAX_SCHEMA_NAME_LENGTH
@@ -620,7 +635,11 @@ def test_complete_json_sends_the_response_format_pydantic_generates() -> None:
     body = json.loads(recorder.requests[0].content)
     assert body["response_format"] == {
         "type": "json_schema",
-        "json_schema": {"name": "Decision", "schema": Decision.model_json_schema()},
+        "json_schema": {
+            "name": "Decision",
+            "schema": Decision.model_json_schema(),
+            "strict": True,
+        },
     }
     assert isinstance(result, StructuredAnswer)
     assert isinstance(result.value, Decision)
@@ -743,6 +762,67 @@ def test_the_usage_of_a_retried_call_is_the_second_answers_not_the_first() -> No
     assert result.value.model_dump() == VALID_DECISION
     assert result.usage.total_tokens == SECOND_ATTEMPT_TOKENS
     assert result.usage.text == json.dumps(VALID_DECISION)
+
+
+# --- an earlier change: strict structured outputs ----------------------------------------
+
+
+class StrictDecision(BaseModel):
+    """`Decision` as strict mode needs it: extra keys forbidden, no defaults.
+
+    Local to the an earlier change cases so they do not lean on an earlier change §8's edit to
+    `Decision`: the client refuses a non-strict schema before sending, so a
+    case built on the old model would go red for the pre-check, not for the
+    `strict` flag it means to pin.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str
+    reason: str
+
+
+class NoteDecision(BaseModel):
+    """A schema strict mode rejects: `note` is optional with a default.
+
+    Pydantic leaves `note` out of `required` and emits `"default": null`, so
+    the schema breaks two of the checker's rules while forbidding extra keys,
+    which keeps the third rule out of play.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str
+    note: str | None = None
+
+
+def test_complete_json_sends_strict_true_inside_json_schema() -> None:
+    """Catches a client that sends a strict-mode-ready schema but never ASKS
+    for strict mode, so the gateway only suggests the shape to the model; and
+    one that sends the flag outside `json_schema` or as a string, which the
+    `is True` and the exact key set both refuse."""
+    recorder = _Recorder(_ok_response(_ok_body(text=json.dumps(VALID_DECISION))))
+    client = _client(recorder)
+
+    _complete_json(client, StrictDecision)
+
+    body = json.loads(recorder.requests[0].content)
+    json_schema = body["response_format"]["json_schema"]
+    assert json_schema["strict"] is True
+    assert set(json_schema) == {"name", "schema", "strict"}
+
+
+def test_a_non_strict_schema_is_refused_before_any_request() -> None:
+    """Catches a client with no strict-schema pre-check: the schema would be
+    posted and the gateway would answer 400, after the turn's prompt was
+    already on the wire. The transport fails the test if it is reached, so a
+    check placed after the request is built does not pass this row."""
+    client = _client(_must_not_be_called)
+
+    with pytest.raises(ModelRequestError) as excinfo:
+        _complete_json(client, NoteDecision)
+
+    assert excinfo.value.code is ErrorCode.VALIDATION
 
 
 # --- a project rule: no provider model name anywhere ----------------------------

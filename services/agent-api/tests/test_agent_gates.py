@@ -6,9 +6,9 @@ Expected implementation surface (the implementer must provide exactly this):
     ``class Intent(StrEnum)`` — exactly the design's thirteen labels.
     ``class IntentEntities(BaseModel)`` (frozen) — ``system``, ``role``,
         ``target_user``, ``department``, ``expiry_days``, ``justification``,
-        every one optional and defaulting to ``None``.
+        every one nullable and required.
     ``class IntentExtraction(BaseModel)`` (frozen) — ``intent``, ``entities``,
-        ``confidence``, ``clarifying_question: str | None = None``.
+        ``confidence``, ``clarifying_question: str | None`` (required since an earlier change).
     ``class TurnOutcome(StrEnum)`` — ``CONTINUE``, ``CLARIFY``,
         ``DISAMBIGUATE``, ``FAILED``.
 
@@ -151,8 +151,9 @@ deleting the confidence comparison alone cannot make it pass."""
 def _extraction(intent: Intent, *, confidence: float, **entities: Any) -> IntentExtraction:
     return IntentExtraction(
         intent=intent,
-        entities=IntentEntities(**entities),
+        entities=IntentEntities(**{**dict.fromkeys(IntentEntities.model_fields), **entities}),
         confidence=confidence,
+        clarifying_question=None,
     )
 
 

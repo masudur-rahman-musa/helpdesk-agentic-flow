@@ -76,6 +76,7 @@ from agent_api.prompts import load_prompt
 from helpdesk.core.db import _TENANT_INFO_KEY
 from helpdesk.errors import ErrorCode
 from helpdesk.gateway.client import ModelAlias, ModelClient
+from helpdesk.gateway.strict_schema import strict_schema_problems
 from helpdesk.models.access import RequestStatus
 from helpdesk.models.conversation import MAX_MESSAGE_CHARS, MessageRole
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -200,6 +201,11 @@ class StagedGateway:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        schema = json.loads(request.content).get("response_format", {}).get("json_schema", {})
+        if strict_schema_problems(schema.get("schema", {})):
+            # As OpenAI answers a schema strict mode refuses, so a
+            # non-strict schema cannot pass this suite unseen.
+            return httpx.Response(400, json={"error": "the schema breaks strict mode"})
         if len(self.requests) > len(self._answers):
             raise AssertionError(
                 f"the node made {len(self.requests)} model requests; "
@@ -236,8 +242,16 @@ def _state(
         user_message=MESSAGE,
         extraction=IntentExtraction(
             intent=Intent.REQUEST_ACCESS,
-            entities=IntentEntities(system="payroll", role="payroll-read"),
+            entities=IntentEntities(
+                system="payroll",
+                role="payroll-read",
+                target_user=None,
+                department=None,
+                expiry_days=None,
+                justification=None,
+            ),
             confidence=0.95,
+            clarifying_question=None,
         ),
         resolved=ResolvedEntities(
             system_id=SYSTEM_ID,

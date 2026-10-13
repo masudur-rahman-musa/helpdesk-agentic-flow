@@ -4,24 +4,28 @@
     "IntentExtraction": {
       "intent": "offboard",
       "entities": {
+        "system": null,
+        "role": null,
         "target_user": "{accounts.sod_employee.email}",
+        "department": null,
+        "expiry_days": null,
         "justification": "They are leaving the company today."
       },
-      "confidence": 0.97
+      "confidence": 0.97,
+      "clarifying_question": null
     },
-    "ToolPlan": [
+    "ToolPlanAnswer": [
       {
         "calls": [
           {
             "tool": "offboard_user",
-            "arguments": {
-              "user_id": "{accounts.sod_employee.userId}",
-              "end_date": "{today+0}"
-            }
+            "arguments": "{\"user_id\": \"{accounts.sod_employee.userId}\", \"end_date\": \"{today+0}\"}"
           }
         ]
       },
-      { "calls": [] }
+      {
+        "calls": []
+      }
     ],
     "text": "Done. They are marked a leaver and every grant they held has been revoked."
   }

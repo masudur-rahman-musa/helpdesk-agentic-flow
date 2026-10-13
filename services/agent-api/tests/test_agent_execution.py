@@ -162,8 +162,16 @@ def _state(*validated: ValidatedCall, tool_calls_made: int = 0) -> TurnState:
         user_message=MESSAGE,
         extraction=IntentExtraction(
             intent=Intent.REQUEST_ACCESS,
-            entities=IntentEntities(system="payroll"),
+            entities=IntentEntities(
+                system="payroll",
+                role=None,
+                target_user=None,
+                department=None,
+                expiry_days=None,
+                justification=None,
+            ),
             confidence=0.95,
+            clarifying_question=None,
         ),
         outcome=TurnOutcome.CONTINUE,
         round_number=1,

@@ -14,13 +14,14 @@ makes the design's boundary rule enforceable: `gates.py` reads a value off a
 frozen object, and the conditional edge reads the field the node wrote.
 """
 
+import json
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
 from helpdesk.errors import ErrorCode
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict, WithJsonSchema
 
 
 class Intent(StrEnum):
@@ -52,22 +53,26 @@ class Intent(StrEnum):
 class IntentEntities(BaseModel):
     """What the message named, in the user's own words (the design step 2).
 
-    Every field is optional because a message that names nothing is the
-    ordinary case, and an absent field is what `gates.missing_required_entities`
-    reads. `system` and `role` are deliberately NOT resolved here: the prompt
+    Every field is nullable because a message that names nothing is the
+    ordinary case, and a null field is what `gates.missing_required_entities`
+    reads. Nullable but REQUIRED, with no default and no extra keys: strict
+    mode refuses a schema with an optional or defaulted field, so the model
+    answers every key, null where the message named nothing
+    (`test_agent_strict_schemas.py::test_every_schema_sent_to_complete_json_meets_strict_mode`).
+    `system` and `role` are deliberately NOT resolved here: the prompt
     asks the model to copy the user's wording, and `matching.py` resolves it
     against the tenant's directory afterwards. A model that normalised the
     name itself would be guessing, which the design step 3 forbids.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
-    system: str | None = None
-    role: str | None = None
-    target_user: str | None = None
-    department: str | None = None
-    expiry_days: int | None = None
-    justification: str | None = None
+    system: str | None
+    role: str | None
+    target_user: str | None
+    department: str | None
+    expiry_days: int | None
+    justification: str | None
 
 
 class IntentExtraction(BaseModel):
@@ -75,15 +80,16 @@ class IntentExtraction(BaseModel):
 
     `ModelClient.complete_json` builds the request's JSON schema from this
     model and validates the answer against the same one, so the shape asked
-    for and the shape accepted cannot drift apart.
+    for and the shape accepted cannot drift apart. Strict like
+    `IntentEntities`: every field required, none defaulted, no extra keys.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     intent: Intent
     entities: IntentEntities
     confidence: float
-    clarifying_question: str | None = None
+    clarifying_question: str | None
 
 
 class TurnOutcome(StrEnum):
@@ -202,19 +208,83 @@ class ProposedCall(BaseModel):
 
 
 class ToolPlan(BaseModel):
-    """One planning round's answer — the schema `plan_tools` constrains.
+    """One planning round's proposals, as `validate_tool_calls` judges them.
 
-    `ModelClient.complete_json` builds the request's JSON schema from this
-    model and validates the answer against the same one, so what the model is
-    asked for and what is accepted cannot drift. An empty `calls` list is the
-    ordinary end of a turn: a planner with nothing left to do proposes
-    nothing, and `validate_tool_calls` accepts that round
+    `plan_tools` builds it from the model's `ToolPlanAnswer`, the strict wire
+    shape, so everything downstream of planning sees the objects it always
+    did. An empty `calls` list is the ordinary end of a turn: a planner with
+    nothing left to do proposes nothing, and `validate_tool_calls` accepts that round
     (`test_agent_planning.py::test_an_empty_round_is_accepted_and_validates_nothing`).
     """
 
     model_config = ConfigDict(frozen=True)
 
     calls: list[ProposedCall] = []
+
+
+def _decoded_object(value: object) -> dict[str, Any]:
+    """`arguments` as the object it encodes, or a refusal `complete_json` retries.
+
+    Only a string is accepted, and only one that decodes to a JSON object: an
+    array, a string, a number or `null` is a bad answer, not an empty call.
+    Raising `ValueError` makes it a `ValidationError`, so the client's one
+    retry runs. Pinned by
+    `test_agent_strict_schemas.py::test_planned_call_arguments_that_are_not_a_json_object_fail_validation`
+    and
+    `test_agent_turn.py::test_a_planner_answer_with_non_object_arguments_is_retried_once`.
+    """
+    if not isinstance(value, str):
+        raise ValueError("arguments must be one JSON object encoded as a string")
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError("arguments is not valid JSON") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError("arguments must encode a JSON object")
+    return decoded
+
+
+EncodedArguments = Annotated[
+    dict[str, Any],
+    BeforeValidator(_decoded_object),
+    WithJsonSchema({"type": "string", "description": "One JSON object, encoded as a string."}),
+]
+"""A tool's arguments as they travel: a string on the wire, a dict once validated.
+
+Strict mode needs every object closed with its keys listed, and a tool's
+arguments are an open object whose keys depend on the tool. Sending them as a
+string keeps the schema strict and the argument check where it already is,
+in `validate_tool_calls`. Decoded to a dict here, so
+`plan_tools` hands `ProposedCall` the same object it always received
+(`test_agent_strict_schemas.py::test_planned_call_arguments_decode_to_a_dict`).
+"""
+
+
+class PlannedCallAnswer(BaseModel):
+    """One proposed call as the model answers it: a tool name and its encoded arguments.
+
+    The wire twin of `ProposedCall`, which keeps its shape. Pinned strict by
+    `test_agent_strict_schemas.py::test_every_schema_sent_to_complete_json_meets_strict_mode`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tool: str
+    arguments: EncodedArguments
+
+
+class ToolPlanAnswer(BaseModel):
+    """One planning round's answer — the strict schema `plan_tools` sends.
+
+    `ModelClient.complete_json` builds the request's JSON schema from this
+    model and validates the answer against the same one, so what the model is
+    asked for and what is accepted cannot drift. No default on `calls`: an
+    empty round is the model answering `[]`, not leaving the key out.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    calls: list[PlannedCallAnswer]
 
 
 class ValidatedCall(BaseModel):

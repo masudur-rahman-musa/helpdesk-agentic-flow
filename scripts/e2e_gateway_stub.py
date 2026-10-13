@@ -17,6 +17,9 @@ The contract this has to honour is `helpdesk.gateway.client.ModelClient`:
   because the client reads all four and raises `ModelUnavailableError` on
   anything it cannot
 * `GET /healthz`, which is what agent-api's `/readyz` probes.
+* a 400 for a schema strict mode would refuse, found by the same
+  `strict_schema_problems` the client runs, so `make e2e` cannot pass on a
+  schema a real provider in strict mode answers with a 400.
 
 An unmatched turn answers a LOUD 400 naming the schema and the message it
 could not place. A stub that silently answered the wrong turn would make a
@@ -26,12 +29,12 @@ product.
 
 ## How an answer is chosen
 
-By the response schema's NAME (`IntentExtraction`, `ToolPlan`, or the absence
+By the response schema's NAME (`IntentExtraction`, `ToolPlanAnswer`, or the absence
 of one, which is the reply composition's plain call) crossed with a PHRASE
 matched against the turn's last user message. `scripts/e2e_fixtures/*.json`
 carries one file per flow.
 
-The planner is called once per round, so `ToolPlan` is a LIST: the answers are
+The planner is called once per round, so `ToolPlanAnswer` is a LIST: the answers are
 served in order per session and the last one, always an empty `calls` list,
 repeats. That is the ordinary end of a turn rather than a fallback - a planner
 with nothing left to do proposes nothing - and repeating it is what lets a
@@ -58,6 +61,10 @@ answering:
   the plan's Deviations.
 * `{today+N}` - an ISO date N days from today, for `end_date` arguments that
   would otherwise go stale the day after they were written.
+
+A planned call's `arguments` is one JSON object encoded as a string, as the
+strict planner schema asks of a real model. Its placeholders are filled by
+decoding it, substituting, and encoding it again.
 """
 
 import json
@@ -70,6 +77,7 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from helpdesk.gateway.strict_schema import strict_schema_problems
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "e2e_fixtures"
 
@@ -180,8 +188,15 @@ def substitute(value: Any, messages: list[dict[str, Any]]) -> Any:
     if isinstance(value, list):
         return [substitute(item, messages) for item in value]
     if isinstance(value, dict):
-        return {key: substitute(item, messages) for key, item in value.items()}
+        return {key: _substituted_item(key, item, messages) for key, item in value.items()}
     return value
+
+
+def _substituted_item(key: str, item: Any, messages: list[dict[str, Any]]) -> Any:
+    """One dict value substituted; an encoded `arguments` string is filled inside."""
+    if key == "arguments" and isinstance(item, str):
+        return json.dumps(substitute(json.loads(item), messages))
+    return substitute(item, messages)
 
 
 def _schema_name(body: dict[str, Any]) -> str:
@@ -191,6 +206,14 @@ def _schema_name(body: dict[str, Any]) -> str:
     schema = response_format.get("json_schema")
     name = schema.get("name") if isinstance(schema, dict) else None
     return name if isinstance(name, str) else PLAIN_REPLY_KEY
+
+
+def _schema(body: dict[str, Any]) -> dict[str, Any]:
+    """The request's JSON schema, or an empty one for the plain reply call."""
+    response_format = body.get("response_format")
+    json_schema = response_format.get("json_schema") if isinstance(response_format, dict) else None
+    schema = json_schema.get("schema") if isinstance(json_schema, dict) else None
+    return schema if isinstance(schema, dict) else {}
 
 
 def _last_user_message(messages: list[dict[str, Any]]) -> str:
@@ -219,6 +242,13 @@ def build_app() -> FastAPI:
         messages = [m for m in body.get("messages", []) if isinstance(m, dict)]
         schema = _schema_name(body)
         message = _last_user_message(messages)
+
+        problems = strict_schema_problems(_schema(body))
+        if problems:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"e2e gateway stub: {schema} breaks strict mode: {problems}"},
+            )
 
         fixture = next((f for f in app.state.fixtures if f.matches(message)), None)
         if fixture is None or schema not in fixture.answers:

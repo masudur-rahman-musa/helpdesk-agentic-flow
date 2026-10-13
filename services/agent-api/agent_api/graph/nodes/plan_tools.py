@@ -51,7 +51,7 @@ from helpdesk.gateway.client import ModelAlias
 from agent_api.graph import gates
 from agent_api.graph.deps import TurnDeps
 from agent_api.graph.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
-from agent_api.graph.state import ToolPlan, TurnOutcome, TurnState
+from agent_api.graph.state import ProposedCall, ToolPlanAnswer, TurnOutcome, TurnState
 from agent_api.prompts import load_prompt
 from agent_api.tools.catalogue import planner_schema
 
@@ -152,7 +152,7 @@ async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState:
 
     try:
         answer = await deps.model.complete_json(
-            ToolPlan,
+            ToolPlanAnswer,
             messages,
             alias=ModelAlias.AGENT_STRONG,
             tenant_slug=state.tenant_slug,
@@ -170,10 +170,12 @@ async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState:
             }
         )
 
-    plan = answer.value
+    # The strict wire answer mapped onto the unchanged `ProposedCall`, so
+    # `validate_tool_calls` judges the same objects it always did.
+    plan = [ProposedCall(tool=call.tool, arguments=call.arguments) for call in answer.value.calls]
     tokens_used = state.tokens_used + answer.usage.total_tokens
 
-    if len(plan.calls) > gates.MAX_CALLS_PER_ROUND:
+    if len(plan) > gates.MAX_CALLS_PER_ROUND:
         # An over-long round is refused WHOLE rather than trimmed, for
         # decision C's reason: keeping the first three of five calls executes
         # a plan the model did not make. Pinned by
@@ -190,6 +192,6 @@ async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState:
             "round_number": round_number,
             "tokens_used": tokens_used,
             "outcome": TurnOutcome.CONTINUE,
-            "proposed": tuple(plan.calls),
+            "proposed": tuple(plan),
         }
     )

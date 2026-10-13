@@ -106,8 +106,16 @@ def _state(
         user_message=message,
         extraction=IntentExtraction(
             intent=intent,
-            entities=IntentEntities(),
+            entities=IntentEntities(
+                system=None,
+                role=None,
+                target_user=None,
+                department=None,
+                expiry_days=None,
+                justification=None,
+            ),
             confidence=1.0,
+            clarifying_question=None,
         ),
         round_number=round_number,
         proposed=proposed,

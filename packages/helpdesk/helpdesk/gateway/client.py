@@ -20,8 +20,9 @@ empty, because the console reads its PRESENCE
 
 Three pre-checks run BEFORE any request is built — the tenant's slug and key,
 the session id (`check_slug`), the caller's `traceparent`, and for structured
-output the schema name — so a refusal is a typed `VALIDATION` with the prompt
-never put on the wire, rather than a 4xx read back from the gateway. Pinned by
+output the schema name and the schema's strict-mode rules — so a refusal is a
+typed `VALIDATION` with the prompt never put on the wire, rather than a 4xx
+read back from the gateway. Pinned by
 `test_gateway_client.py::test_a_session_id_one_character_over_the_cap_is_refused_before_any_request`,
 `::test_a_schema_name_one_character_over_the_cap_is_refused_before_any_request` and
 `::test_a_malformed_caller_traceparent_is_refused_before_any_request`, each
@@ -49,6 +50,7 @@ from pydantic import BaseModel, ValidationError
 from helpdesk.core.settings import Settings
 from helpdesk.errors import ErrorCode, ToolError
 from helpdesk.gateway.keys import checked_tenant_key
+from helpdesk.gateway.strict_schema import strict_schema_problems
 from helpdesk.gateway.traceparent import traceparent_for
 from helpdesk.rag.naming import check_slug
 
@@ -292,6 +294,16 @@ class ModelClient:
         spending a token budget reads the gateway's own count rather than
         estimating one. Pinned by
         `::test_complete_json_returns_the_validated_value_beside_the_calls_own_usage`.
+
+        The request asks for strict mode (`"strict": true`), so the provider
+        holds the model to the exact shape rather than only being asked for
+        it, and the schema is refused here first when it breaks strict mode's
+        rules: a typed `VALIDATION` before any request, rather than a 400 for
+        every turn. Pinned by
+        `::test_complete_json_sends_strict_true_inside_json_schema` and
+        `::test_a_non_strict_schema_is_refused_before_any_request`. Our own
+        validation and its one retry stay: strict mode is the provider's
+        promise, `model_validate_json` is ours.
         """
         headers = self._headers(tenant_slug, session_id, traceparent)
         body = self._body(messages, alias, max_tokens, temperature)
@@ -299,7 +311,8 @@ class ModelClient:
             "type": "json_schema",
             "json_schema": {
                 "name": _checked_schema_name(schema_model.__name__),
-                "schema": schema_model.model_json_schema(),
+                "schema": _checked_strict_schema(schema_model),
+                "strict": True,
             },
         }
 
@@ -438,3 +451,20 @@ def _checked_schema_name(name: str) -> str:
     if SCHEMA_NAME_PATTERN.fullmatch(name) is None:
         raise ModelRequestError(f"a schema name must match {SCHEMA_NAME_PATTERN.pattern}")
     return name
+
+
+def _checked_strict_schema(schema_model: type[BaseModel]) -> dict[str, Any]:
+    """The model's JSON schema, or a typed refusal when it breaks strict mode.
+
+    The schema is built from this repo's own models, never from client input,
+    so a problem here is a code defect: it is refused before the prompt goes
+    on the wire, naming each broken rule's path
+    (`test_gateway_client.py::test_a_non_strict_schema_is_refused_before_any_request`).
+    """
+    schema = schema_model.model_json_schema()
+    problems = strict_schema_problems(schema)
+    if problems:
+        raise ModelRequestError(
+            f"the {schema_model.__name__} schema breaks strict mode: " + "; ".join(problems)
+        )
+    return schema
