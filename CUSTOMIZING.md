@@ -16,7 +16,7 @@ make ingest TENANT=your-tenant-slug VERSION=v1
 ```
 
 The default is `policies/`, the demo corpus shipped with the repository. An
-explicit `--corpus-root` on `scripts/ingest.py` still wins over the variable,
+explicit `--corpus-root` on the ingest CLI (`python -m helpdesk.mcp_server.cli`) still wins over the variable,
 which is what you want for a one-off ingest from a scratch directory.
 
 Ingestion refuses a root with no `{tenant}/{version}` directory rather than

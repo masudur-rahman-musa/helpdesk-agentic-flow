@@ -29,7 +29,7 @@ these belong in 24eb's Deviations):
   all would cross back as a ``VALIDATION`` from the far side.
 - the board payloads below are literal-accurate: each is validated against the
   tool's own ``ListSodRulesOutput`` in a premise assertion, so a row invented
-  here rather than read off ``mcp_server/tools/admin.py`` fails this file
+  here rather than read off ``mcp_server/tools/rules.py`` fails this file
   instead of passing against a route that answers the wrong shape.
 - the staged order is ``policy_ref`` ascending then ``rule_id`` ascending (24ea
   decision C), and the three staged ``rule_id``s are deliberately NOT in
@@ -64,7 +64,7 @@ from helpdesk.agent_api.services.mcp_client import (
     RemoteToolError,
     ToolCaller,
 )
-from helpdesk.mcp_server.tools.admin import ListSodRulesOutput
+from helpdesk.mcp_server.tools.rules import ListSodRulesOutput
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.settings import Settings
 from helpdesk.shared.errors import ErrorCode
@@ -383,7 +383,7 @@ def test_the_router_names_its_path_its_tool_and_a_fieldless_argument_model(
 def test_the_staged_board_is_exactly_what_the_tool_model_produces() -> None:
     """The premise every case below rests on, and the one thing this file can get
     wrong on its own: catches a staged payload invented here instead of read off
-    `mcp_server.tools.admin`, which would let the route's body case pass while
+    `mcp_server.tools.rules`, which would let the route's body case pass while
     the route answered a shape 24f's parser refuses.
 
     `ListSodRulesOutput` is the tool's own model, so validating the literal and

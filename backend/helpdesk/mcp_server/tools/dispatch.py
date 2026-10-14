@@ -56,7 +56,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
 
-from helpdesk.mcp_server.identity import Identity, identity_from_header
+from helpdesk.mcp_server.core.identity import Identity, identity_from_header
 from helpdesk.mcp_server.redis_client import (
     REDIS_TIMEOUT_SECONDS as REDIS_TIMEOUT_SECONDS,  # re-exported: the old call site
 )
@@ -66,15 +66,15 @@ from helpdesk.mcp_server.redis_client import (
 from helpdesk.mcp_server.redis_client import (
     close_loop_clients,
 )
-from helpdesk.mcp_server.registry import (
+from helpdesk.mcp_server.services.idempotency.guard import run_once
+from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.registry import (
     DENIED_EVENT_TYPE,
     DISABLED_EVENT_TYPE,
     FAILED_EVENT_TYPE,
     REPLAYED_EVENT_TYPE,
     ToolSpec,
 )
-from helpdesk.mcp_server.services.idempotency.guard import run_once
-from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.db import (

@@ -3,7 +3,7 @@
 Surface under test (written before it exists; the implementer must provide
 exactly this):
 
-``mcp_server.rag_clients`` (new)
+``mcp_server.core.rag_clients`` (new)
     ``qdrant(settings: Settings) -> AsyncQdrantClient`` — the pooled client for
     the RUNNING EVENT LOOP, keyed by ``(loop, url)`` the way
     ``redis_client._redis`` is. Two calls in one loop are the same object; two
@@ -18,7 +18,7 @@ exactly this):
     (``rag_clients.qdrant(...)``, ``rag_clients.embedder()``), the way
     ``main.py`` reads ``readiness.check_*``, so a test can substitute either.
 
-``mcp_server.tools.policy`` (new)
+``mcp_server.tools.policy_search`` (new)
     ``SearchPolicyInput`` — ``query: str``, ``top_k: int = TOP_K_DEFAULT``,
     extras IGNORED (``_IGNORE_EXTRAS``): a ``tenant_id`` argument is dropped,
     never honoured and never rejected.
@@ -31,7 +31,7 @@ exactly this):
     not refused. The collection comes from ``identity.tenant_id`` → the
     tenant's slug → ``vectors.collection_name``.
 
-``mcp_server.registry.REGISTRY["search_policy"]``
+``mcp_server.tools.registry.REGISTRY["search_policy"]``
     ``tool=rbac.Tool.SEARCH_POLICY``, ``mutating=False``,
     ``event_type=SUCCESS_EVENT_TYPE``.
 
@@ -60,11 +60,11 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.mcp_server import rag_clients
-from helpdesk.mcp_server.registry import REGISTRY, SUCCESS_EVENT_TYPE
+from helpdesk.mcp_server.core import rag_clients
 from helpdesk.mcp_server.services.rag.embedding import Embedder
 from helpdesk.mcp_server.services.rag.retrieval import REFUSAL_THRESHOLD, RRF_K, TOP_K_DEFAULT
 from helpdesk.mcp_server.services.rag.vectors import collection_name
+from helpdesk.mcp_server.tools.registry import REGISTRY, SUCCESS_EVENT_TYPE
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.settings import load_settings

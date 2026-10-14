@@ -5,7 +5,7 @@ the work is, and Redis holds the cadence gate, so a scheduler with no Redis
 claims nothing and runs nothing at all. A readiness answer naming only one of
 them would report ready straight through the other's outage.
 
-`mcp_server.readiness`'s shape, minus Qdrant, and separate rather than
+`mcp_server.api.routes.health`'s shape, minus Qdrant, and separate rather than
 imported for the same reason `redis_client` is: two services do not share a
 private module.
 

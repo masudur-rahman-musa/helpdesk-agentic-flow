@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from qdrant_client import AsyncQdrantClient
 
-from helpdesk.mcp_server import readiness
+from helpdesk.mcp_server.api.routes import health as readiness
 
 Check = Callable[[], Any]
 

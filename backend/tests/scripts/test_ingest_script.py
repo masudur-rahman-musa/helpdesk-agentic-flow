@@ -2,8 +2,8 @@
 
 Two pure functions of `scripts/ingest.py` are under test and nothing else:
 
-    scripts.ingest._corpus_root(flag: Path | None, configured: Path) -> Path
-    scripts.ingest._parse(argv: list[str] | None) -> argparse.Namespace
+    helpdesk.mcp_server.cli._corpus_root(flag: Path | None, configured: Path) -> Path
+    helpdesk.mcp_server.cli._parse(argv: list[str] | None) -> argparse.Namespace
 
 `_corpus_root` exists so the "flag, or settings default?" answer is reachable
 without building `Settings` from a live environment. The
@@ -20,7 +20,7 @@ reach `scripts.seed`.
 
 from pathlib import Path
 
-from scripts.ingest import _corpus_root, _parse
+from helpdesk.mcp_server.cli import _corpus_root, _parse
 
 # Neither value is a real directory and neither has to be: `_corpus_root` picks
 # between two paths and touches the filesystem for neither. The two are

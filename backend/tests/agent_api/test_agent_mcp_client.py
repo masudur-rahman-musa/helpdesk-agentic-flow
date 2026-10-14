@@ -135,8 +135,8 @@ def _drive[T](
     """
 
     async def run() -> T:
-        from helpdesk.mcp_server import pipeline
         from helpdesk.mcp_server.main import create_app
+        from helpdesk.mcp_server.tools import dispatch as pipeline
 
         app = create_app()
         try:

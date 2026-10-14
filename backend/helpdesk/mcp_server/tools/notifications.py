@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.services.notifications.list import list_for_user
 from helpdesk.mcp_server.services.notifications.mark import mark_read
 from helpdesk.mcp_server.tools.base import MutatingToolInput

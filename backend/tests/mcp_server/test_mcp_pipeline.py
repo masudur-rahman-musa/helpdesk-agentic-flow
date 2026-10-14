@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.pipeline``
+``mcp_server.tools.dispatch``
     ``async def dispatch(spec: ToolSpec[Any, Any], request: Request | None,
     arguments: Mapping[str, Any]) -> mcp.types.CallToolResult``
 
@@ -30,7 +30,7 @@ Surface under test (written before it exists):
     Seams: ``pipeline._session_factory(settings)`` and
     ``pipeline._redis(settings)``.
 
-``mcp_server.registry.ToolSpec`` — a frozen dataclass whose ``handler`` is
+``mcp_server.tools.registry.ToolSpec`` — a frozen dataclass whose ``handler`` is
 ``(AsyncSession, Identity, I) -> Awaitable[O]``. The synthetic specs below are
 built directly rather than registered, so the pipeline's guarantees can be
 tested with a handler that raises, or an input model that can be violated,
@@ -61,10 +61,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from starlette.requests import Request
 
-from helpdesk.mcp_server import pipeline, registry
-from helpdesk.mcp_server.identity import Identity
-from helpdesk.mcp_server.pipeline import dispatch
-from helpdesk.mcp_server.registry import ToolSpec
+from helpdesk.mcp_server.core.identity import Identity
+from helpdesk.mcp_server.tools import dispatch as pipeline
+from helpdesk.mcp_server.tools import registry
+from helpdesk.mcp_server.tools.dispatch import dispatch
+from helpdesk.mcp_server.tools.registry import ToolSpec
 from helpdesk.shared.audit.writer import TenantMismatchError
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.repository import Repository
@@ -458,7 +459,7 @@ def test_a_failed_audit_write_is_logged_and_changes_no_answer(
         raise OSError(LEAK_MARKER)
 
     with (
-        caplog.at_level(logging.ERROR, logger="helpdesk.mcp_server.pipeline"),
+        caplog.at_level(logging.ERROR, logger="helpdesk.mcp_server.tools.dispatch"),
         pytest.MonkeyPatch.context() as patch,
     ):
         patch.setattr(pipeline, "_session_factory", unusable)

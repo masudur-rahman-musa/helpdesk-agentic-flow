@@ -27,7 +27,7 @@ front of an end user is an internal detail leaked through a chat window
 `::test_a_non_2xx_answer_is_the_same_typed_internal`).
 
 `asyncio.CancelledError` is NOT converted, the same reasoning as
-`mcp_server.pipeline`'s: a cancelled call did not fail, and typing it as one
+`mcp_server.tools.dispatch`'s: a cancelled call did not fail, and typing it as one
 would fabricate a tool failure. It is a `BaseException`, so the `except
 Exception` below cannot reach it, and neither can it reach a `BaseExceptionGroup`
 carrying one.

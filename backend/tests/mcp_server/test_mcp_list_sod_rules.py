@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.tools.admin``
+``mcp_server.tools.rules``
     ``ListSodRulesInput(BaseModel)`` - NO fields at all: no tenant, no user,
     no rule id. The tenant is the token's and the rules are that tenant's own
     rows, so there is nothing for a caller to choose.
@@ -57,7 +57,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.mcp_server.tools.registry import REGISTRY
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,

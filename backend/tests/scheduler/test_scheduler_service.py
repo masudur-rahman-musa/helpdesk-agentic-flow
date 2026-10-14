@@ -18,12 +18,12 @@ must provide exactly this):
     ``runner`` module attribute, again so a test can replace it — and cancels
     it on shutdown.
 
-``scheduler.readiness``
+``scheduler.api.routes.health``
     ``async def check_postgres() -> bool`` · ``async def check_redis() -> bool``
 
 No backing service is needed here: both readiness checks are faked at the
 module seam and `/metrics` renders an in-process registry. The bodies BEHIND
-that seam are `mcp_server.readiness`'s shape and are owed their own cases the
+that seam are `mcp_server.api.routes.health`'s shape and are owed their own cases the
 moment they stop being a copy (the project notes 2026-09-03, an earlier change).
 
 a project rule: this file carries the service in its name; `test_health.py`
@@ -39,7 +39,8 @@ from typing import Any
 import httpx
 import pytest
 
-from helpdesk.scheduler import main, readiness, runner
+from helpdesk.scheduler import main, runner
+from helpdesk.scheduler.api.routes import health as readiness
 
 
 def _get(app: Any, path: str) -> httpx.Response:

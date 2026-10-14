@@ -43,7 +43,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.shared.access import SimulatedDirectory, SkippedRole
 from helpdesk.shared.access import offboard_user as offboard_user_core

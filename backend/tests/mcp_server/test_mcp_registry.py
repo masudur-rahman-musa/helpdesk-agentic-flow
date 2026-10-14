@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.registry``
+``mcp_server.tools.registry``
     ``ToolSpec[I: BaseModel, O: BaseModel]`` — frozen dataclass carrying
     ``name`` (the wire name), ``tool: rbac.Tool``, ``description``,
     ``input_model``, ``output_model``, ``event_type``, ``mutating`` and
@@ -37,10 +37,9 @@ from redis.asyncio import Redis
 from sqlalchemy import String
 from sqlalchemy.exc import DBAPIError
 
-from helpdesk.mcp_server import registry
-from helpdesk.mcp_server.registry import REGISTRY, lookup
-from helpdesk.mcp_server.tools import approvals, reviews
+from helpdesk.mcp_server.tools import approvals, registry, reviews
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.registry import REGISTRY, lookup
 from helpdesk.shared.access import reviews as reviews_domain
 from helpdesk.shared.audit.writer import AuditEventInput, append_event
 from helpdesk.shared.auth import rbac

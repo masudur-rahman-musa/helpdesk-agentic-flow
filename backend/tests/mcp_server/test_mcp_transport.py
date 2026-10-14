@@ -15,12 +15,12 @@ Surface under test (written before it exists):
     "checks": {"postgres": bool, "redis": bool}}`` with 200/503; the MCP
     streamable HTTP transport at ``POST /mcp``.
 
-``mcp_server.readiness``
+``mcp_server.api.routes.health``
     ``check_postgres()`` / ``check_redis()``, mirroring ``agent_api.readiness``
     with no qdrant. ``/readyz`` calls them through the module attribute so a
     test can fake one check.
 
-``mcp_server.registry.REGISTRY``
+``mcp_server.tools.registry.REGISTRY``
     The wire-name -> ``ToolSpec`` mapping ``tools/list`` is built from.
 
 No pytest-asyncio in this project: every case is a sync function driving one
@@ -37,8 +37,8 @@ import pytest
 from mcp import Client, StdioServerParameters, stdio_client
 from mcp.server.transport_security import TransportSecuritySettings
 
-from helpdesk.mcp_server import readiness
-from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.mcp_server.api.routes import health as readiness
+from helpdesk.mcp_server.tools.registry import REGISTRY
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,

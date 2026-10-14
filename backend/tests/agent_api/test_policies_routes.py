@@ -22,7 +22,7 @@ these belong in 24g's Deviations):
   ``deps.unauthenticated()`` answers, 24eb's shape unchanged.
 - the staged board is literal-accurate: it is validated against the tool's own
   ``ListPolicyDocumentsOutput`` in a premise assertion, so a row invented here
-  rather than read off ``mcp_server/tools/admin.py`` fails this file instead of
+  rather than read off ``mcp_server/tools/policy_docs.py`` fails this file instead of
   passing against a route that answers the wrong shape.
 - the staged version order is ``ingested_at`` descending (24g decision C) over
   ``v9``, ``v10``, ``v2``, whose own string order is neither that sequence nor
@@ -78,7 +78,7 @@ from helpdesk.agent_api.services.mcp_client import (
     RemoteValidationError,
     ToolCaller,
 )
-from helpdesk.mcp_server.tools.admin import (
+from helpdesk.mcp_server.tools.policy_docs import (
     ListPolicyDocumentsOutput,
     ReingestPolicyDocumentOutput,
 )
@@ -396,7 +396,7 @@ def test_the_router_names_its_path_its_tool_and_a_fieldless_argument_model(
 def test_the_staged_board_is_exactly_what_the_tool_model_produces() -> None:
     """The premise every case below rests on, and the one thing this file can
     get wrong on its own: catches a staged payload invented here instead of
-    read off `mcp_server.tools.admin`, which would let the route's body case
+    read off `mcp_server.tools.policy_docs`, which would let the route's body case
     pass while the route answered a shape the web parser refuses.
 
     `ListPolicyDocumentsOutput` is the tool's own model, so validating the
@@ -758,7 +758,7 @@ def test_the_reingest_route_sends_its_exact_three_key_argument_set(
     assertion alone.
 
     The staged answer is validated against the tool's own output model first: a payload invented here rather than read off
-    `mcp_server/tools/admin.py` would let the body assertion pass while the
+    `mcp_server/tools/policy_docs.py` would let the body assertion pass while the
     route answered a shape the web parser refuses.
 
     The registration half reads `app.openapi()["paths"]` rather than walking

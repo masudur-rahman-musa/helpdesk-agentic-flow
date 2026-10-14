@@ -1,6 +1,6 @@
 """Ingest one tenant's policy corpus version into both stores.
 
-    uv run python scripts/ingest.py --tenant nordlicht --version v1
+    uv run python -m helpdesk.mcp_server.cli --tenant nordlicht --version v1
 
 Argument parsing, the corpus root, one line of output per document and the
 exit code — nothing else. Every effect lives in `helpdesk.rag.pipeline`: the design calls ingestion "also an admin API", and a
@@ -33,14 +33,14 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from helpdesk.mcp_server.services.rag.embedding import FastEmbedEmbedder
+from helpdesk.mcp_server.services.rag.pipeline import ingest_version
+from helpdesk.mcp_server.services.rag.redaction_client import RedactionClient
+from helpdesk.mcp_server.services.rag.vectors import create_client
 from helpdesk.shared.core.db import create_engine, create_session_factory
 from helpdesk.shared.core.repository import find_tenant_by_slug
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.errors import ToolError
-from helpdesk.mcp_server.services.rag.embedding import FastEmbedEmbedder
-from helpdesk.mcp_server.services.rag.redaction_client import RedactionClient
-from helpdesk.mcp_server.services.rag.pipeline import ingest_version
-from helpdesk.mcp_server.services.rag.vectors import create_client
 
 
 def _corpus_root(flag: Path | None, configured: Path) -> Path:

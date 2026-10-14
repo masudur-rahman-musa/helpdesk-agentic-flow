@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.tools.admin`` (new module, the design's Admin group)
+``mcp_server.tools.rollback`` (new module, the design's Admin group)
     ``RollbackRequestInput(MutatingToolInput)`` — ``request_id: uuid.UUID``
     and ``reason: str`` bounded ``1..REASON_MAX_LENGTH``, the constant
     IMPORTED from ``mcp_server.tools.access`` rather than retyped, plus the
@@ -832,11 +832,11 @@ def test_the_reason_boundary_is_inclusive_at_1_and_2000(
     reason without the other's is exactly the drift this import prevents. The
     refused rows are re-read to prove the check runs BEFORE any effect.
     """
-    from helpdesk.mcp_server.tools import admin
+    from helpdesk.mcp_server.tools import rollback
     from helpdesk.mcp_server.tools.access import REASON_MAX_LENGTH as WIRED_MAX_LENGTH
 
     assert WIRED_MAX_LENGTH == REASON_MAX_LENGTH == 2000
-    assert admin.RollbackRequestInput.model_fields["reason"].metadata[-1].max_length == (
+    assert rollback.RollbackRequestInput.model_fields["reason"].metadata[-1].max_length == (
         WIRED_MAX_LENGTH
     )
 

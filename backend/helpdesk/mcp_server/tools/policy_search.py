@@ -43,8 +43,8 @@ import uuid
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server import rag_clients
-from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.core import rag_clients
+from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.services.rag import retrieval
 from helpdesk.shared.core.repository import find_tenant_by_id
 from helpdesk.shared.core.settings import load_settings

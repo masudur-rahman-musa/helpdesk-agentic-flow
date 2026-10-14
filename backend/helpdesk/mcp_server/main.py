@@ -2,7 +2,7 @@
 
 The SDK's lowlevel `Server` is used rather than its decorator-based wrapper
 so `tools/list` is built from the registry and `tools/call` goes straight to
-`pipeline.dispatch`. The wrapper would validate arguments against the tool's
+`dispatch.dispatch`. The wrapper would validate arguments against the tool's
 schema before any handler ran, which would put input validation ahead of the
 kill switch and RBAC and would answer with pydantic's own text — both of the
 things an earlier change's criteria 5 and 6 forbid.
@@ -46,7 +46,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from helpdesk.mcp_server import pipeline, readiness, registry
+from helpdesk.mcp_server.api.routes import health
+from helpdesk.mcp_server.tools import dispatch, registry
 from helpdesk.shared.core.settings import mcp_allowed_hosts_from_env
 from helpdesk.shared.errors import ToolError
 from helpdesk.shared.obs.logging import configure_logging
@@ -130,9 +131,9 @@ async def _call_tool(
         spec = registry.lookup(params.name)
     except ToolError as exc:
         logger.warning("unregistered tool name requested: %r", params.name)
-        return pipeline.error_result(exc.code)
+        return dispatch.error_result(exc.code)
     request = ctx.request if isinstance(ctx.request, Request) else None
-    return await pipeline.dispatch(spec, request, params.arguments or {})
+    return await dispatch.dispatch(spec, request, params.arguments or {})
 
 
 def build_server() -> Server[Any]:
@@ -178,9 +179,9 @@ def create_app() -> FastAPI:
     async def readyz() -> JSONResponse:
         # Called through the module attribute so tests can fake one check.
         checks = {
-            "postgres": await readiness.check_postgres(),
-            "redis": await readiness.check_redis(),
-            "qdrant": await readiness.check_qdrant(),
+            "postgres": await health.check_postgres(),
+            "redis": await health.check_redis(),
+            "qdrant": await health.check_qdrant(),
         }
         ready = all(checks.values())
         body = ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)

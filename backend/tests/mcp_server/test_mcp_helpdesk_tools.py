@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.tools.helpdesk``
+``mcp_server.tools.self_service``
     ``reset_own_password(idempotency_key)`` — simulated reset (the design):
     sets ``users.password_reset_requested_at`` on the TOKEN's user and returns
     a one-time token display placeholder that is obviously fake. Declared
@@ -19,7 +19,7 @@ Surface under test (written before it exists):
     All three input models forbid extra fields: a ``user_id``
     or ``tenant_id`` in the arguments is ``VALIDATION`` with no effect run.
 
-``mcp_server.pipeline`` (the ``mutating`` branch)
+``mcp_server.tools.dispatch`` (the ``mutating`` branch)
     Every mutating call requires ``idempotency_key`` and runs its body inside
     ``run_once``: a replay with the same key and arguments returns the
     byte-identical response, runs no second effect and writes

@@ -30,9 +30,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
-from helpdesk.mcp_server import pipeline
-from helpdesk.mcp_server.identity import Identity
-from helpdesk.mcp_server.registry import ToolSpec
+from helpdesk.mcp_server.core.identity import Identity
+from helpdesk.mcp_server.tools import dispatch as pipeline
+from helpdesk.mcp_server.tools.registry import ToolSpec
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.obs.logging import FORBIDDEN_KEYS, REDACTED, JsonFormatter
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name

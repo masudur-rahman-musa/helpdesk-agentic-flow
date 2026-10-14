@@ -19,17 +19,20 @@ from typing import Any
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools import (
     access,
-    admin,
     approvals,
-    helpdesk,
+    killswitch,
     lifecycle,
     notifications,
-    policy,
+    policy_docs,
+    policy_search,
     read,
     reviews,
+    rollback,
+    rules,
+    self_service,
 )
 from helpdesk.shared.auth import rbac
 
@@ -311,21 +314,21 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         name=rbac.Tool.RESET_OWN_PASSWORD.value,
         tool=rbac.Tool.RESET_OWN_PASSWORD,
         description="Simulated password reset for the calling user's own account.",
-        input_model=helpdesk.ResetOwnPasswordInput,
-        output_model=helpdesk.ResetOwnPasswordOutput,
-        event_type=helpdesk.RESET_EVENT_TYPE,
+        input_model=self_service.ResetOwnPasswordInput,
+        output_model=self_service.ResetOwnPasswordOutput,
+        event_type=self_service.RESET_EVENT_TYPE,
         mutating=True,
-        handler=helpdesk.reset_own_password,
+        handler=self_service.reset_own_password,
     ),
     ToolSpec(
         name=rbac.Tool.UNLOCK_OWN_ACCOUNT.value,
         tool=rbac.Tool.UNLOCK_OWN_ACCOUNT,
         description="Simulated unlock of the calling user's own account.",
-        input_model=helpdesk.UnlockOwnAccountInput,
-        output_model=helpdesk.UnlockOwnAccountOutput,
-        event_type=helpdesk.UNLOCK_EVENT_TYPE,
+        input_model=self_service.UnlockOwnAccountInput,
+        output_model=self_service.UnlockOwnAccountOutput,
+        event_type=self_service.UNLOCK_EVENT_TYPE,
         mutating=True,
-        handler=helpdesk.unlock_own_account,
+        handler=self_service.unlock_own_account,
     ),
     ToolSpec(
         name=rbac.Tool.ROLLBACK_REQUEST.value,
@@ -334,14 +337,14 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
             # The number comes from the domain's own constant, never a
             # literal: a widened window must not leave the description
             # telling an agent an older request cannot be undone.
-            f"Undo an executed access request within {admin.WINDOW_HOURS} hours: "
+            f"Undo an executed access request within {rollback.WINDOW_HOURS} hours: "
             "revoke every live grant it produced and close it."
         ),
-        input_model=admin.RollbackRequestInput,
-        output_model=admin.RollbackRequestOutput,
+        input_model=rollback.RollbackRequestInput,
+        output_model=rollback.RollbackRequestOutput,
         event_type=SUCCESS_EVENT_TYPE,
         mutating=True,
-        handler=admin.rollback_request,
+        handler=rollback.rollback_request,
     ),
     ToolSpec(
         # A READ: `search_audit` changes nothing, so it carries no
@@ -376,11 +379,11 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
             "Turn a tool's kill switch on or off. enabled=true STOPS the named tool; "
             'enabled=false lets it run again. scope is "global" or your own tenant id.'
         ),
-        input_model=admin.SetKillSwitchInput,
-        output_model=admin.SetKillSwitchOutput,
+        input_model=killswitch.SetKillSwitchInput,
+        output_model=killswitch.SetKillSwitchOutput,
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
-        handler=admin.set_kill_switch,
+        handler=killswitch.set_kill_switch,
     ),
     ToolSpec(
         # A READ, and the half of the row above that was missing: nothing
@@ -400,11 +403,11 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
             "List every tool and the state of its kill switches, global and this tenant's. "
             "stopped=true means the tool is currently refusing calls."
         ),
-        input_model=admin.ListKillSwitchesInput,
-        output_model=admin.ListKillSwitchesOutput,
+        input_model=killswitch.ListKillSwitchesInput,
+        output_model=killswitch.ListKillSwitchesOutput,
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
-        handler=admin.list_kill_switches,
+        handler=killswitch.list_kill_switches,
     ),
     ToolSpec(
         # An earlier change: a READ of the tenant's own configuration, so no
@@ -425,11 +428,11 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
             "their system, the rationale and the policy reference. Takes no arguments; "
             "reads only."
         ),
-        input_model=admin.ListSodRulesInput,
-        output_model=admin.ListSodRulesOutput,
+        input_model=rules.ListSodRulesInput,
+        output_model=rules.ListSodRulesOutput,
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
-        handler=admin.list_sod_rules,
+        handler=rules.list_sod_rules,
     ),
     ToolSpec(
         # An earlier change: a READ of the tenant's own corpus metadata, so no
@@ -451,11 +454,11 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
             "ingested, how many chunks it holds, its source path and its sha256. Takes no "
             "arguments; reads only."
         ),
-        input_model=admin.ListPolicyDocumentsInput,
-        output_model=admin.ListPolicyDocumentsOutput,
+        input_model=policy_docs.ListPolicyDocumentsInput,
+        output_model=policy_docs.ListPolicyDocumentsOutput,
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
-        handler=admin.list_policy_documents,
+        handler=policy_docs.list_policy_documents,
     ),
     ToolSpec(
         # An earlier change: the WRITE half of the row above, and MUTATING -- it re-reads
@@ -481,11 +484,11 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
             "document by its slug and its version directory (spelled v1). An unchanged "
             "source writes nothing and answers created=false with zero chunks."
         ),
-        input_model=admin.ReingestPolicyDocumentInput,
-        output_model=admin.ReingestPolicyDocumentOutput,
-        event_type=admin.REINGESTED_EVENT_TYPE,
+        input_model=policy_docs.ReingestPolicyDocumentInput,
+        output_model=policy_docs.ReingestPolicyDocumentOutput,
+        event_type=policy_docs.REINGESTED_EVENT_TYPE,
         mutating=True,
-        handler=admin.reingest_policy_document,
+        handler=policy_docs.reingest_policy_document,
     ),
     ToolSpec(
         # A READ over Qdrant: nothing is written, so no idempotency key and no
@@ -500,11 +503,11 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
             "Returns refused=true with no citations when nothing matches well enough to "
             "answer from."
         ),
-        input_model=policy.SearchPolicyInput,
-        output_model=policy.SearchPolicyOutput,
+        input_model=policy_search.SearchPolicyInput,
+        output_model=policy_search.SearchPolicyOutput,
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
-        handler=policy.search_policy,
+        handler=policy_search.search_policy,
     ),
     ToolSpec(
         # An earlier change: a READ, so it carries no idempotency key and the generic
@@ -544,11 +547,11 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         name=rbac.Tool.CREATE_TICKET.value,
         tool=rbac.Tool.CREATE_TICKET,
         description="File a helpdesk ticket for the calling user.",
-        input_model=helpdesk.CreateTicketInput,
-        output_model=helpdesk.CreateTicketOutput,
-        event_type=helpdesk.TICKET_EVENT_TYPE,
+        input_model=self_service.CreateTicketInput,
+        output_model=self_service.CreateTicketOutput,
+        event_type=self_service.TICKET_EVENT_TYPE,
         mutating=True,
-        handler=helpdesk.create_ticket,
+        handler=self_service.create_ticket,
     ),
 )
 

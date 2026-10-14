@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.identity``
+``mcp_server.core.identity``
     ``class Identity(BaseModel, frozen=True)`` with ``user_id: uuid.UUID``,
     ``tenant_id: uuid.UUID``, ``session_id: uuid.UUID`` and ``claims:
     TokenClaims`` (kept whole so ``rbac.authorize`` still reads the token,
@@ -16,7 +16,7 @@ tell an absent header from an expired token from a `sub` that is not a UUID:
 the refusal table below is exhaustive over the causes named in the plan, and
 every row asserts the same code, so a "helpful" distinction fails here.
 
-``mcp_server.pipeline._session_factory(settings)`` is the seam the transport
+``mcp_server.tools.dispatch._session_factory(settings)`` is the seam the transport
 cases spy on: criterion 2 says no DB session is opened on a refusal, and a
 spy that is never called is the only way to prove that.
 
@@ -30,9 +30,9 @@ from typing import Any
 
 import pytest
 
-from helpdesk.mcp_server import pipeline
-from helpdesk.mcp_server.identity import Identity, IdentityRefused, identity_from_header
-from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.mcp_server.core.identity import Identity, IdentityRefused, identity_from_header
+from helpdesk.mcp_server.tools import dispatch as pipeline
+from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.errors import ErrorCode, ToolError
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name

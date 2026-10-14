@@ -45,8 +45,8 @@ import pytest
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.mcp_server import rag_clients
-from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.mcp_server.core import rag_clients
+from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.auth.rbac import Principal
 from helpdesk.shared.models import (
     AccessRequest,

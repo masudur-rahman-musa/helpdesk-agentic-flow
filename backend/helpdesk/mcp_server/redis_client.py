@@ -2,11 +2,11 @@
 
 Moved out of `pipeline.py` by an earlier change, unchanged: the pipeline reads the kill
 switch before every call, and `set_kill_switch`'s handler WRITES one, so both
-need the same per-loop pooled client. A handler cannot import `pipeline` for
-it — `pipeline` imports `registry`, which imports `tools.admin`, which is the
-handler — so the accessor lives here and both import it (decision F).
+need the same per-loop pooled client. A handler cannot import `dispatch` for
+it — `dispatch` imports `registry`, which imports `tools.killswitch`, which is
+the handler — so the accessor lives here and both import it (decision F).
 
-`pipeline` re-exports `_redis` and `REDIS_TIMEOUT_SECONDS` under their old
+`dispatch` re-exports `_redis` and `REDIS_TIMEOUT_SECONDS` under their old
 names, so `test_mcp_pipeline.py::test_the_redis_client_carries_the_pinned_timeouts`
 keeps covering this module from its old call site.
 """

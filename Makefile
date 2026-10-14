@@ -19,7 +19,7 @@ run:        ## Run the project locally
 migrate:    ## Apply both schemas to the local compose database (hard rule 3)
 	cd backend && uv run alembic upgrade head && uv run python -m helpdesk.agent_api.cli
 ingest:     ## Ingest one tenant's corpus version from POLICY_DIR: make ingest TENANT=acme VERSION=v1
-	cd backend && uv run python ../scripts/ingest.py --tenant $(TENANT) --version $(VERSION)
+	cd backend && uv run python -m helpdesk.mcp_server.cli --tenant $(TENANT) --version $(VERSION)
 # Per-test coverage contexts feed `select-tests` on a laptop and slow the suite a
 # lot. CI keeps the 80% floor and sets COV_CONTEXT= to skip the recording.
 COV_CONTEXT ?= --cov-context=test

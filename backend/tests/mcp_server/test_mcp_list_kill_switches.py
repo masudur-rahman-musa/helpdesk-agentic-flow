@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.tools.admin``
+``mcp_server.tools.killswitch``
     ``ListKillSwitchesInput(BaseModel)`` — NO fields at all and
     ``extra="forbid"``: no tenant, no user, no tool name. The tenant is the
     token's and the tool list is the server's own registry, so
@@ -56,7 +56,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.mcp_server.tools.registry import REGISTRY
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
@@ -537,17 +537,17 @@ def test_a_denied_caller_is_refused_before_any_switch_is_read(
     codes are asserted, one positively and one negatively, because an
     `INTERNAL` would otherwise read as a plausible refusal.
     """
-    from helpdesk.mcp_server.tools import admin
+    from helpdesk.mcp_server.tools import killswitch
 
     def _closed(settings: Any) -> Any:
         return Redis.from_url(CLOSED_REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
 
     # `raising=True` (the default) is deliberate: the handler reaches Redis
-    # through the accessor `mcp_server.tools.admin` already imports from
+    # through the accessor `mcp_server.tools.killswitch` already imports from
     # `mcp_server.redis_client` (plan §2), and an implementation that reached
     # it some other way makes this case fail loudly here rather than pass
     # while staging nothing.
-    monkeypatch.setattr(admin, "_redis", _closed)
+    monkeypatch.setattr(killswitch, "_redis", _closed)
 
     result = call_tool(
         bearer(token_for(mcp_env.tenant_a, principals=("auditor",))),

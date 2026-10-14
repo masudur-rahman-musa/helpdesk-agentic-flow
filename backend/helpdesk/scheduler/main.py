@@ -11,7 +11,7 @@ when it stops. The failure this arrangement is written against is the silent
 one: an app that serves all three endpoints while nothing ticks passes every
 health check and expires nothing for ever. `runner.run_loop` is reached
 through the module attribute so a test can replace it, the same seam
-`readiness`'s two checks use.
+`health`'s two checks use.
 """
 
 import asyncio
@@ -23,7 +23,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from helpdesk.scheduler import readiness, runner
+from helpdesk.scheduler import runner
+from helpdesk.scheduler.api.routes import health
 from helpdesk.shared.obs.logging import configure_logging
 from helpdesk.shared.obs.metrics import render as render_metrics
 
@@ -76,8 +77,8 @@ def create_app() -> FastAPI:
     async def readyz() -> JSONResponse:
         # Called through the module attribute so tests can fake one check.
         checks = {
-            "postgres": await readiness.check_postgres(),
-            "redis": await readiness.check_redis(),
+            "postgres": await health.check_postgres(),
+            "redis": await health.check_redis(),
         }
         ready = all(checks.values())
         body = ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)

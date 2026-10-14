@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.shared.core.repository import Repository
 from helpdesk.shared.errors import NotFoundError

@@ -42,7 +42,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.shared.access import (
     ItemAlreadyDecidedError as ItemAlreadyDecidedError,  # re-exported for the tests

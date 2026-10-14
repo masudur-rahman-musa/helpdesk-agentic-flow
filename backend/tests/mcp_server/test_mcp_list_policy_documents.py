@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.tools.admin``
+``mcp_server.tools.policy_docs``
     ``ListPolicyDocumentsInput(BaseModel)`` - NO fields at all: no tenant, no
     slug, no version. The tenant is the token's and the corpus is that
     tenant's own rows, so there is nothing for a caller to
@@ -62,12 +62,12 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.mcp_server.registry import REGISTRY
-from helpdesk.mcp_server.tools.admin import (
+from helpdesk.mcp_server.tools.policy_docs import (
     ListPolicyDocumentsOutput,
     PolicyDocumentRow,
     PolicyVersionRow,
 )
+from helpdesk.mcp_server.tools.registry import REGISTRY
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,

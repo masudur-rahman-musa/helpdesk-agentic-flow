@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.shared.access import SimulatedDirectory, request_in_scope
 from helpdesk.shared.audit import search_audit_events
 from helpdesk.shared.auth import rbac

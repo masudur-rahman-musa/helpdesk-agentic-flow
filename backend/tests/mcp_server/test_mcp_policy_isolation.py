@@ -6,8 +6,8 @@ This file asserts it where a CLIENT can reach it: two real tokens, the real MCP
 transport, the real Qdrant, and a marker sentence ingested only into tenant B's
 collection through `vectors.upsert_chunks`.
 
-Surface under test: `mcp_server.tools.policy.search_policy` and
-`mcp_server.rag_clients` exactly as `test_mcp_search_policy.py` describes them.
+Surface under test: `mcp_server.tools.policy_search.search_policy` and
+`mcp_server.core.rag_clients` exactly as `test_mcp_search_policy.py` describes them.
 
 The two callers are the seeded cross-tenant pair `mcp_fixtures` reads back
 (`tenant_a`, `tenant_b`), and both the planting and the assertions resolve their
@@ -33,7 +33,7 @@ from typing import Any
 
 import pytest
 
-from helpdesk.mcp_server import rag_clients
+from helpdesk.mcp_server.core import rag_clients
 from helpdesk.mcp_server.services.rag.vectors import collection_name, create_client
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.settings import load_settings

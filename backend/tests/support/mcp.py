@@ -561,8 +561,8 @@ async def _drive[T](
     headers: Mapping[str, str],
     scenario: Callable[[Client], Awaitable[T]],
 ) -> T:
-    from helpdesk.mcp_server import pipeline
     from helpdesk.mcp_server.main import create_app
+    from helpdesk.mcp_server.tools import dispatch as pipeline
 
     app = create_app()
     transport = httpx2.ASGITransport(app=app)
@@ -620,8 +620,8 @@ def http_get(path: str) -> httpx2.Response:
     """One plain HTTP GET against a fresh app (for /healthz and /readyz)."""
 
     async def scenario() -> httpx2.Response:
-        from helpdesk.mcp_server import pipeline
         from helpdesk.mcp_server.main import create_app
+        from helpdesk.mcp_server.tools import dispatch as pipeline
 
         app = create_app()
         try:
@@ -677,8 +677,8 @@ def mcp_post(
     """
 
     async def scenario() -> httpx2.Response:
-        from helpdesk.mcp_server import pipeline
         from helpdesk.mcp_server.main import create_app
+        from helpdesk.mcp_server.tools import dispatch as pipeline
 
         app = create_app()
         try:

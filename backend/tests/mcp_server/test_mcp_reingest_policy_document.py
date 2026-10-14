@@ -3,7 +3,7 @@
 Surface under test (written before it exists; every case here is red on one of
 these names until steps 1 to 5 land):
 
-``mcp_server.tools.admin``
+``mcp_server.tools.policy_docs``
     ``ReingestPolicyDocumentInput(MutatingToolInput)`` - exactly ``slug``,
     ``version`` and the ``idempotency_key`` and ``extra="forbid"`` that base
     class carries. No ``tenant_id`` and no ``source_path``: the tenant is the
@@ -16,7 +16,7 @@ these names until steps 1 to 5 land):
     is ``reingest_policy_document`` and whose registry ``event_type`` is the
     declared ``policy.reingested`` (decision D).
 
-``mcp_server.rag_clients``
+``mcp_server.core.rag_clients``
     ``redactor(settings)`` - the pooled `RedactionClient` accessor (decision
     F), read through the MODULE by the handler exactly as ``qdrant`` and
     ``embedder`` are, which is what lets this file substitute it. The stub
@@ -70,9 +70,9 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.mcp_server import rag_clients
-from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.mcp_server.core import rag_clients
 from helpdesk.mcp_server.services.rag.redaction_client import RedactedDocument
+from helpdesk.mcp_server.tools.registry import REGISTRY
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     RecordingEmbedder,
     SeededMcp,

@@ -2,7 +2,7 @@
 
 Surface under test (written before it exists):
 
-``mcp_server.tools.admin``
+``mcp_server.tools.killswitch``
     ``SetKillSwitchInput(BaseModel)`` — NOT a ``MutatingToolInput`` (decision
     C: the design omits the idempotency key for this tool alone, and one SET or
     DELETE of one key is idempotent by nature), with ``extra="forbid"``.
@@ -630,11 +630,11 @@ def test_the_reason_boundary_is_inclusive_at_1_and_500(
     leaves nothing behind; the refused rows are checked to have written no
     event at all, which proves the check runs before any effect.
     """
-    from helpdesk.mcp_server.tools import admin
+    from helpdesk.mcp_server.tools import killswitch
     from helpdesk.shared.killswitch import REASON_MAX_LENGTH as WIRED_REASON_MAX
 
     assert WIRED_REASON_MAX == REASON_MAX_LENGTH == 500
-    assert admin.SetKillSwitchInput.model_fields["reason"].metadata[-1].max_length == (
+    assert killswitch.SetKillSwitchInput.model_fields["reason"].metadata[-1].max_length == (
         WIRED_REASON_MAX
     )
 

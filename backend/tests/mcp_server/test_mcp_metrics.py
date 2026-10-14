@@ -6,7 +6,7 @@ Written before the implementation exists. Surface under test:
     answering ``helpdesk.obs.metrics.render()``, registered BEFORE
     ``app.mount("/", mcp_app)`` so the streamable HTTP transport cannot
     swallow it (the shape ``/healthz`` and ``/readyz`` already have).
-``mcp_server.pipeline.dispatch`` — one ``finally`` covering the success path
+``mcp_server.tools.dispatch.dispatch`` — one ``finally`` covering the success path
     and every refusal path, incrementing
     ``helpdesk_tool_calls_total{tool,status}`` once and observing
     ``helpdesk_tool_latency_seconds{tool}`` once, with ``status`` either

@@ -78,7 +78,7 @@ from helpdesk.agent_api.services.mcp_client import (
     RemoteValidationError,
     ToolCaller,
 )
-from helpdesk.mcp_server.tools.admin import SetKillSwitchInput
+from helpdesk.mcp_server.tools.killswitch import SetKillSwitchInput
 from helpdesk.shared.auth.jwt import issue_token, verify_token
 from helpdesk.shared.core.settings import Settings
 from helpdesk.shared.errors import ErrorCode
@@ -246,7 +246,7 @@ class SwitchingToolCaller:
     tool's model - which is what "the pre-check is the tool's own" means when
     no MCP server is running.
 
-    The output half is 13c decision B, read off `admin.py`: `stopped` is the
+    The output half is 13c decision B, read off `killswitch.py`: `stopped` is the
     ECHO of `enabled`, and `changed_at` is the instant the tool stamped the
     change with. The sentinel below is a value the route has no way to invent,
     so a route rendering a body of its own instead of the tool's fails the

@@ -111,7 +111,7 @@ testpaths = ["tests"]
 addopts = "-q"
 # The repo root (`..`) and `backend/` (`.`) are on the path for the whole suite,
 # set once here instead of a `sys.path.insert` in each test file. The
-# root makes the `scripts` namespace reachable (`scripts.ingest` at the root,
+# root makes the `scripts` namespace reachable (`scripts.build_images` at the root,
 # `scripts.seed` under `backend/scripts/`); `backend/` makes `tests.support.*`
 # and `tests.conftest` importable by their package path from every unit.
 pythonpath = ["..", "."]
