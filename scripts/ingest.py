@@ -37,10 +37,10 @@ from helpdesk.shared.core.db import create_engine, create_session_factory
 from helpdesk.shared.core.repository import find_tenant_by_slug
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.errors import ToolError
-from helpdesk.shared.rag.embedding import FastEmbedEmbedder
-from helpdesk.shared.rag.gateway import RedactionClient
-from helpdesk.shared.rag.pipeline import ingest_version
-from helpdesk.shared.rag.vectors import create_client
+from helpdesk.mcp_server.services.rag.embedding import FastEmbedEmbedder
+from helpdesk.mcp_server.services.rag.redaction_client import RedactionClient
+from helpdesk.mcp_server.services.rag.pipeline import ingest_version
+from helpdesk.mcp_server.services.rag.vectors import create_client
 
 
 def _corpus_root(flag: Path | None, configured: Path) -> Path:

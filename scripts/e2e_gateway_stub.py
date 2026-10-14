@@ -78,7 +78,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from helpdesk.shared.gateway.strict_schema import strict_schema_problems
+from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "e2e_fixtures"
 
