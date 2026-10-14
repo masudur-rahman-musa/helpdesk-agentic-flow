@@ -58,12 +58,13 @@ from helpdesk.mcp_server.services.rag.retrieval import Citation, search_policy_c
 from helpdesk.mcp_server.services.rag.store import register_document_version
 from helpdesk.mcp_server.services.rag.vectors import DENSE_VECTOR_NAME
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository, find_tenant_by_slug
-from helpdesk.shared.errors import ToolError
+from helpdesk.shared.core.errors import ToolError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyChunk, PolicyDocument
 
 # Imported, not redefined: one database for the whole run.
-from tests.shared.test_policy_models import (
+from tests.shared.models.test_policy_models import (
     TENANT_A_SLUG,
     policy_db_url,  # noqa: F401
 )

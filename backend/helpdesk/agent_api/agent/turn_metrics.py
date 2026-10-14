@@ -17,9 +17,9 @@ exception's words is ever a label, which is what keeps the unauthenticated
 from typing import Any
 
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
-from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.obs import metrics
-from helpdesk.shared.obs.context import current_context
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.observability import metrics
+from helpdesk.shared.core.observability.context import current_context
 from helpdesk.shared.policy.types import RiskClass, severity
 
 __all__ = ["record_turn_code", "record_turn_state", "trace_attributes"]

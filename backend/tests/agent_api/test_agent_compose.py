@@ -78,7 +78,7 @@ from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.shared.core.db import _TENANT_INFO_KEY
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS, MessageRole
 

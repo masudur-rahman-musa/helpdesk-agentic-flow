@@ -43,14 +43,14 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.access.directory import DirectoryProvider
 from helpdesk.shared.access.requests import set_request_status
 from helpdesk.shared.access.revoke import GrantNotActiveError, revoke_grant_row
-from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.core.repository import lock_live_grants_for_request
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.crud.grants import lock_live_grants_for_request
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
+from helpdesk.shared.services.access.directory import DirectoryProvider
+from helpdesk.shared.services.audit import AuditEventInput, append_event
 
 WINDOW_HOURS = 24
 """The window's length in hours, as ONE number.

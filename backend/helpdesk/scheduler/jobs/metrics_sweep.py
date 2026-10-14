@@ -27,10 +27,10 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.audit.verify import verify_tenant_chain
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.core.repository import count_live_grants
-from helpdesk.shared.obs.metrics import record_audit_chain_ok, record_grants_active
+from helpdesk.shared.core.observability.metrics import record_audit_chain_ok, record_grants_active
+from helpdesk.shared.crud.grants import count_live_grants
+from helpdesk.shared.services.audit.verify import verify_tenant_chain
 
 
 async def refresh_active_grants_gauge(session: AsyncSession, *, now: datetime) -> None:

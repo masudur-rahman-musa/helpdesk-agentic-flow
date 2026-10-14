@@ -48,10 +48,10 @@ from starlette.requests import Request
 
 from helpdesk.mcp_server.api.routes import health
 from helpdesk.mcp_server.tools import dispatch, registry
-from helpdesk.shared.core.settings import mcp_allowed_hosts_from_env
-from helpdesk.shared.errors import ToolError
-from helpdesk.shared.obs.logging import configure_logging
-from helpdesk.shared.obs.metrics import render as render_metrics
+from helpdesk.shared.core.config import mcp_allowed_hosts_from_env
+from helpdesk.shared.core.errors import ToolError
+from helpdesk.shared.core.observability.logging import configure_logging
+from helpdesk.shared.core.observability.metrics import render as render_metrics
 
 logger = logging.getLogger(__name__)
 

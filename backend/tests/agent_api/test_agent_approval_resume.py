@@ -73,8 +73,8 @@ from helpdesk.agent_api.agent.resume import ResumeRefusedError, resume_turn
 from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import list_recent_messages
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.crud.messages import list_recent_messages
 from helpdesk.shared.models.access import AccessRequest, RequestStatus
 from helpdesk.shared.models.conversation import MessageRole
 

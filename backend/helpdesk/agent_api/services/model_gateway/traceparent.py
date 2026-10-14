@@ -27,7 +27,7 @@ import os
 import re
 
 from helpdesk.agent_api.services.tracing import current_span_id, current_trace_id
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 TRACE_ID_BYTES = 16
 """Bytes of trace id, rendered as 32 hex characters, as W3C fixes them.

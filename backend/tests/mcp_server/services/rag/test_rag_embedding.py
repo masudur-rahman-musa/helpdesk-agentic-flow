@@ -39,7 +39,7 @@ from helpdesk.mcp_server.services.rag.embedding import (
     SparseVector,
     cosine,
 )
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.core.config import load_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 

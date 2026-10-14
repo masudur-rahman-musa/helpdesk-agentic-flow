@@ -35,8 +35,8 @@ import pytest
 
 from helpdesk.mcp_server.core import rag_clients
 from helpdesk.mcp_server.services.rag.vectors import collection_name, create_client
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.settings import load_settings
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     RecordingEmbedder,
     SeededMcp,

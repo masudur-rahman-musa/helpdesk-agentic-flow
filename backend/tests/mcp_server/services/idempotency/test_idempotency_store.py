@@ -46,8 +46,8 @@ from helpdesk.shared.core.db import (
     create_session_factory,
     tenant_session,
 )
-from helpdesk.shared.core.repository import (
-    Repository,
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.idempotency import (
     create_idempotency_key,
     delete_expired_idempotency_key,
     find_idempotency_key,

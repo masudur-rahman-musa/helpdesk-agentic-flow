@@ -49,10 +49,10 @@ from pydantic import BaseModel, ValidationError
 
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.agent_api.services.model_gateway.traceparent import traceparent_for
-from helpdesk.shared.core.settings import Settings
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.config import Settings
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.gateway.keys import checked_tenant_key
-from helpdesk.shared.rag.naming import check_slug
+from helpdesk.shared.services.policy_docs.naming import check_slug
 
 CHAT_PATH = "/chat/completions"
 """The gateway's OpenAI-shaped chat endpoint, hung off the versioned base URL

@@ -28,7 +28,7 @@ from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY, SearchPolicyArgs, SearchPolicyResult
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.shared.errors import ToolError
+from helpdesk.shared.core.errors import ToolError
 
 MAX_QUERY_CHARS = 1000
 """The longest query this node will send, INCLUSIVE: exactly 1000 goes whole.

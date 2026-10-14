@@ -77,8 +77,8 @@ from helpdesk.mcp_server.tools.read import (
     SearchAuditInput,
 )
 from helpdesk.shared.auth.jwt import issue_token
-from helpdesk.shared.core.settings import Settings
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.config import Settings
+from helpdesk.shared.core.errors import ErrorCode
 
 SEARCH_AUDIT = "search_audit"
 

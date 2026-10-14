@@ -46,7 +46,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
-from helpdesk.shared.access import (
+from helpdesk.shared.auth import rbac
+from helpdesk.shared.core.errors import NotFoundError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.access_requests import list_requests_with_context_for_requester
+from helpdesk.shared.crud.grants import is_live_grant
+from helpdesk.shared.models import Grant, RequestStatus, Role, System
+from helpdesk.shared.policy.engine import classify
+from helpdesk.shared.policy.types import (
+    Classification,
+    Decision,
+    RequiredApprover,
+    RiskClass,
+    SodConflict,
+)
+from helpdesk.shared.services.access import (
     DirectoryProvider,
     GrantNotActiveError,
     SimulatedDirectory,
@@ -57,26 +71,10 @@ from helpdesk.shared.access import (
     resolved_approver_ids,
     revoke_role_access,
 )
-from helpdesk.shared.access import (
+from helpdesk.shared.services.access import (
     create_access_request as persist_access_request,
 )
-from helpdesk.shared.audit import AuditEventInput, append_event
-from helpdesk.shared.auth import rbac
-from helpdesk.shared.core.repository import (
-    Repository,
-    is_live_grant,
-    list_requests_with_context_for_requester,
-)
-from helpdesk.shared.errors import NotFoundError
-from helpdesk.shared.models import Grant, RequestStatus, Role, System
-from helpdesk.shared.policy.engine import classify
-from helpdesk.shared.policy.types import (
-    Classification,
-    Decision,
-    RequiredApprover,
-    RiskClass,
-    SodConflict,
-)
+from helpdesk.shared.services.audit import AuditEventInput, append_event
 
 CLASSIFIED_EVENT_TYPE = "request.classified"
 """Classify's own success event: the

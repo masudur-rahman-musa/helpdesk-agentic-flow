@@ -45,8 +45,8 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.shared.killswitch import GLOBAL, KillSwitch
 from helpdesk.shared.models.idempotency import KEY_LENGTH
+from helpdesk.shared.services.killswitch import GLOBAL, KillSwitch
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,

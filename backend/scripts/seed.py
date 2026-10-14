@@ -42,14 +42,14 @@ from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.shared.auth.passwords import hash_password
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import (
     bound_tenant_id,
     create_engine,
     create_session_factory,
     tenant_session,
 )
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import (
     Department,
     Grant,

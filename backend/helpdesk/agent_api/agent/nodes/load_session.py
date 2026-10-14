@@ -24,11 +24,8 @@ the extracted entities.
 
 from helpdesk.agent_api.agent.state import TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.shared.core.repository import (
-    append_message,
-    get_or_create_session,
-    list_recent_messages,
-)
+from helpdesk.shared.crud.messages import append_message, list_recent_messages
+from helpdesk.shared.crud.sessions import get_or_create_session
 from helpdesk.shared.models.conversation import Message, MessageRole
 
 

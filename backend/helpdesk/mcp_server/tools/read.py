@@ -30,17 +30,12 @@ from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
-from helpdesk.shared.access import SimulatedDirectory, request_in_scope
-from helpdesk.shared.audit import search_audit_events
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.auth.rbac import Scope
-from helpdesk.shared.core.repository import (
-    ActiveGrant,
-    Repository,
-    find_user_by_id,
-    list_active_grants_for_user,
-)
-from helpdesk.shared.errors import NotFoundError
+from helpdesk.shared.core.errors import NotFoundError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.grants import ActiveGrant, list_active_grants_for_user
+from helpdesk.shared.crud.users import find_user_by_id
 from helpdesk.shared.models import (
     AccessRequest,
     AccessReview,
@@ -51,6 +46,8 @@ from helpdesk.shared.models import (
     System,
     User,
 )
+from helpdesk.shared.services.access import SimulatedDirectory, request_in_scope
+from helpdesk.shared.services.audit import search_audit_events
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
 """Extra arguments are dropped, never refused.

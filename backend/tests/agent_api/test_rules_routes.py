@@ -66,8 +66,8 @@ from helpdesk.agent_api.services.mcp_client import (
 )
 from helpdesk.mcp_server.tools.rules import ListSodRulesOutput
 from helpdesk.shared.auth.jwt import issue_token
-from helpdesk.shared.core.settings import Settings
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.config import Settings
+from helpdesk.shared.core.errors import ErrorCode
 
 LIST_SOD_RULES = "list_sod_rules"
 

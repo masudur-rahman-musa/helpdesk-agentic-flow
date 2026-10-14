@@ -50,12 +50,12 @@ from helpdesk.mcp_server.services.access_requests.rollback import (
 )
 from helpdesk.mcp_server.tools.access import REASON_MAX_LENGTH
 from helpdesk.mcp_server.tools.base import MutatingToolInput
-from helpdesk.shared.access import (
+from helpdesk.shared.core.errors import NotFoundError
+from helpdesk.shared.models import RequestStatus
+from helpdesk.shared.services.access import (
     SimulatedDirectory,
     lock_request,
 )
-from helpdesk.shared.errors import NotFoundError
-from helpdesk.shared.models import RequestStatus
 
 
 class RollbackRequestInput(MutatingToolInput):

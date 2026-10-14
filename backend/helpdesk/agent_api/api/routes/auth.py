@@ -39,7 +39,7 @@ from helpdesk.agent_api.services.auth import (
 )
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.auth.passwords import verify_password
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.core.config import load_settings
 
 router = APIRouter()
 

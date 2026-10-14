@@ -73,9 +73,9 @@ from helpdesk.mcp_server.services.rag.vectors import (
     upsert_chunks,
 )
 from helpdesk.shared.core.db import tenant_session
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models import PolicyDocument
-from helpdesk.shared.rag.naming import check_slug, check_version
+from helpdesk.shared.services.policy_docs.naming import check_slug, check_version
 
 MARKDOWN_SUFFIX = ".md"
 """The only files a version directory is walked for.

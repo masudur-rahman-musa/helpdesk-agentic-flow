@@ -45,7 +45,7 @@ from helpdesk.agent_api.agent.prompts import (
     load_prompt,
 )
 from helpdesk.agent_api.agent.state import Intent
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 SYSTEM_PROMPT = "system"
 INTENT_PROMPT = "intent_extraction"

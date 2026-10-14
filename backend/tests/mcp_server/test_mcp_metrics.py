@@ -39,8 +39,8 @@ from test_mcp_pipeline import (
     _typed_error,
 )
 
-from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.obs import metrics
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.observability import metrics
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,

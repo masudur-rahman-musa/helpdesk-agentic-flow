@@ -9,11 +9,12 @@ import uuid
 
 from fastapi.responses import JSONResponse
 
-from helpdesk.shared.audit.writer import AuditEventInput, append_event
 from helpdesk.shared.auth.passwords import hash_password
 from helpdesk.shared.core.db import create_session_factory, shared_engine, tenant_session
-from helpdesk.shared.core.repository import find_tenant_by_slug, find_user_by_email
+from helpdesk.shared.crud.tenants import find_tenant_by_slug
+from helpdesk.shared.crud.users import find_user_by_email
 from helpdesk.shared.models import Tenant, User
+from helpdesk.shared.services.audit.writer import AuditEventInput, append_event
 
 # Verified on the miss paths so their timing matches a real password check.
 # Random per process: it only ever has to fail.

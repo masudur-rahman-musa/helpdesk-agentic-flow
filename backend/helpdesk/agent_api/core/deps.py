@@ -16,8 +16,8 @@ from datetime import UTC, datetime
 from fastapi.responses import JSONResponse
 
 from helpdesk.shared.auth.jwt import TokenClaims, TokenVerificationError, verify_token
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.config import load_settings
+from helpdesk.shared.core.errors import ErrorCode
 
 STATUS_FOR_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.VALIDATION: 400,

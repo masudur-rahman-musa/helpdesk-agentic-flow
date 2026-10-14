@@ -75,27 +75,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from test_access_expiry import expiry_db_url  # noqa: F401
 
 from helpdesk.shared import access as access_package
-from helpdesk.shared.access import review_schedule as review_schedule_module
-from helpdesk.shared.access import reviews as reviews_module
-from helpdesk.shared.access.directory import DirectoryReader, SimulatedDirectory
 from helpdesk.shared.access.review_schedule import (
     GENERATED_SYSTEM_SENSITIVITIES,
     REVIEW_DUE_DAYS,
     REVIEW_GENERATION_ACTOR_REF,
     generate_reviews,
 )
-from helpdesk.shared.access.reviews import (
-    PERIOD_LENGTH,
-    REVIEW_OPENED_EVENT_TYPE,
-    REVIEW_PERIOD_PATTERN,
-    OpenReviewResult,
-    check_period,
-    open_review,
-    quarter_period,
-)
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import ACTIVE_GRANT_STATUS, Repository
-from helpdesk.shared.errors import ErrorCode, NotFoundError, ToolError
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS
 from helpdesk.shared.models import (
     AccessReview,
     Department,
@@ -106,6 +95,18 @@ from helpdesk.shared.models import (
     User,
 )
 from helpdesk.shared.models.access import PERIOD_LENGTH as COLUMN_PERIOD_LENGTH
+from helpdesk.shared.access import review_schedule as review_schedule_module
+from helpdesk.shared.services.access import reviews as reviews_module
+from helpdesk.shared.services.access.directory import DirectoryReader, SimulatedDirectory
+from helpdesk.shared.services.access.reviews import (
+    PERIOD_LENGTH,
+    REVIEW_OPENED_EVENT_TYPE,
+    REVIEW_PERIOD_PATTERN,
+    OpenReviewResult,
+    check_period,
+    open_review,
+    quarter_period,
+)
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)

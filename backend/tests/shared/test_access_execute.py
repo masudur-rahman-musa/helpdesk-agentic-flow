@@ -47,20 +47,20 @@ from test_access_snapshot import (
     access_db_url,  # noqa: F401
 )
 
-from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.access.execute import (
     GRANT_EXECUTED_EVENT_TYPE,
     PolicyBlockedAtExecutionError,
     SodConflictAtExecutionError,
     execute_grant,
 )
-from helpdesk.shared.access.snapshot import build_request_snapshot
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
 from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.types import Classification, Decision
+from helpdesk.shared.services.access.directory import SimulatedDirectory
+from helpdesk.shared.services.access.snapshot import build_request_snapshot
 
 # `now` is the fixed clock every case passes in, so an expiry assertion cannot
 # depend on when the suite runs. `NOW` comes from the snapshot module so both

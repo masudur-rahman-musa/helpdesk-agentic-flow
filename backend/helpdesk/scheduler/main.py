@@ -25,8 +25,8 @@ from pydantic import BaseModel
 
 from helpdesk.scheduler import runner
 from helpdesk.scheduler.api.routes import health
-from helpdesk.shared.obs.logging import configure_logging
-from helpdesk.shared.obs.metrics import render as render_metrics
+from helpdesk.shared.core.observability.logging import configure_logging
+from helpdesk.shared.core.observability.metrics import render as render_metrics
 
 logger = logging.getLogger(__name__)
 

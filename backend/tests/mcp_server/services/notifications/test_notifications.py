@@ -68,8 +68,8 @@ import pytest
 from helpdesk.mcp_server.services.notifications.list import list_for_user
 from helpdesk.mcp_server.services.notifications.mark import mark_read
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import ErrorCode, NotFoundError, ToolError
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Base, Notification, User
 from helpdesk.shared.models.notification import (
     NOTIFICATION_BODY_MAX_LENGTH,

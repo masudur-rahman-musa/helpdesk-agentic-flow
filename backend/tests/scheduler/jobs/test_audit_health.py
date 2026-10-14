@@ -52,12 +52,12 @@ from sqlalchemy import text
 
 from helpdesk.scheduler.jobs import metrics_sweep as audit_health
 from helpdesk.scheduler.jobs.metrics_sweep import refresh_chain_gauge, reset_chain_verdicts
-from helpdesk.shared.audit import AuditEventInput
-from helpdesk.shared.audit.verify import verify_tenant_chain
-from helpdesk.shared.audit.writer import append_event
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.models import Base
-from helpdesk.shared.obs import metrics
+from helpdesk.shared.services.audit import AuditEventInput
+from helpdesk.shared.services.audit.verify import verify_tenant_chain
+from helpdesk.shared.services.audit.writer import append_event
 from tests.conftest import TempDatabaseFactory
 from tests.support.seed import SeededTenant, seed_tenant
 

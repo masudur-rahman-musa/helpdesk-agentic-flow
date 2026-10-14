@@ -36,8 +36,8 @@ from helpdesk.mcp_server.services.rag.documents import read_policy_documents
 from helpdesk.mcp_server.services.rag.pipeline import ingest_one_document
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.policy_search import UnknownTenantError
-from helpdesk.shared.core.repository import find_tenant_by_id
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.core.config import load_settings
+from helpdesk.shared.crud.tenants import find_tenant_by_id
 
 
 class ListPolicyDocumentsInput(BaseModel):

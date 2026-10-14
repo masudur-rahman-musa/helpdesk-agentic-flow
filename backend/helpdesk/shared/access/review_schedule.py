@@ -37,20 +37,20 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.access.directory import DirectoryReader
-from helpdesk.shared.access.reviews import (
+from helpdesk.shared.access.revoke import SYSTEM_ACTOR_KIND
+from helpdesk.shared.auth.rbac import Principal
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.models import AccessReview, Department, ReviewStatus, System, User
+from helpdesk.shared.models.notification import NotificationKind
+from helpdesk.shared.notifications.notify import notify
+from helpdesk.shared.policy.types import TargetStatus
+from helpdesk.shared.services.access.directory import DirectoryReader
+from helpdesk.shared.services.access.reviews import (
     ReviewAlreadyOpenError,
     check_period,
     open_review,
     quarter_period,
 )
-from helpdesk.shared.access.revoke import SYSTEM_ACTOR_KIND
-from helpdesk.shared.auth.rbac import Principal
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.models import AccessReview, Department, ReviewStatus, System, User
-from helpdesk.shared.models.notification import NotificationKind
-from helpdesk.shared.notifications.notify import notify
-from helpdesk.shared.policy.types import TargetStatus
 
 logger = logging.getLogger(__name__)
 

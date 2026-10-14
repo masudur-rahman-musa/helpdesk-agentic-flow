@@ -56,7 +56,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
-from helpdesk.shared.access import (
+from helpdesk.shared.access.execute import (
+    PolicyBlockedAtExecutionError,
+    SodConflictAtExecutionError,
+)
+from helpdesk.shared.access.requests import (
+    REQUEST_REJECTED_EVENT_TYPE as REQUEST_REJECTED_EVENT_TYPE,  # re-exported, see below
+)
+from helpdesk.shared.auth import rbac
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
+from helpdesk.shared.policy.types import ApproverSlot
+from helpdesk.shared.services.access import (
     NotAnApproverError,
     PendingWithContext,
     RequestNotPendingError,
@@ -74,19 +86,7 @@ from helpdesk.shared.access import (
     request_in_scope,
     set_request_status,
 )
-from helpdesk.shared.access.execute import (
-    PolicyBlockedAtExecutionError,
-    SodConflictAtExecutionError,
-)
-from helpdesk.shared.access.requests import (
-    REQUEST_REJECTED_EVENT_TYPE as REQUEST_REJECTED_EVENT_TYPE,  # re-exported, see below
-)
-from helpdesk.shared.audit import AuditEventInput, append_event
-from helpdesk.shared.auth import rbac
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import ErrorCode, NotFoundError
-from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
-from helpdesk.shared.policy.types import ApproverSlot
+from helpdesk.shared.services.audit import AuditEventInput, append_event
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
 """the design's two decision events, appended by these handlers (decision I).

@@ -25,8 +25,9 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.core.repository import Repository, find_user_by_id
-from helpdesk.shared.errors import ErrorCode, NotFoundError, ToolError
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.users import find_user_by_id
 from helpdesk.shared.models.notification import (
     NOTIFICATION_BODY_MAX_LENGTH,
     NOTIFICATION_TITLE_MAX_LENGTH,

@@ -76,8 +76,8 @@ from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import PostCheckOutcome, ToolResult, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
-from helpdesk.shared.core.repository import append_message
-from helpdesk.shared.errors import ToolError
+from helpdesk.shared.core.errors import ToolError
+from helpdesk.shared.crud.messages import append_message
 from helpdesk.shared.models.conversation import MessageRole, check_message_content
 
 COMPOSITION_PROMPT = "reply_composition"

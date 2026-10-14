@@ -25,7 +25,7 @@ asserts and what an earlier change needs when it re-derives a key for a replanne
 
 import uuid
 
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models.idempotency import KEY_LENGTH
 
 KEY_NAMESPACE = uuid.UUID("6f9619ff-8b86-5d11-b42d-00c04fc964ff")

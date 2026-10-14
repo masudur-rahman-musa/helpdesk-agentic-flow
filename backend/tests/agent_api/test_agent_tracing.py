@@ -114,8 +114,8 @@ from helpdesk.agent_api.services.mcp_client import (
 )
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
 from helpdesk.agent_api.services.tracing import TURN_TRACE_NAME, configure_tracing
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.models.access import RequestStatus
 from tests.agent_api.services.test_obs_tracing import (
     FakeTraceClient,

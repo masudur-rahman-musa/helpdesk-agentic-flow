@@ -24,10 +24,10 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.audit.chain import ChainAnchor
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models import AuditChainAnchor, AuditEvent
+from helpdesk.shared.services.audit.chain import ChainAnchor
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +141,7 @@ async def anchor_tenant_chain(session: AsyncSession) -> ChainAnchor | None:
     # the layering runs verify -> anchor and a top-level import back would be
     # a cycle. This module is the higher half — it decides whether to write —
     # and the deferred import is what keeps that direction true.
-    from helpdesk.shared.audit.verify import verify_tenant_chain
+    from helpdesk.shared.services.audit.verify import verify_tenant_chain
 
     tenant_id = bound_tenant_id(session)
     verdict = await verify_tenant_chain(session, tenant_id)

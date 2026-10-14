@@ -47,10 +47,11 @@ from helpdesk.agent_api.schemas.chat import ChatHistoryResponse, ChatMessage, Ch
 from helpdesk.agent_api.services import tool_proxy
 from helpdesk.agent_api.services.chat import _identity, _rendered, _stream_frames, _typed
 from helpdesk.agent_api.services.ratelimit import RateLimitExceededError, check_rate_limit
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import tenant_session
-from helpdesk.shared.core.repository import find_tenant_by_id, list_recent_messages
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.crud.messages import list_recent_messages
+from helpdesk.shared.crud.tenants import find_tenant_by_id
 from helpdesk.shared.models.conversation import check_message_content
 
 router = APIRouter()

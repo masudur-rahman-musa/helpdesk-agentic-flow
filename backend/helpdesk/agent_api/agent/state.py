@@ -22,7 +22,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, WithJsonSchema
 
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
 
 
 class Intent(StrEnum):

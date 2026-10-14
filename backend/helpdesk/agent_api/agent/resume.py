@@ -38,8 +38,8 @@ from helpdesk.agent_api.agent.gates import decision_result
 from helpdesk.agent_api.agent.graph import Saver, TurnDeps, resume_graph
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_metrics import record_turn_state
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import ErrorCode, NotFoundError, ToolError
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models.access import AccessRequest
 
 __all__ = ["ResumeRefusedError", "resume_turn"]

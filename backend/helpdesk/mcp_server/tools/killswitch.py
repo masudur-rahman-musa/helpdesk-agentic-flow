@@ -12,8 +12,10 @@ It has no scope helper: the design gives the row ONE cell, `platform_admin` at
 deleting it changes the answer for the six principals with no cell — pinned
 by `test_mcp_set_kill_switch.py::test_the_six_denied_principals_change_no_switch`.
 
-It reaches Redis through `mcp_server.redis_client`, the same per-loop pooled
-client with the same pinned timeouts the pipeline reads the switch with.
+It reaches Redis through `helpdesk.shared.core.redis`, the same per-loop pooled
+client with the same pinned timeouts the pipeline reads the switch with. It imports the accessor from there directly, not from
+`tools.dispatch`, because `dispatch` imports `registry`, which imports this
+module — so the shared module is the one both can reach without a cycle.
 
 `list_kill_switches` is the read half of the row above, and the whole of what
 the design's `/admin/killswitch` page is drawn from: every registered tool, both
@@ -35,10 +37,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
-from helpdesk.mcp_server.redis_client import _redis
 from helpdesk.shared.auth import rbac
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.killswitch import (
+from helpdesk.shared.core.config import load_settings
+from helpdesk.shared.core.redis import get_redis as _redis
+from helpdesk.shared.services.killswitch import (
     GLOBAL,
     GLOBAL_SEGMENT,
     PROTECTED_TOOLS,
@@ -47,13 +49,13 @@ from helpdesk.shared.killswitch import (
     SwitchState,
     change_switch,
 )
-from helpdesk.shared.killswitch import (
+from helpdesk.shared.services.killswitch import (
     REASON_MAX_LENGTH as SWITCH_REASON_MAX_LENGTH,
 )
-from helpdesk.shared.killswitch import (
+from helpdesk.shared.services.killswitch import (
     TOOL_NAME_MAX_LENGTH as TOOL_NAME_MAX_LENGTH,  # re-exported for the tests
 )
-from helpdesk.shared.killswitch.switch import InvalidSwitchTargetError
+from helpdesk.shared.services.killswitch.switch import InvalidSwitchTargetError
 
 
 class SetKillSwitchInput(BaseModel):

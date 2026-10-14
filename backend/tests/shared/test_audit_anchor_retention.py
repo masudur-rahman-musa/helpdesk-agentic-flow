@@ -67,18 +67,18 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from helpdesk.shared.audit import AuditEventInput
 from helpdesk.shared.audit.anchor import anchor_tenant_chain
-from helpdesk.shared.audit.chain import VerifyResult
 from helpdesk.shared.audit.retention import (
     ANCHOR_RETENTION_DAYS,
     anchor_retention_cutoff,
     purge_chain_anchors,
 )
-from helpdesk.shared.audit.verify import verify_tenant_chain
-from helpdesk.shared.audit.writer import append_event
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.obs.logging import FORBIDDEN_KEYS
+from helpdesk.shared.core.observability.logging import FORBIDDEN_KEYS
+from helpdesk.shared.services.audit import AuditEventInput
+from helpdesk.shared.services.audit.chain import VerifyResult
+from helpdesk.shared.services.audit.verify import verify_tenant_chain
+from helpdesk.shared.services.audit.writer import append_event
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

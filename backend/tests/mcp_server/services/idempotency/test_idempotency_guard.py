@@ -46,13 +46,14 @@ from helpdesk.mcp_server.services.idempotency.guard import (
     TenantMismatchError,
     run_once,
 )
-from helpdesk.shared.audit import AuditEventInput
-from helpdesk.shared.audit.writer import append_event
 from helpdesk.shared.core.db import create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository, create_idempotency_key, find_idempotency_key
-from helpdesk.shared.errors import ErrorCode, IdempotencyConflictError, ToolError
+from helpdesk.shared.core.errors import ErrorCode, IdempotencyConflictError, ToolError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.idempotency import create_idempotency_key, find_idempotency_key
 from helpdesk.shared.models import IdempotencyKey, Ticket
 from helpdesk.shared.models.idempotency import KEY_LENGTH, TOOL_NAME_LENGTH
+from helpdesk.shared.services.audit import AuditEventInput
+from helpdesk.shared.services.audit.writer import append_event
 from tests.support.seed import schema_engine, seed_tenant
 
 TOOL = "revoke_access"

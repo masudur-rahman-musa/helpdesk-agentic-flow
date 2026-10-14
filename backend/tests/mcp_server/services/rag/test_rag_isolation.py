@@ -50,12 +50,13 @@ from helpdesk.mcp_server.services.rag.vectors import (
     create_client,
 )
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository, find_tenant_by_slug
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyChunk
 
 # Imported, not redefined: one database, one pair of models,
 # one Qdrant connectivity gate for the whole run.
-from tests.shared.test_policy_models import (
+from tests.shared.models.test_policy_models import (
     TENANT_A_SLUG,
     TENANT_B_SLUG,
     policy_db_url,  # noqa: F401

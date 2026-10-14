@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.core.repository import Repository
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Role, SodRule, System
 
 

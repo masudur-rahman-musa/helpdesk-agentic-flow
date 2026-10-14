@@ -68,9 +68,9 @@ from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.models import Base, Department, Role, System, Tenant, User
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)

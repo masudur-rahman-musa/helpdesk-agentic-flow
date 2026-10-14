@@ -71,12 +71,17 @@ from helpdesk.mcp_server.services.rag.vectors import (
     upsert_chunks,
 )
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.rag.naming import MAX_QUERY_CHARS, MAX_TOP_K, check_query, check_top_k
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.services.policy_docs.naming import (
+    MAX_QUERY_CHARS,
+    MAX_TOP_K,
+    check_query,
+    check_top_k,
+)
 
 # Imported, not redefined: one database, one Qdrant connectivity gate for the
 # whole run.
-from tests.shared.test_policy_models import policy_db_url  # noqa: F401
+from tests.shared.models.test_policy_models import policy_db_url  # noqa: F401
 from tests.support.seed import seed_tenant
 
 INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)

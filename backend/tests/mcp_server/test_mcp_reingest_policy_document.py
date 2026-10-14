@@ -537,7 +537,7 @@ def test_the_tool_is_stopped_by_its_own_kill_switch(
     so neither the missing-file refusal nor the guard can answer this row, and
     nothing is written.
     """
-    from helpdesk.shared.killswitch import PROTECTED_TOOLS
+    from helpdesk.shared.services.killswitch import PROTECTED_TOOLS
 
     assert set(PROTECTED_TOOLS) == {SET_KILL_SWITCH}
     assert REINGEST not in PROTECTED_TOOLS

@@ -35,7 +35,7 @@ from datetime import timedelta
 from typing import Any
 
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import list_active_grants_for_user
+from helpdesk.shared.crud.grants import list_active_grants_for_user
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,

@@ -52,16 +52,16 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.scheduler import jobs
-from helpdesk.scheduler.redis_client import close_loop_clients, get_redis
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import (
     create_session_factory,
     dispose_shared_engines,
     shared_engine,
     tenant_session,
 )
-from helpdesk.shared.core.repository import list_tenant_ids
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.redis import close_loop_clients, get_redis
+from helpdesk.shared.crud.tenants import list_tenant_ids
 
 logger = logging.getLogger(__name__)
 

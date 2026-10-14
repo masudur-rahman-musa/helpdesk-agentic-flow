@@ -50,7 +50,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models.base import TenantScoped
 
 MAX_MESSAGE_CHARS = 4000

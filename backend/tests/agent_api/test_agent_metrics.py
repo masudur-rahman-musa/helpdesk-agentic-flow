@@ -70,11 +70,11 @@ from test_chat_stream import (
 from helpdesk.agent_api.agent.state import Intent, TurnOutcome
 from helpdesk.agent_api.api.sse import ERROR
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.observability import metrics
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import User
 from helpdesk.shared.models.access import RequestStatus
-from helpdesk.shared.obs import metrics
 
 TURNS = "helpdesk_turns_total"
 REFUSALS = "helpdesk_refusals_total"

@@ -80,9 +80,9 @@ from helpdesk.agent_api.services.mcp_client import (
 )
 from helpdesk.mcp_server.tools.killswitch import SetKillSwitchInput
 from helpdesk.shared.auth.jwt import issue_token, verify_token
-from helpdesk.shared.core.settings import Settings
-from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.killswitch import REASON_MAX_LENGTH, TOOL_NAME_MAX_LENGTH
+from helpdesk.shared.core.config import Settings
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.services.killswitch import REASON_MAX_LENGTH, TOOL_NAME_MAX_LENGTH
 
 LIST_KILL_SWITCHES = "list_kill_switches"
 SET_KILL_SWITCH = "set_kill_switch"

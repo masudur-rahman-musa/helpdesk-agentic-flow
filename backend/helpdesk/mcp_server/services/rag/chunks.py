@@ -28,8 +28,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.services.rag.chunking import Chunk
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import PolicyChunk
 
 

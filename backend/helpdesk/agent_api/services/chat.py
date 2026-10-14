@@ -22,8 +22,8 @@ from helpdesk.agent_api.services.decision_card import decision_card
 from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.core.db import tenant_session
-from helpdesk.shared.core.repository import find_tenant_by_id
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.crud.tenants import find_tenant_by_id
 
 _TOO_MANY_REQUESTS = 429
 

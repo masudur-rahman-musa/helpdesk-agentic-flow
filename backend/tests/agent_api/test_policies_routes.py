@@ -83,8 +83,8 @@ from helpdesk.mcp_server.tools.policy_docs import (
     ReingestPolicyDocumentOutput,
 )
 from helpdesk.shared.auth.jwt import issue_token
-from helpdesk.shared.core.settings import Settings
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.config import Settings
+from helpdesk.shared.core.errors import ErrorCode
 
 LIST_POLICY_DOCUMENTS = "list_policy_documents"
 

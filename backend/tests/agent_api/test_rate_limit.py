@@ -62,9 +62,9 @@ from helpdesk.agent_api.services.ratelimit import (
     check_rate_limit,
     key_for,
 )
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.rag.naming import SLUG_LENGTH
+from helpdesk.shared.core.config import load_settings
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.services.policy_docs.naming import SLUG_LENGTH
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)
 """One fixed clock, so the window index below is a literal and not a formula."""

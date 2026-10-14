@@ -34,7 +34,7 @@ from helpdesk.mcp_server.core.identity import Identity, IdentityRefused, identit
 from helpdesk.mcp_server.tools import dispatch as pipeline
 from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.auth.jwt import TokenClaims
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     TEST_JWT_SIGNING_PHRASE,
     WRONG_JWT_SIGNING_PHRASE,

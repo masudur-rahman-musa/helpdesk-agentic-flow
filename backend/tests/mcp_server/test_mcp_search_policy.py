@@ -66,9 +66,9 @@ from helpdesk.mcp_server.services.rag.retrieval import REFUSAL_THRESHOLD, RRF_K,
 from helpdesk.mcp_server.services.rag.vectors import collection_name
 from helpdesk.mcp_server.tools.registry import REGISTRY, SUCCESS_EVENT_TYPE
 from helpdesk.shared.auth import rbac
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.rag.naming import MAX_QUERY_CHARS, MAX_TOP_K
+from helpdesk.shared.services.policy_docs.naming import MAX_QUERY_CHARS, MAX_TOP_K
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     PlantedDocument,
     RecordingEmbedder,

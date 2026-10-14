@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from helpdesk.shared.killswitch import REASON_MAX_LENGTH, TOOL_NAME_MAX_LENGTH
+from helpdesk.shared.services.killswitch import REASON_MAX_LENGTH, TOOL_NAME_MAX_LENGTH
 
 
 class ListKillSwitchesArgs(BaseModel):

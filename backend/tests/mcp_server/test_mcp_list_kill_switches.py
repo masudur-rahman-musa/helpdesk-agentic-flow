@@ -314,7 +314,7 @@ def test_protected_is_true_for_the_one_tool_no_switch_may_stop(
     tool added to that frozenset by a later plan without a thought for this
     page is a red row rather than a silently disabled toggle.
     """
-    from helpdesk.shared.killswitch import PROTECTED_TOOLS
+    from helpdesk.shared.services.killswitch import PROTECTED_TOOLS
 
     assert set(PROTECTED_TOOLS) == {SET_KILL_SWITCH}
     assert LIST_KILL_SWITCHES not in PROTECTED_TOOLS, (
@@ -544,7 +544,7 @@ def test_a_denied_caller_is_refused_before_any_switch_is_read(
 
     # `raising=True` (the default) is deliberate: the handler reaches Redis
     # through the accessor `mcp_server.tools.killswitch` already imports from
-    # `mcp_server.redis_client` (plan §2), and an implementation that reached
+    # `helpdesk.shared.core.redis` (plan §2), and an implementation that reached
     # it some other way makes this case fail loudly here rather than pass
     # while staging nothing.
     monkeypatch.setattr(killswitch, "_redis", _closed)

@@ -28,7 +28,7 @@ from helpdesk.agent_api.agent import gates, matching
 from helpdesk.agent_api.agent.matching import Candidate
 from helpdesk.agent_api.agent.state import ResolvedEntities, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.shared.core.repository import Repository
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Role, System
 
 NOTHING_MATCHED_QUESTION = (

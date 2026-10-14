@@ -28,8 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import NotFoundError
+from helpdesk.shared.core.errors import NotFoundError
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Ticket, User
 
 RESET_EVENT_TYPE = "user.password_reset"

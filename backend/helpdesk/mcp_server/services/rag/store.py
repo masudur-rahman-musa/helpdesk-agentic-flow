@@ -34,10 +34,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.core.repository import Repository, find_tenant_by_slug
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyDocument
-from helpdesk.shared.rag.naming import (
+from helpdesk.shared.services.policy_docs.naming import (
     check_slug,
     check_source_path,
     check_title,

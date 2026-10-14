@@ -61,11 +61,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from helpdesk.agent_api.schemas.audit import SearchAuditArgs
 from helpdesk.agent_api.services.tool_proxy import call_tool_route
-from helpdesk.shared.audit.verify import verify_tenant_chain
 from helpdesk.shared.auth.jwt import TokenClaims, TokenVerificationError, verify_token
 from helpdesk.shared.auth.rbac import Principal
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_session_factory, shared_engine, tenant_session
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.services.audit.verify import verify_tenant_chain
 
 router = APIRouter()
 

@@ -28,7 +28,7 @@ The sentences say what the person's next move is where there is one.
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
 
 PLAIN_ERRORS: Mapping[ErrorCode, str] = MappingProxyType(
     {

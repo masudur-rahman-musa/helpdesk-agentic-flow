@@ -63,27 +63,27 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from helpdesk.scheduler.jobs.metrics_sweep import refresh_chain_gauge, reset_chain_verdicts
-from helpdesk.shared.audit import AuditEventInput
 from helpdesk.shared.audit.anchor import (
     AnchorRegressionError,
     anchor_tenant_chain,
     latest_chain_anchor,
     write_chain_anchor,
 )
-from helpdesk.shared.audit.chain import (
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.observability import metrics
+from helpdesk.shared.core.observability.logging import FORBIDDEN_KEYS
+from helpdesk.shared.models import Base
+from helpdesk.shared.services.audit import AuditEventInput
+from helpdesk.shared.services.audit.chain import (
     ANCHOR_HASH_PATTERN,
     MIN_ANCHOR_SEQ,
     ChainAnchor,
     InvalidChainAnchorError,
     VerifyResult,
 )
-from helpdesk.shared.audit.verify import verify_tenant_chain
-from helpdesk.shared.audit.writer import append_event
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.models import Base
-from helpdesk.shared.obs import metrics
-from helpdesk.shared.obs.logging import FORBIDDEN_KEYS
+from helpdesk.shared.services.audit.verify import verify_tenant_chain
+from helpdesk.shared.services.audit.writer import append_event
 from tests.support.seed import TENANT_SCOPED_TABLES
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

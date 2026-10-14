@@ -69,7 +69,7 @@ from helpdesk.agent_api.schemas.killswitch import (
     SetKillSwitchBody,
 )
 from helpdesk.agent_api.services.tool_proxy import call_tool_route
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
 
 router = APIRouter()
 

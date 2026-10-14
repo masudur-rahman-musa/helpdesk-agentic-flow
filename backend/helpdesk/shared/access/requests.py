@@ -14,12 +14,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import NotFoundError
+from helpdesk.shared.core.errors import NotFoundError
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from helpdesk.shared.policy.types import Classification, RequiredApprover
+from helpdesk.shared.services.audit import AuditEventInput, append_event
 
 REQUEST_REJECTED_EVENT_TYPE = "request.rejected"
 """the design's name for "this request ended without being executed".

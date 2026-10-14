@@ -16,8 +16,8 @@ from pydantic import BaseModel
 from helpdesk.agent_api.core.deps import authenticated, typed_refusal, unauthenticated
 from helpdesk.agent_api.services.mcp_client import McpToolCaller, ToolCaller, TracingToolCaller
 from helpdesk.shared.auth.jwt import TokenClaims
-from helpdesk.shared.core.settings import Settings, load_settings
-from helpdesk.shared.errors import ToolError
+from helpdesk.shared.core.config import Settings, load_settings
+from helpdesk.shared.core.errors import ToolError
 
 
 def build_tool_caller(settings: Settings, bearer_token: str) -> ToolCaller:

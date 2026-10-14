@@ -40,11 +40,11 @@ from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.services.tracing import configure_tracing
 from helpdesk.agent_api.services.tracing import flush as flush_traces
 from helpdesk.shared.auth.jwt import TokenClaims, verify_token
+from helpdesk.shared.core.config import load_settings, web_origin_from_env
 from helpdesk.shared.core.db import create_engine, create_session_factory
-from helpdesk.shared.core.settings import load_settings, web_origin_from_env
-from helpdesk.shared.obs.context import bind_context
-from helpdesk.shared.obs.logging import configure_logging
-from helpdesk.shared.obs.metrics import render as render_metrics
+from helpdesk.shared.core.observability.context import bind_context
+from helpdesk.shared.core.observability.logging import configure_logging
+from helpdesk.shared.core.observability.metrics import render as render_metrics
 
 REDIS_CONNECT_TIMEOUT_SECONDS = 5.0
 """How long the rate limiter waits to reach Redis at all.

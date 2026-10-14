@@ -28,7 +28,7 @@ from types import MappingProxyType
 from pydantic import BaseModel, ConfigDict
 
 from helpdesk.shared.auth.jwt import TokenClaims
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 
 class Tool(StrEnum):

@@ -34,7 +34,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.core.config import load_settings
 
 # The repo root, used as the cwd for the Alembic subprocess below. The import
 # path for `scripts.seed` and `tests.support.*` is set once in

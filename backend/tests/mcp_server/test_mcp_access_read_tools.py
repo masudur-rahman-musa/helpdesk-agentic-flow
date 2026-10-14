@@ -41,7 +41,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.mcp_server.tools import access
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
 from scripts.seed import CUAN, NORDLICHT, TenantSpec, UserRow, generate_tenant
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name

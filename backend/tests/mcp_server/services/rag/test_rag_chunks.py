@@ -42,12 +42,13 @@ from helpdesk.mcp_server.services.rag.chunks import replace_chunks, write_chunks
 from helpdesk.mcp_server.services.rag.embedding import SparseVector
 from helpdesk.mcp_server.services.rag.store import register_document_version
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository, find_tenant_by_slug
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyChunk
 
 # Imported, not redefined: one database for the whole run.
-from tests.shared.test_policy_models import (
+from tests.shared.models.test_policy_models import (
     TENANT_A_SLUG,
     TENANT_B_SLUG,
     policy_db_url,  # noqa: F401

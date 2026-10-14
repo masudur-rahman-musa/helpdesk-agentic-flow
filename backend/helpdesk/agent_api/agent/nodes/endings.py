@@ -15,7 +15,7 @@ system never asked. Recorded in the plan's Deviations.
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.state import TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.shared.core.repository import append_message
+from helpdesk.shared.crud.messages import append_message
 from helpdesk.shared.models.conversation import MessageRole
 
 

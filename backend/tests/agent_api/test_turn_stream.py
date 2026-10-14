@@ -104,10 +104,12 @@ from helpdesk.agent_api.api.sse import (
 from helpdesk.agent_api.services.mcp_client import RemotePolicyBlockedError, ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository, append_message, get_or_create_session
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.messages import append_message
+from helpdesk.shared.crud.sessions import get_or_create_session
 from helpdesk.shared.models import Base, Department, Message, Role, System, Tenant, User
 from helpdesk.shared.models.conversation import MessageRole
 

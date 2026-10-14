@@ -19,8 +19,8 @@ Pure apart from the mapping it is handed: no I/O, no settings read here.
 
 from collections.abc import Mapping
 
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.rag.naming import check_slug
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.services.policy_docs.naming import check_slug
 
 
 class TenantKeyError(ToolError):

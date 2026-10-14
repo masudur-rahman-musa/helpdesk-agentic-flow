@@ -40,12 +40,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.mcp_server.services.idempotency.fingerprint import fingerprint
 from helpdesk.shared.core.canonical import canonical_json
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.core.repository import (
+from helpdesk.shared.core.errors import ErrorCode, IdempotencyConflictError, ToolError
+from helpdesk.shared.crud.idempotency import (
     create_idempotency_key,
     delete_expired_idempotency_key,
     find_idempotency_key,
 )
-from helpdesk.shared.errors import ErrorCode, IdempotencyConflictError, ToolError
 from helpdesk.shared.models.idempotency import KEY_LENGTH, TOOL_NAME_LENGTH
 
 KEY_TTL = timedelta(days=7)

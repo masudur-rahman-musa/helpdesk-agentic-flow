@@ -82,7 +82,7 @@ from helpdesk.agent_api.services.model_gateway.client import (
     StructuredAnswer,
 )
 from helpdesk.agent_api.services.model_gateway.traceparent import TRACEPARENT_PATTERN
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 BASE_URL = "http://gateway.invalid:8080"
 TENANT = "nordlicht"

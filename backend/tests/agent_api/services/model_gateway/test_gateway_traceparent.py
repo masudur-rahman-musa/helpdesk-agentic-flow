@@ -54,7 +54,7 @@ from helpdesk.agent_api.services.tracing import (
     span,
     turn_trace,
 )
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from tests.agent_api.services.test_obs_tracing import FakeTraceClient
 
 VALID = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"

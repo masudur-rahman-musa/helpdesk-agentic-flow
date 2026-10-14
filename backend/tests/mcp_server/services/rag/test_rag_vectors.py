@@ -69,9 +69,12 @@ from helpdesk.mcp_server.services.rag.vectors import (
     supersede_points,
     upsert_chunks,
 )
-from helpdesk.shared.core.settings import Settings, load_settings
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.rag.naming import COLLECTION_NAME_LENGTH, InvalidPolicyNameError
+from helpdesk.shared.core.config import Settings, load_settings
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.services.policy_docs.naming import (
+    COLLECTION_NAME_LENGTH,
+    InvalidPolicyNameError,
+)
 
 # the design's payload plus `document_slug`. a project rule: the set is
 # pinned as a value, not as "at least these keys" — a payload with an extra

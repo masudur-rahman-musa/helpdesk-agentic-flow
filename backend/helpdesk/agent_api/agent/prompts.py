@@ -23,7 +23,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 """`services/agent-api/prompts/`, resolved from this module's own location so

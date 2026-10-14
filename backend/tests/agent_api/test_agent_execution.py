@@ -59,7 +59,7 @@ from helpdesk.agent_api.agent.tool_args import IDEMPOTENCY_KEY, TOOL_INPUTS
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.mcp_client import REMOTE_ERRORS, RemoteToolError, ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)
 
@@ -445,7 +445,7 @@ def test_execute_tools_imports_no_store_and_no_gateway() -> None:
 
     forbidden = {"sqlalchemy", "httpx", "redis", "qdrant_client", "langgraph"}
     assert imported & forbidden == set()
-    assert "helpdesk.shared.core.repository" not in imported
+    assert "helpdesk.shared.crud" not in imported
 
 
 def test_the_scripted_caller_refuses_a_call_beyond_its_script() -> None:

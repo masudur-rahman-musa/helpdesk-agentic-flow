@@ -65,7 +65,7 @@ from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.tool_args import TOOL_INPUTS
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 
 async def execute_tools(state: TurnState, deps: TurnDeps) -> TurnState:

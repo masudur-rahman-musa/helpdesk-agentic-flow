@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from langfuse import Langfuse
 
 if TYPE_CHECKING:
-    from helpdesk.shared.core.settings import Settings
+    from helpdesk.shared.core.config import Settings
 
 TURN_TRACE_NAME = "chat_turn"
 """The root span's name, and so the trace's, for one chat turn.

@@ -23,8 +23,8 @@ from datetime import datetime
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.rag.naming import check_slug
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.services.policy_docs.naming import check_slug
 
 __all__ = [
     "RATE_LIMIT_MESSAGES",

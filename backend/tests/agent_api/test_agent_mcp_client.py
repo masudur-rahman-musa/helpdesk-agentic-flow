@@ -54,7 +54,7 @@ from helpdesk.agent_api.services.mcp_client import (
     RemoteValidationError,
     error_for,
 )
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from tests.support.mcp import (
     SeededMcp,
     mcp_env,  # noqa: F401 - fixtures are resolved by name

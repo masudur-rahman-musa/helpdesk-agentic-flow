@@ -56,8 +56,8 @@ from helpdesk.mcp_server.services.rag.vectors import (
     upsert_chunks,
 )
 from helpdesk.shared.auth.jwt import issue_token
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine
-from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.models import Base, Grant, Role, System, Tenant, User
 from scripts.seed import seed_all
 

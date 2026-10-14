@@ -34,8 +34,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.rag.naming import check_slug
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.services.policy_docs.naming import check_slug
 
 __all__ = [
     "CHECKPOINT_PRIVILEGES",

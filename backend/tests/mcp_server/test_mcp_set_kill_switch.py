@@ -392,7 +392,7 @@ def test_the_event_names_the_target_tool_as_its_subject(
     `killswitch.changed` literal is compared against the package's own export,
     so a rename that misses one side fails rather than drifting.
     """
-    from helpdesk.shared.killswitch import KILLSWITCH_CHANGED_EVENT_TYPE
+    from helpdesk.shared.services.killswitch import KILLSWITCH_CHANGED_EVENT_TYPE
 
     assert KILLSWITCH_CHANGED_EVENT_TYPE == KILLSWITCH_CHANGED_EVENT
 
@@ -569,7 +569,7 @@ def test_an_unregistered_tool_name_is_refused_before_any_key_is_written(
     `registry.lookup`'s own refusal of an unregistered WIRE name, which means
     the caller's client is wrong about what exists.
     """
-    from helpdesk.shared.killswitch import KEY_PREFIX
+    from helpdesk.shared.services.killswitch import KEY_PREFIX
 
     assert KEY_PREFIX == KEY_PREFIX_LITERAL
 
@@ -631,7 +631,7 @@ def test_the_reason_boundary_is_inclusive_at_1_and_500(
     event at all, which proves the check runs before any effect.
     """
     from helpdesk.mcp_server.tools import killswitch
-    from helpdesk.shared.killswitch import REASON_MAX_LENGTH as WIRED_REASON_MAX
+    from helpdesk.shared.services.killswitch import REASON_MAX_LENGTH as WIRED_REASON_MAX
 
     assert WIRED_REASON_MAX == REASON_MAX_LENGTH == 500
     assert killswitch.SetKillSwitchInput.model_fields["reason"].metadata[-1].max_length == (
@@ -692,7 +692,7 @@ def test_the_tool_name_length_boundary_is_inclusive_at_64(
     Neither name may leave a key behind: Redis imposes no length limit at all,
     so an unchecked name writes a key nothing will ever read or clear.
     """
-    from helpdesk.shared.killswitch import TOOL_NAME_MAX_LENGTH as WIRED_TOOL_NAME_MAX
+    from helpdesk.shared.services.killswitch import TOOL_NAME_MAX_LENGTH as WIRED_TOOL_NAME_MAX
 
     assert WIRED_TOOL_NAME_MAX == TOOL_NAME_MAX_LENGTH == 64
 

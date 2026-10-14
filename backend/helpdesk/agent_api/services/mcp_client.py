@@ -45,7 +45,7 @@ from mcp.client.streamable_http import streamable_http_client
 from pydantic import BaseModel
 
 from helpdesk.agent_api.services.tracing import span
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 MCP_CONNECT_TIMEOUT_SECONDS = 5.0
 """How long a turn waits to reach the MCP server at all.

@@ -20,8 +20,8 @@ import asyncio
 import sys
 
 from helpdesk.agent_api.agent.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.errors import ToolError
+from helpdesk.shared.core.config import load_settings
+from helpdesk.shared.core.errors import ToolError
 
 
 async def _setup(dsn: str) -> None:

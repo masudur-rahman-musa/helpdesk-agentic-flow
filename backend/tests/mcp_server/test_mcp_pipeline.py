@@ -66,13 +66,13 @@ from helpdesk.mcp_server.tools import dispatch as pipeline
 from helpdesk.mcp_server.tools import registry
 from helpdesk.mcp_server.tools.dispatch import dispatch
 from helpdesk.mcp_server.tools.registry import ToolSpec
-from helpdesk.shared.audit.writer import TenantMismatchError
 from helpdesk.shared.auth import rbac
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.killswitch import GLOBAL, KillSwitch
+from helpdesk.shared.core.config import load_settings
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Ticket
+from helpdesk.shared.services.audit.writer import TenantMismatchError
+from helpdesk.shared.services.killswitch import GLOBAL, KillSwitch
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,

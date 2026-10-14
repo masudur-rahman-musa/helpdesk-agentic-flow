@@ -29,8 +29,8 @@ from dataclasses import dataclass
 
 import httpx
 
-from helpdesk.shared.core.settings import Settings
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.config import Settings
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.gateway.keys import checked_tenant_key
 
 MAX_REDACTION_CHARS = 16_384

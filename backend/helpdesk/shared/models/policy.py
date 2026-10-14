@@ -33,7 +33,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from helpdesk.shared.models.base import TenantScoped
-from helpdesk.shared.rag.naming import (
+from helpdesk.shared.services.policy_docs.naming import (
     SLUG_LENGTH,
     SOURCE_PATH_LENGTH,
     TITLE_LENGTH,

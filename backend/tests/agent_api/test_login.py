@@ -50,8 +50,8 @@ from helpdesk.agent_api.api.router import app
 from helpdesk.agent_api.services import auth as auth_routes
 from helpdesk.shared.auth.jwt import TokenClaims, verify_token
 from helpdesk.shared.auth.passwords import hash_password
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine
-from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.models import Base, Tenant, User
 from scripts.seed import seed_all
 

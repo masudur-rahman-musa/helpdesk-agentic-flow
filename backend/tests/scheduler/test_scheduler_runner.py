@@ -29,7 +29,7 @@ must provide exactly this):
     ``async def run_loop() -> None`` — the lifespan task: ``tick`` every
         ``TICK_SECONDS``.
 
-``scheduler.redis_client``
+``helpdesk.shared.core.redis``
     ``REDIS_TIMEOUT_SECONDS = 2`` · ``def get_redis(settings) -> Redis``
     (both halves asserted on the CONSTRUCTED client, a project rule) ·
     ``async def close_loop_clients() -> None``.
@@ -62,7 +62,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from helpdesk.scheduler.redis_client import REDIS_TIMEOUT_SECONDS, close_loop_clients, get_redis
 from helpdesk.scheduler.runner import (
     EXPIRE_GRANTS_CADENCE_SECONDS,
     JOB_LOCK_PREFIX,
@@ -75,9 +74,10 @@ from helpdesk.scheduler.runner import (
     job_lock_key,
     tick,
 )
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import bound_tenant_id, create_engine, create_session_factory
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.core.redis import REDIS_TIMEOUT_SECONDS, close_loop_clients, get_redis
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Base, Ticket
 from tests.support.seed import SeededTenant, seed_tenant
 

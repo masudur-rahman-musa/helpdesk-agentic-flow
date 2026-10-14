@@ -59,7 +59,7 @@ from helpdesk.agent_api.services.tracing import (
     tracing_enabled,
     turn_trace,
 )
-from helpdesk.shared.core.settings import Settings
+from helpdesk.shared.core.config import Settings
 
 TRACE_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
 """What the SDK's trace id is: 32 lowercase hex characters, no dashes.

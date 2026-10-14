@@ -52,7 +52,7 @@ from helpdesk.agent_api.agent.state import ProposedCall, ToolPlanAnswer, TurnOut
 from helpdesk.agent_api.agent.tool_args import planner_schema
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
-from helpdesk.shared.errors import ToolError
+from helpdesk.shared.core.errors import ToolError
 
 PLANNING_PROMPT = "tool_planning"
 

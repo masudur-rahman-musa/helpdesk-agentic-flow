@@ -51,7 +51,6 @@ from test_access_snapshot import (
     access_db_url,  # noqa: F401
 )
 
-from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.access.revoke import (
     GRANT_REVOKED_EVENT_TYPE,
     REVOKED_GRANT_STATUS,
@@ -60,14 +59,15 @@ from helpdesk.shared.access.revoke import (
     revoke_role_access,
 )
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import (
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.grants import (
     ACTIVE_GRANT_STATUS,
-    Repository,
     is_live_grant,
     lock_live_grants_for_role,
 )
-from helpdesk.shared.errors import ErrorCode
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
+from helpdesk.shared.services.access.directory import SimulatedDirectory
 
 # The fixed clock every case revokes at, so `revoked_at` is never "whenever
 # the suite ran". `NOW` comes from the snapshot module, so every file in this

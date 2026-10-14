@@ -40,12 +40,13 @@ from sqlalchemy.exc import DBAPIError
 from helpdesk.mcp_server.tools import approvals, registry, reviews
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.registry import REGISTRY, lookup
-from helpdesk.shared.access import reviews as reviews_domain
-from helpdesk.shared.audit.writer import AuditEventInput, append_event
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.killswitch import (
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.models import PERIOD_LENGTH, AuditEvent
+from helpdesk.shared.services.access import reviews as reviews_domain
+from helpdesk.shared.services.audit.writer import AuditEventInput, append_event
+from helpdesk.shared.services.killswitch import (
     GLOBAL,
     GLOBAL_SEGMENT,
     KEY_PREFIX,
@@ -54,7 +55,6 @@ from helpdesk.shared.killswitch import (
     InvalidSwitchTargetError,
     key_for,
 )
-from helpdesk.shared.models import PERIOD_LENGTH, AuditEvent
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,

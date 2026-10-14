@@ -63,7 +63,8 @@ from helpdesk.shared.access.expiry import (
     warn_expiring_grants,
 )
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import ACTIVE_GRANT_STATUS, Repository
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS
 from helpdesk.shared.models import Grant, Notification, Role, User
 from helpdesk.shared.models.notification import NOTIFICATION_TITLE_MAX_LENGTH, NotificationKind
 from tests.support.seed import SeededTenant, seed_tenant

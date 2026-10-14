@@ -57,8 +57,8 @@ from helpdesk.mcp_server.services.rag.redaction_client import (
     RedactedDocument,
     RedactionClient,
 )
-from helpdesk.shared.core.settings import Settings
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.config import Settings
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 BASE_URL = "http://gateway.invalid:8080"
 TENANT = "nordlicht"

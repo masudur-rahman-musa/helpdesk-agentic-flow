@@ -23,7 +23,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from helpdesk.shared.auth.jwt import TokenClaims, TokenVerificationError, verify_token
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 _BEARER_SCHEME = "bearer"
 

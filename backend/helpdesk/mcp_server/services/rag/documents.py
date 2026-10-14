@@ -33,7 +33,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.core.repository import Repository, count_chunks_by_document
+from helpdesk.shared.crud import Repository, count_chunks_by_document
 from helpdesk.shared.models import PolicyDocument
 
 

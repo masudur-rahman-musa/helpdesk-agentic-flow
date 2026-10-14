@@ -6,7 +6,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.models import Base
 
 config = context.config

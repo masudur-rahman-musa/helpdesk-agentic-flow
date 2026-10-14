@@ -68,7 +68,7 @@ from helpdesk.shared.access.review_schedule import (
     send_review_reminders,
 )
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessReview, Department, Notification, ReviewStatus, User
 from helpdesk.shared.models.notification import NOTIFICATION_TITLE_MAX_LENGTH, NotificationKind
 from tests.support.seed import SeededTenant, seed_tenant

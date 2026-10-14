@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.errors import NotFoundError
+from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.models.notification import Notification
 
 

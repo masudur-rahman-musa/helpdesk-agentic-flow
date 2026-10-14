@@ -57,15 +57,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
 
 from helpdesk.mcp_server.core.identity import Identity, identity_from_header
-from helpdesk.mcp_server.redis_client import (
-    REDIS_TIMEOUT_SECONDS as REDIS_TIMEOUT_SECONDS,  # re-exported: the old call site
-)
-from helpdesk.mcp_server.redis_client import (
-    _redis as _redis,  # re-exported: `test_mcp_pipeline.py` reads both from here
-)
-from helpdesk.mcp_server.redis_client import (
-    close_loop_clients,
-)
 from helpdesk.mcp_server.services.idempotency.guard import run_once
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.registry import (
@@ -75,19 +66,28 @@ from helpdesk.mcp_server.tools.registry import (
     REPLAYED_EVENT_TYPE,
     ToolSpec,
 )
-from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.auth import rbac
+from helpdesk.shared.core.config import Settings, load_settings
 from helpdesk.shared.core.db import (
     create_session_factory,
     dispose_shared_engines,
     shared_engine,
     tenant_session,
 )
-from helpdesk.shared.core.settings import Settings, load_settings
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.killswitch import KillSwitch
-from helpdesk.shared.obs import metrics
-from helpdesk.shared.obs.context import bind_context
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.observability import metrics
+from helpdesk.shared.core.observability.context import bind_context
+from helpdesk.shared.core.redis import (
+    REDIS_TIMEOUT_SECONDS as REDIS_TIMEOUT_SECONDS,  # re-exported: the old call site
+)
+from helpdesk.shared.core.redis import (
+    close_loop_clients,
+)
+from helpdesk.shared.core.redis import (
+    get_redis as _redis,  # re-exported as `_redis`: `test_mcp_pipeline.py` reads both from here
+)
+from helpdesk.shared.services.audit import AuditEventInput, append_event
+from helpdesk.shared.services.killswitch import KillSwitch
 
 logger = logging.getLogger(__name__)
 

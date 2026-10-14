@@ -25,7 +25,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.core.config import load_settings
 
 TIMEOUT_SECONDS = 2
 """Connect AND read timeout for every check, both halves on every client.

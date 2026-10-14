@@ -44,13 +44,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
-from helpdesk.shared.access import (
+from helpdesk.shared.auth import rbac
+from helpdesk.shared.core.errors import NotFoundError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.models import (
+    PERIOD_LENGTH,
+    AccessReview,
+    ReviewDecision,
+    ReviewFlag,
+    ReviewStatus,
+    System,
+)
+from helpdesk.shared.services.access import (
     ItemAlreadyDecidedError as ItemAlreadyDecidedError,  # re-exported for the tests
 )
-from helpdesk.shared.access import (
+from helpdesk.shared.services.access import (
     ReviewAlreadyOpenError as ReviewAlreadyOpenError,  # re-exported for the tests
 )
-from helpdesk.shared.access import (
+from helpdesk.shared.services.access import (
     SimulatedDirectory,
     decide_item,
     find_item,
@@ -60,17 +71,6 @@ from helpdesk.shared.access import (
     list_reviews_for_scope,
     open_review,
     request_in_scope,
-)
-from helpdesk.shared.auth import rbac
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import NotFoundError
-from helpdesk.shared.models import (
-    PERIOD_LENGTH,
-    AccessReview,
-    ReviewDecision,
-    ReviewFlag,
-    ReviewStatus,
-    System,
 )
 
 PERIOD_PATTERN = re.compile(r"\d{4}-Q[1-4]")

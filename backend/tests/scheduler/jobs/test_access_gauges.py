@@ -53,9 +53,10 @@ from prometheus_client import CollectorRegistry
 
 from helpdesk.scheduler.jobs.metrics_sweep import refresh_active_grants_gauge
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS, Repository
+from helpdesk.shared.core.observability import metrics
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
 from helpdesk.shared.models import Base, Grant
-from helpdesk.shared.obs import metrics
 from tests.conftest import TempDatabaseFactory
 from tests.support.seed import SeededTenant, seed_tenant
 

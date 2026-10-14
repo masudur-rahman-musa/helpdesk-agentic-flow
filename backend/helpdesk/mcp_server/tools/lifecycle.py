@@ -45,13 +45,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
-from helpdesk.shared.access import SimulatedDirectory, SkippedRole
-from helpdesk.shared.access import offboard_user as offboard_user_core
-from helpdesk.shared.access import onboard_user as onboard_user_core
-from helpdesk.shared.access import transfer_user as transfer_user_core
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.errors import ErrorCode, NotFoundError
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Department, User
+from helpdesk.shared.services.access import SimulatedDirectory, SkippedRole
+from helpdesk.shared.services.access import offboard_user as offboard_user_core
+from helpdesk.shared.services.access import onboard_user as onboard_user_core
+from helpdesk.shared.services.access import transfer_user as transfer_user_core
 
 # Read off the columns, never retyped: the check and the
 # storage are the same number by construction. Both are asserted inclusively

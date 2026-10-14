@@ -78,10 +78,10 @@ from helpdesk.agent_api.services.ratelimit import (
     check_rate_limit,
 )
 from helpdesk.shared.auth.jwt import issue_token
+from helpdesk.shared.core.config import Settings, load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.core.settings import Settings, load_settings
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Base, Department, Message, Role, System, Tenant, User
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS, MessageRole
 

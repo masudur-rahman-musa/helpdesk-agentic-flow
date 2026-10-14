@@ -75,10 +75,10 @@ from helpdesk.agent_api.services.tracing import (
     tracing_enabled,
     turn_trace,
 )
-from helpdesk.shared.core.repository import append_message
-from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.observability.context import bind_context, current_context
+from helpdesk.shared.crud.messages import append_message
 from helpdesk.shared.models.conversation import MessageRole, check_message_content
-from helpdesk.shared.obs.context import bind_context, current_context
 
 __all__ = [
     "FAILURE_REPLY",
