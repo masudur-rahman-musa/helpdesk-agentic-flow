@@ -24,7 +24,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from helpdesk.agent_api.graph.state import IntentExtraction, PlannedCallAnswer, ToolPlanAnswer
-from helpdesk.shared.gateway.strict_schema import strict_schema_problems
+from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SWEPT_TREES: tuple[Path, ...] = (_REPO_ROOT / "backend" / "helpdesk",)

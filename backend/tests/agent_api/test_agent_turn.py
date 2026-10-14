@@ -140,6 +140,8 @@ from helpdesk.agent_api.graph.state import (
 )
 from helpdesk.agent_api.mcp_client import RemoteInternalError, ToolCaller
 from helpdesk.agent_api.prompts import load_prompt
+from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
+from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.repository import (
@@ -150,8 +152,6 @@ from helpdesk.shared.core.repository import (
 )
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.gateway.client import ModelAlias, ModelClient
-from helpdesk.shared.gateway.strict_schema import strict_schema_problems
 from helpdesk.shared.models import Base, Department, Message, Role, Session, System, Tenant, User
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS, MessageRole, MessageTooLongError
 from helpdesk.shared.rag.naming import check_slug

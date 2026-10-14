@@ -72,7 +72,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.mcp_server import rag_clients
 from helpdesk.mcp_server.registry import REGISTRY
-from helpdesk.shared.rag.gateway import RedactedDocument
+from helpdesk.mcp_server.services.rag.redaction_client import RedactedDocument
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     RecordingEmbedder,
     SeededMcp,

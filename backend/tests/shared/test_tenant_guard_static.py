@@ -91,7 +91,7 @@ statement, so it is kept apart from `READINESS_ALLOWLIST`, whose members must.""
 
 TEXT_ALLOWLIST: frozenset[str] = frozenset(
     {
-        "backend/helpdesk/shared/idempotency/guard.py",
+        "backend/helpdesk/mcp_server/services/idempotency/guard.py",
         "backend/helpdesk/shared/audit/writer.py",
         "backend/helpdesk/agent_api/readiness.py",
         "backend/helpdesk/mcp_server/readiness.py",

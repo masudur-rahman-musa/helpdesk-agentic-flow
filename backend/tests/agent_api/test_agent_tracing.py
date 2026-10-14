@@ -111,13 +111,17 @@ from helpdesk.agent_api.mcp_client import (
 )
 from helpdesk.agent_api.metrics import trace_attributes
 from helpdesk.agent_api.prompts import load_prompt
+from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
+from helpdesk.agent_api.services.tracing import TURN_TRACE_NAME, configure_tracing
 from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.settings import load_settings
-from helpdesk.shared.gateway.client import ModelAlias, ModelClient
 from helpdesk.shared.models.access import RequestStatus
-from helpdesk.shared.obs import TURN_TRACE_NAME, configure_tracing
-from tests.shared.test_obs_tracing import FakeTraceClient, RaisingTraceClient, RecordedSpan
+from tests.agent_api.services.test_obs_tracing import (
+    FakeTraceClient,
+    RaisingTraceClient,
+    RecordedSpan,
+)
 
 NODE_NAMES: tuple[str, ...] = (
     LOAD_SESSION,

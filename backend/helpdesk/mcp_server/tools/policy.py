@@ -45,10 +45,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server import rag_clients
 from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.services.rag import retrieval
 from helpdesk.shared.core.repository import find_tenant_by_id
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.rag import retrieval
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
 """Extra arguments are dropped, never refused.

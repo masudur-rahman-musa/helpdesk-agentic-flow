@@ -91,6 +91,8 @@ from helpdesk.agent_api.graph.nodes.await_approval import PENDING_APPROVAL_REPLY
 from helpdesk.agent_api.graph.postcheck import POSTCHECK_FALLBACK_REPLY
 from helpdesk.agent_api.graph.state import TurnOutcome
 from helpdesk.agent_api.mcp_client import RemotePolicyBlockedError, ToolCaller
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
+from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.agent_api.sse import (
     DONE,
     ERROR,
@@ -106,8 +108,6 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.core.repository import Repository, append_message, get_or_create_session
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.gateway.client import ModelClient
-from helpdesk.shared.gateway.strict_schema import strict_schema_problems
 from helpdesk.shared.models import Base, Department, Message, Role, System, Tenant, User
 from helpdesk.shared.models.conversation import MessageRole
 

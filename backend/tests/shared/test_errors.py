@@ -26,6 +26,10 @@ imports from models or services):
 
 import pytest
 
+from helpdesk.mcp_server.services.idempotency import (
+    InvalidIdempotencyKeyError,
+    UnstorableResponseError,
+)
 from helpdesk.shared.auth.rbac import RbacDenied, UnknownToolError
 from helpdesk.shared.errors import (
     ErrorCode,
@@ -34,7 +38,6 @@ from helpdesk.shared.errors import (
     ToolDisabledError,
     ToolError,
 )
-from helpdesk.shared.idempotency import InvalidIdempotencyKeyError, UnstorableResponseError
 from helpdesk.shared.killswitch import InvalidSwitchTargetError, SwitchUnavailableError
 
 # the design, written out literally so the test cannot drift with the enum.

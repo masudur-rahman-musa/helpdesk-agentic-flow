@@ -11,14 +11,9 @@ moves `read_at`. Both take the user as an argument and the tenant off the
 session, the same shape the writer has.
 """
 
-from helpdesk.shared.notifications.list import NotificationPage, list_for_user
-from helpdesk.shared.notifications.mark import mark_read
 from helpdesk.shared.notifications.notify import InvalidNotificationError, notify
 
 __all__ = [
     "InvalidNotificationError",
-    "NotificationPage",
-    "list_for_user",
-    "mark_read",
     "notify",
 ]

@@ -73,6 +73,7 @@ from helpdesk.mcp_server.registry import (
     REPLAYED_EVENT_TYPE,
     ToolSpec,
 )
+from helpdesk.mcp_server.services.idempotency.guard import run_once
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.auth import rbac
@@ -84,7 +85,6 @@ from helpdesk.shared.core.db import (
 )
 from helpdesk.shared.core.settings import Settings, load_settings
 from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.idempotency.guard import run_once
 from helpdesk.shared.killswitch import KillSwitch
 from helpdesk.shared.obs import metrics
 from helpdesk.shared.obs.context import bind_context

@@ -62,19 +62,19 @@ from helpdesk.agent_api.graph.nodes.validate_tool_calls import validate_tool_cal
 from helpdesk.agent_api.graph.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.agent_api.metrics import record_turn_code, record_turn_state, trace_attributes
 from helpdesk.agent_api.prompts import load_prompt
-from helpdesk.agent_api.sse import DONE, ERROR, REPLY, STEP, TOKEN, chunk_reply, encode_event
-from helpdesk.shared.core.repository import append_message
-from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.gateway.client import ModelAlias
-from helpdesk.shared.models.conversation import MessageRole, check_message_content
-from helpdesk.shared.obs.context import bind_context, current_context
-from helpdesk.shared.obs.tracing import (
+from helpdesk.agent_api.services.model_gateway.client import ModelAlias
+from helpdesk.agent_api.services.tracing import (
     current_trace_id,
     set_trace_attributes,
     span,
     tracing_enabled,
     turn_trace,
 )
+from helpdesk.agent_api.sse import DONE, ERROR, REPLY, STEP, TOKEN, chunk_reply, encode_event
+from helpdesk.shared.core.repository import append_message
+from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.models.conversation import MessageRole, check_message_content
+from helpdesk.shared.obs.context import bind_context, current_context
 
 __all__ = [
     "FAILURE_REPLY",

@@ -62,6 +62,7 @@ from sqlalchemy import BigInteger, DateTime, String, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from helpdesk.scheduler.jobs.metrics_sweep import refresh_chain_gauge, reset_chain_verdicts
 from helpdesk.shared.audit import AuditEventInput
 from helpdesk.shared.audit.anchor import (
     AnchorRegressionError,
@@ -76,7 +77,6 @@ from helpdesk.shared.audit.chain import (
     InvalidChainAnchorError,
     VerifyResult,
 )
-from helpdesk.shared.audit.health import refresh_chain_gauge, reset_chain_verdicts
 from helpdesk.shared.audit.verify import verify_tenant_chain
 from helpdesk.shared.audit.writer import append_event
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session

@@ -95,27 +95,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.mcp_server import rag_clients
 from helpdesk.mcp_server.identity import Identity
 from helpdesk.mcp_server.redis_client import _redis
+from helpdesk.mcp_server.services.access_requests.rollback import (
+    WINDOW_HOURS as WINDOW_HOURS,  # re-exported for the registry
+)
+from helpdesk.mcp_server.services.access_requests.rollback import (
+    RequestNotExecutedError as RequestNotExecutedError,  # re-exported for the tests
+)
+from helpdesk.mcp_server.services.access_requests.rollback import (
+    RollbackWindowExpiredError as RollbackWindowExpiredError,  # re-exported for the tests
+)
+from helpdesk.mcp_server.services.access_requests.rollback import (
+    rollback_request as rollback,
+)
+from helpdesk.mcp_server.services.access_requests.rules import SodRuleRole, read_sod_rules
+from helpdesk.mcp_server.services.rag.documents import read_policy_documents
+from helpdesk.mcp_server.services.rag.pipeline import ingest_one_document
 from helpdesk.mcp_server.tools.access import REASON_MAX_LENGTH
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.policy import UnknownTenantError
 from helpdesk.shared.access import (
-    RequestNotExecutedError as RequestNotExecutedError,  # re-exported for the tests
-)
-from helpdesk.shared.access import (
-    RollbackWindowExpiredError as RollbackWindowExpiredError,  # re-exported for the tests
-)
-from helpdesk.shared.access import (
     SimulatedDirectory,
     lock_request,
-    read_sod_rules,
 )
-from helpdesk.shared.access import (
-    rollback_request as rollback,
-)
-from helpdesk.shared.access.rollback import (
-    WINDOW_HOURS as WINDOW_HOURS,  # re-exported for the registry
-)
-from helpdesk.shared.access.rules import SodRuleRole
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.repository import find_tenant_by_id
 from helpdesk.shared.core.settings import load_settings
@@ -137,8 +138,6 @@ from helpdesk.shared.killswitch import (
 )
 from helpdesk.shared.killswitch.switch import InvalidSwitchTargetError
 from helpdesk.shared.models import RequestStatus
-from helpdesk.shared.rag.documents import read_policy_documents
-from helpdesk.shared.rag.pipeline import ingest_one_document
 
 
 class RollbackRequestInput(MutatingToolInput):

@@ -23,7 +23,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.mcp_client import ToolCaller
-from helpdesk.shared.gateway.client import ModelClient
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
 
 
 @dataclass(frozen=True)

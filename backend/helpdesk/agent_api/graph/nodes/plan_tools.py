@@ -50,9 +50,9 @@ from helpdesk.agent_api.graph.deps import TurnDeps
 from helpdesk.agent_api.graph.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from helpdesk.agent_api.graph.state import ProposedCall, ToolPlanAnswer, TurnOutcome, TurnState
 from helpdesk.agent_api.prompts import load_prompt
+from helpdesk.agent_api.services.model_gateway.client import ModelAlias
 from helpdesk.agent_api.tools.catalogue import planner_schema
 from helpdesk.shared.errors import ToolError
-from helpdesk.shared.gateway.client import ModelAlias
 
 PLANNING_PROMPT = "tool_planning"
 

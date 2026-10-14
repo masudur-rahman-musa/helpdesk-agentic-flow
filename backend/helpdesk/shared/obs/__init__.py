@@ -21,38 +21,16 @@ caller.
 from helpdesk.shared.obs.context import TelemetryContext, bind_context, current_context
 from helpdesk.shared.obs.logging import JsonFormatter, configure_logging, redact
 from helpdesk.shared.obs.metrics import METRICS, Metrics, build_metrics, render
-from helpdesk.shared.obs.tracing import (
-    TURN_TRACE_NAME,
-    TraceClient,
-    configure_tracing,
-    current_span_id,
-    current_trace_id,
-    flush,
-    set_trace_attributes,
-    span,
-    tracing_enabled,
-    turn_trace,
-)
 
 __all__ = [
     "METRICS",
-    "TURN_TRACE_NAME",
     "JsonFormatter",
     "Metrics",
     "TelemetryContext",
-    "TraceClient",
     "bind_context",
     "build_metrics",
     "configure_logging",
-    "configure_tracing",
     "current_context",
-    "current_span_id",
-    "current_trace_id",
-    "flush",
     "redact",
     "render",
-    "set_trace_attributes",
-    "span",
-    "tracing_enabled",
-    "turn_trace",
 ]

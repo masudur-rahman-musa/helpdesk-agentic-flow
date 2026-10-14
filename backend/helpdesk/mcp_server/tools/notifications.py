@@ -32,8 +32,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.identity import Identity
+from helpdesk.mcp_server.services.notifications.list import list_for_user
+from helpdesk.mcp_server.services.notifications.mark import mark_read
 from helpdesk.mcp_server.tools.base import MutatingToolInput
-from helpdesk.shared.notifications import list_for_user, mark_read
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
 """The read tool's contract: identity arrives on the token, so a spare

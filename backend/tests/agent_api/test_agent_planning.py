@@ -60,8 +60,8 @@ from helpdesk.agent_api.graph.state import (
     TurnState,
 )
 from helpdesk.agent_api.mcp_client import ToolCaller
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.shared.errors import ErrorCode, ToolError
-from helpdesk.shared.gateway.client import ModelClient
 from helpdesk.shared.models.idempotency import KEY_LENGTH
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)

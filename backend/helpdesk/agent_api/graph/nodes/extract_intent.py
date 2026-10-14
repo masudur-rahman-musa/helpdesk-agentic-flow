@@ -36,8 +36,8 @@ from helpdesk.agent_api.graph import gates
 from helpdesk.agent_api.graph.deps import TurnDeps
 from helpdesk.agent_api.graph.state import IntentExtraction, TurnOutcome, TurnState
 from helpdesk.agent_api.prompts import load_prompt
+from helpdesk.agent_api.services.model_gateway.client import ModelAlias
 from helpdesk.shared.errors import ToolError
-from helpdesk.shared.gateway.client import ModelAlias
 
 SYSTEM_PROMPT = "system"
 EXTRACTION_PROMPT = "intent_extraction"

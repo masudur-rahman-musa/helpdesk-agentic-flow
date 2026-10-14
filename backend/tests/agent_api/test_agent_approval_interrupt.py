@@ -65,12 +65,12 @@ from helpdesk.agent_api.graph.nodes.await_approval import PENDING_APPROVAL_REPLY
 from helpdesk.agent_api.graph.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.graph.state import ToolResult, TurnOutcome
 from helpdesk.agent_api.mcp_client import ToolCaller
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
+from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.gateway.client import ModelClient
-from helpdesk.shared.gateway.strict_schema import strict_schema_problems
 from helpdesk.shared.models import Base, Department, Role, System, Tenant, User
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)

@@ -30,10 +30,10 @@ from weakref import WeakKeyDictionary
 
 from qdrant_client import AsyncQdrantClient
 
+from helpdesk.mcp_server.services.rag.embedding import Embedder, FastEmbedEmbedder
+from helpdesk.mcp_server.services.rag.redaction_client import RedactionClient
+from helpdesk.mcp_server.services.rag.vectors import create_client
 from helpdesk.shared.core.settings import Settings, load_settings
-from helpdesk.shared.rag.embedding import Embedder, FastEmbedEmbedder
-from helpdesk.shared.rag.gateway import RedactionClient
-from helpdesk.shared.rag.vectors import create_client
 
 _SHARED_QDRANT: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, AsyncQdrantClient]] = (
     WeakKeyDictionary()

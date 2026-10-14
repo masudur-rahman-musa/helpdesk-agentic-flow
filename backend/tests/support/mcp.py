@@ -45,15 +45,20 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from starlette.routing import Mount
 
+from helpdesk.mcp_server.services.rag.chunking import Chunk
+from helpdesk.mcp_server.services.rag.chunks import write_chunks
+from helpdesk.mcp_server.services.rag.embedding import DENSE_DIMENSION, SparseVector
+from helpdesk.mcp_server.services.rag.store import register_document_version
+from helpdesk.mcp_server.services.rag.vectors import (
+    collection_name,
+    ensure_collection,
+    point_id,
+    upsert_chunks,
+)
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.db import create_engine
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.models import Base, Grant, Role, System, Tenant, User
-from helpdesk.shared.rag.chunking import Chunk
-from helpdesk.shared.rag.chunks import write_chunks
-from helpdesk.shared.rag.embedding import DENSE_DIMENSION, SparseVector
-from helpdesk.shared.rag.store import register_document_version
-from helpdesk.shared.rag.vectors import collection_name, ensure_collection, point_id, upsert_chunks
 from scripts.seed import seed_all
 
 # Obviously fake, tests only; 36 bytes so the Settings length gate (>= 32) passes.

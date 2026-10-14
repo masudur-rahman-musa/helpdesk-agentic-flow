@@ -61,11 +61,11 @@ from helpdesk.agent_api.graph.build import TurnDeps
 from helpdesk.agent_api.graph.nodes.load_session import load_session as real_load_session
 from helpdesk.agent_api.graph.state import TurnState
 from helpdesk.agent_api.main import app
+from helpdesk.agent_api.services.tracing import configure_tracing
 from helpdesk.shared.auth.jwt import TokenClaims, issue_token
-from helpdesk.shared.obs import configure_tracing
 from helpdesk.shared.obs.context import bind_context
 from helpdesk.shared.obs.logging import FORBIDDEN_KEYS, REDACTED, JsonFormatter
-from tests.shared.test_obs_tracing import TRACE_ID_PATTERN, FakeTraceClient
+from tests.agent_api.services.test_obs_tracing import TRACE_ID_PATTERN, FakeTraceClient
 
 # Obviously fake, tests only; >= 32 bytes so the settings length gate passes.
 TEST_JWT_SIGNING_PHRASE = "logging-wiring-test-jwt-secret-0123456789"

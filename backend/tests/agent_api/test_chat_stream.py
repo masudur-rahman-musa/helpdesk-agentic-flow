@@ -69,6 +69,8 @@ from helpdesk.agent_api.ratelimit import (
     RATE_LIMIT_WINDOW_SECONDS,
     check_rate_limit,
 )
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
+from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.agent_api.sse import DONE, ERROR, REPLY, STEP, TOKEN, chunk_reply
 from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.shared.auth.jwt import issue_token
@@ -76,8 +78,6 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.core.repository import Repository
 from helpdesk.shared.core.settings import Settings, load_settings
 from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.gateway.client import ModelClient
-from helpdesk.shared.gateway.strict_schema import strict_schema_problems
 from helpdesk.shared.models import Base, Department, Message, Role, System, Tenant, User
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS, MessageRole
 

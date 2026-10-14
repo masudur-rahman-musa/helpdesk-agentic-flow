@@ -57,9 +57,9 @@ from helpdesk.agent_api.graph.state import (
     ValidatedCall,
 )
 from helpdesk.agent_api.mcp_client import REMOTE_ERRORS, RemoteToolError, ToolCaller
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.tools.catalogue import IDEMPOTENCY_KEY, TOOL_INPUTS
 from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.gateway.client import ModelClient
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)
 
