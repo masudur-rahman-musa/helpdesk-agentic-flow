@@ -3,9 +3,9 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppShell } from "@/components/app-shell";
-import { orderedLabels } from "@/components/role-header";
-import { UserMenu } from "@/components/user-menu";
+import { AppShell } from "@/components/layout/app-shell";
+import { orderedLabels } from "@/components/layout/role-header";
+import { UserMenu } from "@/components/layout/user-menu";
 
 /**
  * An earlier change §6, `user-menu.test.tsx`: the signed-in person's name and account

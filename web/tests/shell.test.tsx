@@ -2,10 +2,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppShell } from "@/components/app-shell";
-import { DEMO_BANNER_TEXT } from "@/components/demo-banner";
-import { QueryProvider } from "@/components/query-provider";
-import { THEME_STORAGE_KEY } from "@/components/theme-toggle";
+import { AppShell } from "@/components/layout/app-shell";
+import { DEMO_BANNER_TEXT } from "@/components/layout/demo-banner";
+import { QueryProvider } from "@/components/layout/query-provider";
+import { THEME_STORAGE_KEY } from "@/components/layout/theme-toggle";
 
 /**
  * The authenticated shell: demo banner, keyboard reachability and the dark-mode

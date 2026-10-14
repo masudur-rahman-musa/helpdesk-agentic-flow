@@ -7,7 +7,7 @@ import {
   riskLabel,
   slotLabel,
   statusLabel,
-} from "@/lib/decision-labels";
+} from "@/features/chat/decision-labels";
 
 /**
  * An earlier change §6, `decision-labels.test.ts`: the hand-kept mirror of five Python
@@ -24,7 +24,7 @@ import {
  * Shapes this file fixes that the plan left open (a project rule/39; these go
  * in the plan's Deviations). §3 names the five maps but not the lookups §6 says
  * are "parametrised over", so:
- * - `web/lib/decision-labels.ts` exports one lookup per vocabulary —
+ * - `web/src/features/chat/decision-labels.ts` exports one lookup per vocabulary —
  *   `reasonSentence`, `decisionLabel`, `riskLabel`, `slotLabel`, `statusLabel`
  *   — each `(value: string) => string`, total by construction: a value the map
  *   does not know answers the value itself (decision B).

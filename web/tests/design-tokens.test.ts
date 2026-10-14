@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * The design tokens in `app/globals.css`: the same
+ * The design tokens in `src/app/globals.css`: the same
  * colour names in both themes, every text pair readable, the focus ring
  * visible, and the layout tokens the shell and the chat column read.
  *
@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
  * with the WCAG 2.x relative-luminance formula below.
  */
 
-const CSS = readFileSync(resolve(__dirname, "../app/globals.css"), "utf8");
+const CSS = readFileSync(resolve(__dirname, "../src/app/globals.css"), "utf8");
 
 const COLOUR_TOKENS = [
   "--background",

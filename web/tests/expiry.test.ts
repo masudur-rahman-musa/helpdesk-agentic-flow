@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { daysUntil } from "@/lib/expiry";
+import { daysUntil } from "@/features/access/expiry";
 
 /**
  * An earlier change §6, `expiry.test.ts`: the countdown arithmetic `/access` renders,

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createSseParser } from "@/lib/sse";
 
 /**
- * An earlier change §6, `sse-parser.test.ts`: the pure frame parser of `web/lib/sse.ts`
+ * An earlier change §6, `sse-parser.test.ts`: the pure frame parser of `web/src/lib/sse.ts`
  * (decision A — a hand-written splitter, because a browser `EventSource` cannot
  * POST or carry a bearer). No fetch, no React, no stream: chunks in, events out.
  *

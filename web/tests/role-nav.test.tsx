@@ -2,8 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppShell } from "@/components/app-shell";
-import { ApprovalQueue } from "@/components/approvals/approval-queue";
+import { AppShell } from "@/components/layout/app-shell";
+import { ApprovalQueue } from "@/features/approvals/components/approval-queue";
 
 /**
  * An earlier change §6, `role-nav.test.tsx`: the shell reads `/api/me` and shows the

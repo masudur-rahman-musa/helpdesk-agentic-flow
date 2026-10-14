@@ -7,19 +7,19 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LoginForm } from "@/app/login/login-form";
-import { AuditSearch } from "@/components/admin/audit-search";
-import { KillSwitchBoard } from "@/components/admin/kill-switch-board";
-import { PoliciesBoard } from "@/components/admin/policies-board";
-import { RulesBoard } from "@/components/admin/rules-board";
-import { GrantList } from "@/components/access/grant-list";
-import { ApprovalQueue } from "@/components/approvals/approval-queue";
-import { ChatPanel } from "@/components/chat/chat-panel";
-import { NotificationList } from "@/components/notifications/notification-list";
-import { QueryProvider } from "@/components/query-provider";
-import { RequestList } from "@/components/requests/request-list";
-import { ReviewQueue } from "@/components/reviews/review-queue";
+import { AuditSearch } from "@/features/admin/audit/components/audit-search";
+import { KillSwitchBoard } from "@/features/admin/killswitch/components/kill-switch-board";
+import { PoliciesBoard } from "@/features/admin/policies/components/policies-board";
+import { RulesBoard } from "@/features/admin/rules/components/rules-board";
+import { GrantList } from "@/features/access/components/grant-list";
+import { ApprovalQueue } from "@/features/approvals/components/approval-queue";
+import { ChatPanel } from "@/features/chat/components/chat-panel";
+import { NotificationList } from "@/features/notifications/components/notification-list";
+import { QueryProvider } from "@/components/layout/query-provider";
+import { RequestList } from "@/features/requests/components/request-list";
+import { ReviewQueue } from "@/features/reviews/components/review-queue";
 import * as field from "@/components/ui/field";
-import { LIVE_VERSION_TEXT, NOT_LIVE_VERSION_TEXT } from "@/lib/policies-format";
+import { LIVE_VERSION_TEXT, NOT_LIVE_VERSION_TEXT } from "@/features/admin/policies/format";
 
 /**
  * An earlier change §6 (`design-kit-adoption.test.tsx`): the kit 39a built is applied to
@@ -49,7 +49,7 @@ vi.mock("next/navigation", () => ({
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Every `.tsx` file under `web/app` and `web/components`, as absolute paths. */
+/** Every `.tsx` file under `web/src`, as absolute paths. */
 function tsxFiles(relative: string): string[] {
   const root = join(SRC_ROOT, relative);
   const out: string[] = [];
@@ -331,7 +331,7 @@ describe("no page imports Button from the field module", () => {
     // Catches 39b closing without repointing: any page still importing `Button`
     // from `@/components/ui/field` would keep the re-export that line 2 of §3
     // deletes alive, so dropping it would break that page's compile.
-    const files = [...tsxFiles("app"), ...tsxFiles("components")];
+    const files = tsxFiles("src");
     const offenders = files.filter((path) =>
       importsButtonFrom(readFileSync(path, "utf8"), "@/components/ui/field"),
     );
@@ -339,15 +339,24 @@ describe("no page imports Button from the field module", () => {
   });
 
   const IMPORTERS: ReadonlyArray<{ name: string; path: string }> = [
-    { name: "login-form", path: "app/login/login-form.tsx" },
-    { name: "composer", path: "components/chat/composer.tsx" },
-    { name: "kill-switch-toggle", path: "components/admin/kill-switch-toggle.tsx" },
-    { name: "audit-verify", path: "components/admin/audit-verify.tsx" },
-    { name: "policies-reingest", path: "components/admin/policies-reingest.tsx" },
-    { name: "review-queue", path: "components/reviews/review-queue.tsx" },
-    { name: "audit-search", path: "components/admin/audit-search.tsx" },
-    { name: "notification-list", path: "components/notifications/notification-list.tsx" },
-    { name: "approval-queue", path: "components/approvals/approval-queue.tsx" },
+    { name: "login-form", path: "src/app/login/login-form.tsx" },
+    { name: "composer", path: "src/features/chat/components/composer.tsx" },
+    {
+      name: "kill-switch-toggle",
+      path: "src/features/admin/killswitch/components/kill-switch-toggle.tsx",
+    },
+    { name: "audit-verify", path: "src/features/admin/audit/components/audit-verify.tsx" },
+    {
+      name: "policies-reingest",
+      path: "src/features/admin/policies/components/policies-reingest.tsx",
+    },
+    { name: "review-queue", path: "src/features/reviews/components/review-queue.tsx" },
+    { name: "audit-search", path: "src/features/admin/audit/components/audit-search.tsx" },
+    {
+      name: "notification-list",
+      path: "src/features/notifications/components/notification-list.tsx",
+    },
+    { name: "approval-queue", path: "src/features/approvals/components/approval-queue.tsx" },
   ];
 
   it.each(IMPORTERS)("$name imports Button from @/components/ui/button", ({ path }) => {
