@@ -62,7 +62,7 @@ imported by service modules today and build nothing, which
 
 READINESS_ALLOWLIST: frozenset[str] = frozenset(
     {
-        "backend/helpdesk/agent_api/readiness.py",
+        "backend/helpdesk/agent_api/api/routes/health.py",
         "backend/helpdesk/mcp_server/readiness.py",
         "backend/helpdesk/scheduler/readiness.py",
     }
@@ -93,7 +93,7 @@ TEXT_ALLOWLIST: frozenset[str] = frozenset(
     {
         "backend/helpdesk/mcp_server/services/idempotency/guard.py",
         "backend/helpdesk/shared/audit/writer.py",
-        "backend/helpdesk/agent_api/readiness.py",
+        "backend/helpdesk/agent_api/api/routes/health.py",
         "backend/helpdesk/mcp_server/readiness.py",
         "backend/helpdesk/scheduler/readiness.py",
     }

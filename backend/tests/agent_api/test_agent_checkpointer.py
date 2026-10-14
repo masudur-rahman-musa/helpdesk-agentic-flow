@@ -52,7 +52,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.agent_api.checkpointer import (
+from helpdesk.agent_api.agent.checkpointer import (
     CHECKPOINT_PRIVILEGES,
     CHECKPOINT_TABLES,
     RESTRICTED_ROLE_NAME,

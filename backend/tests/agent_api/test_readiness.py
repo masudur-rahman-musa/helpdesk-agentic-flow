@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from qdrant_client import AsyncQdrantClient
 
-from helpdesk.agent_api import readiness
+from helpdesk.agent_api.api.routes import health as readiness
 
 Check = Callable[[], Any]
 

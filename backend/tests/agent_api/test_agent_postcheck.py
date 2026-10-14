@@ -33,14 +33,14 @@ from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.graph.postcheck import (
+from helpdesk.agent_api.agent.postcheck import (
     DECISION_WORDS,
     POSTCHECK_FALLBACK_REPLY,
     contradicts,
     permitted_words,
     words_in,
 )
-from helpdesk.agent_api.graph.state import PostCheckOutcome, ToolResult, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import PostCheckOutcome, ToolResult, TurnOutcome, TurnState
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS
 from helpdesk.shared.policy.types import Decision

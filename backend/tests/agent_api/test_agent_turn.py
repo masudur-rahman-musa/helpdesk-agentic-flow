@@ -113,24 +113,25 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from helpdesk.agent_api.graph import build as build_module
-from helpdesk.agent_api.graph.build import (
+from helpdesk.agent_api.agent import graph as build_module
+from helpdesk.agent_api.agent.gates import (
+    MAX_CALLS_PER_ROUND,
+    MAX_DISAMBIGUATION_OPTIONS,
+    MAX_TOOL_CALLS,
+    MAX_TURN_TOKENS,
+)
+from helpdesk.agent_api.agent.graph import (
     FAILURE_REPLY,
     GRAPH_RECURSION_LIMIT,
     TurnDeps,
     build_graph,
     run_turn,
 )
-from helpdesk.agent_api.graph.gates import (
-    MAX_CALLS_PER_ROUND,
-    MAX_DISAMBIGUATION_OPTIONS,
-    MAX_TOOL_CALLS,
-    MAX_TURN_TOKENS,
-)
-from helpdesk.agent_api.graph.nodes.endings import REFUSAL_REPLY
-from helpdesk.agent_api.graph.nodes.plan_tools import PLANNING_PROMPT, plan_tools
-from helpdesk.agent_api.graph.nodes.retrieve_policy import MAX_QUERY_CHARS, query_for
-from helpdesk.agent_api.graph.state import (
+from helpdesk.agent_api.agent.nodes.endings import REFUSAL_REPLY
+from helpdesk.agent_api.agent.nodes.plan_tools import PLANNING_PROMPT, plan_tools
+from helpdesk.agent_api.agent.nodes.retrieve_policy import MAX_QUERY_CHARS, query_for
+from helpdesk.agent_api.agent.prompts import load_prompt
+from helpdesk.agent_api.agent.state import (
     Citation,
     Intent,
     IntentEntities,
@@ -138,11 +139,10 @@ from helpdesk.agent_api.graph.state import (
     TurnOutcome,
     TurnState,
 )
-from helpdesk.agent_api.mcp_client import RemoteInternalError, ToolCaller
-from helpdesk.agent_api.prompts import load_prompt
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.services.mcp_client import RemoteInternalError, ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
-from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.repository import (
     HISTORY_LIMIT,

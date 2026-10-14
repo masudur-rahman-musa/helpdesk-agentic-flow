@@ -687,7 +687,7 @@ def _post_login(tenant_slug: str, email: str, password: str) -> httpx.Response:
     """
 
     async def scenario() -> httpx.Response:
-        from helpdesk.agent_api.main import app
+        from helpdesk.agent_api.api.router import app
 
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

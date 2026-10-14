@@ -53,16 +53,16 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.agent_api.graph.deps import TurnDeps
-from helpdesk.agent_api.graph.nodes.compose_reply import (
+from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
+from helpdesk.agent_api.agent.nodes.compose_reply import (
     COMPOSITION_ATTEMPTS,
     COMPOSITION_PROMPT,
     compose_reply,
 )
-from helpdesk.agent_api.graph.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
-from helpdesk.agent_api.graph.plain_errors import PLAIN_ERRORS
-from helpdesk.agent_api.graph.postcheck import POSTCHECK_FALLBACK_REPLY, permitted_words
-from helpdesk.agent_api.graph.state import (
+from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
+from helpdesk.agent_api.agent.postcheck import POSTCHECK_FALLBACK_REPLY, permitted_words
+from helpdesk.agent_api.agent.prompts import load_prompt
+from helpdesk.agent_api.agent.state import (
     Citation,
     Intent,
     IntentEntities,
@@ -73,8 +73,8 @@ from helpdesk.agent_api.graph.state import (
     TurnOutcome,
     TurnState,
 )
-from helpdesk.agent_api.mcp_client import ToolCaller
-from helpdesk.agent_api.prompts import load_prompt
+from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.shared.core.db import _TENANT_INFO_KEY

@@ -17,7 +17,7 @@ setup:      ## Install dependencies and pre-commit hooks
 run:        ## Run the project locally
 	docker compose up -d && cd backend && uv run uvicorn helpdesk.agent_api.main:app --reload
 migrate:    ## Apply both schemas to the local compose database (hard rule 3)
-	cd backend && uv run alembic upgrade head && uv run python ../scripts/checkpointer_setup.py
+	cd backend && uv run alembic upgrade head && uv run python -m helpdesk.agent_api.cli
 ingest:     ## Ingest one tenant's corpus version from POLICY_DIR: make ingest TENANT=acme VERSION=v1
 	cd backend && uv run python ../scripts/ingest.py --tenant $(TENANT) --version $(VERSION)
 # Per-test coverage contexts feed `select-tests` on a laptop and slow the suite a

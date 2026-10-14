@@ -55,12 +55,12 @@ from test_agent_turn import (
     turn_env,  # noqa: F401
 )
 
-from helpdesk.agent_api import admin_routes
-from helpdesk.agent_api.graph import build as build_module
-from helpdesk.agent_api.graph.build import TurnDeps
-from helpdesk.agent_api.graph.nodes.load_session import load_session as real_load_session
-from helpdesk.agent_api.graph.state import TurnState
-from helpdesk.agent_api.main import app
+from helpdesk.agent_api.agent import graph as build_module
+from helpdesk.agent_api.agent.graph import TurnDeps
+from helpdesk.agent_api.agent.nodes.load_session import load_session as real_load_session
+from helpdesk.agent_api.agent.state import TurnState
+from helpdesk.agent_api.api.router import app
+from helpdesk.agent_api.api.routes.admin import audit as admin_routes
 from helpdesk.agent_api.services.tracing import configure_tracing
 from helpdesk.shared.auth.jwt import TokenClaims, issue_token
 from helpdesk.shared.obs.context import bind_context

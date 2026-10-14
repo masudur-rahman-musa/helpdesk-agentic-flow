@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from helpdesk.agent_api.graph.state import IntentExtraction, PlannedCallAnswer, ToolPlanAnswer
+from helpdesk.agent_api.agent.state import IntentExtraction, PlannedCallAnswer, ToolPlanAnswer
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]

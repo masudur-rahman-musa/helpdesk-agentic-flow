@@ -25,7 +25,7 @@ import httpx
 import pytest
 from starlette.middleware.cors import SAFELISTED_HEADERS
 
-from helpdesk.agent_api.main import app
+from helpdesk.agent_api.api.router import app
 
 ALLOWED_ORIGIN = "http://localhost:3000"
 """The configured origin, written out rather than imported.

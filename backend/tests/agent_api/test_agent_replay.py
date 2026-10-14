@@ -42,10 +42,10 @@ from test_agent_approval_interrupt import (
     approval_env,  # noqa: F401
 )
 
-from helpdesk.agent_api.checkpointer import build_checkpointer
-from helpdesk.agent_api.graph.build import AWAIT_APPROVAL, EXECUTE_TOOLS
-from helpdesk.agent_api.graph.state import TurnOutcome, TurnState
-from helpdesk.agent_api.replay import CheckpointEntry, checkpoint_history, state_at
+from helpdesk.agent_api.agent.checkpointer import build_checkpointer
+from helpdesk.agent_api.agent.graph import AWAIT_APPROVAL, EXECUTE_TOOLS
+from helpdesk.agent_api.agent.replay import CheckpointEntry, checkpoint_history, state_at
+from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 
 
 def _pause(env: ApprovalEnv) -> tuple[uuid.UUID, uuid.UUID]:

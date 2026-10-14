@@ -61,8 +61,8 @@ from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.graph import gates as gates_module
-from helpdesk.agent_api.graph.gates import (
+from helpdesk.agent_api.agent import gates as gates_module
+from helpdesk.agent_api.agent.gates import (
     CONFIDENCE_THRESHOLD,
     INTENT_TOOLS,
     MAX_CALLS_PER_ROUND,
@@ -84,8 +84,8 @@ from helpdesk.agent_api.graph.gates import (
     should_retrieve,
     validation_outcome,
 )
-from helpdesk.agent_api.graph.state import Intent, IntentEntities, IntentExtraction, TurnOutcome
-from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY, TOOL_INPUTS
+from helpdesk.agent_api.agent.state import Intent, IntentEntities, IntentExtraction, TurnOutcome
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY, TOOL_INPUTS
 
 SPEC_INTENTS: frozenset[str] = frozenset(
     {

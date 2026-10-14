@@ -42,8 +42,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.agent_api import admin_routes
-from helpdesk.agent_api.main import app
+from helpdesk.agent_api.api.router import app
+from helpdesk.agent_api.api.routes.admin import audit as admin_routes
 from helpdesk.shared.audit import AuditEventInput
 from helpdesk.shared.audit.anchor import anchor_tenant_chain
 from helpdesk.shared.audit.writer import append_event

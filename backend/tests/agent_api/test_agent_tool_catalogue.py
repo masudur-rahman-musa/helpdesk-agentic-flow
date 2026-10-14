@@ -43,8 +43,8 @@ from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.graph.state import Citation
-from helpdesk.agent_api.tools.catalogue import (
+from helpdesk.agent_api.agent.state import Citation
+from helpdesk.agent_api.agent.tool_args import (
     SEARCH_POLICY,
     SEARCH_POLICY_TOP_K,
     TOOL_INPUTS,

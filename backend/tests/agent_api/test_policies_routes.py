@@ -67,9 +67,10 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from helpdesk.agent_api import deps, policies_routes
-from helpdesk.agent_api.main import app
-from helpdesk.agent_api.mcp_client import (
+from helpdesk.agent_api.api.router import app
+from helpdesk.agent_api.api.routes.admin import policies as policies_routes
+from helpdesk.agent_api.services import tool_proxy as deps
+from helpdesk.agent_api.services.mcp_client import (
     RemoteForbiddenError,
     RemoteNotFoundError,
     RemoteToolDisabledError,

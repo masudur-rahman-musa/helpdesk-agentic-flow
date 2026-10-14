@@ -48,10 +48,9 @@ from typing import Any, cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.agent_api.graph.deps import TurnDeps
-from helpdesk.agent_api.graph.keys import check_idempotency_key, derive_idempotency_key
-from helpdesk.agent_api.graph.nodes.validate_tool_calls import validate_tool_calls
-from helpdesk.agent_api.graph.state import (
+from helpdesk.agent_api.agent.keys import check_idempotency_key, derive_idempotency_key
+from helpdesk.agent_api.agent.nodes.validate_tool_calls import validate_tool_calls
+from helpdesk.agent_api.agent.state import (
     Intent,
     IntentEntities,
     IntentExtraction,
@@ -59,7 +58,8 @@ from helpdesk.agent_api.graph.state import (
     TurnOutcome,
     TurnState,
 )
-from helpdesk.agent_api.mcp_client import ToolCaller
+from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.shared.errors import ErrorCode, ToolError
 from helpdesk.shared.models.idempotency import KEY_LENGTH

@@ -229,7 +229,11 @@ def main() -> None:
     subprocess.run(
         ["uv", "run", "alembic", "upgrade", "head"], cwd=_BACKEND_ROOT, check=True
     )
-    _step("checkpointer_setup.py")
+    subprocess.run(
+        [sys.executable, "-m", "helpdesk.agent_api.cli"],
+        cwd=_BACKEND_ROOT,
+        check=True,
+    )
     _step("seed.py", scripts_dir=_BACKEND_SCRIPTS_DIR)
     _step("ingest.py")
     asyncio.run(_open_this_quarters_reviews(database_url))

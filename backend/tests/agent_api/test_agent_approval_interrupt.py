@@ -52,22 +52,22 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from helpdesk.agent_api.checkpointer import (
+from helpdesk.agent_api.agent.checkpointer import (
     build_checkpointer,
     build_pool,
     psycopg_dsn,
     thread_config,
 )
-from helpdesk.agent_api.checkpointer import setup_checkpointer as setup_checkpoint_tables
-from helpdesk.agent_api.graph.build import TurnDeps, run_turn
-from helpdesk.agent_api.graph.gates import approval_outcome
-from helpdesk.agent_api.graph.nodes.await_approval import PENDING_APPROVAL_REPLY
-from helpdesk.agent_api.graph.nodes.extract_intent import FAILURE_REPLY
-from helpdesk.agent_api.graph.state import ToolResult, TurnOutcome
-from helpdesk.agent_api.mcp_client import ToolCaller
+from helpdesk.agent_api.agent.checkpointer import setup_checkpointer as setup_checkpoint_tables
+from helpdesk.agent_api.agent.gates import approval_outcome
+from helpdesk.agent_api.agent.graph import TurnDeps, run_turn
+from helpdesk.agent_api.agent.nodes.await_approval import PENDING_APPROVAL_REPLY
+from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
+from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
-from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.errors import ErrorCode

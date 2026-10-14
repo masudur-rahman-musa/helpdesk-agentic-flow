@@ -42,13 +42,12 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.agent_api.graph import plain_errors as plain_errors_module
-from helpdesk.agent_api.graph.deps import TurnDeps
-from helpdesk.agent_api.graph.nodes import execute_tools as execute_tools_module
-from helpdesk.agent_api.graph.nodes.execute_tools import execute_tools
-from helpdesk.agent_api.graph.nodes.extract_intent import FAILURE_REPLY
-from helpdesk.agent_api.graph.plain_errors import PLAIN_ERRORS
-from helpdesk.agent_api.graph.state import (
+from helpdesk.agent_api.agent import errors as plain_errors_module
+from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
+from helpdesk.agent_api.agent.nodes import execute_tools as execute_tools_module
+from helpdesk.agent_api.agent.nodes.execute_tools import execute_tools
+from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
+from helpdesk.agent_api.agent.state import (
     Intent,
     IntentEntities,
     IntentExtraction,
@@ -56,9 +55,10 @@ from helpdesk.agent_api.graph.state import (
     TurnState,
     ValidatedCall,
 )
-from helpdesk.agent_api.mcp_client import REMOTE_ERRORS, RemoteToolError, ToolCaller
+from helpdesk.agent_api.agent.tool_args import IDEMPOTENCY_KEY, TOOL_INPUTS
+from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.agent_api.services.mcp_client import REMOTE_ERRORS, RemoteToolError, ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
-from helpdesk.agent_api.tools.catalogue import IDEMPOTENCY_KEY, TOOL_INPUTS
 from helpdesk.shared.errors import ErrorCode
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)

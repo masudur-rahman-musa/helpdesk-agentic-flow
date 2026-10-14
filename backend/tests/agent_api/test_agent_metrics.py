@@ -67,8 +67,8 @@ from test_chat_stream import (
     stream_route_db,  # noqa: F401 - fixture resolved by name
 )
 
-from helpdesk.agent_api.graph.state import Intent, TurnOutcome
-from helpdesk.agent_api.sse import ERROR
+from helpdesk.agent_api.agent.state import Intent, TurnOutcome
+from helpdesk.agent_api.api.sse import ERROR
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.repository import Repository
 from helpdesk.shared.errors import ErrorCode

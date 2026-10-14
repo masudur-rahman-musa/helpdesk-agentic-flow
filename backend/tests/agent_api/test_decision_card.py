@@ -40,9 +40,9 @@ from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.decision_card import CardApprover, DecisionCard, decision_card
-from helpdesk.agent_api.graph.state import ToolResult, TurnState
-from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
+from helpdesk.agent_api.agent.state import ToolResult, TurnState
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.services.decision_card import CardApprover, DecisionCard, decision_card
 from helpdesk.mcp_server.tools.access import CreateAccessRequestOutput
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.policy.types import ApproverSlot, Decision, ReasonCode, RiskClass

@@ -27,8 +27,8 @@ import difflib
 import uuid
 from pathlib import Path
 
-from helpdesk.agent_api.graph import matching as matching_module
-from helpdesk.agent_api.graph.matching import (
+from helpdesk.agent_api.agent import matching as matching_module
+from helpdesk.agent_api.agent.matching import (
     FUZZY_CUTOFF,
     Candidate,
     aliases_for,

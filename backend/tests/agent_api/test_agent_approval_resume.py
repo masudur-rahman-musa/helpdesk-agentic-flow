@@ -65,12 +65,12 @@ from test_agent_approval_interrupt import (
     approval_env,  # noqa: F401
 )
 
-import helpdesk.agent_api.resume as resume_module
-from helpdesk.agent_api.checkpointer import build_checkpointer
-from helpdesk.agent_api.graph.build import TurnDeps
-from helpdesk.agent_api.graph.gates import APPROVE_REQUEST, REJECT_REQUEST, decision_result
-from helpdesk.agent_api.graph.state import ToolResult, TurnOutcome, TurnState
-from helpdesk.agent_api.resume import ResumeRefusedError, resume_turn
+import helpdesk.agent_api.agent.resume as resume_module
+from helpdesk.agent_api.agent.checkpointer import build_checkpointer
+from helpdesk.agent_api.agent.gates import APPROVE_REQUEST, REJECT_REQUEST, decision_result
+from helpdesk.agent_api.agent.graph import TurnDeps
+from helpdesk.agent_api.agent.resume import ResumeRefusedError, resume_turn
+from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.repository import list_recent_messages

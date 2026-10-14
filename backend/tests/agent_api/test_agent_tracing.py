@@ -78,8 +78,7 @@ from test_agent_turn import (
     turn_env,  # noqa: F401
 )
 
-from helpdesk.agent_api import chat_routes
-from helpdesk.agent_api.graph.build import (
+from helpdesk.agent_api.agent.graph import (
     _NODE_MODEL_ALIASES,
     _NODE_PROMPTS,
     ASK_CLARIFYING,
@@ -99,21 +98,22 @@ from helpdesk.agent_api.graph.build import (
     build_graph,
     run_turn,
 )
-from helpdesk.agent_api.graph.nodes.compose_reply import COMPOSITION_PROMPT
-from helpdesk.agent_api.graph.nodes.extract_intent import EXTRACTION_PROMPT
-from helpdesk.agent_api.graph.nodes.plan_tools import PLANNING_PROMPT
-from helpdesk.agent_api.graph.state import Citation, ToolResult, TurnOutcome, TurnState
-from helpdesk.agent_api.mcp_client import (
+from helpdesk.agent_api.agent.nodes.compose_reply import COMPOSITION_PROMPT
+from helpdesk.agent_api.agent.nodes.extract_intent import EXTRACTION_PROMPT
+from helpdesk.agent_api.agent.nodes.plan_tools import PLANNING_PROMPT
+from helpdesk.agent_api.agent.prompts import load_prompt
+from helpdesk.agent_api.agent.state import Citation, ToolResult, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.agent.turn_metrics import trace_attributes
+from helpdesk.agent_api.api.routes import chat as chat_routes
+from helpdesk.agent_api.services.mcp_client import (
     TOOL_SPAN_PREFIX,
     McpToolCaller,
     ToolCaller,
     TracingToolCaller,
 )
-from helpdesk.agent_api.metrics import trace_attributes
-from helpdesk.agent_api.prompts import load_prompt
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
 from helpdesk.agent_api.services.tracing import TURN_TRACE_NAME, configure_tracing
-from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.models.access import RequestStatus

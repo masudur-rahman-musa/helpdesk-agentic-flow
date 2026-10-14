@@ -37,7 +37,7 @@ import mcp.types as mcp_types
 import pytest
 from pydantic import BaseModel
 
-from helpdesk.agent_api.mcp_client import (
+from helpdesk.agent_api.services.mcp_client import (
     MCP_CONNECT_TIMEOUT_SECONDS,
     MCP_READ_TIMEOUT_SECONDS,
     REMOTE_ERRORS,

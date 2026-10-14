@@ -48,7 +48,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from helpdesk.agent_api.graph.state import Intent
+from helpdesk.agent_api.agent.state import Intent
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.risk import NEW_JOINER_TENURE_DAYS

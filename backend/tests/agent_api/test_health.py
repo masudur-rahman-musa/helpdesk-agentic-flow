@@ -27,8 +27,8 @@ from typing import Any
 import httpx
 import pytest
 
-from helpdesk.agent_api import readiness
-from helpdesk.agent_api.main import app
+from helpdesk.agent_api.api.router import app
+from helpdesk.agent_api.api.routes import health as readiness
 
 # An earlier change section 8: FOUR dependencies. the design names the gateway as a
 # dependency of the agent's readiness, so a container reporting ready while

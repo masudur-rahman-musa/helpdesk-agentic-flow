@@ -70,15 +70,19 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from helpdesk.agent_api import chat_routes
-from helpdesk.agent_api.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
-from helpdesk.agent_api.graph.nodes.await_approval import PENDING_APPROVAL_REPLY
-from helpdesk.agent_api.graph.state import TurnOutcome
-from helpdesk.agent_api.main import app
-from helpdesk.agent_api.mcp_client import TRANSPORT_FAILURE_MESSAGE, RemoteInternalError, ToolCaller
+from helpdesk.agent_api.agent.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
+from helpdesk.agent_api.agent.nodes.await_approval import PENDING_APPROVAL_REPLY
+from helpdesk.agent_api.agent.state import TurnOutcome
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.api.router import app
+from helpdesk.agent_api.api.routes import chat as chat_routes
+from helpdesk.agent_api.services.mcp_client import (
+    TRANSPORT_FAILURE_MESSAGE,
+    RemoteInternalError,
+    ToolCaller,
+)
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
-from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.repository import Repository, append_message, get_or_create_session

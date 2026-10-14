@@ -54,7 +54,7 @@ import pytest
 from pydantic import ValidationError
 from redis.asyncio import Redis
 
-from helpdesk.agent_api.ratelimit import (
+from helpdesk.agent_api.services.ratelimit import (
     RATE_LIMIT_MESSAGES,
     RATE_LIMIT_WINDOW_SECONDS,
     RateLimitExceededError,

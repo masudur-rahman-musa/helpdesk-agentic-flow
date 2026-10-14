@@ -36,10 +36,15 @@ from pathlib import Path
 
 import pytest
 
-from helpdesk.agent_api import prompts as prompts_module
-from helpdesk.agent_api.graph.gates import INTENT_TOOLS
-from helpdesk.agent_api.graph.state import Intent
-from helpdesk.agent_api.prompts import PROMPTS_DIR, LoadedPrompt, PromptNotFoundError, load_prompt
+from helpdesk.agent_api.agent import prompts as prompts_module
+from helpdesk.agent_api.agent.gates import INTENT_TOOLS
+from helpdesk.agent_api.agent.prompts import (
+    PROMPTS_DIR,
+    LoadedPrompt,
+    PromptNotFoundError,
+    load_prompt,
+)
+from helpdesk.agent_api.agent.state import Intent
 from helpdesk.shared.errors import ErrorCode, ToolError
 
 SYSTEM_PROMPT = "system"

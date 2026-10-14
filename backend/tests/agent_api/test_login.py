@@ -46,8 +46,8 @@ from sqlalchemy import select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.agent_api import auth_routes
-from helpdesk.agent_api.main import app
+from helpdesk.agent_api.api.router import app
+from helpdesk.agent_api.services import auth as auth_routes
 from helpdesk.shared.auth.jwt import TokenClaims, verify_token
 from helpdesk.shared.auth.passwords import hash_password
 from helpdesk.shared.core.db import create_engine

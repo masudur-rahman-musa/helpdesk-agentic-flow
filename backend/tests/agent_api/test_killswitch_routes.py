@@ -65,9 +65,10 @@ import httpx
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from helpdesk.agent_api import deps
-from helpdesk.agent_api.main import app
-from helpdesk.agent_api.mcp_client import (
+from helpdesk.agent_api.api.router import app
+from helpdesk.agent_api.core import deps
+from helpdesk.agent_api.services import tool_proxy
+from helpdesk.agent_api.services.mcp_client import (
     TRANSPORT_FAILURE_MESSAGE,
     RemoteForbiddenError,
     RemoteInternalError,
@@ -358,7 +359,7 @@ def _get(
     gateway client that no case here uses.
     """
     spy = CallerSpy(caller)
-    monkeypatch.setattr(deps, "build_tool_caller", spy.build)
+    monkeypatch.setattr(tool_proxy, "build_tool_caller", spy.build)
 
     async def scenario(client: httpx.AsyncClient) -> httpx.Response:
         return await client.get(KILLSWITCH_PATH, headers=dict(headers or {}))
@@ -375,7 +376,7 @@ def _post(
 ) -> tuple[httpx.Response, CallerSpy]:
     """One toggle against the app, through the same patched seam."""
     spy = CallerSpy(caller)
-    monkeypatch.setattr(deps, "build_tool_caller", spy.build)
+    monkeypatch.setattr(tool_proxy, "build_tool_caller", spy.build)
 
     async def scenario(client: httpx.AsyncClient) -> httpx.Response:
         return await client.post(

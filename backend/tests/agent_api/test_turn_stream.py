@@ -84,16 +84,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from helpdesk.agent_api.checkpointer import build_checkpointer, build_pool, psycopg_dsn
-from helpdesk.agent_api.checkpointer import setup_checkpointer as setup_checkpoint_tables
-from helpdesk.agent_api.graph.build import TurnDeps, stream_turn
-from helpdesk.agent_api.graph.nodes.await_approval import PENDING_APPROVAL_REPLY
-from helpdesk.agent_api.graph.postcheck import POSTCHECK_FALLBACK_REPLY
-from helpdesk.agent_api.graph.state import TurnOutcome
-from helpdesk.agent_api.mcp_client import RemotePolicyBlockedError, ToolCaller
-from helpdesk.agent_api.services.model_gateway.client import ModelClient
-from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
-from helpdesk.agent_api.sse import (
+from helpdesk.agent_api.agent.checkpointer import build_checkpointer, build_pool, psycopg_dsn
+from helpdesk.agent_api.agent.checkpointer import setup_checkpointer as setup_checkpoint_tables
+from helpdesk.agent_api.agent.graph import TurnDeps, stream_turn
+from helpdesk.agent_api.agent.nodes.await_approval import PENDING_APPROVAL_REPLY
+from helpdesk.agent_api.agent.postcheck import POSTCHECK_FALLBACK_REPLY
+from helpdesk.agent_api.agent.state import TurnOutcome
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.api.sse import (
     DONE,
     ERROR,
     REPLY,
@@ -103,7 +101,9 @@ from helpdesk.agent_api.sse import (
     chunk_reply,
     encode_event,
 )
-from helpdesk.agent_api.tools.catalogue import SEARCH_POLICY
+from helpdesk.agent_api.services.mcp_client import RemotePolicyBlockedError, ToolCaller
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
+from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.repository import Repository, append_message, get_or_create_session
 from helpdesk.shared.core.settings import load_settings
