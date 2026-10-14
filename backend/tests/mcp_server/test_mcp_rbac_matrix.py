@@ -42,22 +42,6 @@ from functools import cache
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
-    RecordingEmbedder,
-    RecordingQdrant,
-    SeededMcp,
-    as_client,
-    bearer,
-    call_tool,
-    error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
-    token_for,
-)
-from scripts.seed import CUAN, NORDLICHT, TenantRows, generate_tenant
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -75,6 +59,22 @@ from helpdesk.shared.models import (
     ReviewItem,
     ReviewStatus,
     User,
+)
+from scripts.seed import CUAN, NORDLICHT, TenantRows, generate_tenant
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+    RecordingEmbedder,
+    RecordingQdrant,
+    SeededMcp,
+    as_client,
+    bearer,
+    call_tool,
+    error_code,
+    mcp_env,
+    mcp_pg,
+    mcp_redis_base_url,
+    mcp_redis_url,
+    seeded_mcp_db,
+    token_for,
 )
 
 PRINCIPALS: tuple[str, ...] = (

@@ -29,19 +29,6 @@ import uuid
 from collections.abc import Iterator, Mapping
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
-    SeededMcp,
-    bearer,
-    call_tool,
-    error_code,
-    http_get,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
-    token_for,
-)
 from prometheus_client import CollectorRegistry
 from test_mcp_pipeline import (
     NO_REAL_PRINCIPALS,
@@ -54,6 +41,19 @@ from test_mcp_pipeline import (
 
 from helpdesk.shared.errors import ErrorCode
 from helpdesk.shared.obs import metrics
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+    SeededMcp,
+    bearer,
+    call_tool,
+    error_code,
+    http_get,
+    mcp_env,
+    mcp_pg,
+    mcp_redis_base_url,
+    mcp_redis_url,
+    seeded_mcp_db,
+    token_for,
+)
 
 TOOL_CALLS = "helpdesk_tool_calls_total"
 TOOL_LATENCY_COUNT = "helpdesk_tool_latency_seconds_count"

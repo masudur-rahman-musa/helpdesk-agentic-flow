@@ -53,7 +53,11 @@ import uuid
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from scripts.seed import NORDLICHT, UserRow, generate_tenant
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,
     bearer,
@@ -66,9 +70,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from scripts.seed import NORDLICHT, UserRow, generate_tenant
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
 CREATE = "create_access_request"
 

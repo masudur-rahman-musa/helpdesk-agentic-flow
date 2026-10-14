@@ -66,7 +66,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from redis.asyncio import Redis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from helpdesk.mcp_server import rag_clients
+from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.shared.rag.gateway import RedactedDocument
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     RecordingEmbedder,
     SeededMcp,
     bearer,
@@ -81,13 +88,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from redis.asyncio import Redis
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-
-from helpdesk.mcp_server import rag_clients
-from helpdesk.mcp_server.registry import REGISTRY
-from helpdesk.shared.rag.gateway import RedactedDocument
 
 REINGEST = "reingest_policy_document"
 SET_KILL_SWITCH = "set_kill_switch"

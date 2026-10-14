@@ -34,31 +34,13 @@ import asyncio
 import io
 import json
 import logging
-import sys
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-
-from helpdesk.agent_api import admin_routes
-from helpdesk.agent_api.graph import build as build_module
-from helpdesk.agent_api.graph.build import TurnDeps
-from helpdesk.agent_api.graph.nodes.load_session import load_session as real_load_session
-from helpdesk.agent_api.graph.state import TurnState
-from helpdesk.agent_api.main import app
-from helpdesk.shared.auth.jwt import TokenClaims, issue_token
-from helpdesk.shared.obs import configure_tracing
-from helpdesk.shared.obs.context import bind_context
-from helpdesk.shared.obs.logging import FORBIDDEN_KEYS, REDACTED, JsonFormatter
-
-# The recording fake lives with the facade's own tests; its directory is only
-# on `sys.path` while that suite is being collected.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend" / "tests" / "shared"))
-
 from test_agent_turn import (
     COMPOSED_REPLY,
     EMPTY_PLAN,
@@ -72,7 +54,18 @@ from test_agent_turn import (
     pg,  # noqa: F401
     turn_env,  # noqa: F401
 )
-from test_obs_tracing import TRACE_ID_PATTERN, FakeTraceClient
+
+from helpdesk.agent_api import admin_routes
+from helpdesk.agent_api.graph import build as build_module
+from helpdesk.agent_api.graph.build import TurnDeps
+from helpdesk.agent_api.graph.nodes.load_session import load_session as real_load_session
+from helpdesk.agent_api.graph.state import TurnState
+from helpdesk.agent_api.main import app
+from helpdesk.shared.auth.jwt import TokenClaims, issue_token
+from helpdesk.shared.obs import configure_tracing
+from helpdesk.shared.obs.context import bind_context
+from helpdesk.shared.obs.logging import FORBIDDEN_KEYS, REDACTED, JsonFormatter
+from tests.shared.test_obs_tracing import TRACE_ID_PATTERN, FakeTraceClient
 
 # Obviously fake, tests only; >= 32 bytes so the settings length gate passes.
 TEST_JWT_SIGNING_PHRASE = "logging-wiring-test-jwt-secret-0123456789"

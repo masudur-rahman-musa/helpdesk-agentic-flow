@@ -66,7 +66,6 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from _seed import SeededTenant, seed_tenant
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -107,6 +106,7 @@ from helpdesk.shared.models import (
     User,
 )
 from helpdesk.shared.models.access import PERIOD_LENGTH as COLUMN_PERIOD_LENGTH
+from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
 """The one instant every generation answers for, and plan §1's own example:

@@ -36,7 +36,15 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from helpdesk.mcp_server.tools import access
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.repository import Repository
+from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
+from scripts.seed import CUAN, NORDLICHT, TenantSpec, UserRow, generate_tenant
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,
     bearer,
@@ -49,14 +57,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from scripts.seed import CUAN, NORDLICHT, TenantSpec, UserRow, generate_tenant
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-
-from helpdesk.mcp_server.tools import access
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import Repository
-from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
 
 CLASSIFY = "classify_access_request"
 LIST_MY_REQUESTS = "list_my_requests"

@@ -69,7 +69,12 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from sqlalchemy import String, text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from helpdesk.mcp_server.tools import read
+from helpdesk.shared.models import AuditEvent
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,
     bearer,
@@ -82,11 +87,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from sqlalchemy import String, text
-from sqlalchemy.ext.asyncio import create_async_engine
-
-from helpdesk.mcp_server.tools import read
-from helpdesk.shared.models import AuditEvent
 
 SEARCH = "search_audit"
 

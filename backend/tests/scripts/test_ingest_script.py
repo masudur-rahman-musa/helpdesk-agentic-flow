@@ -13,9 +13,9 @@ of what it now excludes.
 
 No environment, no engine, no client, no backing service: every case is a
 function call on two `Path` values. `scripts` is importable because
-`packages/helpdesk/tests/conftest.py` puts the repository root on `sys.path`
-before any test module is imported, which is how `test_seed.py` and
-`test_access_snapshot.py` already reach `scripts.seed`.
+`backend/pyproject.toml`'s pytest `pythonpath` puts the repository root on
+`sys.path`, which is how `test_seed.py` and `test_access_snapshot.py` already
+reach `scripts.seed`.
 """
 
 from pathlib import Path

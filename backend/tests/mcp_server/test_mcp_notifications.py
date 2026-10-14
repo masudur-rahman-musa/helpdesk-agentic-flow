@@ -54,7 +54,13 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+import helpdesk.mcp_server.tools.notifications as notifications
+from helpdesk.shared.models.idempotency import KEY_LENGTH
+from helpdesk.shared.models.notification import NotificationKind
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,
     bearer,
@@ -67,12 +73,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-
-import helpdesk.mcp_server.tools.notifications as notifications
-from helpdesk.shared.models.idempotency import KEY_LENGTH
-from helpdesk.shared.models.notification import NotificationKind
 
 LIST = "list_notifications"
 MARK = "mark_notification_read"

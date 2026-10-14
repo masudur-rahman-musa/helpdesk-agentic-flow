@@ -41,14 +41,13 @@ the boundary pair that matters is pinned against the CHECK in
 
 from enum import StrEnum
 
-from _seed import TENANT_SCOPED_TABLES
-
 from helpdesk.shared.models import Base, Notification, TenantScoped
 from helpdesk.shared.models.notification import (
     NOTIFICATION_BODY_MAX_LENGTH,
     NOTIFICATION_TITLE_MAX_LENGTH,
     NotificationKind,
 )
+from tests.support.seed import TENANT_SCOPED_TABLES
 
 
 def test_the_notifications_table_is_in_the_metadata() -> None:

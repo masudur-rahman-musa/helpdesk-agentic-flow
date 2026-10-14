@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _seed import ALL_TABLES, TENANT_SCOPED_TABLES, schema_engine, seed_tenant
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Connection, Table, Uuid, inspect, select
@@ -37,6 +36,7 @@ from helpdesk.shared.models import (
     Ticket,
     User,
 )
+from tests.support.seed import ALL_TABLES, TENANT_SCOPED_TABLES, schema_engine, seed_tenant
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

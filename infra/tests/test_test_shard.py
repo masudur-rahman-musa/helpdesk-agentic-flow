@@ -16,7 +16,9 @@ SLICE_COUNT = 3
 
 def test_every_test_file_is_in_exactly_one_slice() -> None:
     files = test_files()
-    chunks = slices(files, json.loads(DURATIONS.read_text(encoding="utf-8")), SLICE_COUNT)
+    chunks = slices(
+        files, json.loads(DURATIONS.read_text(encoding="utf-8")), SLICE_COUNT
+    )
     flat = [name for chunk in chunks for name in chunk]
     assert sorted(flat) == files
     assert len(flat) == len(set(flat))
@@ -24,7 +26,10 @@ def test_every_test_file_is_in_exactly_one_slice() -> None:
 
 def test_a_file_missing_from_the_table_still_lands_in_a_slice() -> None:
     chunks = slices(["new_a.py", "known.py"], {"known.py": 5.0}, 2)
-    assert sorted(name for chunk in chunks for name in chunk) == ["known.py", "new_a.py"]
+    assert sorted(name for chunk in chunks for name in chunk) == [
+        "known.py",
+        "new_a.py",
+    ]
 
 
 def test_the_slices_are_balanced_by_measured_time() -> None:

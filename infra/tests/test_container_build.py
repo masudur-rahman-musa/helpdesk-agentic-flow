@@ -186,7 +186,9 @@ def _compose_service(name: str) -> dict[str, Any]:
     """One compose service, failing with the service list when it is missing."""
     services = _compose_services()
     service = services.get(name)
-    assert isinstance(service, dict), f"no compose service {name}, services are {sorted(services)}"
+    assert isinstance(service, dict), (
+        f"no compose service {name}, services are {sorted(services)}"
+    )
     return service
 
 
@@ -218,9 +220,13 @@ def _workflow_step_texts() -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("app", "module", "port"), APP_DOCKERFILES, ids=[app for app, _m, _p in APP_DOCKERFILES]
+    ("app", "module", "port"),
+    APP_DOCKERFILES,
+    ids=[app for app, _m, _p in APP_DOCKERFILES],
 )
-def test_each_app_dockerfile_entrypoints_its_own_app(app: str, module: str, port: str) -> None:
+def test_each_app_dockerfile_entrypoints_its_own_app(
+    app: str, module: str, port: str
+) -> None:
     """Catches an app's Dockerfile wired to a neighbour's module or port, which
     the split makes possible: the one `ARG SERVICE`/case file is gone, so each
     `backend/Dockerfile.<app>` must run `uvicorn helpdesk.<app>.main:app` on its
@@ -239,9 +245,13 @@ def test_each_app_dockerfile_entrypoints_its_own_app(app: str, module: str, port
     )
     assert "ARG SERVICE" not in text, f"Dockerfile.{app} still declares an ARG SERVICE"
 
-    copies = [argument for name, argument in _instructions(dockerfile) if name == "COPY"]
+    copies = [
+        argument for name, argument in _instructions(dockerfile) if name == "COPY"
+    ]
     app_copies = [
-        c for c in copies if "helpdesk/" in c and "shared" not in c and "__init__" not in c
+        c
+        for c in copies
+        if "helpdesk/" in c and "shared" not in c and "__init__" not in c
     ]
     sibling_modules = [m for other, m, _p in APP_DOCKERFILES if other != app]
     for argument in app_copies:
@@ -257,7 +267,9 @@ def test_each_app_dockerfile_entrypoints_its_own_app(app: str, module: str, port
     )
 
 
-@pytest.mark.parametrize("dockerfile", PYTHON_DOCKERFILES, ids=[p.name for p in PYTHON_DOCKERFILES])
+@pytest.mark.parametrize(
+    "dockerfile", PYTHON_DOCKERFILES, ids=[p.name for p in PYTHON_DOCKERFILES]
+)
 def test_each_app_dockerfile_runs_as_a_non_root_user(dockerfile: Path) -> None:
     """Catches an image whose process is uid 0, where a container escape starts
     with root on the host mount; catches equally a `USER` placed before the last
@@ -279,9 +291,13 @@ def test_the_web_image_is_built_from_the_standalone_output() -> None:
     `.next/standalone` from a build that was never told to emit it, which fails
     only at build time in CI."""
     config = NEXT_CONFIG.read_text(encoding="utf-8")
-    assert STANDALONE_OUTPUT.search(config), 'next.config.ts declares no output: "standalone"'
+    assert STANDALONE_OUTPUT.search(config), (
+        'next.config.ts declares no output: "standalone"'
+    )
 
-    copies = [argument for name, argument in _instructions(WEB_DOCKERFILE) if name == "COPY"]
+    copies = [
+        argument for name, argument in _instructions(WEB_DOCKERFILE) if name == "COPY"
+    ]
     assert any(".next/standalone" in argument for argument in copies), (
         f"web/Dockerfile copies no .next/standalone, its copies are {copies}"
     )
@@ -303,7 +319,9 @@ def test_the_dockerignore_excludes_every_private_path(path: str) -> None:
     ]
 
     excluded = {entry.rstrip("/") for entry in entries if not entry.startswith("!")}
-    readmitted = {entry.lstrip("!").rstrip("/") for entry in entries if entry.startswith("!")}
+    readmitted = {
+        entry.lstrip("!").rstrip("/") for entry in entries if entry.startswith("!")
+    }
 
     assert path in excluded, f".dockerignore does not exclude {path}"
     assert path not in readmitted, f".dockerignore re-admits {path} with a negation"
@@ -333,7 +351,9 @@ def test_the_backing_services_carry_no_profile(name: str) -> None:
     naming the cause."""
     service = _compose_service(name)
 
-    assert "profiles" not in service, f"{name} declares profiles {service.get('profiles')!r}"
+    assert "profiles" not in service, (
+        f"{name} declares profiles {service.get('profiles')!r}"
+    )
 
 
 def test_the_policy_dir_is_mounted_read_only_into_the_mcp_server() -> None:
@@ -354,7 +374,9 @@ def test_the_policy_dir_is_mounted_read_only_into_the_mcp_server() -> None:
         )
 
     for dockerfile in PYTHON_DOCKERFILES:
-        copies = [argument for name, argument in _instructions(dockerfile) if name == "COPY"]
+        copies = [
+            argument for name, argument in _instructions(dockerfile) if name == "COPY"
+        ]
         baked = [argument for argument in copies if "policies" in argument]
         assert baked == [], f"{dockerfile.name} bakes the policy corpus: {baked}"
 
@@ -378,9 +400,27 @@ def test_the_image_scan_job_covers_the_four_built_images(image: str) -> None:
 # --- an earlier change: the pinned base images and the web runtime's attack surface -----
 
 IMAGE_FLOORS: tuple[tuple[str, tuple[Path, ...], str, tuple[int, ...], str], ...] = (
-    ("PYTHON_IMAGE", PYTHON_DOCKERFILES, "python:3.12.15-slim-bookworm", (3, 12, 15), "2026-10-12"),
-    ("UV_IMAGE", PYTHON_DOCKERFILES, "ghcr.io/astral-sh/uv:0.12.19", (0, 12, 19), "2026-09-28"),
-    ("NODE_IMAGE", (WEB_DOCKERFILE,), "node:22.23.3-bookworm-slim", (22, 23, 3), "2026-09-28"),
+    (
+        "PYTHON_IMAGE",
+        PYTHON_DOCKERFILES,
+        "python:3.12.15-slim-bookworm",
+        (3, 12, 15),
+        "2026-10-12",
+    ),
+    (
+        "UV_IMAGE",
+        PYTHON_DOCKERFILES,
+        "ghcr.io/astral-sh/uv:0.12.19",
+        (0, 12, 19),
+        "2026-09-28",
+    ),
+    (
+        "NODE_IMAGE",
+        (WEB_DOCKERFILE,),
+        "node:22.23.3-bookworm-slim",
+        (22, 23, 3),
+        "2026-09-28",
+    ),
 )
 """One row per pinned base image: the ARG name, the files declaring it, the floor
 tag, that tag as a version tuple, and the date the floor was measured.
@@ -536,10 +576,16 @@ def test_the_node_base_is_not_older_than_the_recorded_floor() -> None:
 
 
 @pytest.mark.parametrize(
-    ("arg_name", "paths", "floor_tag", "floor", "measured"), IMAGE_FLOORS, ids=IMAGE_FLOOR_IDS
+    ("arg_name", "paths", "floor_tag", "floor", "measured"),
+    IMAGE_FLOORS,
+    ids=IMAGE_FLOOR_IDS,
 )
 def test_the_pinned_tags_are_exact_patch_versions(
-    arg_name: str, paths: tuple[Path, ...], floor_tag: str, floor: tuple[int, ...], measured: str
+    arg_name: str,
+    paths: tuple[Path, ...],
+    floor_tag: str,
+    floor: tuple[int, ...],
+    measured: str,
 ) -> None:
     """Catches decision A being undone by a floating tag: `python:3.12-slim-bookworm`
     satisfies the floor case above forever, because a two-component tag reads as
@@ -633,23 +679,31 @@ WEB_DEV_COMMANDS: tuple[str, ...] = ("next dev", "pnpm dev")
 
 WEB_START_PERIOD = "60s"
 
-ALLOWED_ENVIRONMENT: dict[str, dict[str, str]] = {WEB_SERVICE: {"WATCHPACK_POLLING": "true"}}
+ALLOWED_ENVIRONMENT: dict[str, dict[str, str]] = {
+    WEB_SERVICE: {"WATCHPACK_POLLING": "true"}
+}
 """The whole environment the override example may set, as an exact mapping per
 service: web's polling switch, and nothing for any other service."""
 
 
 def _override_document() -> dict[str, Any]:
     """The override example parsed as a YAML mapping."""
-    assert OVERRIDE_EXAMPLE.is_file(), "docker-compose.override.example.yml does not exist"
+    assert OVERRIDE_EXAMPLE.is_file(), (
+        "docker-compose.override.example.yml does not exist"
+    )
     document = yaml.safe_load(OVERRIDE_EXAMPLE.read_text(encoding="utf-8"))
-    assert isinstance(document, dict), "docker-compose.override.example.yml is not a mapping"
+    assert isinstance(document, dict), (
+        "docker-compose.override.example.yml is not a mapping"
+    )
     return document
 
 
 def _override_services() -> dict[str, Any]:
     """The override example's `services` mapping."""
     services = _override_document().get("services")
-    assert isinstance(services, dict), "docker-compose.override.example.yml declares no services"
+    assert isinstance(services, dict), (
+        "docker-compose.override.example.yml declares no services"
+    )
     return services
 
 
@@ -697,7 +751,9 @@ def _environment_keys(environment: Any) -> set[str]:
     return {str(entry).split("=", 1)[0] for entry in environment}
 
 
-@pytest.mark.parametrize(("service", "module", "port"), PYTHON_RELOAD_ROWS, ids=PYTHON_RELOAD_IDS)
+@pytest.mark.parametrize(
+    ("service", "module", "port"), PYTHON_RELOAD_ROWS, ids=PYTHON_RELOAD_IDS
+)
 def test_the_override_example_reloads_every_python_service(
     service: str, module: str, port: str
 ) -> None:
@@ -744,7 +800,9 @@ def test_the_override_example_never_mounts_over_the_venv() -> None:
         if isinstance(service, dict)
         for volume in service.get("volumes") or []
     ]
-    assert targets, "the override example mounts nothing, so this case would prove nothing"
+    assert targets, (
+        "the override example mounts nothing, so this case would prove nothing"
+    )
 
     shadowing = [
         target
@@ -770,7 +828,11 @@ def test_the_override_example_runs_web_in_dev_mode() -> None:
     assert web.get("pull_policy") == "build", web.get("pull_policy")
 
     command = web.get("command")
-    text = " ".join(str(part) for part in command) if isinstance(command, list) else str(command)
+    text = (
+        " ".join(str(part) for part in command)
+        if isinstance(command, list)
+        else str(command)
+    )
     assert WEB_INSTALL in text, f"helpdesk-web never runs {WEB_INSTALL}: {text!r}"
     starts = [text.find(spelling) for spelling in WEB_DEV_COMMANDS if spelling in text]
     assert starts, f"helpdesk-web starts no dev server: {text!r}"
@@ -790,14 +852,20 @@ def test_the_override_example_keeps_web_dependencies_in_named_volumes() -> None:
     assert WEB_SOURCE_MOUNT in [str(volume) for volume in volumes], volumes
 
     declared = _override_document().get("volumes")
-    assert isinstance(declared, dict), f"the override example declares no volumes: {declared!r}"
+    assert isinstance(declared, dict), (
+        f"the override example declares no volumes: {declared!r}"
+    )
 
     by_target = {_volume_target(volume): _volume_source(volume) for volume in volumes}
     for target in WEB_NAMED_VOLUME_TARGETS:
         source = by_target.get(target)
         assert source, f"helpdesk-web has no named volume at {target}: {volumes}"
-        assert not source.startswith((".", "/", "~")), f"{target} is a bind mount from {source}"
-        assert source in declared, f"volume {source} is not declared at top level: {declared}"
+        assert not source.startswith((".", "/", "~")), (
+            f"{target} is a bind mount from {source}"
+        )
+        assert source in declared, (
+            f"volume {source} is not declared at top level: {declared}"
+        )
 
 
 def test_the_override_example_gives_web_a_start_period() -> None:
@@ -806,7 +874,9 @@ def test_the_override_example_gives_web_a_start_period() -> None:
     equally a `test` restated in the override, which silently diverges from the
     base file's liveness probe."""
     healthcheck = _override_service(WEB_SERVICE).get("healthcheck")
-    assert isinstance(healthcheck, dict), f"helpdesk-web has no healthcheck: {healthcheck!r}"
+    assert isinstance(healthcheck, dict), (
+        f"helpdesk-web has no healthcheck: {healthcheck!r}"
+    )
 
     assert healthcheck.get("start_period") == WEB_START_PERIOD, healthcheck
     assert "test" not in healthcheck, healthcheck
@@ -822,7 +892,9 @@ def test_the_override_example_adds_no_service_and_no_profile() -> None:
 
     assert set(services) <= base, f"unknown services: {sorted(set(services) - base)}"
     with_profiles = sorted(
-        name for name, body in services.items() if isinstance(body, dict) and "profiles" in body
+        name
+        for name, body in services.items()
+        if isinstance(body, dict) and "profiles" in body
     )
     assert with_profiles == [], f"services carrying profiles: {with_profiles}"
 
@@ -845,7 +917,9 @@ def test_the_override_example_sets_only_allowlisted_environment() -> None:
     assert keys == {"WATCHPACK_POLLING"}, sorted(keys)
 
     with_env_file = sorted(
-        name for name, body in services.items() if isinstance(body, dict) and "env_file" in body
+        name
+        for name, body in services.items()
+        if isinstance(body, dict) and "env_file" in body
     )
     assert with_env_file == [], f"services carrying env_file: {with_env_file}"
 
@@ -856,6 +930,10 @@ def test_the_override_example_sets_only_allowlisted_environment() -> None:
 def test_the_local_override_is_gitignored() -> None:
     """Catches a developer's copied `docker-compose.override.yml` (local ports,
     a gateway URL) showing as untracked and being committed by `git add .`."""
-    lines = [line.strip() for line in GITIGNORE.read_text(encoding="utf-8").splitlines()]
+    lines = [
+        line.strip() for line in GITIGNORE.read_text(encoding="utf-8").splitlines()
+    ]
 
-    assert LOCAL_OVERRIDE_LINE in lines, f".gitignore carries no line {LOCAL_OVERRIDE_LINE}"
+    assert LOCAL_OVERRIDE_LINE in lines, (
+        f".gitignore carries no line {LOCAL_OVERRIDE_LINE}"
+    )

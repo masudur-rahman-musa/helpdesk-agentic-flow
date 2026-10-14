@@ -46,7 +46,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from _seed import schema_engine
 from sqlalchemy import event, insert, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -60,6 +59,7 @@ from helpdesk.shared.audit.search import (
 from helpdesk.shared.core.db import create_session_factory, tenant_session
 from helpdesk.shared.errors import ErrorCode
 from helpdesk.shared.models import AuditEvent, Tenant
+from tests.support.seed import schema_engine
 
 # The plan's own number, asserted exactly by
 # `test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor` (standing rule

@@ -33,7 +33,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
-from _seed import schema_engine
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -43,6 +42,7 @@ from helpdesk.shared.audit.verify import verify_tenant_chain
 from helpdesk.shared.audit.writer import TenantMismatchError, append_event
 from helpdesk.shared.core.db import create_session_factory, tenant_session
 from helpdesk.shared.models import AuditEvent, Tenant
+from tests.support.seed import schema_engine
 
 
 def _event(index: int) -> AuditEventInput:

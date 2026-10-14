@@ -19,10 +19,10 @@ SELF_ADMIN_ESCALATED, EXPIRY_CAPPED, TARGET_LEAVER, SOD_CONFLICT:{rule_id}.
 """
 
 import pytest
-from _policy import make_role, make_snapshot, make_target
 
 from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.types import Privilege, RiskClass, Sensitivity
+from tests.support.policy import make_role, make_snapshot, make_target
 
 # id, in_template, sensitivity, privilege, tenure_days, expected class, expected reasons
 RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[str, ...]]] = [

@@ -23,6 +23,7 @@ collection.
 """
 
 import pytest
+
 from scripts.build_images import (
     ACCEPTED_SERVICES,
     TAG_MAX_LENGTH,
@@ -32,7 +33,9 @@ from scripts.build_images import (
     validate_build_arguments,
 )
 
-EXPECTED_SERVICES: frozenset[str] = frozenset({"agent-api", "mcp-server", "scheduler", "web"})
+EXPECTED_SERVICES: frozenset[str] = frozenset(
+    {"agent-api", "mcp-server", "scheduler", "web"}
+)
 """The four literals criterion 17 names, asserted as an EXACT set: an extra
 accepted name is a build target nothing else in this repo knows how to make."""
 
@@ -136,7 +139,9 @@ def test_a_tag_carrying_a_slash_is_refused(tag: str) -> None:
         validate_build_arguments(VALID_SERVICE, tag)
 
 
-def test_the_checks_run_before_any_docker_process_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_checks_run_before_any_docker_process_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Catches the checks living after the build call, or only inside an
     argument parser the build entry point does not go through: a refused tag
     would then have already spawned `docker build`, tagged an image and left it

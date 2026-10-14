@@ -55,19 +55,6 @@ from typing import Any
 
 import pytest
 import redis.exceptions
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
-    SeededMcp,
-    bearer,
-    call_tool,
-    error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
-    token_for,
-    token_with_claims,
-)
 from pydantic import BaseModel, ValidationError
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -85,6 +72,19 @@ from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.errors import ErrorCode, ToolError
 from helpdesk.shared.killswitch import GLOBAL, KillSwitch
 from helpdesk.shared.models import Ticket
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+    SeededMcp,
+    bearer,
+    call_tool,
+    error_code,
+    mcp_env,
+    mcp_pg,
+    mcp_redis_base_url,
+    mcp_redis_url,
+    seeded_mcp_db,
+    token_for,
+    token_with_claims,
+)
 
 # A message no code path may ever copy into a response. Every synthetic failure
 # below carries it, so "the response contains only the code" is checked against

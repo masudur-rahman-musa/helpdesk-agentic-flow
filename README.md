@@ -92,7 +92,7 @@ Seven claims, each linked to the test that fails if it stops being true.
 7. **Idempotent retry.** A repeated call with the same key returns the first result and runs no second effect, so a timeout is safe to retry. Proof: [test_replay_returns_the_stored_response_without_running_the_effect](backend/tests/shared/test_idempotency_guard.py)
 
 A guarantee whose link rots fails the suite: the README is parsed by
-`backend/tests/shared/test_docs.py`, which opens each target and looks up
+`infra/tests/test_docs.py`, which opens each target and looks up
 each named test.
 
 ## What broke and how I fixed it
@@ -262,7 +262,7 @@ in seconds with no rebuild; add `--build` only after a dependency change
 cp docker-compose.override.example.yml docker-compose.override.yml
 docker compose --profile app up -d --wait
 cd backend && uv run alembic upgrade head
-uv run python ../scripts/seed.py
+uv run python -m scripts.seed
 ```
 
 The web is on [localhost:3000](http://localhost:3000). `GATEWAY_URL` needs no

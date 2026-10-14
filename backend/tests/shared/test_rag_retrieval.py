@@ -43,7 +43,6 @@ from typing import Any, cast
 
 import httpx
 import pytest
-from _seed import seed_tenant
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -74,6 +73,7 @@ from helpdesk.shared.rag.vectors import (
     supersede_points,
     upsert_chunks,
 )
+from tests.support.seed import seed_tenant
 
 INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
 

@@ -70,7 +70,7 @@ privilege on it is `PRIVILEGED` and its chain is exactly two seats."""
 def _password(user: UserRow) -> str:
     """This user's login password: the demo formula, or the filler constant.
 
-    Both come from `scripts/seed.py`, never from a literal here: the seed
+    Both come from `backend/scripts/seed.py`, never from a literal here: the seed
     writes the hash and this writes the plaintext, and two copies of one
     formula is exactly the pair that drifts.
     """

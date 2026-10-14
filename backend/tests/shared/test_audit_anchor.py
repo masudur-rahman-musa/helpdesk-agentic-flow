@@ -57,7 +57,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from _seed import TENANT_SCOPED_TABLES
 from prometheus_client import CollectorRegistry
 from sqlalchemy import BigInteger, DateTime, String, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -85,6 +84,7 @@ from helpdesk.shared.errors import ErrorCode
 from helpdesk.shared.models import Base
 from helpdesk.shared.obs import metrics
 from helpdesk.shared.obs.logging import FORBIDDEN_KEYS
+from tests.support.seed import TENANT_SCOPED_TABLES
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

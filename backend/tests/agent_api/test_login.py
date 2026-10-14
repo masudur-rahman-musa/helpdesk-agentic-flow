@@ -23,7 +23,7 @@ environment variables alone.
 Fixtures live in this module (not a conftest) because a second ``conftest``
 module would collide with ``packages/helpdesk/tests/conftest.py`` under the
 repo-wide ``mypy`` run. One throwaway database is created on the compose
-Postgres, schema built from ``Base.metadata``, and the real ``scripts/seed.py``
+Postgres, schema built from ``Base.metadata``, and the real ``backend/scripts/seed.py``
 run into it once per session (argon2 makes seeding expensive). One seeded
 non-demo user is then flipped to ``status='leaver'`` with a known password,
 because the seed itself only creates active users. If Postgres is unreachable
@@ -33,7 +33,6 @@ the ``pg`` fixture FAILS loudly; there is no silent skip.
 import asyncio
 import json
 import re
-import sys
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -54,14 +53,9 @@ from helpdesk.shared.auth.passwords import hash_password
 from helpdesk.shared.core.db import create_engine
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.models import Base, Tenant, User
+from scripts.seed import seed_all
 
-# Make repo-root `scripts/` importable, same as packages/helpdesk/tests/conftest.py.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from scripts.seed import seed_all  # noqa: E402
-
 DEMO_ACCOUNTS_DOC = _REPO_ROOT / "docs" / "demo-accounts.md"
 
 # Obviously fake, tests only; >= 32 bytes so the settings length gate passes.

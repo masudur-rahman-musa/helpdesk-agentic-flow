@@ -49,9 +49,7 @@ No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
 
 import asyncio
-import sys
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -74,15 +72,7 @@ from helpdesk.scheduler.runner import (
     check_job_name,
     job_lock_key,
 )
-
-# a project rule: `_seed` lives in the helpdesk suite's directory, which is
-# only on `sys.path` when pytest collects it. This file may run alone.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_HELPDESK_TESTS = _REPO_ROOT / "backend" / "tests" / "shared"
-if str(_HELPDESK_TESTS) not in sys.path:
-    sys.path.insert(0, str(_HELPDESK_TESTS))
-
-from _seed import SeededTenant  # noqa: E402
+from tests.support.seed import SeededTenant
 
 CHAIN_ANCHOR_KEY = "helpdesk:joblock:chain_anchor"
 """The literal key an operator greps for with `KEYS helpdesk:joblock:*`.

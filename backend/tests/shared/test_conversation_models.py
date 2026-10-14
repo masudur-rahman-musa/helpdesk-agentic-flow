@@ -49,8 +49,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from _seed import TENANT_SCOPED_TABLES, SeededTenant, seed_tenant
-from conftest import TempDatabaseFactory
 from sqlalchemy import BigInteger, Integer, String, UniqueConstraint, text
 
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
@@ -69,6 +67,8 @@ from helpdesk.shared.models.conversation import (
     MessageTooLongError,
     check_message_content,
 )
+from tests.conftest import TempDatabaseFactory
+from tests.support.seed import TENANT_SCOPED_TABLES, SeededTenant, seed_tenant
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

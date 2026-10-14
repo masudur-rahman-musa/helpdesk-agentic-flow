@@ -39,21 +39,26 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from sqlalchemy import String, select, text
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.access.review_schedule import generate_reviews
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import (
+    create_engine,
+    create_session_factory,
+    tenant_session,
+)
 from helpdesk.shared.errors import ErrorCode, ToolError
 from helpdesk.shared.models.directory import Tenant
+from sqlalchemy import String, select, text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCRIPTS_DIR = _REPO_ROOT / "scripts"
 # The Python project now lives under `backend/`, so `uv run` and `alembic` must
-# run with `backend/` as their working directory, even though the scripts
-# themselves still sit at the repo root's `scripts/`.
+# run with `backend/` as their working directory. Most dev scripts still sit at
+# the repo root's `scripts/`; `seed.py` moved under `backend/scripts/`,
+# so the seed step passes `scripts_dir=_BACKEND_SCRIPTS_DIR` below.
 _BACKEND_ROOT = _REPO_ROOT / "backend"
+_BACKEND_SCRIPTS_DIR = _BACKEND_ROOT / "scripts"
 
 LOCAL_HOSTS: tuple[str, str] = ("localhost", "127.0.0.1")
 """The only hosts this script will drop a schema on."""
@@ -157,15 +162,16 @@ async def _run_on(database_url: str, statements: Sequence[str]) -> None:
         await engine.dispose()
 
 
-def _step(script_name: str, *args: str) -> None:
+def _step(script_name: str, *args: str, scripts_dir: Path = _SCRIPTS_DIR) -> None:
     """Run one repo script to completion, or stop the reset with its output.
 
-    The scripts live at the repo root's `scripts/`, but they import the Python
-    project, which is under `backend/`, so they run with `backend/` as cwd and
-    an absolute path to the script.
+    The scripts import the Python project, which is under `backend/`, so they
+    run with `backend/` as cwd and an absolute path to the script. Most live at
+    the repo root's `scripts/`; `seed.py` lives under `backend/scripts/`, so its
+    caller passes `scripts_dir=_BACKEND_SCRIPTS_DIR`.
     """
     subprocess.run(
-        [sys.executable, str(_SCRIPTS_DIR / script_name), *args],
+        [sys.executable, str(scripts_dir / script_name), *args],
         cwd=_BACKEND_ROOT,
         check=True,
     )
@@ -207,7 +213,9 @@ def main() -> None:
     """
     database_url = os.environ["DATABASE_URL"]
     slugs = [
-        slug for slug in os.environ.get("E2E_TENANT_SLUGS", "nordlicht,cuan").split(",") if slug
+        slug
+        for slug in os.environ.get("E2E_TENANT_SLUGS", "nordlicht,cuan").split(",")
+        if slug
     ]
 
     asyncio.run(
@@ -218,9 +226,11 @@ def main() -> None:
         )
     )
 
-    subprocess.run(["uv", "run", "alembic", "upgrade", "head"], cwd=_BACKEND_ROOT, check=True)
+    subprocess.run(
+        ["uv", "run", "alembic", "upgrade", "head"], cwd=_BACKEND_ROOT, check=True
+    )
     _step("checkpointer_setup.py")
-    _step("seed.py")
+    _step("seed.py", scripts_dir=_BACKEND_SCRIPTS_DIR)
     _step("ingest.py")
     asyncio.run(_open_this_quarters_reviews(database_url))
 

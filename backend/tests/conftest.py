@@ -22,7 +22,6 @@ lives and dies inside that one loop.
 import asyncio
 import os
 import subprocess
-import sys
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -37,11 +36,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.shared.core.settings import load_settings
 
-# An earlier change: make `scripts/` at the repo root importable (`from scripts.seed import ...`).
-# Conftest runs before any test module import, so this is safe here.
-_REPO_ROOT = str(Path(__file__).resolve().parents[3])
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
+# The repo root, used as the cwd for the Alembic subprocess below. The import
+# path for `scripts.seed` and `tests.support.*` is set once in
+# `backend/pyproject.toml`'s `[tool.pytest.ini_options] pythonpath`,
+# so no `sys.path` surgery lives here any more.
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
 _UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"

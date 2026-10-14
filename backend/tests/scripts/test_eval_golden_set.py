@@ -17,11 +17,10 @@ Cost: no backing service. No Postgres, no Redis, no Qdrant, no gateway, no
 network. The slowest thing here is ``generate_tenant`` for each of the two
 tenants, run once each in a module-scoped fixture.
 
-``agent_api`` is a workspace member installed into the same environment as
-``helpdesk`` (root ``pyproject.toml`` declares it a dependency and a workspace
-member), so it imports from this test tree with no ``sys.path`` surgery;
-``scripts.seed`` imports because ``packages/helpdesk/tests/conftest.py`` puts
-the repo root on ``sys.path`` before any test module is imported.
+``helpdesk.agent_api`` is a subpackage of the one ``backend`` project, so it
+imports with no ``sys.path`` surgery; ``scripts.seed`` imports because
+``backend/pyproject.toml``'s pytest ``pythonpath`` puts the repo root on
+``sys.path`` before any test module is imported.
 
 Claims pinned here, each by the test named beside it:
 - the golden file holds exactly 120 cases, one per line, no blank line:
@@ -48,17 +47,6 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-from scripts.seed import (
-    _HIRING_EPOCH,
-    _PRIVILEGE_EXPIRY_DAYS,
-    CUAN,
-    NORDLICHT,
-    TenantRows,
-    TenantSpec,
-    UserRow,
-    _uid,
-    generate_tenant,
-)
 
 from helpdesk.agent_api.graph.state import Intent
 from helpdesk.shared.auth import rbac
@@ -75,6 +63,17 @@ from helpdesk.shared.policy.types import (
     SystemCategory,
     TargetSnapshot,
     TargetStatus,
+)
+from scripts.seed import (
+    _HIRING_EPOCH,
+    _PRIVILEGE_EXPIRY_DAYS,
+    CUAN,
+    NORDLICHT,
+    TenantRows,
+    TenantSpec,
+    UserRow,
+    _uid,
+    generate_tenant,
 )
 
 

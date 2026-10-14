@@ -322,11 +322,14 @@ def _image_job() -> dict[str, Any]:
         for job in jobs.values()
         if isinstance(job, dict)
         and any(
-            isinstance(step, dict) and str(step.get("uses", "")).startswith(BUILD_PUSH_ACTION)
+            isinstance(step, dict)
+            and str(step.get("uses", "")).startswith(BUILD_PUSH_ACTION)
             for step in job.get("steps") or []
         )
     ]
-    assert len(holding) == 1, f"{len(holding)} jobs hold {BUILD_PUSH_ACTION} steps, expected 1"
+    assert len(holding) == 1, (
+        f"{len(holding)} jobs hold {BUILD_PUSH_ACTION} steps, expected 1"
+    )
     return holding[0]
 
 
@@ -385,9 +388,13 @@ def test_the_three_python_images_build_from_their_own_dockerfile(image: str) -> 
         f"{image} builds with context {arguments.get('context')!r}, expected {BACKEND_CONTEXT}"
     )
 
-    build_args = [line.strip() for line in str(arguments.get("build-args", "")).splitlines()]
+    build_args = [
+        line.strip() for line in str(arguments.get("build-args", "")).splitlines()
+    ]
     service_args = [arg for arg in build_args if arg.startswith("SERVICE=")]
-    assert service_args == [], f"{image} still passes a SERVICE build-arg: {service_args}"
+    assert service_args == [], (
+        f"{image} still passes a SERVICE build-arg: {service_args}"
+    )
 
 
 def test_the_web_image_builds_from_its_own_context() -> None:
@@ -416,7 +423,9 @@ def test_every_image_is_built_for_the_live_nodes_architecture(image: str) -> Non
     assert step is not None, f"no build step pushes {image}"
 
     platforms = str(_inputs(step).get("platforms", "")).replace(" ", "")
-    assert platforms == PLATFORMS, f"{image} builds platforms {platforms!r}, expected {PLATFORMS}"
+    assert platforms == PLATFORMS, (
+        f"{image} builds platforms {platforms!r}, expected {PLATFORMS}"
+    )
 
 
 def test_the_only_tag_is_the_commit_sha() -> None:
@@ -426,12 +435,18 @@ def test_the_only_tag_is_the_commit_sha() -> None:
     a different build than its neighbour."""
     for step in _build_steps():
         tags = _tags(step)
-        assert len(tags) == 1, f"build step {step.get('name')!r} pushes {len(tags)} tags: {tags}"
-        assert tags[0].endswith(SHA_TAG_SUFFIX), f"{tags[0]} is not tagged {SHA_TAG_SUFFIX}"
+        assert len(tags) == 1, (
+            f"build step {step.get('name')!r} pushes {len(tags)} tags: {tags}"
+        )
+        assert tags[0].endswith(SHA_TAG_SUFFIX), (
+            f"{tags[0]} is not tagged {SHA_TAG_SUFFIX}"
+        )
 
     for block in _build_step_blocks():
         for forbidden in FORBIDDEN_TAG_STRINGS:
-            assert forbidden not in block, f"a build step names the floating tag {forbidden!r}"
+            assert forbidden not in block, (
+                f"a build step names the floating tag {forbidden!r}"
+            )
 
 
 def test_the_permissions_are_exactly_three() -> None:
@@ -486,7 +501,9 @@ def test_concurrency_never_cancels() -> None:
     the registry; catches equally a group not keyed on the ref, under which a
     tag build and a main build cancel each other."""
     concurrency = _workflow().get("concurrency")
-    assert isinstance(concurrency, dict), f"build.yml declares concurrency {concurrency!r}"
+    assert isinstance(concurrency, dict), (
+        f"build.yml declares concurrency {concurrency!r}"
+    )
 
     assert CONCURRENCY_REF in str(concurrency.get("group", "")), (
         f"the concurrency group {concurrency.get('group')!r} is not keyed on {CONCURRENCY_REF}"
@@ -588,7 +605,9 @@ def test_every_build_has_its_own_cache_scope() -> None:
         )
         scopes.append(step_scopes.pop())
 
-    assert len(set(scopes)) == len(scopes), f"the four builds share cache scopes: {scopes}"
+    assert len(set(scopes)) == len(scopes), (
+        f"the four builds share cache scopes: {scopes}"
+    )
 
 
 def test_every_image_is_scanned_after_it_is_pushed() -> None:
@@ -616,7 +635,9 @@ def test_the_login_is_ghcr_with_the_run_token() -> None:
     the second gives every action in the job a credential that outlives the run
     and is not scoped to this repository."""
     steps = _steps_using(LOGIN_ACTION)
-    assert len(steps) == 1, f"build.yml has {len(steps)} {LOGIN_ACTION} steps, expected 1"
+    assert len(steps) == 1, (
+        f"build.yml has {len(steps)} {LOGIN_ACTION} steps, expected 1"
+    )
 
     arguments = _inputs(steps[0])
     assert arguments.get("registry") == GHCR_REGISTRY, (
@@ -637,7 +658,9 @@ def test_the_deploy_doc_publishes_the_registry_path() -> None:
     assert PUBLISHED_IMAGES_HEADING in document, (
         f"docs/deploy.md has no {PUBLISHED_IMAGES_HEADING!r} section"
     )
-    assert REGISTRY_PREFIX in document, f"docs/deploy.md does not name {REGISTRY_PREFIX}"
+    assert REGISTRY_PREFIX in document, (
+        f"docs/deploy.md does not name {REGISTRY_PREFIX}"
+    )
     for architecture in ARCHITECTURES:
         assert architecture in document, f"docs/deploy.md does not name {architecture}"
 

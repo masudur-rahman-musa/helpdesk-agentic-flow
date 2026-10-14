@@ -70,6 +70,14 @@ jobs:
         run: |
           uv run pytest -q $(uv run python ../scripts/test_shard.py --shard ${{ matrix.shard }} --of 3) \
             --cov=helpdesk --cov-report= --cov-fail-under=0
+      # The repo-level tests sit outside the backend project's test paths, so they
+      # are not in any shard. Run them once (on shard 0) as their own pass, with the
+      # repo root and backend both on the path. Static scans, no services.
+      - name: Repo-level tests
+        if: ${{ matrix.shard == 0 }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/backend
+        run: uv run --project backend pytest -q infra/tests
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-shard${{ matrix.shard }}
@@ -105,7 +113,7 @@ jobs:
   # gitleaks and trivy run from their own pinned images rather than from an
   # action, because both need argument forms the actions do not pass through
   # (a config path plus history for one, two target files for the other).
-  # Pinned by backend/tests/shared/test_security_config.py.
+  # Pinned by infra/tests/test_security_config.py.
   security:
     runs-on: ubuntu-latest
     permissions:

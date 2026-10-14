@@ -51,7 +51,13 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from helpdesk.mcp_server.tools import reviews
+from helpdesk.shared.models import PERIOD_LENGTH, ReviewFlag
+from scripts.seed import CUAN, NORDLICHT, TenantRows, generate_tenant
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,
     bearer,
@@ -64,12 +70,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from scripts.seed import CUAN, NORDLICHT, TenantRows, generate_tenant
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-
-from helpdesk.mcp_server.tools import reviews
-from helpdesk.shared.models import PERIOD_LENGTH, ReviewFlag
 
 OPEN = "open_access_review"
 LIST = "list_review_items"

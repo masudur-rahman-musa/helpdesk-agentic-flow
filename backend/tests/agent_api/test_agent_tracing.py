@@ -42,16 +42,41 @@ with its directory inserted, a project rule), never a real ``Langfuse``.
 
 import asyncio
 import json
-import sys
 import uuid
 from collections.abc import Iterator, Mapping
-from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from langfuse import Langfuse
 from pydantic import BaseModel
+from test_agent_approval_interrupt import (
+    ApprovalEnv,
+    ScriptedToolCaller,
+    StagedGateway,
+    approval_env,  # noqa: F401
+)
+from test_agent_approval_resume import (
+    COMPOSED_APPROVAL,
+    _pause,
+    _resume,
+    _store_request,
+)
+from test_agent_turn import (
+    API_KEYS,
+    COMPOSED_REPLY,
+    EMPTY_PLAN,
+    GATEWAY_URL,
+    NOW,
+    SeededTurnTenant,
+    StubToolCaller,
+    TurnEnv,
+    _citation,
+    _page,
+    _payroll_answer,
+    pg,  # noqa: F401
+    turn_env,  # noqa: F401
+)
 
 from helpdesk.agent_api import chat_routes
 from helpdesk.agent_api.graph.build import (
@@ -92,39 +117,7 @@ from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.gateway.client import ModelAlias, ModelClient
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.obs import TURN_TRACE_NAME, configure_tracing
-
-# The recording fake lives with the facade's own tests; its directory is only
-# on `sys.path` while that suite is being collected.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend" / "tests" / "shared"))
-
-from test_agent_approval_interrupt import (
-    ApprovalEnv,
-    ScriptedToolCaller,
-    StagedGateway,
-    approval_env,  # noqa: F401
-)
-from test_agent_approval_resume import (
-    COMPOSED_APPROVAL,
-    _pause,
-    _resume,
-    _store_request,
-)
-from test_agent_turn import (
-    API_KEYS,
-    COMPOSED_REPLY,
-    EMPTY_PLAN,
-    GATEWAY_URL,
-    NOW,
-    SeededTurnTenant,
-    StubToolCaller,
-    TurnEnv,
-    _citation,
-    _page,
-    _payroll_answer,
-    pg,  # noqa: F401
-    turn_env,  # noqa: F401
-)
-from test_obs_tracing import FakeTraceClient, RaisingTraceClient, RecordedSpan
+from tests.shared.test_obs_tracing import FakeTraceClient, RaisingTraceClient, RecordedSpan
 
 NODE_NAMES: tuple[str, ...] = (
     LOAD_SESSION,

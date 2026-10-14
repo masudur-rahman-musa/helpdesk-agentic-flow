@@ -25,7 +25,7 @@ name: build
 # half made each run 14 to 24 minutes. An arm64 target has to add it back,
 # ideally on native arm64 runners rather than under emulation.
 #
-# Pinned by backend/tests/shared/test_build_workflow.py.
+# Pinned by infra/tests/test_build_workflow.py.
 
 on:
   push:

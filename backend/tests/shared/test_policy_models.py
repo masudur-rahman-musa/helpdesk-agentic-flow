@@ -38,8 +38,6 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 
 import pytest
-from _seed import TENANT_SCOPED_TABLES, seed_tenant
-from conftest import TempDatabaseFactory
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql.sqltypes import Text
@@ -54,6 +52,8 @@ from helpdesk.shared.rag.naming import (
     TITLE_LENGTH,
     VERSION_LENGTH,
 )
+from tests.conftest import TempDatabaseFactory
+from tests.support.seed import TENANT_SCOPED_TABLES, seed_tenant
 
 TENANT_A_SLUG = "policy-tenant-a"
 TENANT_B_SLUG = "policy-tenant-b"

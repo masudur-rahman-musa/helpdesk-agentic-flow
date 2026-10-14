@@ -20,22 +20,6 @@ a replacement. If nothing is usable the slot is dropped.
 import uuid
 
 import pytest
-from _policy import (
-    ALL_REFS,
-    MANAGER_ID,
-    REF_APPROVALS,
-    REF_BLOCKED,
-    REF_EXPIRY,
-    REF_RISK,
-    REQUESTER_ID,
-    RULE_REF,
-    SYSTEM_OWNER_ID,
-    TARGET_ID,
-    make_role,
-    make_rule,
-    make_snapshot,
-    make_target,
-)
 from pydantic import ValidationError
 
 from helpdesk.shared.policy.engine import classify
@@ -51,6 +35,22 @@ from helpdesk.shared.policy.types import (
     SystemCategory,
     is_valid_reason,
     sod_conflict_reason,
+)
+from tests.support.policy import (
+    ALL_REFS,
+    MANAGER_ID,
+    REF_APPROVALS,
+    REF_BLOCKED,
+    REF_EXPIRY,
+    REF_RISK,
+    REQUESTER_ID,
+    RULE_REF,
+    SYSTEM_OWNER_ID,
+    TARGET_ID,
+    make_role,
+    make_rule,
+    make_snapshot,
+    make_target,
 )
 
 DM = ApproverSlot.DEPARTMENT_MANAGER

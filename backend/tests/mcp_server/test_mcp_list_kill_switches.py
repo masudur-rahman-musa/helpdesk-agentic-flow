@@ -52,7 +52,12 @@ import uuid
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from redis.asyncio import Redis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from helpdesk.mcp_server.registry import REGISTRY
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
     call_tool,
@@ -64,11 +69,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from redis.asyncio import Redis
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-
-from helpdesk.mcp_server.registry import REGISTRY
 
 LIST_KILL_SWITCHES = "list_kill_switches"
 SET_KILL_SWITCH = "set_kill_switch"

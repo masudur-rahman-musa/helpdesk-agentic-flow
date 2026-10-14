@@ -7,7 +7,7 @@
 # dependency change (uv.lock, web/pnpm-lock.yaml) needs `--build`.
 #
 # Nothing here sets a credential or a hostname: those still come from .env and
-# from docker-compose.yml. Pinned by backend/tests/shared/
+# from docker-compose.yml. Pinned by infra/tests/
 # test_container_build.py::test_the_override_example_sets_only_allowlisted_environment
 # and ::test_the_override_example_adds_no_service_and_no_profile.
 services:

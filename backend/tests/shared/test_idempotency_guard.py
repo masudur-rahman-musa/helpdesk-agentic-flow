@@ -37,7 +37,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from _seed import schema_engine, seed_tenant
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.shared.audit import AuditEventInput
@@ -54,6 +53,7 @@ from helpdesk.shared.idempotency.guard import (
 )
 from helpdesk.shared.models import IdempotencyKey, Ticket
 from helpdesk.shared.models.idempotency import KEY_LENGTH, TOOL_NAME_LENGTH
+from tests.support.seed import schema_engine, seed_tenant
 
 TOOL = "revoke_access"
 KEY = "fake-idempotency-key-1"

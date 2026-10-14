@@ -46,20 +46,6 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
-    SeededMcp,
-    SeededUser,
-    bearer,
-    call_tool,
-    error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
-    token_for,
-)
-from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -76,6 +62,20 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.core.repository import Repository
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from helpdesk.shared.policy.types import ApproverSlot
+from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+    SeededMcp,
+    SeededUser,
+    bearer,
+    call_tool,
+    error_code,
+    mcp_env,
+    mcp_pg,
+    mcp_redis_base_url,
+    mcp_redis_url,
+    seeded_mcp_db,
+    token_for,
+)
 
 LIST = "list_pending_approvals"
 APPROVE = "approve_request"

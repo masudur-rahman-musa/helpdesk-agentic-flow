@@ -37,9 +37,7 @@ Cost is that fixture module's session-scoped Postgres and Redis (standing rule
 7); `tools/list` itself touches neither Qdrant nor a model.
 """
 
-import sys
 from collections.abc import Iterator
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
@@ -54,16 +52,7 @@ from helpdesk.agent_api.tools.catalogue import (
     SearchPolicyResult,
     planner_schema,
 )
-
-# `mcp_fixtures` lives beside the mcp-server tests and is imported by name, the
-# way every file in that suite imports it. pytest only puts a test directory on
-# `sys.path` when it collects it, and `services/agent-api/tests` is collected
-# FIRST, so the path is added here rather than assumed.
-_MCP_TESTS = Path(__file__).resolve().parents[3] / "backend" / "tests" / "mcp_server"
-if str(_MCP_TESTS) not in sys.path:
-    sys.path.insert(0, str(_MCP_TESTS))
-
-from mcp_fixtures import (  # noqa: E402 - path set immediately above
+from tests.support.mcp import (
     TEST_JWT_SIGNING_PHRASE,
     TEST_QDRANT_URL,
     SeededMcp,

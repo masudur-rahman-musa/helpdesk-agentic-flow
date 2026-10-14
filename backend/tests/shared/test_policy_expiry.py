@@ -10,10 +10,10 @@ effective value came out lower.
 """
 
 import pytest
-from _policy import make_role, make_snapshot, make_target
 
 from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.types import Decision, Privilege, RiskClass, Sensitivity
+from tests.support.policy import make_role, make_snapshot, make_target
 
 CLASS_CAPS: dict[RiskClass, int] = {
     RiskClass.LOW: 365,

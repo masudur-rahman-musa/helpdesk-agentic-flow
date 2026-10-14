@@ -2,8 +2,8 @@
 
 Expected implementation surface (the implementer must provide exactly this):
 
-``scripts/seed.py`` (repo root; importable as ``scripts.seed`` — conftest puts
-the repo root on ``sys.path``)
+``backend/scripts/seed.py`` (importable as ``scripts.seed`` — the repo root is on
+``sys.path`` via ``backend/pyproject.toml``'s pytest ``pythonpath``)
     ``async def seed_all(database_url: str) -> None``
         Seeds BOTH tenants into the given database. The database must already
         be migrated (``alembic upgrade head`` / equivalent schema); ``seed_all``
@@ -34,12 +34,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
-import scripts.seed as seed_module
-from conftest import TempDatabaseFactory
-from scripts.seed import SeedError, seed_all
 from sqlalchemy import Table, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+import scripts.seed as seed_module
 from helpdesk.shared.auth.passwords import hash_password
 from helpdesk.shared.core.db import create_engine
 from helpdesk.shared.models import (
@@ -55,6 +53,8 @@ from helpdesk.shared.models import (
     Ticket,
     User,
 )
+from scripts.seed import SeedError, seed_all
+from tests.conftest import TempDatabaseFactory
 
 # --- the design constants -------------------------------------------------------
 

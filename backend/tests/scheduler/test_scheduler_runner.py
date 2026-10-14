@@ -49,11 +49,9 @@ No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
 
 import asyncio
 import os
-import sys
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -81,15 +79,7 @@ from helpdesk.shared.core.db import bound_tenant_id, create_engine, create_sessi
 from helpdesk.shared.core.repository import Repository
 from helpdesk.shared.core.settings import load_settings
 from helpdesk.shared.models import Base, Ticket
-
-# a project rule: `_seed` lives in the helpdesk suite's directory, which is
-# only on `sys.path` when pytest collects it. This file may run alone.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_HELPDESK_TESTS = _REPO_ROOT / "backend" / "tests" / "shared"
-if str(_HELPDESK_TESTS) not in sys.path:
-    sys.path.insert(0, str(_HELPDESK_TESTS))
-
-from _seed import SeededTenant, seed_tenant  # noqa: E402
+from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 

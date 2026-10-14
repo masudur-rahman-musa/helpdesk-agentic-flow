@@ -49,8 +49,6 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from _seed import SeededTenant, seed_tenant
-from conftest import TempDatabaseFactory
 from prometheus_client import CollectorRegistry
 
 from helpdesk.shared.access.gauges import refresh_active_grants_gauge
@@ -58,6 +56,8 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.core.repository import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS, Repository
 from helpdesk.shared.models import Base, Grant
 from helpdesk.shared.obs import metrics
+from tests.conftest import TempDatabaseFactory
+from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 """The one instant every case counts at. Passed in, never read from a clock."""

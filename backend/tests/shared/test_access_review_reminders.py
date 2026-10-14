@@ -55,7 +55,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from _seed import SeededTenant, seed_tenant
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Imported, not redefined: one database with the schema created once, shared
@@ -72,6 +71,7 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.core.repository import Repository
 from helpdesk.shared.models import AccessReview, Department, Notification, ReviewStatus, User
 from helpdesk.shared.models.notification import NOTIFICATION_TITLE_MAX_LENGTH, NotificationKind
+from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
 """The one instant every reminder run answers for. Passed in, never read from

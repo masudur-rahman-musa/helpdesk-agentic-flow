@@ -41,7 +41,13 @@ import uuid
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from redis.asyncio import Redis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from helpdesk.shared.killswitch import GLOBAL, KillSwitch
+from helpdesk.shared.models.idempotency import KEY_LENGTH
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
     call_tool,
@@ -53,12 +59,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from redis.asyncio import Redis
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-
-from helpdesk.shared.killswitch import GLOBAL, KillSwitch
-from helpdesk.shared.models.idempotency import KEY_LENGTH
 
 # The three wire names, spelled once. Sent as strings through the transport on
 # purpose: an unregistered name fails at the registry, which is the right

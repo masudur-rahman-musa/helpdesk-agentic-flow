@@ -47,7 +47,6 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from _seed import SeededTenant, seed_tenant
 from sqlalchemy import text
 
 # Imported, not redefined: one database with the schema created once, shared
@@ -73,6 +72,7 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.core.repository import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS, Repository
 from helpdesk.shared.errors import ErrorCode, ToolError
 from helpdesk.shared.models import Grant, User
+from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 """The one instant every sweep answers for. Passed in, never read from a clock."""

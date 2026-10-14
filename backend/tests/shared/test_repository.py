@@ -20,12 +20,12 @@ import asyncio
 import uuid
 
 import pytest
-from _seed import schema_engine, seed_tenant
 from sqlalchemy import select
 
 from helpdesk.shared.core.db import create_session_factory, tenant_session
 from helpdesk.shared.core.repository import Repository
 from helpdesk.shared.models import Ticket
+from tests.support.seed import schema_engine, seed_tenant
 
 
 def test_crud_within_bound_tenant(temp_db_url: str) -> None:

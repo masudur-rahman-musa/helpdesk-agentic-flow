@@ -12,7 +12,19 @@ Any conflict blocks, whatever the risk class, and returns no approvers.
 import uuid
 
 import pytest
-from _policy import (
+
+from helpdesk.shared.policy.engine import classify
+from helpdesk.shared.policy.sod import held_conflicts
+from helpdesk.shared.policy.types import (
+    Decision,
+    RiskClass,
+    Sensitivity,
+    SodConflict,
+    SodConflictSource,
+    SodRuleSnapshot,
+    sod_conflict_reason,
+)
+from tests.support.policy import (
     ALL_REFS,
     OTHER_ROLE_ID,
     PAIRED_ROLE_ID,
@@ -28,18 +40,6 @@ from _policy import (
     make_rule,
     make_snapshot,
     make_target,
-)
-
-from helpdesk.shared.policy.engine import classify
-from helpdesk.shared.policy.sod import held_conflicts
-from helpdesk.shared.policy.types import (
-    Decision,
-    RiskClass,
-    Sensitivity,
-    SodConflict,
-    SodConflictSource,
-    SodRuleSnapshot,
-    sod_conflict_reason,
 )
 
 

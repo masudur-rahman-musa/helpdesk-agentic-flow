@@ -30,6 +30,9 @@ TEST_WORKERS ?=
 test:       ## Run tests with the coverage gate (needs the compose Postgres: docker compose up -d)
 	cd backend && COVERAGE_FILE=.coverage-baseline uv run pytest -q --cov=helpdesk \
 	  $(COV_CONTEXT) $(TEST_WORKERS) --cov-fail-under=80
+	# The repo-level tests live outside the backend project's test paths, so they
+	# run as their own pass with the repo root and backend both on the path.
+	PYTHONPATH="$(CURDIR):$(CURDIR)/backend" uv run --project backend pytest -q infra/tests
 select-tests: ## Print the tests whose recorded coverage touches this change
 	@uv run --project backend python scripts/select_tests.py --explain
 test-adjacent: ## Run only the tests whose coverage touches this change

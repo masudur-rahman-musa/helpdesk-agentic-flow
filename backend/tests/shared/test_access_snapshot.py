@@ -36,8 +36,6 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime
 
 import pytest
-from conftest import TempDatabaseFactory
-from scripts.seed import CUAN, NORDLICHT, generate_tenant
 from sqlalchemy import select
 
 from helpdesk.shared.access.directory import SimulatedDirectory
@@ -54,6 +52,8 @@ from helpdesk.shared.policy.types import (
     SystemCategory,
     TargetStatus,
 )
+from scripts.seed import CUAN, NORDLICHT, generate_tenant
+from tests.conftest import TempDatabaseFactory
 
 # One fixed, aware clock for every build: a snapshot whose expected tenure or
 # grant visibility depends on when the suite runs is a flaky test.

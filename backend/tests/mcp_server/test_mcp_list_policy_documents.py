@@ -59,7 +59,16 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.mcp_server.tools.admin import (
+    ListPolicyDocumentsOutput,
+    PolicyDocumentRow,
+    PolicyVersionRow,
+)
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     SeededUser,
     bearer,
@@ -71,15 +80,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     mcp_redis_url,
     seeded_mcp_db,
     token_for,
-)
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-
-from helpdesk.mcp_server.registry import REGISTRY
-from helpdesk.mcp_server.tools.admin import (
-    ListPolicyDocumentsOutput,
-    PolicyDocumentRow,
-    PolicyVersionRow,
 )
 
 LIST_POLICY_DOCUMENTS = "list_policy_documents"

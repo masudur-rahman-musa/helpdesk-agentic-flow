@@ -13,7 +13,6 @@ import uuid
 from typing import Any, cast
 
 import pytest
-from _seed import schema_engine, seed_tenant
 from sqlalchemy import CursorResult, delete, select, update
 
 from helpdesk.shared.core.db import (
@@ -22,6 +21,7 @@ from helpdesk.shared.core.db import (
     tenant_session,
 )
 from helpdesk.shared.models import Grant, Role, Tenant, Ticket, User
+from tests.support.seed import schema_engine, seed_tenant
 
 # (model, attribute on SeededTenant holding that tenant's row id)
 SCOPED_CASES: list[tuple[type[Any], str]] = [

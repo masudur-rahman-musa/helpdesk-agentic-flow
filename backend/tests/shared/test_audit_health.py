@@ -47,8 +47,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from _seed import SeededTenant, seed_tenant
-from conftest import TempDatabaseFactory
 from prometheus_client import CollectorRegistry
 from sqlalchemy import text
 
@@ -60,6 +58,8 @@ from helpdesk.shared.audit.writer import append_event
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.models import Base
 from helpdesk.shared.obs import metrics
+from tests.conftest import TempDatabaseFactory
+from tests.support.seed import SeededTenant, seed_tenant
 
 AUDIT_CHAIN_OK = "helpdesk_audit_chain_ok"
 """The exposed name an alert queries, written out."""

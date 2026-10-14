@@ -36,7 +36,10 @@ import mcp.types as mcp_types
 import pytest
 from mcp import Client, StdioServerParameters, stdio_client
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+
+from helpdesk.mcp_server import readiness
+from helpdesk.mcp_server.registry import REGISTRY
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
     http_get,
@@ -50,9 +53,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     token_for,
     transport_security_of_a_fresh_app,
 )
-
-from helpdesk.mcp_server import readiness
-from helpdesk.mcp_server.registry import REGISTRY
 
 # An earlier change registered the two read tools; an earlier change adds the three helpdesk
 # mutating tools; an earlier change adds the two access read tools. Pinned as a

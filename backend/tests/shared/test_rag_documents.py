@@ -59,7 +59,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from conftest import TempDatabaseFactory
 from sqlalchemy import event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -67,6 +66,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.models import Base, PolicyChunk, PolicyDocument, Tenant
 from helpdesk.shared.rag.documents import PolicyDocumentDetail, PolicyVersion, read_policy_documents
+from tests.conftest import TempDatabaseFactory
 
 DOCUMENT_FIELDS: tuple[str, ...] = ("slug", "title", "versions")
 """Plan criterion 3's three fields, written out.

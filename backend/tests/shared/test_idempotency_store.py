@@ -37,7 +37,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from _seed import schema_engine, seed_tenant
 from sqlalchemy import Connection, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -55,6 +54,7 @@ from helpdesk.shared.core.repository import (
     purge_expired,
 )
 from helpdesk.shared.models import Base, IdempotencyKey
+from tests.support.seed import schema_engine, seed_tenant
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

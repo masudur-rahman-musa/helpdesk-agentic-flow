@@ -25,5 +25,5 @@ paths = [
   # Demo logins printed for a reader of the demo. No account they open exists.
   "docs/demo-accounts.md",
   # Seed data, obviously fake by a project rule: no real name, company or address.
-  "scripts/seed.py",
+  "backend/scripts/seed.py",
 ]

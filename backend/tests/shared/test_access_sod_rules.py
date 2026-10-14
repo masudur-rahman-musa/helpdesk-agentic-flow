@@ -46,8 +46,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
-from _seed import SeededTenant, seed_tenant
-from conftest import TempDatabaseFactory
 from sqlalchemy import event, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -56,6 +54,8 @@ from helpdesk.shared.access import read_sod_rules
 from helpdesk.shared.access.rules import SodRuleDetail, SodRuleRole
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.models import Base, Role, SodRule, System, Tenant
+from tests.conftest import TempDatabaseFactory
+from tests.support.seed import SeededTenant, seed_tenant
 
 DETAIL_FIELDS: tuple[str, ...] = (
     "rule_id",

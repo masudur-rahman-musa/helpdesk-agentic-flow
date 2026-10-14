@@ -14,9 +14,9 @@ name: image-scan
 # repository's own four images and scans those, which an earlier change added with the
 # Dockerfiles that make them buildable.
 #
-# Pinned by backend/tests/shared/test_security_config.py::
+# Pinned by infra/tests/test_security_config.py::
 # test_the_image_scan_covers_exactly_the_three_pinned_compose_images and by
-# backend/tests/shared/test_container_build.py::
+# infra/tests/test_container_build.py::
 # test_the_image_scan_job_covers_the_four_built_images.
 on:
   schedule:

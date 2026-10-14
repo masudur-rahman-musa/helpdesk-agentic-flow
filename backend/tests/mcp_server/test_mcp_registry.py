@@ -33,18 +33,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
-    SeededMcp,
-    bearer,
-    call_tool,
-    error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
-    token_for,
-)
 from redis.asyncio import Redis
 from sqlalchemy import String
 from sqlalchemy.exc import DBAPIError
@@ -68,6 +56,18 @@ from helpdesk.shared.killswitch import (
     key_for,
 )
 from helpdesk.shared.models import PERIOD_LENGTH, AuditEvent
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+    SeededMcp,
+    bearer,
+    call_tool,
+    error_code,
+    mcp_env,
+    mcp_pg,
+    mcp_redis_base_url,
+    mcp_redis_url,
+    seeded_mcp_db,
+    token_for,
+)
 
 # Read off the column, not retyped: the check and the storage must be the same
 # number by construction.

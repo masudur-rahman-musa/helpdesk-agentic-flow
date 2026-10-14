@@ -236,8 +236,8 @@ def _importers(path: str) -> list[str]:
     """Does anything under test actually import this unmeasured module?
 
     Static, and only ever used for files coverage does not measure — tooling
-    under `scripts/`, mostly. `scripts/seed.py` IS imported (every fixture
-    seeds through it) and correctly widens; `scripts/select_tests.py` is not
+    under `scripts/`, mostly. `backend/scripts/seed.py` IS imported (every
+    fixture seeds through it) and correctly widens; `scripts/select_tests.py` is not
     imported by anything and correctly selects nothing. A static check is
     sound here in a way it is not for handlers, because these modules are
     reached by a real `import` statement or not at all.
@@ -275,7 +275,9 @@ def select(base: str | None) -> tuple[list[str], dict[str, list[str]], list[str]
             selection.add(path)
             reasons[path].append("the changed test file itself")
 
-    sources = [path for path in files if not any(path.startswith(r) for r in TEST_ROOTS)]
+    sources = [
+        path for path in files if not any(path.startswith(r) for r in TEST_ROOTS)
+    ]
     if not sources:
         return sorted(selection), dict(reasons), warnings
 
@@ -301,11 +303,15 @@ def select(base: str | None) -> tuple[list[str], dict[str, list[str]], list[str]
             # nothing. Decide by whether anything under test imports it.
             importers = _importers(path)
             if not importers:
-                warnings.append(f"{path} is unmeasured and imported by nothing: selecting no tests")
+                warnings.append(
+                    f"{path} is unmeasured and imported by nothing: selecting no tests"
+                )
                 continue
             for root in _fallback_roots(path):
                 selection.add(root)
-                reasons[root].append(f"{path} is unmeasured and imported by {len(importers)} files")
+                reasons[root].append(
+                    f"{path} is unmeasured and imported by {len(importers)} files"
+                )
             continue
         history = covered.get(path)
         if not history:
@@ -378,8 +384,12 @@ def _compact(lines: set[int]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", default=None, help="git ref to diff against (default: HEAD)")
-    parser.add_argument("--explain", action="store_true", help="print why each test was selected")
+    parser.add_argument(
+        "--base", default=None, help="git ref to diff against (default: HEAD)"
+    )
+    parser.add_argument(
+        "--explain", action="store_true", help="print why each test was selected"
+    )
     args = parser.parse_args()
 
     selection, reasons, warnings = select(args.base)

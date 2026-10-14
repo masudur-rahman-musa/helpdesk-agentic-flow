@@ -51,8 +51,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from _seed import SeededTenant, seed_tenant
-
 # Imported, not redefined: one database with the schema created once, shared
 # with `test_access_expiry.py`. The two files never look at
 # the same tenant, so sharing it costs nothing and saves a whole database.
@@ -68,6 +66,7 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.core.repository import ACTIVE_GRANT_STATUS, Repository
 from helpdesk.shared.models import Grant, Notification, Role, User
 from helpdesk.shared.models.notification import NOTIFICATION_TITLE_MAX_LENGTH, NotificationKind
+from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 """The one instant every case warns at. Passed in, never read from a clock."""

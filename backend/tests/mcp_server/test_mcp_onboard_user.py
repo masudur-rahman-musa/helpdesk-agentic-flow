@@ -44,7 +44,11 @@ from typing import Any
 
 import httpx
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     TEST_JWT_SIGNING_PHRASE,
     SeededMcp,
     SeededUser,
@@ -58,9 +62,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     seeded_mcp_db,
     token_for,
 )
-from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
 ONBOARD = "onboard_user"
 

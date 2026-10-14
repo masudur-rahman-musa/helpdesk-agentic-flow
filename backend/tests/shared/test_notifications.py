@@ -64,8 +64,6 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from _seed import SeededTenant, seed_tenant
-from conftest import TempDatabaseFactory
 
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.repository import Repository
@@ -78,6 +76,8 @@ from helpdesk.shared.models.notification import (
 )
 from helpdesk.shared.notifications import list_for_user, mark_read
 from helpdesk.shared.notifications.notify import notify
+from tests.conftest import TempDatabaseFactory
+from tests.support.seed import SeededTenant, seed_tenant
 
 TITLE = "fake notification title"
 BODY = "fake notification body for the test suite"

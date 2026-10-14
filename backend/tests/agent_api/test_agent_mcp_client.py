@@ -28,10 +28,8 @@ from a refused connection on some machines.
 """
 
 import asyncio
-import sys
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
-from pathlib import Path
 from typing import Any, cast
 
 import httpx2
@@ -57,12 +55,7 @@ from helpdesk.agent_api.mcp_client import (
     error_for,
 )
 from helpdesk.shared.errors import ErrorCode, ToolError
-
-_MCP_TESTS = Path(__file__).resolve().parents[3] / "backend" / "tests" / "mcp_server"
-if str(_MCP_TESTS) not in sys.path:
-    sys.path.insert(0, str(_MCP_TESTS))
-
-from mcp_fixtures import (  # noqa: E402 - path set immediately above
+from tests.support.mcp import (
     SeededMcp,
     mcp_env,  # noqa: F401 - fixtures are resolved by name
     mcp_pg,  # noqa: F401

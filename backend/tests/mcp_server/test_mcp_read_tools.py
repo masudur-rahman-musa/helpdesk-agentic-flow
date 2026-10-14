@@ -34,7 +34,9 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.repository import list_active_grants_for_user
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
     call_tool,
@@ -47,9 +49,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     token_for,
     token_with_claims,
 )
-
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.repository import list_active_grants_for_user
 
 # One microsecond, the smallest step Postgres stores in a timestamptz: the
 # expiry boundary pair straddles exactly this.

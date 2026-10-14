@@ -29,7 +29,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
+
+from helpdesk.mcp_server import pipeline
+from helpdesk.mcp_server.identity import Identity, IdentityRefused, identity_from_header
+from helpdesk.mcp_server.registry import REGISTRY
+from helpdesk.shared.auth.jwt import TokenClaims
+from helpdesk.shared.errors import ErrorCode, ToolError
+from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     TEST_JWT_SIGNING_PHRASE,
     WRONG_JWT_SIGNING_PHRASE,
     SeededMcp,
@@ -44,12 +50,6 @@ from mcp_fixtures import (  # noqa: F401 - fixtures are resolved by name
     token_for,
     token_with_claims,
 )
-
-from helpdesk.mcp_server import pipeline
-from helpdesk.mcp_server.identity import Identity, IdentityRefused, identity_from_header
-from helpdesk.mcp_server.registry import REGISTRY
-from helpdesk.shared.auth.jwt import TokenClaims
-from helpdesk.shared.errors import ErrorCode, ToolError
 
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 

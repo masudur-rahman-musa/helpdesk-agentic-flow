@@ -7,7 +7,7 @@
 # depend on, so postgres, redis and qdrant carry NO profile: a profile on any
 # of them makes the bare command start nothing at all, and every host-run
 # service loses its database with no error naming the cause. Pinned by
-# backend/tests/shared/test_container_build.py::
+# infra/tests/test_container_build.py::
 # test_the_backing_services_carry_no_profile.
 #
 # The four app services carry `build:` and no `image:` on purpose. An earlier change's

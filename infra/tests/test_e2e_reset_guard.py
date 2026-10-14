@@ -44,6 +44,10 @@ import asyncio
 from collections.abc import Sequence
 
 import pytest
+from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.models.directory import Tenant
+from sqlalchemy import String
+
 from scripts.e2e_reset import (
     DROP_STATEMENTS,
     LOCAL_HOSTS,
@@ -53,10 +57,6 @@ from scripts.e2e_reset import (
     check_tenant_slug,
     reset,
 )
-from sqlalchemy import String
-
-from helpdesk.shared.errors import ErrorCode
-from helpdesk.shared.models.directory import Tenant
 
 _LOCALHOST_URL = "postgresql+asyncpg://helpdesk:pw@localhost:5432/helpdesk"
 _LOOPBACK_URL = "postgresql+asyncpg://helpdesk:pw@127.0.0.1:5432/helpdesk"
@@ -189,7 +189,11 @@ def test_no_statement_is_run_when_a_tenant_slug_is_refused() -> None:
     """
     recorder = _Recorder()
     with pytest.raises(InvalidResetTargetError) as caught:
-        asyncio.run(reset(_LOCALHOST_URL, ["n" * (TENANT_SLUG_CAP + 1)], run_statements=recorder))
+        asyncio.run(
+            reset(
+                _LOCALHOST_URL, ["n" * (TENANT_SLUG_CAP + 1)], run_statements=recorder
+            )
+        )
     assert caught.value.code is ErrorCode.VALIDATION
     assert recorder.calls == []
 

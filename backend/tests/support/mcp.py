@@ -1,10 +1,9 @@
 """Shared backing-service fixtures for the mcp-server suite.
 
-Deliberately NOT a ``conftest.py``: a second module named ``conftest`` collides
-with ``packages/helpdesk/tests/conftest.py`` under the repo-wide ``mypy`` run
-(``files = ["packages", "services", "scripts"]``), so every test module imports
-the fixtures it needs by name, the way ``packages/helpdesk/tests/_policy.py``
-and ``_seed.py`` are already imported.
+A plain support module (``tests/support/mcp.py``), imported by its package path
+``tests.support.mcp`` the way ``tests.support.policy`` and ``tests.support.seed``
+are. Deliberately NOT a ``conftest.py``: these fixtures are opt-in, pulled in by
+name only by the modules that want them, not made autouse for the whole suite.
 
 a project rule: the expensive things are built exactly once for the whole
 session — one throwaway Postgres database, created and seeded through the real
@@ -25,12 +24,10 @@ and the one password hash placeholder is a literal marker, not a real hash.
 
 import asyncio
 import os
-import sys
 import uuid
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
@@ -57,13 +54,7 @@ from helpdesk.shared.rag.chunks import write_chunks
 from helpdesk.shared.rag.embedding import DENSE_DIMENSION, SparseVector
 from helpdesk.shared.rag.store import register_document_version
 from helpdesk.shared.rag.vectors import collection_name, ensure_collection, point_id, upsert_chunks
-
-# Make repo-root `scripts/` importable, same as packages/helpdesk/tests/conftest.py.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from scripts.seed import seed_all  # noqa: E402
+from scripts.seed import seed_all
 
 # Obviously fake, tests only; 36 bytes so the Settings length gate (>= 32) passes.
 TEST_JWT_SIGNING_PHRASE = "mcp-test-jwt-secret-0123456789abcdef"
