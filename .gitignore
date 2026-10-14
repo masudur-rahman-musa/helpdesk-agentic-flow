@@ -30,7 +30,7 @@ build/
 
 # local working files
 docker-compose.override.yml
-test-mode.md
+switches.md
 notes.md
 REQUIREMENTS.md
 his.md

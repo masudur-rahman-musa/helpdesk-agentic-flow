@@ -1,5 +1,5 @@
 # What never enters a shipped image. Mirror of the rule: the service source is
-# what runs, tests/ is what checks, dev-process/ is how we work.
+# what runs, tests/ is what checks, dev/ is how we work.
 #
 # Read against the REPOSITORY ROOT context, which is where the root Dockerfile
 # builds the three Python services from. The Next app has its own context and
@@ -76,6 +76,7 @@ Dockerfile
 # private working files (never in an image either)
 notes.md
 his.md
-test-mode.md
 REQUIREMENTS.md
 pl
+dev
+switches.md
