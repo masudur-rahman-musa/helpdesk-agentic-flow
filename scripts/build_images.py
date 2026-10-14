@@ -11,9 +11,13 @@ would have worked.
 a project rule wants the typed pre-check before any effect runs, and standing
 rule 4 wants the pattern applied with `re.fullmatch` so a trailing newline
 cannot ride along behind an otherwise valid tag. Both are pinned by
-`packages/helpdesk/tests/test_build_images_args.py`; the ordering specifically
+`backend/tests/shared/test_build_images_args.py`; the ordering specifically
 by `test_the_checks_run_before_any_docker_process_starts`, which patches this
 module's `subprocess.run` and asserts nothing was spawned.
+
+The three Python services each build from their own `backend/Dockerfile.<service>`
+with `backend/` as the context, copying only that app plus `shared/`; there is
+no longer one root Dockerfile with a `SERVICE` build arg.
 
 `web` is accepted here and built from a different file: it has no uv install to
 share with the three Python services, so `docker build web` is its own context
@@ -29,7 +33,11 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-"""The build context root, so this script works from any working directory."""
+"""The repo root, so this script works from any working directory."""
+
+BACKEND_ROOT = REPO_ROOT / "backend"
+"""The Python project root: the build context for the three service images and
+where their `Dockerfile.<service>` files live."""
 
 ACCEPTED_SERVICES: frozenset[str] = frozenset({"agent-api", "mcp-server", "scheduler", "web"})
 """The only four images this repository knows how to build (criterion 17).
@@ -39,7 +47,8 @@ Dockerfile has, and a missing one refuses a build the Makefile still asks for.
 Pinned by `test_the_accepted_service_names_are_exactly_the_four_planned`."""
 
 WEB_SERVICE = "web"
-"""The one accepted name built from `web/Dockerfile` rather than the root one."""
+"""The one accepted name built from `web/Dockerfile` rather than a
+`backend/Dockerfile.<service>`."""
 
 TAG_MAX_LENGTH = 128
 """The inclusive upper bound on a tag, pinned as a value by a project rule and
@@ -95,11 +104,11 @@ def _build_command(service: str, tag: str) -> list[str]:
     return [
         "docker",
         "build",
-        "--build-arg",
-        f"SERVICE={service}",
+        "-f",
+        str(BACKEND_ROOT / f"Dockerfile.{service}"),
         "-t",
         image,
-        str(REPO_ROOT),
+        str(BACKEND_ROOT),
     ]
 
 

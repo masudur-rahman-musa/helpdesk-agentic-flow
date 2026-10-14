@@ -7,7 +7,7 @@
 # depend on, so postgres, redis and qdrant carry NO profile: a profile on any
 # of them makes the bare command start nothing at all, and every host-run
 # service loses its database with no error naming the cause. Pinned by
-# packages/helpdesk/tests/test_container_build.py::
+# backend/tests/shared/test_container_build.py::
 # test_the_backing_services_carry_no_profile.
 #
 # The four app services carry `build:` and no `image:` on purpose. An earlier change's
@@ -24,13 +24,13 @@ services:
   postgres:
     image: postgres:16.6-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?copy .env.example to .env first}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env first}
-      POSTGRES_DB: ${POSTGRES_DB:?copy .env.example to .env first}
+      POSTGRES_USER: ${POSTGRES_USER:?copy backend/.env.example to .env first}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy backend/.env.example to .env first}
+      POSTGRES_DB: ${POSTGRES_DB:?copy backend/.env.example to .env first}
       # Read by the init script below, never by a service. The restricted role
       # exists so that a compromised service cannot rewrite the audit log; the
       # owner credentials above stay with Alembic and the test suite.
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?copy .env.example to .env first}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?copy backend/.env.example to .env first}
     ports: ["5432:5432"]
     volumes:
       - "pgdata:/var/lib/postgresql/data"
@@ -71,9 +71,8 @@ services:
   helpdesk-agent-api:
     profiles: ["app"]
     build:
-      context: .
-      args:
-        SERVICE: agent-api
+      context: ./backend
+      dockerfile: Dockerfile.agent-api
     env_file: [.env]
     environment:
       DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -112,9 +111,8 @@ services:
   helpdesk-mcp-server:
     profiles: ["app"]
     build:
-      context: .
-      args:
-        SERVICE: mcp-server
+      context: ./backend
+      dockerfile: Dockerfile.mcp-server
     env_file: [.env]
     environment:
       DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -126,13 +124,13 @@ services:
       # must not be able to edit the corpus that decides access, and the corpus
       # must not be pinned to a build.
       #
-      # The host side is written `./policies` and not `${POLICY_DIR}`. A bind
-      # mount's source has to start with `.` or `/` or compose reads it as a
-      # NAMED VOLUME, and .env ships POLICY_DIR as the bare relative `policies`
-      # -- which would silently mount an empty volume and ingest zero chunks. A
-      # corpus kept elsewhere is mounted through
+      # The host side is written `./backend/data/policies` and not
+      # `${POLICY_DIR}`. A bind mount's source has to start with `.` or `/` or
+      # compose reads it as a NAMED VOLUME, and .env ships POLICY_DIR as a bare
+      # relative path -- which would silently mount an empty volume and ingest
+      # zero chunks. A corpus kept elsewhere is mounted through
       # docker-compose.override.example.yml, not by editing this line.
-      - "./policies:/srv/policies:ro"
+      - "./backend/data/policies:/srv/policies:ro"
     ports: ["8081:8081"]
     depends_on:
       postgres: {condition: service_healthy}
@@ -147,9 +145,8 @@ services:
   helpdesk-scheduler:
     profiles: ["app"]
     build:
-      context: .
-      args:
-        SERVICE: scheduler
+      context: ./backend
+      dockerfile: Dockerfile.scheduler
     env_file: [.env]
     environment:
       DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}

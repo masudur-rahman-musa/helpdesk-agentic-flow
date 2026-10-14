@@ -17,10 +17,13 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv sync
-      - run: uv run pre-commit run --all-files
-      - run: uv run ruff format --check .
+      - run: uv sync --project backend
+      - run: uv run --project backend pre-commit run --all-files
+      - run: uv run --project backend ruff format --check .
       - run: make lint typecheck test-policy
+      - name: Import contracts
+        working-directory: backend
+        run: uv run lint-imports
 
   # The web gate on its own runner, pnpm pinned by `packageManager` in
   # web/package.json.
@@ -53,23 +56,24 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv sync
+      - run: uv sync --project backend
       # The same compose file as a laptop, so the app role init script runs
-      # here too, with the placeholder credentials from .env.example.
+      # here too, with the placeholder credentials from backend/.env.demo.
       - name: Start the backing services
         run: |
-          cp .env.example .env
+          cp backend/.env.demo backend/.env
           docker compose up -d --wait postgres redis qdrant
       - name: Run this slice
+        working-directory: backend
         env:
           COVERAGE_FILE: .coverage.shard${{ matrix.shard }}
         run: |
-          uv run pytest -q $(uv run python scripts/test_shard.py --shard ${{ matrix.shard }} --of 3) \
-            --cov=helpdesk --cov=agent_api --cov=mcp_server --cov-report= --cov-fail-under=0
+          uv run pytest -q $(uv run python ../scripts/test_shard.py --shard ${{ matrix.shard }} --of 3) \
+            --cov=helpdesk --cov-report= --cov-fail-under=0
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-shard${{ matrix.shard }}
-          path: .coverage.shard${{ matrix.shard }}
+          path: backend/.coverage.shard${{ matrix.shard }}
           include-hidden-files: true
           if-no-files-found: error
 
@@ -83,12 +87,15 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv sync
+      - run: uv sync --project backend
       - uses: actions/download-artifact@v4
         with:
           pattern: coverage-shard*
           merge-multiple: true
-      - run: |
+          path: backend
+      - name: Judge the floor
+        working-directory: backend
+        run: |
           uv run coverage combine .coverage.shard*
           uv run coverage report --fail-under=80
 
@@ -98,7 +105,7 @@ jobs:
   # gitleaks and trivy run from their own pinned images rather than from an
   # action, because both need argument forms the actions do not pass through
   # (a config path plus history for one, two target files for the other).
-  # Pinned by packages/helpdesk/tests/test_security_config.py.
+  # Pinned by backend/tests/shared/test_security_config.py.
   security:
     runs-on: ubuntu-latest
     permissions:
@@ -139,6 +146,7 @@ jobs:
       # --no-emit-workspace drops the local `-e ./packages/...` lines, which
       # pip-audit cannot hash and which are this repo's own code anyway.
       - name: Python advisories
+        working-directory: backend
         run: |
           uv export --frozen --no-emit-project --no-emit-workspace --format requirements-txt \
             --output-file requirements-audit.txt

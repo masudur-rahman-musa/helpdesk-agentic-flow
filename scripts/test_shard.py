@@ -5,8 +5,8 @@ Postgres, Redis and Qdrant. This script decides which files each job gets:
 largest first, each to the slice with the least time so far, using the per-file
 seconds in `scripts/test_durations.json`. A file missing from that table (a new
 test file) counts as the median, so it still lands somewhere. Every file under
-`pyproject.toml`'s `testpaths` is in exactly one slice, which
-`packages/helpdesk/tests/test_test_shard.py` pins.
+`backend/pyproject.toml`'s `testpaths` is in exactly one slice, which
+`backend/tests/shared/test_test_shard.py` pins.
 
     uv run python scripts/test_shard.py --shard 0 --of 3
 
@@ -24,17 +24,21 @@ import tomllib
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# The Python project and its test tree live under `backend/`, so testpaths and
+# the globbed files are resolved there. The duration table stays with the
+# scripts at the repo root.
+BACKEND_ROOT = REPO_ROOT / "backend"
 DURATIONS = REPO_ROOT / "scripts" / "test_durations.json"
 
 
 def test_files() -> list[str]:
     """Every `test_*.py` under the configured testpaths, repo-relative and sorted."""
-    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((BACKEND_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     paths = config["tool"]["pytest"]["ini_options"]["testpaths"]
     return sorted(
-        str(path.relative_to(REPO_ROOT))
+        str(path.relative_to(BACKEND_ROOT))
         for root in paths
-        for path in (REPO_ROOT / root).rglob("test_*.py")
+        for path in (BACKEND_ROOT / root).rglob("test_*.py")
     )
 
 

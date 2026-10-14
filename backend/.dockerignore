@@ -1,0 +1,81 @@
+# What never enters a shipped image. Mirror of the rule: the service source is
+# what runs, tests/ is what checks, dev/ is how we work.
+#
+# Read against the `backend/` context, which is where each
+# backend/Dockerfile.<app> builds its Python service from. The Next app has its
+# own context and its own web/.dockerignore; this file says nothing about it.
+#
+# The bare and the `**/` spelling of a name are BOTH listed wherever the name
+# occurs at more than one depth. A docker ignore pattern is anchored at the
+# context root, so `tests` excludes ./tests and nothing else -- and every test
+# tree now lives under backend/tests, which a stray `COPY . .` would otherwise
+# carry straight into the image. Pinned by backend/tests/shared/test_container_build.py::
+# test_the_dockerignore_excludes_every_private_path.
+
+# version control and editor
+.git
+.gitignore
+.gitattributes
+.editorconfig
+.vscode
+.idea
+.DS_Store
+
+# secrets and local config (real config is injected at runtime)
+.env
+.env.*
+!.env.example
+.cache
+
+# the coding agent and its tooling
+.claude
+CLAUDE.md
+.mcp.json
+
+# verification, CI, and dev tooling
+tests
+**/tests
+evals
+infra
+.github
+.pre-commit-config.yaml
+.gitleaks.toml
+.trivyignore
+Makefile
+
+# our working process and documentation
+dev-process
+docs
+README.md
+LICENSE
+
+# build artefacts and caches: the image installs its own
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+
+# the Next app: it is built from web/ by its own Dockerfile, never from here
+web
+
+# the policy corpus: it arrives as a read-only runtime mount, never baked in,
+# so the corpus that decides access is not pinned to a build
+data/policies
+
+# the images' own recipes
+Dockerfile.*
+.dockerignore
+
+# private working files (never in an image either)
+notes.md
+his.md
+REQUIREMENTS.md
+pl
+dev
+switches.md

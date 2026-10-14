@@ -1,0 +1,24 @@
+[importlinter]
+# The one rule the restructure adds: the three apps lean on the shared library
+# and never on each other, and the shared library never reaches back into an
+# app. `lint-imports` is run from backend/ in CI and by
+# tests/shared/test_import_contracts.py.
+root_package = helpdesk
+
+[importlinter:contract:apps-are-independent]
+name = The three apps never import each other
+type = independence
+modules =
+    helpdesk.agent_api
+    helpdesk.mcp_server
+    helpdesk.scheduler
+
+[importlinter:contract:shared-imports-no-app]
+name = The shared library imports no app
+type = forbidden
+source_modules =
+    helpdesk.shared
+forbidden_modules =
+    helpdesk.agent_api
+    helpdesk.mcp_server
+    helpdesk.scheduler

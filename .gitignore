@@ -1,6 +1,9 @@
 .env
 .env.*
 !.env.example
+!backend/.env.example
+# Committed fake demo values compose and CI read; never ignored.
+!backend/.env.demo
 .claude/settings.local.json
 .DS_Store
 __pycache__/
@@ -37,7 +40,7 @@ his.md
 pl/
 .claude/hooks/local_*
 # AI
-project-evals/reports/
+backend/evals/reports/
 # Service
 .terraform/
 *.tfstate

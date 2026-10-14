@@ -10,7 +10,7 @@ migrate target rather than from application startup is also what keeps several
 starting processes from racing on `CREATE TABLE`.
 
 Argument parsing there is none, and no logic either: everything happens in
-`agent_api.checkpointer`, so a later admin route can do exactly what this
+`helpdesk.agent_api.checkpointer`, so a later admin route can do exactly what this
 script does by calling the same two functions. Exits 1 on a typed refusal,
 printing its code and message — the case being a `DATABASE_URL` the
 checkpointer will not convert.
@@ -19,9 +19,9 @@ checkpointer will not convert.
 import asyncio
 import sys
 
-from agent_api.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
-from helpdesk.core.settings import load_settings
-from helpdesk.errors import ToolError
+from helpdesk.agent_api.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
+from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.errors import ToolError
 
 
 async def _setup(dsn: str) -> None:

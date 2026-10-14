@@ -7,7 +7,7 @@
 # dependency change (uv.lock, web/pnpm-lock.yaml) needs `--build`.
 #
 # Nothing here sets a credential or a hostname: those still come from .env and
-# from docker-compose.yml. Pinned by packages/helpdesk/tests/
+# from docker-compose.yml. Pinned by backend/tests/shared/
 # test_container_build.py::test_the_override_example_sets_only_allowlisted_environment
 # and ::test_the_override_example_adds_no_service_and_no_profile.
 services:
@@ -17,34 +17,31 @@ services:
     ports: ["16333:6333"]
 
   # The Python services keep their production image and swap its entrypoint for
-  # a reloading uvicorn. The workspace members are editable installs whose .pth
-  # files point at /app/packages/helpdesk and /app/services/<svc>, so mounting
-  # the host source read-only over those two paths is enough, and /app/.venv is
-  # never shadowed (::test_the_override_example_never_mounts_over_the_venv).
+  # a reloading uvicorn. The one project is an editable install whose .pth file
+  # points at /app, where the `helpdesk` package lives, so mounting the host
+  # source read-only over /app/helpdesk is enough, and /app/.venv is never
+  # shadowed (::test_the_override_example_never_mounts_over_the_venv).
   # watchfiles is not in the image, so uvicorn's --reload falls back to its
   # StatReload polling, which also works across a macOS bind mount.
   # Pinned by ::test_the_override_example_reloads_every_python_service and
   # ::test_the_override_example_mounts_python_source_read_only.
   helpdesk-agent-api:
-    entrypoint: ["uvicorn", "agent_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
-                 "--reload-dir", "/app/packages/helpdesk", "--reload-dir", "/app/services/agent-api"]
+    entrypoint: ["uvicorn", "helpdesk.agent_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
+                 "--reload-dir", "/app/helpdesk"]
     volumes:
-      - "./packages/helpdesk:/app/packages/helpdesk:ro"
-      - "./services/agent-api:/app/services/agent-api:ro"
+      - "./backend/helpdesk:/app/helpdesk:ro"
 
   helpdesk-mcp-server:
-    entrypoint: ["uvicorn", "mcp_server.main:app", "--host", "0.0.0.0", "--port", "8081", "--reload",
-                 "--reload-dir", "/app/packages/helpdesk", "--reload-dir", "/app/services/mcp-server"]
+    entrypoint: ["uvicorn", "helpdesk.mcp_server.main:app", "--host", "0.0.0.0", "--port", "8081", "--reload",
+                 "--reload-dir", "/app/helpdesk"]
     volumes:
-      - "./packages/helpdesk:/app/packages/helpdesk:ro"
-      - "./services/mcp-server:/app/services/mcp-server:ro"
+      - "./backend/helpdesk:/app/helpdesk:ro"
 
   helpdesk-scheduler:
-    entrypoint: ["uvicorn", "scheduler.main:app", "--host", "0.0.0.0", "--port", "8082", "--reload",
-                 "--reload-dir", "/app/packages/helpdesk", "--reload-dir", "/app/services/scheduler"]
+    entrypoint: ["uvicorn", "helpdesk.scheduler.main:app", "--host", "0.0.0.0", "--port", "8082", "--reload",
+                 "--reload-dir", "/app/helpdesk"]
     volumes:
-      - "./packages/helpdesk:/app/packages/helpdesk:ro"
-      - "./services/scheduler:/app/services/scheduler:ro"
+      - "./backend/helpdesk:/app/helpdesk:ro"
 
   # The web runs `next dev` from the Dockerfile's `deps` stage, which already
   # holds pnpm and node_modules; `pull_policy: build` keeps compose from looking

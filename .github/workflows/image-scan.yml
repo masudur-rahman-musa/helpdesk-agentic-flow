@@ -14,9 +14,9 @@ name: image-scan
 # repository's own four images and scans those, which an earlier change added with the
 # Dockerfiles that make them buildable.
 #
-# Pinned by packages/helpdesk/tests/test_security_config.py::
+# Pinned by backend/tests/shared/test_security_config.py::
 # test_the_image_scan_covers_exactly_the_three_pinned_compose_images and by
-# packages/helpdesk/tests/test_container_build.py::
+# backend/tests/shared/test_container_build.py::
 # test_the_image_scan_job_covers_the_four_built_images.
 on:
   schedule:
@@ -52,9 +52,9 @@ jobs:
       # not as a surprise at deploy time.
       - name: Build the four service images
         run: |
-          docker build --build-arg SERVICE=agent-api -t helpdesk-agent-api:scan .
-          docker build --build-arg SERVICE=mcp-server -t helpdesk-mcp-server:scan .
-          docker build --build-arg SERVICE=scheduler -t helpdesk-scheduler:scan .
+          docker build -f backend/Dockerfile.agent-api -t helpdesk-agent-api:scan backend
+          docker build -f backend/Dockerfile.mcp-server -t helpdesk-mcp-server:scan backend
+          docker build -f backend/Dockerfile.scheduler -t helpdesk-scheduler:scan backend
           docker build -t helpdesk-web:scan web
 
       - name: Scan the four built images

@@ -33,14 +33,14 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from helpdesk.core.db import create_engine, create_session_factory
-from helpdesk.core.repository import find_tenant_by_slug
-from helpdesk.core.settings import load_settings
-from helpdesk.errors import ToolError
-from helpdesk.rag.embedding import FastEmbedEmbedder
-from helpdesk.rag.gateway import RedactionClient
-from helpdesk.rag.pipeline import ingest_version
-from helpdesk.rag.vectors import create_client
+from helpdesk.shared.core.db import create_engine, create_session_factory
+from helpdesk.shared.core.repository import find_tenant_by_slug
+from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.errors import ToolError
+from helpdesk.shared.rag.embedding import FastEmbedEmbedder
+from helpdesk.shared.rag.gateway import RedactionClient
+from helpdesk.shared.rag.pipeline import ingest_version
+from helpdesk.shared.rag.vectors import create_client
 
 
 def _corpus_root(flag: Path | None, configured: Path) -> Path:

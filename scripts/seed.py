@@ -38,16 +38,19 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
 from faker import Faker
-from helpdesk.auth.passwords import hash_password
-from helpdesk.core.db import (
+from sqlalchemy import inspect
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from helpdesk.shared.auth.passwords import hash_password
+from helpdesk.shared.core.db import (
     bound_tenant_id,
     create_engine,
     create_session_factory,
     tenant_session,
 )
-from helpdesk.core.repository import Repository
-from helpdesk.core.settings import load_settings
-from helpdesk.models import (
+from helpdesk.shared.core.repository import Repository
+from helpdesk.shared.core.settings import load_settings
+from helpdesk.shared.models import (
     Department,
     Grant,
     Role,
@@ -59,8 +62,6 @@ from helpdesk.models import (
     Ticket,
     User,
 )
-from sqlalchemy import inspect
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
 class SeedError(Exception):

@@ -18,11 +18,12 @@ DDL second:
 Both refuse with `InvalidResetTargetError`, a SPEC section 8.1 `VALIDATION`,
 so nothing free-text crosses the boundary. That the checks run BEFORE the drop
 is the load-bearing claim, and it is pinned by
-`packages/helpdesk/tests/test_e2e_reset_guard.py::test_no_statement_is_run_when_the_database_url_is_refused`
+`backend/tests/shared/test_e2e_reset_guard.py::test_no_statement_is_run_when_the_database_url_is_refused`
 and `::test_no_statement_is_run_when_a_tenant_slug_is_refused`: move either
 check below `run_statements` and both go red. Its other half, without which a
 reset that dropped nothing would satisfy the pair, is
-`::test_an_accepted_target_runs_exactly_the_drop_statements`.
+`::test_an_accepted_target_runs_exactly_the_drop_statements`. The guard tests
+live at `backend/tests/shared/test_e2e_reset_guard.py`.
 
 `reset` takes its `run_statements` as an argument rather than opening a
 connection itself so the guard is drivable with strings and no database at
@@ -38,15 +39,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from helpdesk.access.directory import SimulatedDirectory
-from helpdesk.access.review_schedule import generate_reviews
-from helpdesk.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.errors import ErrorCode, ToolError
-from helpdesk.models.directory import Tenant
 from sqlalchemy import String, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.review_schedule import generate_reviews
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.errors import ErrorCode, ToolError
+from helpdesk.shared.models.directory import Tenant
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS_DIR = _REPO_ROOT / "scripts"
+# The Python project now lives under `backend/`, so `uv run` and `alembic` must
+# run with `backend/` as their working directory, even though the scripts
+# themselves still sit at the repo root's `scripts/`.
+_BACKEND_ROOT = _REPO_ROOT / "backend"
 
 LOCAL_HOSTS: tuple[str, str] = ("localhost", "127.0.0.1")
 """The only hosts this script will drop a schema on."""
@@ -150,9 +157,18 @@ async def _run_on(database_url: str, statements: Sequence[str]) -> None:
         await engine.dispose()
 
 
-def _step(argv: Sequence[str]) -> None:
-    """Run one repo script to completion, or stop the reset with its output."""
-    subprocess.run([sys.executable, *argv], cwd=_REPO_ROOT, check=True)
+def _step(script_name: str, *args: str) -> None:
+    """Run one repo script to completion, or stop the reset with its output.
+
+    The scripts live at the repo root's `scripts/`, but they import the Python
+    project, which is under `backend/`, so they run with `backend/` as cwd and
+    an absolute path to the script.
+    """
+    subprocess.run(
+        [sys.executable, str(_SCRIPTS_DIR / script_name), *args],
+        cwd=_BACKEND_ROOT,
+        check=True,
+    )
 
 
 async def _open_this_quarters_reviews(database_url: str) -> None:
@@ -162,8 +178,8 @@ async def _open_this_quarters_reviews(database_url: str) -> None:
     the harness plants one: the seed writes no reviews, and the scheduler is
     not one of the four processes Playwright starts (plan section 3). Rather
     than inventing a review here, this runs
-    `helpdesk.access.review_schedule.generate_reviews` exactly as
-    `scheduler.jobs.run_review_generation` does, so the row flow 5 opens is
+    `helpdesk.shared.access.review_schedule.generate_reviews` exactly as
+    `helpdesk.scheduler.jobs.run_review_generation` does, so the row flow 5 opens is
     the row the product would have produced on its own.
 
     Per tenant, because the engine reads through the tenant-bound session and
@@ -202,10 +218,10 @@ def main() -> None:
         )
     )
 
-    subprocess.run(["uv", "run", "alembic", "upgrade", "head"], cwd=_REPO_ROOT, check=True)
-    _step(["scripts/checkpointer_setup.py"])
-    _step(["scripts/seed.py"])
-    _step(["scripts/ingest.py"])
+    subprocess.run(["uv", "run", "alembic", "upgrade", "head"], cwd=_BACKEND_ROOT, check=True)
+    _step("checkpointer_setup.py")
+    _step("seed.py")
+    _step("ingest.py")
     asyncio.run(_open_this_quarters_reviews(database_url))
 
 

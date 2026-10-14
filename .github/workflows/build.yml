@@ -25,7 +25,7 @@ name: build
 # half made each run 14 to 24 minutes. An arm64 target has to add it back,
 # ideally on native arm64 runners rather than under emulation.
 #
-# Pinned by packages/helpdesk/tests/test_build_workflow.py.
+# Pinned by backend/tests/shared/test_build_workflow.py.
 
 on:
   push:
@@ -80,10 +80,8 @@ jobs:
       - name: Build and push the agent API image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Dockerfile
-          build-args: |
-            SERVICE=agent-api
+          context: backend
+          file: backend/Dockerfile.agent-api
           platforms: linux/amd64
           push: true
           tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api:${{ github.sha }}
@@ -95,10 +93,8 @@ jobs:
       - name: Build and push the MCP server image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Dockerfile
-          build-args: |
-            SERVICE=mcp-server
+          context: backend
+          file: backend/Dockerfile.mcp-server
           platforms: linux/amd64
           push: true
           tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server:${{ github.sha }}
@@ -110,10 +106,8 @@ jobs:
       - name: Build and push the scheduler image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: Dockerfile
-          build-args: |
-            SERVICE=scheduler
+          context: backend
+          file: backend/Dockerfile.scheduler
           platforms: linux/amd64
           push: true
           tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler:${{ github.sha }}

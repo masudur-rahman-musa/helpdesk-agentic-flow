@@ -1,0 +1,120 @@
+[project]
+name = "ai-help-desk-governed-access"
+version = "0.1.0"
+description = "AI helpdesk with governed access"
+requires-python = ">=3.12"
+# One project, one package: `helpdesk` with the four subpackages shared,
+# agent_api, mcp_server and scheduler. The five old pyproject.toml (the root
+# workspace plus packages/helpdesk and the three services) are merged here.
+# The base list is what every app needs; the per-app extras live in the
+# dependency groups below so an image installs only its own heavy ones.
+dependencies = [
+    "argon2-cffi>=25.1.0",
+    "alembic>=1.14",
+    "asyncpg>=0.30",
+    # Pinned exactly: seeded Faker output must not drift between versions
+    #.
+    "faker==40.38.0",
+    "fastapi>=0.115",
+    "httpx>=0.28",
+    # The mcp SDK's client speaks httpx2, not httpx, so the floor is declared
+    # here rather than inherited from whatever `mcp` happens to vendor.
+    "httpx2>=2.12",
+    # the design fixes Langfuse as the trace store. v3 embeds the OpenTelemetry
+    # SDK, so the design's separate `opentelemetry-sdk` pin is not needed
+    #.
+    "langfuse>=3",
+    # the design and §5: the agent reaches the MCP server over streamable HTTP
+    # with the official SDK's client, and the server speaks the same SDK.
+    "mcp>=2.1",
+    # the design fixes prometheus as the metrics choice; the client owns the text
+    # exposition format a hand-rolled writer gets wrong.
+    "prometheus-client>=0.21",
+    "pydantic-settings>=2.6",
+    "pyjwt>=2.9",
+    "qdrant-client>=1.12",
+    "redis>=5.2",
+    "sqlalchemy[asyncio]>=2.0",
+    "uvicorn>=0.32",
+]
+
+[project.scripts]
+helpdesk-mcp-stdio = "helpdesk.mcp_server.main:run_stdio"
+
+[build-system]
+requires = ["uv_build>=0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "helpdesk"
+module-root = ""
+
+[dependency-groups]
+# Per-app runtime extras. An image installs its own with `uv sync --group <app>`
+# so only the mcp-server carries fastembed and only the agent-api carries
+# langgraph and the psycopg checkpointer.
+agent-api = [
+    # the design, an earlier change decision A: the agent turn is a LangGraph StateGraph.
+    "langgraph>=1.2",
+    # An earlier change decision B: the checkpoint tables are LangGraph's own.
+    "langgraph-checkpoint-postgres>=2.0",
+    # An earlier change decision C: the saver is psycopg3-only while the rest of the
+    # repo is asyncpg, so psycopg is carried for the checkpointer alone.
+    "psycopg[binary,pool]>=3.2",
+]
+mcp-server = [
+    "fastembed>=0.7",
+]
+scheduler = []
+dev = [
+    "ruff>=0.12",
+    "mypy>=1.14",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pre-commit>=4.0",
+    # Keeps the apps importable under the test run and under mypy: the dev
+    # environment installs every app group, not just one image's.
+    {include-group = "agent-api"},
+    {include-group = "mcp-server"},
+    # The load smoke of an earlier change (decision B). locust rides this lockfile.
+    "locust>=2.32",
+    "pytest-xdist>=3.8.0",
+    # The shared-only import rule of the restructure is a CI check: apps import
+    # only helpdesk.shared, never each other. Config in backend/.importlinter.
+    "import-linter>=2.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# Report unused imports but never auto-delete them: the format hook runs after
+# every edit, and autofix kept stripping imports added one edit before their
+# first usage (the project notes 2026-09-03 and 2026-09-04).
+unfixable = ["F401"]
+
+[tool.mypy]
+strict = true
+files = ["helpdesk", "tests"]
+
+# Settings(_env_file=None) is valid at runtime; mypy's synthesized pydantic
+# __init__ rejects it. Scoped to the settings tests only.
+[[tool.mypy.overrides]]
+module = "test_settings"
+disable_error_code = ["call-arg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["helpdesk"]
+# SQLAlchemy async drives queries through greenlets; without this, coverage
+# loses the trace in any coroutine after its first awaited DB call.
+concurrency = ["greenlet"]
+
+[tool.coverage.report]
+show_missing = true

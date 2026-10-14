@@ -83,16 +83,16 @@ images, so the picture and its source cannot disagree:
 
 Seven claims, each linked to the test that fails if it stops being true.
 
-1. **No direct mutation.** The model plans; typed tools act. Every tool call is authorized against the caller's token at the transport before a handler runs. Proof: [test_matrix_expectation_holds_through_the_transport](services/mcp-server/tests/test_mcp_rbac_matrix.py)
-2. **Tenant isolation.** Every read and write is bound to the tenant on the token. Another tenant's row is not forbidden, it is absent. Proof: [test_other_tenants_id_is_not_found](packages/helpdesk/tests/test_repository.py)
-3. **Mandatory expiry.** Access is granted for a bounded period, capped by the access class, and the cap is applied at grant time rather than promised. Proof: [test_the_grant_expires_exactly_one_class_cap_after_granted_at](packages/helpdesk/tests/test_access_execute.py)
-4. **Segregation of duties blocks, and cites.** A conflicting combination is refused with the identifier of the rule that refused it, not with a generic denial. Proof: [test_classification_accepts_a_sod_conflict_reason_with_an_id](packages/helpdesk/tests/test_policy_decision.py)
-5. **A cited answer or none.** Below the retrieval threshold the system refuses and offers a ticket instead of answering from the model's memory. Proof: [test_a_best_cosine_just_below_the_threshold_refuses](packages/helpdesk/tests/test_rag_refusal.py)
-6. **Hash-chained audit.** Each event carries the hash of the one before it, so an edited, deleted or relabelled row breaks verification. Proof: [test_relabelling_a_chain_onto_another_tenant_is_detected](packages/helpdesk/tests/test_audit_writer.py)
-7. **Idempotent retry.** A repeated call with the same key returns the first result and runs no second effect, so a timeout is safe to retry. Proof: [test_replay_returns_the_stored_response_without_running_the_effect](packages/helpdesk/tests/test_idempotency_guard.py)
+1. **No direct mutation.** The model plans; typed tools act. Every tool call is authorized against the caller's token at the transport before a handler runs. Proof: [test_matrix_expectation_holds_through_the_transport](backend/tests/mcp_server/test_mcp_rbac_matrix.py)
+2. **Tenant isolation.** Every read and write is bound to the tenant on the token. Another tenant's row is not forbidden, it is absent. Proof: [test_other_tenants_id_is_not_found](backend/tests/shared/test_repository.py)
+3. **Mandatory expiry.** Access is granted for a bounded period, capped by the access class, and the cap is applied at grant time rather than promised. Proof: [test_the_grant_expires_exactly_one_class_cap_after_granted_at](backend/tests/shared/test_access_execute.py)
+4. **Segregation of duties blocks, and cites.** A conflicting combination is refused with the identifier of the rule that refused it, not with a generic denial. Proof: [test_classification_accepts_a_sod_conflict_reason_with_an_id](backend/tests/shared/test_policy_decision.py)
+5. **A cited answer or none.** Below the retrieval threshold the system refuses and offers a ticket instead of answering from the model's memory. Proof: [test_a_best_cosine_just_below_the_threshold_refuses](backend/tests/shared/test_rag_refusal.py)
+6. **Hash-chained audit.** Each event carries the hash of the one before it, so an edited, deleted or relabelled row breaks verification. Proof: [test_relabelling_a_chain_onto_another_tenant_is_detected](backend/tests/shared/test_audit_writer.py)
+7. **Idempotent retry.** A repeated call with the same key returns the first result and runs no second effect, so a timeout is safe to retry. Proof: [test_replay_returns_the_stored_response_without_running_the_effect](backend/tests/shared/test_idempotency_guard.py)
 
 A guarantee whose link rots fails the suite: the README is parsed by
-`packages/helpdesk/tests/test_docs.py`, which opens each target and looks up
+`backend/tests/shared/test_docs.py`, which opens each target and looks up
 each named test.
 
 ## What broke and how I fixed it
@@ -261,8 +261,8 @@ in seconds with no rebuild; add `--build` only after a dependency change
 ```
 cp docker-compose.override.example.yml docker-compose.override.yml
 docker compose --profile app up -d --wait
-uv run alembic upgrade head
-uv run python scripts/seed.py
+cd backend && uv run alembic upgrade head
+uv run python ../scripts/seed.py
 ```
 
 The web is on [localhost:3000](http://localhost:3000). `GATEWAY_URL` needs no
@@ -270,9 +270,9 @@ edit: the app profile already points the containers at
 `http://host.docker.internal:8080/v1`, which is where the console's gateway
 listens.
 
-To run the services as host processes instead: `uv sync` and `make run`, after
-`docker compose up -d` brings up the backing services alone. Both arrangements
-answer a turn.
+To run the services as host processes instead: `cd backend && uv sync` and
+`make run`, after `docker compose up -d` brings up the backing services alone.
+Both arrangements answer a turn.
 
 The seed is deterministic and safe to re-run. Logins for every seeded role are
 in [docs/demo-accounts.md](docs/demo-accounts.md); the data is invented and the
@@ -309,8 +309,8 @@ POLICY_DIR=/srv/company-policies
 make ingest TENANT=your-tenant-slug VERSION=v1
 ```
 
-The layout is `{tenant}/{version}/{file}`; the shipped `policies/` folder is a
-demo corpus, not a dependency.
+The layout is `{tenant}/{version}/{file}`; the shipped `backend/data/policies/`
+folder is a demo corpus, not a dependency.
 
 The five things an adopter changes first are listed in
 [CUSTOMIZING.md](CUSTOMIZING.md), and the port is walked through method by
