@@ -12,7 +12,11 @@ import {
 } from "@/lib/notifications-schema";
 import { readWire } from "@/lib/wire-read";
 
-import { Button } from "@/components/ui/field";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 
 /**
  * This person's own notifications, from `GET /api/me/notifications`, with the
@@ -100,7 +104,7 @@ export function NotificationList() {
 
   return (
     <section aria-label="Notifications" className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">Notifications</h1>
+      <PageHeader title="Notifications" />
 
       <label className="flex items-center gap-2 text-sm">
         <input
@@ -120,7 +124,7 @@ export function NotificationList() {
       ) : null}
 
       {notifications.isSuccess && rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">You have no notifications.</p>
+        <EmptyState title="You have no notifications." />
       ) : null}
 
       {notifications.isSuccess && rows.length > 0 ? (
@@ -168,17 +172,21 @@ function NotificationItem({ row }: { row: NotificationRow }) {
   const refusal = stampRefusal(stamp.error);
 
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border p-4 text-sm">
-      <div className="flex flex-wrap gap-2">
+    <Card as="li" className="flex flex-col gap-2 p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{notificationKindLabel(row.kind)}</span>
         <span>{row.title}</span>
       </div>
 
       <p className="text-muted-foreground">{row.body}</p>
 
-      <div className="flex flex-wrap gap-2 text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
         <span>{row.created_at.slice(0, 10)}</span>
-        <span>{row.read_at === null ? "Unread" : `Read ${row.read_at.slice(0, 10)}`}</span>
+        {row.read_at === null ? (
+          <Badge tone="info">Unread</Badge>
+        ) : (
+          <Badge tone="neutral">Read {row.read_at.slice(0, 10)}</Badge>
+        )}
       </div>
 
       {refusal !== null ? (
@@ -199,7 +207,7 @@ function NotificationItem({ row }: { row: NotificationRow }) {
           </Button>
         </div>
       ) : null}
-    </li>
+    </Card>
   );
 }
 

@@ -6,6 +6,16 @@ import { failureMessage } from "@/lib/chat-errors";
 import { RULES_READ_MESSAGE, UNRESOLVED_ROLE_TEXT } from "@/lib/rules-labels";
 import { type SodRuleRoleBlock, type SodRuleRow, sodRulesBoardSchema } from "@/lib/rules-schema";
 import { readWire, WireRefusedError } from "@/lib/wire-read";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 /**
  * The separation of duties board, from `GET /api/admin/rules`.
@@ -82,7 +92,7 @@ export function RulesBoard() {
 
   return (
     <section aria-label="Rules" className="flex max-w-5xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">Separation of duties rules</h1>
+      <PageHeader title="Separation of duties rules" />
 
       {refusal !== null ? (
         <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
@@ -91,9 +101,7 @@ export function RulesBoard() {
       ) : null}
 
       {rows !== null && rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No separation of duties rules are configured.
-        </p>
+        <EmptyState title="No separation of duties rules are configured." />
       ) : null}
 
       {rows !== null && rows.length > 0 ? <RulesTable rows={rows} /> : null}
@@ -112,33 +120,31 @@ export function RulesBoard() {
  */
 function RulesTable({ rows }: { rows: SodRuleRow[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table aria-label="Separation of duties rules" className="w-full text-left text-sm">
-        <thead>
-          <tr>
-            {COLUMNS.map((column) => (
-              <th key={column} scope="col">
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.rule_id} className="border-t border-border align-top">
-              <td>
-                <RoleCell block={row.role_a} roleId={row.role_a_id} />
-              </td>
-              <td>
-                <RoleCell block={row.role_b} roleId={row.role_b_id} />
-              </td>
-              <td>{row.rationale}</td>
-              <td>{row.policy_ref}</td>
-            </tr>
+    <Table aria-label="Separation of duties rules">
+      <TableHeader>
+        <TableRow>
+          {COLUMNS.map((column) => (
+            <TableHead key={column} scope="col">
+              {column}
+            </TableHead>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.rule_id} className="align-top">
+            <TableCell>
+              <RoleCell block={row.role_a} roleId={row.role_a_id} />
+            </TableCell>
+            <TableCell>
+              <RoleCell block={row.role_b} roleId={row.role_b_id} />
+            </TableCell>
+            <TableCell>{row.rationale}</TableCell>
+            <TableCell>{row.policy_ref}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 

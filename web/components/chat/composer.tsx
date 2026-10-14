@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 
-import { Button, Label } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/field";
 import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/lib/chat-schema";
 
 /**

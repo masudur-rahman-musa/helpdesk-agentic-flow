@@ -15,7 +15,18 @@ import {
 import { type AuditEventRow, auditSearchSchema } from "@/lib/audit-schema";
 import { failureMessage } from "@/lib/chat-errors";
 import { WireRefusedError, readWire } from "@/lib/wire-read";
-import { Button, Input, Label } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Input, Label } from "@/components/ui/field";
+import { PageHeader } from "@/components/ui/page-header";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 /**
  * The searchable audit log, from `GET /api/admin/audit/search`.
@@ -171,7 +182,7 @@ export function AuditSearch() {
 
   return (
     <section aria-label="Audit log" className="flex max-w-5xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">Audit log</h1>
+      <PageHeader title="Audit log" />
 
       <form
         className="flex flex-wrap items-end gap-3"
@@ -246,7 +257,7 @@ export function AuditSearch() {
       ) : null}
 
       {search.isSuccess && events.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No events match that search.</p>
+        <EmptyState title="No events match that search." />
       ) : null}
 
       {search.isSuccess && events.length > 0 ? <EventTable events={events} /> : null}
@@ -294,53 +305,51 @@ export function AuditSearch() {
  */
 function EventTable({ events }: { events: AuditEventRow[] }) {
   return (
-    <div className="overflow-x-auto">
-      <table aria-label="Audit events" className="w-full text-left text-sm">
-        <thead>
-          <tr>
-            <th scope="col">Seq</th>
-            <th scope="col">Occurred</th>
-            <th scope="col">Event</th>
-            <th scope="col">Actor kind</th>
-            <th scope="col">Actor</th>
-            <th scope="col">Subject</th>
-            <th scope="col">Subject id</th>
-            <th scope="col">Hash</th>
-            <th scope="col">Payload</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((event) => (
-            <tr key={event.seq} className="border-t border-border align-top">
-              <td>{event.seq}</td>
-              <td>{event.occurred_at.slice(0, 19)}</td>
-              {/* The raw `event_type` (decision B): the vocabulary is open, so a
-                  hand-kept map would be stale the day a row adds a type, and the
-                  literal is what an auditor pastes back into the filter. */}
-              <td>{event.event_type}</td>
-              <td>{event.actor_kind}</td>
-              <td>{event.actor_ref ?? "no actor"}</td>
-              <td>{event.subject_type}</td>
-              <td>{event.subject_id ?? "no subject id"}</td>
-              <td title={event.hash}>{event.hash.slice(0, 12)}</td>
-              <td>
-                {/* `payload` is an arbitrary object by design (13b decision E),
-                    so it is stringified whole rather than read key by key: a row
-                    reading named keys renders blanks for every event type but
-                    the one it was written for. Collapsed, because a dozen lines
-                    of JSON between every two rows is not a table anyone scans. */}
-                <details aria-label={`Payload for event ${event.seq}`}>
-                  <summary>Payload</summary>
-                  <pre className="whitespace-pre-wrap text-xs">
-                    {JSON.stringify(event.payload, null, 2)}
-                  </pre>
-                </details>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table aria-label="Audit events">
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">Seq</TableHead>
+          <TableHead scope="col">Occurred</TableHead>
+          <TableHead scope="col">Event</TableHead>
+          <TableHead scope="col">Actor kind</TableHead>
+          <TableHead scope="col">Actor</TableHead>
+          <TableHead scope="col">Subject</TableHead>
+          <TableHead scope="col">Subject id</TableHead>
+          <TableHead scope="col">Hash</TableHead>
+          <TableHead scope="col">Payload</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {events.map((event) => (
+          <TableRow key={event.seq} className="align-top">
+            <TableCell>{event.seq}</TableCell>
+            <TableCell>{event.occurred_at.slice(0, 19)}</TableCell>
+            {/* The raw `event_type` (decision B): the vocabulary is open, so a
+                hand-kept map would be stale the day a row adds a type, and the
+                literal is what an auditor pastes back into the filter. */}
+            <TableCell>{event.event_type}</TableCell>
+            <TableCell>{event.actor_kind}</TableCell>
+            <TableCell>{event.actor_ref ?? "no actor"}</TableCell>
+            <TableCell>{event.subject_type}</TableCell>
+            <TableCell>{event.subject_id ?? "no subject id"}</TableCell>
+            <TableCell title={event.hash}>{event.hash.slice(0, 12)}</TableCell>
+            <TableCell>
+              {/* `payload` is an arbitrary object by design (13b decision E),
+                  so it is stringified whole rather than read key by key: a row
+                  reading named keys renders blanks for every event type but
+                  the one it was written for. Collapsed, because a dozen lines
+                  of JSON between every two rows is not a table anyone scans. */}
+              <details aria-label={`Payload for event ${event.seq}`}>
+                <summary>Payload</summary>
+                <pre className="whitespace-pre-wrap text-xs">
+                  {JSON.stringify(event.payload, null, 2)}
+                </pre>
+              </details>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 

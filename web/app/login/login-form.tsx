@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { Button, Input, Label } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input, Label } from "@/components/ui/field";
 import { SIGN_IN_FAILED_MESSAGE, loginSchema } from "@/lib/schemas";
 
 /**
@@ -64,41 +66,43 @@ export function LoginForm() {
   }
 
   return (
-    <form
-      className="mt-4 space-y-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit(new FormData(event.currentTarget));
-      }}
-    >
-      <div className="space-y-1">
-        <Label htmlFor="tenant_slug">Tenant</Label>
-        <Input id="tenant_slug" name="tenant_slug" autoComplete="organization" required />
-      </div>
-      <div className="space-y-1">
-        <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" autoComplete="username" required />
-      </div>
-      <div className="space-y-1">
-        <Label htmlFor="password">Password</Label>
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-        />
-      </div>
+    <Card className="mt-4 p-6">
+      <form
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit(new FormData(event.currentTarget));
+        }}
+      >
+        <div className="space-y-1">
+          <Label htmlFor="tenant_slug">Tenant</Label>
+          <Input id="tenant_slug" name="tenant_slug" autoComplete="organization" required />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="email">Email</Label>
+          <Input id="email" name="email" type="email" autoComplete="username" required />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="password">Password</Label>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
+        </div>
 
-      {failed ? (
-        <p role="alert" className="text-sm text-destructive">
-          {SIGN_IN_FAILED_MESSAGE}
-        </p>
-      ) : null}
+        {failed ? (
+          <p role="alert" className="text-sm text-destructive">
+            {SIGN_IN_FAILED_MESSAGE}
+          </p>
+        ) : null}
 
-      <Button type="submit" disabled={pending}>
-        {pending ? "Signing in" : "Sign in"}
-      </Button>
-    </form>
+        <Button type="submit" disabled={pending}>
+          {pending ? "Signing in" : "Sign in"}
+        </Button>
+      </form>
+    </Card>
   );
 }

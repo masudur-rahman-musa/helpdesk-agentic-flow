@@ -2,7 +2,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 
-import { Button } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
 import { failureMessage } from "@/lib/chat-errors";
 import { type PolicyReingestResult, policyReingestResultSchema } from "@/lib/policies-schema";
 // The vocabulary check alone: `readWire` is a GET and cannot express this POST,

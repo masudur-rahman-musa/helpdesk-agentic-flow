@@ -11,6 +11,17 @@ import {
 } from "@/lib/killswitch-schema";
 import { WireRefusedError, readWire } from "@/lib/wire-read";
 import { KillSwitchToggle } from "@/components/admin/kill-switch-toggle";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 /**
  * The kill switch board, from `GET /api/admin/killswitch`.
@@ -109,7 +120,7 @@ export function KillSwitchBoard() {
 
   return (
     <section aria-label="Kill switches" className="flex max-w-5xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">Kill switches</h1>
+      <PageHeader title="Kill switches" />
 
       {refusal !== null ? (
         <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
@@ -117,9 +128,7 @@ export function KillSwitchBoard() {
         </p>
       ) : null}
 
-      {rows !== null && rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No tools are registered.</p>
-      ) : null}
+      {rows !== null && rows.length === 0 ? <EmptyState title="No tools are registered." /> : null}
 
       {rows !== null && rows.length > 0 ? <SwitchTable rows={rows} onChanged={onChanged} /> : null}
     </section>
@@ -137,65 +146,67 @@ export function KillSwitchBoard() {
  */
 function SwitchTable({ rows, onChanged }: { rows: KillSwitchRow[]; onChanged: () => void }) {
   return (
-    <div className="overflow-x-auto">
-      <table aria-label="Tool kill switches" className="w-full text-left text-sm">
-        <thead>
-          <tr>
-            {COLUMNS.map((column) => (
-              <th key={column} scope="col">
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.tool} className="border-t border-border align-top">
-              <td>
-                {row.tool}
-                {/* `protected` reaches the browser as a field of the row so
-                    24db's disabled toggle reads it here rather than from a
-                    second browser-side copy of `PROTECTED_TOOLS`. */}
-                {row.protected ? (
-                  <span className="ml-2 text-xs text-muted-foreground">Protected</span>
-                ) : null}
-                {/* The only surface a bad key can be seen from (24ca decision
-                    D): the tool nulls both layer states on such a row, so
-                    without this marker the line reads as a legitimately
-                    stopped tool and nobody goes looking for the key. */}
-                {row.unreadable ? (
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    Switch value unreadable
-                  </span>
-                ) : null}
-              </td>
-              {/* Read off `stopped` and NEVER recomputed from the two layer
-                  states (decision C): `stopped` is true when either layer holds
-                  the tool down OR the stored value will not parse, and only the
-                  tool knows that precedence. A board deriving it would render
-                  an unreadable row as running while every call to that tool is
-                  denied (§5's first risk), which
-                  `tests/killswitch-board.test.tsx::reads $status for stopped
-                  true with both states null and unreadable false` pins. */}
-              <td>{row.stopped ? "Stopped" : "Running"}</td>
-              <td>
-                <LayerCell state={row.global_state} />
-              </td>
-              <td>
-                <LayerCell state={row.tenant_state} />
-              </td>
-              {/* Everything this row can DO, in its own cell (24db decision A).
-                  The toggle holds its own reason, its own arming and its own
-                  in-flight mutation, so one tool being stopped does not grey
-                  out another row's controls. */}
-              <td>
-                <KillSwitchToggle row={row} onChanged={onChanged} />
-              </td>
-            </tr>
+    <Table aria-label="Tool kill switches">
+      <TableHeader>
+        <TableRow>
+          {COLUMNS.map((column) => (
+            <TableHead key={column} scope="col">
+              {column}
+            </TableHead>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.tool} className="align-top">
+            <TableCell>
+              {row.tool}
+              {/* `protected` reaches the browser as a field of the row so
+                  24db's disabled toggle reads it here rather than from a
+                  second browser-side copy of `PROTECTED_TOOLS`. */}
+              {row.protected ? (
+                <span className="ml-2 text-xs text-muted-foreground">Protected</span>
+              ) : null}
+              {/* The only surface a bad key can be seen from (24ca decision
+                  D): the tool nulls both layer states on such a row, so
+                  without this marker the line reads as a legitimately
+                  stopped tool and nobody goes looking for the key. */}
+              {row.unreadable ? (
+                <span className="ml-2 text-xs text-muted-foreground">Switch value unreadable</span>
+              ) : null}
+            </TableCell>
+            {/* Read off `stopped` and NEVER recomputed from the two layer
+                states (decision C): `stopped` is true when either layer holds
+                the tool down OR the stored value will not parse, and only the
+                tool knows that precedence. A board deriving it would render
+                an unreadable row as running while every call to that tool is
+                denied (§5's first risk), which
+                `tests/killswitch-board.test.tsx::reads $status for stopped
+                true with both states null and unreadable false` pins. The tone
+                is hand-picked (plan 39b): a stopped tool reads danger and a
+                running one success. */}
+            <TableCell>
+              <Badge tone={row.stopped ? "danger" : "success"}>
+                {row.stopped ? "Stopped" : "Running"}
+              </Badge>
+            </TableCell>
+            <TableCell>
+              <LayerCell state={row.global_state} />
+            </TableCell>
+            <TableCell>
+              <LayerCell state={row.tenant_state} />
+            </TableCell>
+            {/* Everything this row can DO, in its own cell (24db decision A).
+                The toggle holds its own reason, its own arming and its own
+                in-flight mutation, so one tool being stopped does not grey
+                out another row's controls. */}
+            <TableCell>
+              <KillSwitchToggle row={row} onChanged={onChanged} />
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 

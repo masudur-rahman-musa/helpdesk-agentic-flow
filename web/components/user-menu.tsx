@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { orderedLabels, useMe } from "@/components/role-header";
 import { SignOutButton } from "@/components/sign-out-button";
+import { Card } from "@/components/ui/card";
 
 /**
  * The signed-in person's name and account type as one button that opens a
@@ -79,9 +80,9 @@ export function UserMenu() {
         <span className="truncate">{labels}</span>
       </button>
       {open ? (
-        <div className="absolute right-0 top-full z-10 mt-1 w-40 rounded-md border border-border bg-card p-1 shadow-md">
+        <Card className="absolute right-0 top-full z-10 mt-1 w-40 p-1 shadow-md">
           <SignOutButton menuItem />
-        </div>
+        </Card>
       ) : null}
     </div>
   );

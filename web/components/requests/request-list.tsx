@@ -11,6 +11,10 @@ import {
   statusLabel,
 } from "@/lib/decision-labels";
 import { readWire } from "@/lib/wire-read";
+import { StatusBadge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 
 /**
  * Everything this user has asked for, newest read of `GET /api/me/requests`
@@ -45,7 +49,7 @@ export function RequestList() {
 
   return (
     <section aria-label="My requests" className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">My requests</h1>
+      <PageHeader title="My requests" />
 
       {requests.isError ? (
         <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
@@ -54,7 +58,7 @@ export function RequestList() {
       ) : null}
 
       {requests.isSuccess && requests.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">You have not asked for any access yet.</p>
+        <EmptyState title="You have not asked for any access yet." />
       ) : null}
 
       {requests.isSuccess && requests.data.length > 0 ? (
@@ -72,17 +76,17 @@ function RequestRow({ request }: { request: MyRequest }) {
   const expiry = request.grant_id !== null ? request.expires_at : null;
 
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border p-4 text-sm">
-      <div className="flex flex-wrap gap-2">
+    <Card as="li" className="flex flex-col gap-2 p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{request.role_name}</span>
         <span className="text-muted-foreground">{request.system_name}</span>
         <span className="text-muted-foreground">{request.target_display_name}</span>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{decisionLabel(request.decision)}</span>
         <span className="text-muted-foreground">{riskLabel(request.risk_class)}</span>
-        <span className="text-muted-foreground">{statusLabel(request.status)}</span>
+        <StatusBadge status={request.status}>{statusLabel(request.status)}</StatusBadge>
       </div>
 
       {request.requested_expiry_days !== null ? (
@@ -125,7 +129,7 @@ function RequestRow({ request }: { request: MyRequest }) {
           ))}
         </ul>
       ) : null}
-    </li>
+    </Card>
   );
 }
 

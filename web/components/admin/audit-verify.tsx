@@ -5,7 +5,8 @@ import { useMutation } from "@tanstack/react-query";
 import { auditVerifySchema } from "@/lib/audit-schema";
 import { failureMessage } from "@/lib/chat-errors";
 import { WireRefusedError, readWire } from "@/lib/wire-read";
-import { Button } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 /**
  * The chain check on `/admin/audit`, from `GET /api/admin/audit/verify` (plan
@@ -144,7 +145,7 @@ export function AuditVerify() {
       ) : null}
 
       {verdict !== null ? (
-        <div className="flex flex-col gap-1">
+        <Card className="flex flex-col gap-1 p-4">
           {/* A broken or truncated chain is a SUCCESSFUL read whose content is
               bad news, so it is a verdict and never an alert: rendering it as a
               failure would report tampering as an outage. The seq is named
@@ -153,7 +154,7 @@ export function AuditVerify() {
               event that does not follow from the one before it. */}
           <p className="text-sm">{verdictSentence(verdict)}</p>
           <p className="text-sm text-muted-foreground">{anchorLine(verdict.anchoredSeq)}</p>
-        </div>
+        </Card>
       ) : null}
     </section>
   );

@@ -9,7 +9,7 @@ import { type KillSwitchRow, setKillSwitchResultSchema } from "@/lib/killswitch-
 // so the fetch below stays as it is while the design's eight are checked in the
 // one place that holds them.
 import { isTypedCode } from "@/lib/wire-read";
-import { Button } from "@/components/ui/field";
+import { Button } from "@/components/ui/button";
 
 /**
  * What one row of the kill switch board can DO: stop or release the tool, at

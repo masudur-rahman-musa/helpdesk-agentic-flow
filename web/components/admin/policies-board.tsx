@@ -21,6 +21,17 @@ import {
   type PolicyVersion,
 } from "@/lib/policies-schema";
 import { readWire, WireRefusedError } from "@/lib/wire-read";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 /**
  * The policy corpus board, from `GET /api/admin/policies`.
@@ -123,7 +134,7 @@ export function PoliciesBoard() {
 
   return (
     <section aria-label="Policies" className="flex max-w-5xl flex-col gap-6">
-      <h1 className="text-lg font-semibold">Policy documents</h1>
+      <PageHeader title="Policy documents" />
 
       {refusal !== null ? (
         <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
@@ -132,7 +143,7 @@ export function PoliciesBoard() {
       ) : null}
 
       {documents !== null && documents.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{POLICIES_EMPTY_TEXT}</p>
+        <EmptyState title={POLICIES_EMPTY_TEXT} />
       ) : null}
 
       {documents !== null
@@ -209,39 +220,37 @@ function VersionsTable({ policy, onChanged }: { policy: PolicyDocument; onChange
   const acting = new Set(firstOccurrences(policy.versions));
 
   return (
-    <div className="overflow-x-auto">
-      <table aria-label={`Versions of ${policy.slug}`} className="w-full text-left text-sm">
-        <thead>
-          <tr>
-            {COLUMNS.map((column) => (
-              <th key={column} scope="col">
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {policy.versions.map((entry, index) => (
-            <VersionRow
-              key={`${entry.version}:${entry.sha256}`}
-              version={entry}
-              control={
-                acting.has(index) ? (
-                  <PoliciesReingest
-                    slug={policy.slug}
-                    version={entry.version}
-                    isCurrent={entry.is_current}
-                    armed={armedVersion === entry.version}
-                    onArmedChange={(armed) => setArmedVersion(armed ? entry.version : null)}
-                    onChanged={onChanged}
-                  />
-                ) : null
-              }
-            />
+    <Table aria-label={`Versions of ${policy.slug}`}>
+      <TableHeader>
+        <TableRow>
+          {COLUMNS.map((column) => (
+            <TableHead key={column} scope="col">
+              {column}
+            </TableHead>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {policy.versions.map((entry, index) => (
+          <VersionRow
+            key={`${entry.version}:${entry.sha256}`}
+            version={entry}
+            control={
+              acting.has(index) ? (
+                <PoliciesReingest
+                  slug={policy.slug}
+                  version={entry.version}
+                  isCurrent={entry.is_current}
+                  armed={armedVersion === entry.version}
+                  onArmedChange={(armed) => setArmedVersion(armed ? entry.version : null)}
+                  onChanged={onChanged}
+                />
+              ) : null
+            }
+          />
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -285,24 +294,30 @@ function firstOccurrences(versions: PolicyVersion[]): number[] {
  */
 function VersionRow({ version, control }: { version: PolicyVersion; control: ReactNode }) {
   return (
-    <tr className="border-t border-border align-top">
-      <td className="font-mono text-xs">{version.version}</td>
-      <td>{version.is_current ? LIVE_VERSION_TEXT : NOT_LIVE_VERSION_TEXT}</td>
-      <td>{formatSwitchInstant(version.ingested_at)}</td>
-      <td>
+    <TableRow className="align-top">
+      <TableCell className="font-mono text-xs">{version.version}</TableCell>
+      {/* The live word is a hand-toned badge: `Live` reads success
+          and `Not live` reads neutral. */}
+      <TableCell>
+        <Badge tone={version.is_current ? "success" : "neutral"}>
+          {version.is_current ? LIVE_VERSION_TEXT : NOT_LIVE_VERSION_TEXT}
+        </Badge>
+      </TableCell>
+      <TableCell>{formatSwitchInstant(version.ingested_at)}</TableCell>
+      <TableCell>
         <div className="flex flex-col gap-0.5">
           <span>{version.chunk_count}</span>
           {version.chunk_count === 0 ? (
             <span className="text-xs text-muted-foreground">{NO_CHUNKS_TEXT}</span>
           ) : null}
         </div>
-      </td>
-      <td className="font-mono text-xs">{version.source_path}</td>
-      <td className="font-mono text-xs" title={version.sha256}>
+      </TableCell>
+      <TableCell className="font-mono text-xs">{version.source_path}</TableCell>
+      <TableCell className="font-mono text-xs" title={version.sha256}>
         {formatDigest(version.sha256)}
-      </td>
-      <td>{control}</td>
-    </tr>
+      </TableCell>
+      <TableCell>{control}</TableCell>
+    </TableRow>
   );
 }
 

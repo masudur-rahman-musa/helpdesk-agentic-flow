@@ -13,7 +13,11 @@ import {
 } from "@/lib/reviews-schema";
 import { readWire } from "@/lib/wire-read";
 
-import { Button } from "@/components/ui/field";
+import { StatusBadge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 
 /**
  * The reviews waiting on this reviewer, from `GET /api/me/reviews`, the items
@@ -100,7 +104,7 @@ export function ReviewQueue() {
 
   return (
     <section aria-label="Reviews" className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">Reviews</h1>
+      <PageHeader title="Reviews" />
 
       <select
         aria-label="Status"
@@ -122,7 +126,7 @@ export function ReviewQueue() {
       ) : null}
 
       {reviews.isSuccess && reviews.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No reviews are waiting for you.</p>
+        <EmptyState title="No reviews are waiting for you." />
       ) : null}
 
       {reviews.isSuccess && reviews.data.length > 0 ? (
@@ -156,11 +160,11 @@ function ReviewRow({
   const scopeName = review.department_name ?? review.system_name ?? "unknown scope";
 
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border p-4 text-sm">
-      <div className="flex flex-wrap gap-2">
+    <Card as="li" className="flex flex-col gap-2 p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{scopeName}</span>
         <span className="text-muted-foreground">{review.period}</span>
-        <span className="text-muted-foreground">{reviewStatusLabel(review.status)}</span>
+        <StatusBadge status={review.status}>{reviewStatusLabel(review.status)}</StatusBadge>
       </div>
 
       <div className="flex flex-wrap gap-2 text-muted-foreground">
@@ -178,7 +182,7 @@ function ReviewRow({
       </div>
 
       {selected ? <ReviewItems reviewId={review.review_id} /> : null}
-    </li>
+    </Card>
   );
 }
 
@@ -223,8 +227,8 @@ function ReviewItems({ reviewId }: { reviewId: string }) {
 
 function ItemRow({ item, reviewId }: { item: ReviewItem; reviewId: string }) {
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border p-3">
-      <div className="flex flex-wrap gap-2">
+    <Card as="li" className="flex flex-col gap-2 p-3">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{reviewFlagLabel(item.flag)}</span>
         <span>{item.target_display_name}</span>
       </div>
@@ -245,9 +249,11 @@ function ItemRow({ item, reviewId }: { item: ReviewItem; reviewId: string }) {
       {item.decision === null ? (
         <DecideControls item={item} reviewId={reviewId} />
       ) : (
-        <span className="font-medium">{reviewItemDecisionLabel(item.decision)}</span>
+        <StatusBadge status={item.decision} className="self-start">
+          {reviewItemDecisionLabel(item.decision)}
+        </StatusBadge>
       )}
-    </li>
+    </Card>
   );
 }
 

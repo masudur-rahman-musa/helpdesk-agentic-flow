@@ -7,6 +7,10 @@ import { type MyGrant, myAccessSchema } from "@/lib/access-schema";
 import { renewalHref } from "@/lib/chat-prefill";
 import { daysUntil } from "@/lib/expiry";
 import { readWire } from "@/lib/wire-read";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 
 /**
  * What this user holds right now, from `GET /api/me/access`.
@@ -36,7 +40,7 @@ export function GrantList() {
 
   return (
     <section aria-label="Active access" className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">Active access</h1>
+      <PageHeader title="Active access" />
 
       {access.isError ? (
         <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
@@ -45,7 +49,7 @@ export function GrantList() {
       ) : null}
 
       {access.isSuccess && access.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">You hold no active access.</p>
+        <EmptyState title="You hold no active access." />
       ) : null}
 
       {access.isSuccess && access.data.length > 0 ? (
@@ -60,17 +64,18 @@ export function GrantList() {
 }
 
 function GrantRow({ grant }: { grant: MyGrant }) {
+  const expiry = expiryBadge(grant.expires_at);
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border p-4 text-sm">
-      <div className="flex flex-wrap gap-2">
+    <Card as="li" className="flex flex-col gap-2 p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{grant.role_name}</span>
         <span className="text-muted-foreground">{grant.system_name}</span>
         <span className="text-muted-foreground">{grant.privilege}</span>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
         <span>Granted {grant.granted_at.slice(0, 10)}</span>
-        <span>{expiryLabel(grant.expires_at)}</span>
+        <Badge tone={expiry.tone}>{expiry.text}</Badge>
       </div>
 
       <Link
@@ -80,17 +85,33 @@ function GrantRow({ grant }: { grant: MyGrant }) {
       >
         Request renewal
       </Link>
-    </li>
+    </Card>
   );
 }
 
-/** The countdown, `No expiry` for a standing grant, the raw value if unreadable. */
-function expiryLabel(expiresAt: string | null): string {
+/**
+ * The expiry as a word and a hand-picked tone: `No expiry` for a
+ * standing grant and the raw value for a timestamp that will not parse both read
+ * neutral, an expired grant (a negative countdown) reads neutral as the status
+ * map's `expired` does, a grant with a week or less left reads warning, and
+ * anything further out reads success.
+ */
+function expiryBadge(expiresAt: string | null): { text: string; tone: BadgeTone } {
   if (expiresAt === null) {
-    return "No expiry";
+    return { text: "No expiry", tone: "neutral" };
   }
   const days = daysUntil(expiresAt, new Date());
-  return days === null ? expiresAt : `${days} days left`;
+  if (days === null) {
+    return { text: expiresAt, tone: "neutral" };
+  }
+  const text = `${days} days left`;
+  if (days < 0) {
+    return { text, tone: "neutral" };
+  }
+  if (days <= 7) {
+    return { text, tone: "warning" };
+  }
+  return { text, tone: "success" };
 }
 
 /**

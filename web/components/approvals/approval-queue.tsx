@@ -15,7 +15,11 @@ import {
 } from "@/lib/decision-labels";
 import { readWire } from "@/lib/wire-read";
 
-import { Button } from "@/components/ui/field";
+import { StatusBadge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 
 /**
  * The queue waiting on this approver, from `GET /api/me/approvals`, and the two
@@ -85,7 +89,7 @@ export function ApprovalQueue() {
 
   return (
     <section aria-label="Approvals" className="flex max-w-3xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">Approvals</h1>
+      <PageHeader title="Approvals" />
 
       {approvals.isError ? (
         <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
@@ -94,7 +98,7 @@ export function ApprovalQueue() {
       ) : null}
 
       {approvals.isSuccess && approvals.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nothing is waiting for your decision.</p>
+        <EmptyState title="Nothing is waiting for your decision." />
       ) : null}
 
       {approvals.isSuccess && approvals.data.length > 0 ? (
@@ -110,22 +114,22 @@ export function ApprovalQueue() {
 
 function ApprovalRow({ approval }: { approval: PendingApproval }) {
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border p-4 text-sm">
-      <div className="flex flex-wrap gap-2">
+    <Card as="li" className="flex flex-col gap-2 p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{approval.role_name}</span>
         <span className="text-muted-foreground">{approval.system_name}</span>
         <span className="text-muted-foreground">{approval.target_display_name}</span>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
         <span>Asked for by {approval.requester_display_name}</span>
         <span>Asked {approval.created_at.slice(0, 10)}</span>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{decisionLabel(approval.decision)}</span>
         <span className="text-muted-foreground">{riskLabel(approval.risk_class)}</span>
-        <span className="text-muted-foreground">{statusLabel(approval.status)}</span>
+        <StatusBadge status={approval.status}>{statusLabel(approval.status)}</StatusBadge>
       </div>
 
       <p className="text-muted-foreground">{approval.justification}</p>
@@ -173,7 +177,7 @@ function ApprovalRow({ approval }: { approval: PendingApproval }) {
       ) : null}
 
       <DecideControls approval={approval} />
-    </li>
+    </Card>
   );
 }
 

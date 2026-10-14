@@ -22,9 +22,3 @@ export function Input({ className, ...props }: React.ComponentProps<"input">) {
     />
   );
 }
-
-/**
- * `Button` moved to `./button`. Re-exported so its nine
- * importers compile unchanged; an earlier change repoints them and deletes this line.
- */
-export { Button } from "./button";
