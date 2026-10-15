@@ -50,7 +50,7 @@ from sqlalchemy import event, insert, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from helpdesk.shared.core.db import create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.models import AuditEvent, Tenant
 from helpdesk.shared.services.audit.search import (
@@ -59,7 +59,6 @@ from helpdesk.shared.services.audit.search import (
     InvalidTimeRangeError,
     search_audit_events,
 )
-from tests.support.seed import schema_engine
 
 # The plan's own number, asserted exactly by
 # `test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor` (standing rule
@@ -178,7 +177,7 @@ NARROWING_CASES: tuple[tuple[str, dict[str, Any], tuple[int, ...]], ...] = (
     ids=[case[0] for case in NARROWING_CASES],
 )
 def test_each_decision_d_filter_narrows_and_an_absent_one_does_not(
-    temp_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
     filters: dict[str, Any],
     expected: tuple[int, ...],
 ) -> None:
@@ -199,17 +198,16 @@ def test_each_decision_d_filter_narrows_and_an_absent_one_does_not(
     """
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _make_tenant(factory, f"audit-search-{uuid.uuid4().hex[:8]}")
-            seqs = await _plant(factory, tenant_id, NARROWING_PLANTING)
+        factory = session_factory
+        tenant_id = await _make_tenant(factory, f"audit-search-{uuid.uuid4().hex[:8]}")
+        seqs = await _plant(factory, tenant_id, NARROWING_PLANTING)
 
-            async with tenant_session(factory, tenant_id) as session:
-                page = await search_audit_events(session, **filters)
+        async with tenant_session(factory, tenant_id) as session:
+            page = await search_audit_events(session, **filters)
 
-            assert _seqs(page) == sorted((seqs[index] for index in expected), reverse=True)
-            assert page.has_more is False
-            assert page.lowest_seq == min(seqs[index] for index in expected)
+        assert _seqs(page) == sorted((seqs[index] for index in expected), reverse=True)
+        assert page.has_more is False
+        assert page.lowest_seq == min(seqs[index] for index in expected)
 
     asyncio.run(scenario())
 
@@ -218,7 +216,7 @@ def test_each_decision_d_filter_narrows_and_an_absent_one_does_not(
 
 
 def test_events_come_back_newest_first_and_before_seq_resumes_without_a_gap(
-    temp_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 2's ordering plus decision B's keyset, in one planting.
 
@@ -238,33 +236,34 @@ def test_events_come_back_newest_first_and_before_seq_resumes_without_a_gap(
     """
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _make_tenant(factory, f"audit-search-{uuid.uuid4().hex[:8]}")
-            planting = tuple(
-                PlantedEvent("fake.walk", "user", SUBJECT_ONE, ACTOR_ONE, T1) for _ in range(5)
+        factory = session_factory
+        tenant_id = await _make_tenant(factory, f"audit-search-{uuid.uuid4().hex[:8]}")
+        planting = tuple(
+            PlantedEvent("fake.walk", "user", SUBJECT_ONE, ACTOR_ONE, T1) for _ in range(5)
+        )
+        seqs = await _plant(factory, tenant_id, planting)
+
+        async with tenant_session(factory, tenant_id) as session:
+            first = await search_audit_events(session, event_type="fake.walk")
+            second = await search_audit_events(
+                session, event_type="fake.walk", before_seq=seqs[2]
             )
-            seqs = await _plant(factory, tenant_id, planting)
 
-            async with tenant_session(factory, tenant_id) as session:
-                first = await search_audit_events(session, event_type="fake.walk")
-                second = await search_audit_events(
-                    session, event_type="fake.walk", before_seq=seqs[2]
-                )
+        assert _seqs(first) == sorted(seqs, reverse=True)
+        assert first.lowest_seq == seqs[0]
+        assert first.has_more is False
 
-            assert _seqs(first) == sorted(seqs, reverse=True)
-            assert first.lowest_seq == seqs[0]
-            assert first.has_more is False
-
-            assert _seqs(second) == [seqs[1], seqs[0]]
-            assert seqs[2] not in _seqs(second), "the cursor row is repeated on the next page"
-            assert second.lowest_seq == seqs[0]
-            assert second.has_more is False
+        assert _seqs(second) == [seqs[1], seqs[0]]
+        assert seqs[2] not in _seqs(second), "the cursor row is repeated on the next page"
+        assert second.lowest_seq == seqs[0]
+        assert second.has_more is False
 
     asyncio.run(scenario())
 
 
-def test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor(temp_db_url: str) -> None:
+def test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """Decision B's bound, at exactly cap and cap+1.
 
     KILL: an unbounded read, or a cap applied as `SCAN_CAP + 1` / `- 1`. A
@@ -286,30 +285,29 @@ def test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor(temp_db_url: str) 
     assert SCAN_CAP == EXPECTED_SCAN_CAP
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _make_tenant(factory, f"audit-search-{uuid.uuid4().hex[:8]}")
-            planting = tuple(
-                PlantedEvent("fake.capped", "user", SUBJECT_ONE, ACTOR_ONE, T1)
-                for _ in range(SCAN_CAP + 1)
+        factory = session_factory
+        tenant_id = await _make_tenant(factory, f"audit-search-{uuid.uuid4().hex[:8]}")
+        planting = tuple(
+            PlantedEvent("fake.capped", "user", SUBJECT_ONE, ACTOR_ONE, T1)
+            for _ in range(SCAN_CAP + 1)
+        )
+        seqs = await _plant(factory, tenant_id, planting)
+
+        async with tenant_session(factory, tenant_id) as session:
+            first = await search_audit_events(session, event_type="fake.capped")
+            assert first.lowest_seq is not None
+            second = await search_audit_events(
+                session, event_type="fake.capped", before_seq=first.lowest_seq
             )
-            seqs = await _plant(factory, tenant_id, planting)
 
-            async with tenant_session(factory, tenant_id) as session:
-                first = await search_audit_events(session, event_type="fake.capped")
-                assert first.lowest_seq is not None
-                second = await search_audit_events(
-                    session, event_type="fake.capped", before_seq=first.lowest_seq
-                )
+        assert len(first.events) == SCAN_CAP
+        assert _seqs(first) == sorted(seqs[1:], reverse=True)
+        assert first.has_more is True
+        assert first.lowest_seq == seqs[1]
 
-            assert len(first.events) == SCAN_CAP
-            assert _seqs(first) == sorted(seqs[1:], reverse=True)
-            assert first.has_more is True
-            assert first.lowest_seq == seqs[1]
-
-            assert _seqs(second) == [seqs[0]]
-            assert second.has_more is False
-            assert second.lowest_seq == seqs[0]
+        assert _seqs(second) == [seqs[0]]
+        assert second.has_more is False
+        assert second.lowest_seq == seqs[0]
 
     asyncio.run(scenario())
 
@@ -318,7 +316,7 @@ def test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor(temp_db_url: str) 
 
 
 def test_another_tenants_events_are_invisible_through_the_bound_session(
-    temp_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 2's "OWN tenant only", with nothing else able to hide the row.
 
@@ -336,23 +334,22 @@ def test_another_tenants_events_are_invisible_through_the_bound_session(
     """
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            marker = uuid.uuid4().hex[:8]
-            tenant_a = await _make_tenant(factory, f"audit-search-a-{marker}")
-            tenant_b = await _make_tenant(factory, f"audit-search-b-{marker}")
-            shared = (PlantedEvent("fake.shared", "user", SUBJECT_ONE, ACTOR_ONE, T1),)
-            seqs_a = await _plant(factory, tenant_a, shared)
-            seqs_b = await _plant(factory, tenant_b, shared)
+        factory = session_factory
+        marker = uuid.uuid4().hex[:8]
+        tenant_a = await _make_tenant(factory, f"audit-search-a-{marker}")
+        tenant_b = await _make_tenant(factory, f"audit-search-b-{marker}")
+        shared = (PlantedEvent("fake.shared", "user", SUBJECT_ONE, ACTOR_ONE, T1),)
+        seqs_a = await _plant(factory, tenant_a, shared)
+        seqs_b = await _plant(factory, tenant_b, shared)
 
-            async with tenant_session(factory, tenant_a) as session:
-                page_a = await search_audit_events(session)
-            async with tenant_session(factory, tenant_b) as session:
-                page_b = await search_audit_events(session)
+        async with tenant_session(factory, tenant_a) as session:
+            page_a = await search_audit_events(session)
+        async with tenant_session(factory, tenant_b) as session:
+            page_b = await search_audit_events(session)
 
-            assert _seqs(page_a) == seqs_a
-            assert _seqs(page_b) == seqs_b
-            assert set(_seqs(page_a)).isdisjoint(_seqs(page_b))
+        assert _seqs(page_a) == seqs_a
+        assert _seqs(page_b) == seqs_b
+        assert set(_seqs(page_a)).isdisjoint(_seqs(page_b))
 
     asyncio.run(scenario())
 
@@ -361,7 +358,8 @@ def test_another_tenants_events_are_invisible_through_the_bound_session(
 
 
 def test_an_inverted_time_range_is_refused_validation_before_any_statement_runs(
-    temp_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 9's "before any read", proved by counting statements.
 
@@ -382,29 +380,28 @@ def test_an_inverted_time_range_is_refused_validation_before_any_statement_runs(
     """
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            statements: list[str] = []
-            _watch(engine, statements)
-            factory = create_session_factory(engine)
-            tenant_id = await _make_tenant(factory, f"audit-search-{uuid.uuid4().hex[:8]}")
-            await _plant(
-                factory,
-                tenant_id,
-                (PlantedEvent("fake.range", "user", None, None, T2),),
-            )
+        statements: list[str] = []
+        _watch(shared_engine, statements)
+        factory = session_factory
+        tenant_id = await _make_tenant(factory, f"audit-search-{uuid.uuid4().hex[:8]}")
+        await _plant(
+            factory,
+            tenant_id,
+            (PlantedEvent("fake.range", "user", None, None, T2),),
+        )
 
-            async with tenant_session(factory, tenant_id) as session:
-                before = len(statements)
-                with pytest.raises(InvalidTimeRangeError) as refused:
-                    await search_audit_events(session, occurred_from=T3, occurred_to=T1)
-                ran = statements[before:]
-                assert not ran, f"the refusal ran {len(ran)} statement(s): {ran}"
+        async with tenant_session(factory, tenant_id) as session:
+            before = len(statements)
+            with pytest.raises(InvalidTimeRangeError) as refused:
+                await search_audit_events(session, occurred_from=T3, occurred_to=T1)
+            ran = statements[before:]
+            assert not ran, f"the refusal ran {len(ran)} statement(s): {ran}"
 
-                accepted = await search_audit_events(session, occurred_from=T1, occurred_to=T3)
-                assert len(statements) > before, "the statement counter never fired"
+            accepted = await search_audit_events(session, occurred_from=T1, occurred_to=T3)
+            assert len(statements) > before, "the statement counter never fired"
 
-            assert refused.value.code is ErrorCode.VALIDATION
-            assert len(accepted.events) == 1
+        assert refused.value.code is ErrorCode.VALIDATION
+        assert len(accepted.events) == 1
 
     asyncio.run(scenario())
 
