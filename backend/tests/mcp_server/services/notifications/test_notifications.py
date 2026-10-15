@@ -64,20 +64,20 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.mcp_server.services.notifications.list import list_for_user
 from helpdesk.mcp_server.services.notifications.mark import mark_read
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
 from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import Base, Notification, User
+from helpdesk.shared.models import Notification, User
 from helpdesk.shared.models.notification import (
     NOTIFICATION_BODY_MAX_LENGTH,
     NOTIFICATION_TITLE_MAX_LENGTH,
     NotificationKind,
 )
 from helpdesk.shared.notifications.notify import notify
-from tests.conftest import TempDatabaseFactory
 from tests.support.seed import SeededTenant, seed_tenant
 
 TITLE = "fake notification title"
@@ -117,46 +117,34 @@ def _facts(row: Notification) -> NotificationFacts:
 
 
 @pytest.fixture(scope="session")
-def notification_db(pg: TempDatabaseFactory) -> Iterator[tuple[str, SeededTenant]]:
-    """One database with the schema created once, plus one FOREIGN tenant.
+def notification_db(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> Iterator[tuple[async_sessionmaker[AsyncSession], SeededTenant]]:
+    """The shared session factory, plus one FOREIGN tenant.
 
     The foreign tenant is fully seeded so the cross-tenant case names a user
     that really exists somewhere: a `notify` that answered `NOT_FOUND` for
     every id would otherwise pass it for the wrong reason.
     """
-    url = pg.create()
 
     async def prepare() -> SeededTenant:
-        engine = create_engine(url)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            return await seed_tenant(create_session_factory(engine), "notify-foreign-tenant")
-        finally:
-            await engine.dispose()
+        return await seed_tenant(session_factory, "notify-foreign-tenant")
 
     foreign = asyncio.run(prepare())
-    yield url, foreign
-    pg.drop(url)
+    yield session_factory, foreign
 
 
-def _own_tenant(url: str) -> SeededTenant:
+def _own_tenant(factory: async_sessionmaker[AsyncSession]) -> SeededTenant:
     """A tenant of this case's own: the per-test namespace."""
 
     async def prepare() -> SeededTenant:
-        engine = create_engine(url)
-        try:
-            return await seed_tenant(
-                create_session_factory(engine), f"notify-{uuid.uuid4().hex[:12]}"
-            )
-        finally:
-            await engine.dispose()
+        return await seed_tenant(factory, f"notify-{uuid.uuid4().hex[:12]}")
 
     return asyncio.run(prepare())
 
 
 def _notify_ok(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     user_id: uuid.UUID | None = None,
@@ -167,30 +155,25 @@ def _notify_ok(
     """One committed `notify`, then everything this tenant now holds."""
 
     async def scenario() -> list[NotificationFacts]:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                await notify(
-                    session,
-                    user_id=tenant.user_id if user_id is None else user_id,
-                    kind=NotificationKind.GRANT_EXPIRED,
-                    title=title,
-                    body=body,
-                    subject_type=SUBJECT_TYPE,
-                    subject_id=str(tenant.grant_id) if subject_id is None else subject_id,
-                )
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                rows = await Repository(session, Notification).list()
-                return [_facts(row) for row in rows]
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            await notify(
+                session,
+                user_id=tenant.user_id if user_id is None else user_id,
+                kind=NotificationKind.GRANT_EXPIRED,
+                title=title,
+                body=body,
+                subject_type=SUBJECT_TYPE,
+                subject_id=str(tenant.grant_id) if subject_id is None else subject_id,
+            )
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            rows = await Repository(session, Notification).list()
+            return [_facts(row) for row in rows]
 
     return asyncio.run(scenario())
 
 
 def _notify_refused(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     user_id: uuid.UUID | None = None,
@@ -208,46 +191,38 @@ def _notify_refused(
     captured: list[ToolError] = []
 
     async def scenario() -> tuple[int, int]:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                try:
-                    await notify(
-                        session,
-                        user_id=tenant.user_id if user_id is None else user_id,
-                        kind=kind,
-                        title=title,
-                        body=body,
-                        subject_type=SUBJECT_TYPE,
-                        subject_id=str(tenant.grant_id),
-                    )
-                except ToolError as exc:
-                    captured.append(exc)
-                # Autoflush: a row added before the check is written here and
-                # comes back in this list.
-                pending = len(await Repository(session, Notification).list())
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                committed = len(await Repository(session, Notification).list())
-            return pending, committed
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            try:
+                await notify(
+                    session,
+                    user_id=tenant.user_id if user_id is None else user_id,
+                    kind=kind,
+                    title=title,
+                    body=body,
+                    subject_type=SUBJECT_TYPE,
+                    subject_id=str(tenant.grant_id),
+                )
+            except ToolError as exc:
+                captured.append(exc)
+            # Autoflush: a row added before the check is written here and
+            # comes back in this list.
+            pending = len(await Repository(session, Notification).list())
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            committed = len(await Repository(session, Notification).list())
+        return pending, committed
 
     pending, committed = asyncio.run(scenario())
     assert captured, "notify was expected to refuse and did not raise a ToolError"
     return captured[0], pending, committed
 
 
-def _rows_of(url: str, tenant_id: uuid.UUID) -> list[NotificationFacts]:
+def _rows_of(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID
+) -> list[NotificationFacts]:
     async def scenario() -> list[NotificationFacts]:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                rows = await Repository(session, Notification).list()
-                return [_facts(row) for row in rows]
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            rows = await Repository(session, Notification).list()
+            return [_facts(row) for row in rows]
 
     return asyncio.run(scenario())
 
@@ -256,7 +231,7 @@ def _rows_of(url: str, tenant_id: uuid.UUID) -> list[NotificationFacts]:
 
 
 def test_notify_stores_one_unread_row_under_the_sessions_bound_tenant(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """a project rule and criterion 2 together. `notify` takes no tenant
     argument, so the only place `tenant_id` can come from is the session:
@@ -266,10 +241,10 @@ def test_notify_stores_one_unread_row_under_the_sessions_bound_tenant(
     every expiry notification invisible to row 23's unread list the moment it
     was written.
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
 
-    rows = _notify_ok(url, tenant)
+    rows = _notify_ok(factory, tenant)
 
     assert len(rows) == 1
     row = rows[0]
@@ -287,32 +262,32 @@ def test_notify_stores_one_unread_row_under_the_sessions_bound_tenant(
 
 
 def test_a_title_of_exactly_the_cap_is_accepted(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """The inclusive half of the boundary: catches an off-by-one `>=` that
     refuses the longest title the store is declared to hold, so a legitimate
     expiry notice is never written and the holder is never told."""
-    url, _ = notification_db
-    tenant = _own_tenant(url)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
     at_cap = "t" * NOTIFICATION_TITLE_MAX_LENGTH
 
-    rows = _notify_ok(url, tenant, title=at_cap)
+    rows = _notify_ok(factory, tenant, title=at_cap)
 
     assert [row.title for row in rows] == [at_cap]
 
 
 def test_a_title_one_character_over_the_cap_is_refused_before_any_row_is_written(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """The exclusive half: catches a missing pre-check, which leaves the
     length to the column and turns an over-long title into a database error
     raised in the middle of the expiry sweep — after the grant has already
     been marked expired and its audit event appended."""
-    url, _ = notification_db
-    tenant = _own_tenant(url)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
 
     error, pending, committed = _notify_refused(
-        url, tenant, title="t" * (NOTIFICATION_TITLE_MAX_LENGTH + 1)
+        factory, tenant, title="t" * (NOTIFICATION_TITLE_MAX_LENGTH + 1)
     )
 
     assert error.code is ErrorCode.VALIDATION
@@ -321,31 +296,31 @@ def test_a_title_one_character_over_the_cap_is_refused_before_any_row_is_written
 
 
 def test_a_body_of_exactly_the_cap_is_accepted(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """The inclusive half for the second cap: catches one check written
     against the title's constant for both fields, which would refuse every
     body over 200 characters while the plan allows 2000."""
-    url, _ = notification_db
-    tenant = _own_tenant(url)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
     at_cap = "b" * NOTIFICATION_BODY_MAX_LENGTH
 
-    rows = _notify_ok(url, tenant, body=at_cap)
+    rows = _notify_ok(factory, tenant, body=at_cap)
 
     assert [row.body for row in rows] == [at_cap]
 
 
 def test_a_body_one_character_over_the_cap_is_refused_before_any_row_is_written(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Catches a pre-check that guards the title only: the body is the field
     that carries the composed text, so it is the one an over-long value
     actually reaches."""
-    url, _ = notification_db
-    tenant = _own_tenant(url)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
 
     error, pending, committed = _notify_refused(
-        url, tenant, body="b" * (NOTIFICATION_BODY_MAX_LENGTH + 1)
+        factory, tenant, body="b" * (NOTIFICATION_BODY_MAX_LENGTH + 1)
     )
 
     assert error.code is ErrorCode.VALIDATION
@@ -357,7 +332,7 @@ def test_a_body_one_character_over_the_cap_is_refused_before_any_row_is_written(
 
 
 def test_a_recipient_in_another_tenant_is_refused_not_found_and_writes_nothing(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 4. The session is bound to this case's own tenant and the
     recipient is a REAL user of the foreign tenant, so the id resolves
@@ -370,31 +345,31 @@ def test_a_recipient_in_another_tenant_is_refused_not_found_and_writes_nothing(
     re-read afterwards so a row written under the RECIPIENT's tenant instead
     fails too, and the pending count catches a check that runs after the add.
     """
-    url, foreign = notification_db
-    tenant = _own_tenant(url)
+    factory, foreign = notification_db
+    tenant = _own_tenant(factory)
 
-    error, pending, committed = _notify_refused(url, tenant, user_id=foreign.user_id)
+    error, pending, committed = _notify_refused(factory, tenant, user_id=foreign.user_id)
 
     assert isinstance(error, NotFoundError)
     assert error.code is ErrorCode.NOT_FOUND
     assert pending == 0
     assert committed == 0
-    assert _rows_of(url, foreign.tenant_id) == []
+    assert _rows_of(factory, foreign.tenant_id) == []
 
 
 def test_a_kind_outside_the_enum_is_refused_before_any_row_is_written(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Decision F's other half: catches a `kind` written straight through to
     the column, which stores a value row 23's route cannot render and which
     no later query for `grant_expired` will ever find. The string is a
     plausible sibling of the real member, so a check comparing against a
     prefix or a substring fails here too."""
-    url, _ = notification_db
-    tenant = _own_tenant(url)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
 
     error, pending, committed = _notify_refused(
-        url, tenant, kind=cast("NotificationKind", "grant_expired_soon")
+        factory, tenant, kind=cast("NotificationKind", "grant_expired_soon")
     )
 
     assert error.code is ErrorCode.VALIDATION
@@ -423,7 +398,9 @@ ALREADY_READ_AT = datetime(2026, 2, 2, 8, 0, tzinfo=UTC)
 COLLEAGUE_PASSWORD_HASH = "argon2id$obviously-fake-test-hash"
 
 
-def _plant_colleague(url: str, tenant: SeededTenant) -> uuid.UUID:
+def _plant_colleague(
+    factory: async_sessionmaker[AsyncSession], tenant: SeededTenant
+) -> uuid.UUID:
     """A SECOND real user in an already-seeded tenant, for the same-tenant cases.
 
     `seed_tenant` makes exactly one user, and "one person's bell is not
@@ -433,32 +410,27 @@ def _plant_colleague(url: str, tenant: SeededTenant) -> uuid.UUID:
     """
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                colleague = User(
-                    tenant_id=tenant.tenant_id,
-                    department_id=tenant.department_id,
-                    email=f"fake.colleague.{uuid.uuid4().hex[:12]}@fake.invalid",
-                    display_name="Fake Colleague",
-                    password_hash=COLLEAGUE_PASSWORD_HASH,
-                    principals=["employee"],
-                    status="active",
-                    start_date=date(2026, 1, 5),
-                    end_date=None,
-                )
-                session.add(colleague)
-                await session.flush()
-                return colleague.id
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            colleague = User(
+                tenant_id=tenant.tenant_id,
+                department_id=tenant.department_id,
+                email=f"fake.colleague.{uuid.uuid4().hex[:12]}@fake.invalid",
+                display_name="Fake Colleague",
+                password_hash=COLLEAGUE_PASSWORD_HASH,
+                principals=["employee"],
+                status="active",
+                start_date=date(2026, 1, 5),
+                end_date=None,
+            )
+            session.add(colleague)
+            await session.flush()
+            return colleague.id
 
     return asyncio.run(scenario())
 
 
 def _plant_notification(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     *,
@@ -475,29 +447,24 @@ def _plant_notification(
     """
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                row = await Repository(session, Notification).create(
-                    user_id=user_id,
-                    kind=NotificationKind.GRANT_EXPIRED.value,
-                    title=title,
-                    body=BODY,
-                    subject_type=SUBJECT_TYPE,
-                    subject_id=None,
-                    read_at=read_at,
-                    created_at=created_at,
-                )
-                return row.id
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            row = await Repository(session, Notification).create(
+                user_id=user_id,
+                kind=NotificationKind.GRANT_EXPIRED.value,
+                title=title,
+                body=BODY,
+                subject_type=SUBJECT_TYPE,
+                subject_id=None,
+                read_at=read_at,
+                created_at=created_at,
+            )
+            return row.id
 
     return asyncio.run(scenario())
 
 
 def _page(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     *,
@@ -507,22 +474,17 @@ def _page(
     """One `list_for_user`, as (the row ids in answer order, the unread count)."""
 
     async def scenario() -> tuple[list[uuid.UUID], int]:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                page = await list_for_user(
-                    session, user_id=user_id, unread_only=unread_only, limit=limit
-                )
-                return [row.id for row in page.notifications], page.unread_count
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            page = await list_for_user(
+                session, user_id=user_id, unread_only=unread_only, limit=limit
+            )
+            return [row.id for row in page.notifications], page.unread_count
 
     return asyncio.run(scenario())
 
 
 def _mark(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     notification_id: uuid.UUID,
@@ -531,22 +493,17 @@ def _mark(
     """One committed `mark_read`, as the `read_at` it answered with."""
 
     async def scenario() -> Any:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                row = await mark_read(
-                    session, user_id=user_id, notification_id=notification_id, now=now
-                )
-                return row.read_at
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            row = await mark_read(
+                session, user_id=user_id, notification_id=notification_id, now=now
+            )
+            return row.read_at
 
     return asyncio.run(scenario())
 
 
 def _mark_refused(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     notification_id: uuid.UUID,
@@ -555,40 +512,32 @@ def _mark_refused(
     captured: list[ToolError] = []
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                try:
-                    await mark_read(
-                        session,
-                        user_id=user_id,
-                        notification_id=notification_id,
-                        now=FIRST_CLOCK,
-                    )
-                except ToolError as exc:
-                    captured.append(exc)
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            try:
+                await mark_read(
+                    session,
+                    user_id=user_id,
+                    notification_id=notification_id,
+                    now=FIRST_CLOCK,
+                )
+            except ToolError as exc:
+                captured.append(exc)
 
     asyncio.run(scenario())
     assert captured, "mark_read was expected to refuse and did not raise a ToolError"
     return captured[0]
 
 
-def _read_at_of(url: str, tenant_id: uuid.UUID, notification_id: uuid.UUID) -> Any:
+def _read_at_of(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID, notification_id: uuid.UUID
+) -> Any:
     """The stored `read_at` of one row, re-read in its own transaction."""
 
     async def scenario() -> Any:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                row = await Repository(session, Notification).get(notification_id)
-                assert row is not None, f"no notification {notification_id} in this tenant"
-                return row.read_at
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            row = await Repository(session, Notification).get(notification_id)
+            assert row is not None, f"no notification {notification_id} in this tenant"
+            return row.read_at
 
     return asyncio.run(scenario())
 
@@ -597,7 +546,7 @@ def _read_at_of(url: str, tenant_id: uuid.UUID, notification_id: uuid.UUID) -> A
 
 
 def test_list_for_user_answers_one_users_rows_and_not_a_colleagues(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 2, with the tenant guard taken out of the picture: both
     people are in the SAME tenant, so the session's tenant
@@ -610,21 +559,21 @@ def test_list_for_user_answers_one_users_rows_and_not_a_colleagues(
     hand-written query is exactly where the user filter goes missing (plan
     §5).
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
-    colleague_id = _plant_colleague(url, tenant)
-    mine = _plant_notification(url, tenant.tenant_id, tenant.user_id)
-    theirs = _plant_notification(url, tenant.tenant_id, colleague_id)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
+    colleague_id = _plant_colleague(factory, tenant)
+    mine = _plant_notification(factory, tenant.tenant_id, tenant.user_id)
+    theirs = _plant_notification(factory, tenant.tenant_id, colleague_id)
     assert mine != theirs
 
-    ids, unread_count = _page(url, tenant.tenant_id, tenant.user_id)
+    ids, unread_count = _page(factory, tenant.tenant_id, tenant.user_id)
 
     assert ids == [mine]
     assert unread_count == 1
 
 
 def test_list_for_user_answers_nothing_at_all_for_another_tenants_user(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 2's other half. The named user is a REAL user of the foreign
     tenant with a REAL unread notification there, so the id resolves
@@ -635,19 +584,19 @@ def test_list_for_user_answers_nothing_at_all_for_another_tenants_user(
     session is bound to this case's own tenant, which is the only scope the
     answer may come from.
     """
-    url, foreign = notification_db
-    tenant = _own_tenant(url)
-    foreign_row = _plant_notification(url, foreign.tenant_id, foreign.user_id)
-    assert _read_at_of(url, foreign.tenant_id, foreign_row) is None
+    factory, foreign = notification_db
+    tenant = _own_tenant(factory)
+    foreign_row = _plant_notification(factory, foreign.tenant_id, foreign.user_id)
+    assert _read_at_of(factory, foreign.tenant_id, foreign_row) is None
 
-    ids, unread_count = _page(url, tenant.tenant_id, foreign.user_id)
+    ids, unread_count = _page(factory, tenant.tenant_id, foreign.user_id)
 
     assert ids == []
     assert unread_count == 0
 
 
 def test_the_page_is_newest_first_with_the_notification_id_breaking_a_tie(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 3, asserted as an exact id SEQUENCE over two rows sharing a
     `created_at` to the microsecond.
@@ -660,14 +609,14 @@ def test_the_page_is_newest_first_with_the_notification_id_breaking_a_tie(
     with are both "correct", which makes paging non-deterministic. The
     direction is DESCENDING on both columns.
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
-    old = _plant_notification(url, tenant.tenant_id, tenant.user_id, created_at=OLDER)
-    tie_one = _plant_notification(url, tenant.tenant_id, tenant.user_id, created_at=NEWER)
-    tie_two = _plant_notification(url, tenant.tenant_id, tenant.user_id, created_at=NEWER)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
+    old = _plant_notification(factory, tenant.tenant_id, tenant.user_id, created_at=OLDER)
+    tie_one = _plant_notification(factory, tenant.tenant_id, tenant.user_id, created_at=NEWER)
+    tie_two = _plant_notification(factory, tenant.tenant_id, tenant.user_id, created_at=NEWER)
     newest_first_on_the_tie = sorted([tie_one, tie_two], reverse=True)
 
-    ids, unread_count = _page(url, tenant.tenant_id, tenant.user_id)
+    ids, unread_count = _page(factory, tenant.tenant_id, tenant.user_id)
 
     assert ids == [*newest_first_on_the_tie, old]
     assert unread_count == 3
@@ -677,7 +626,7 @@ def test_the_page_is_newest_first_with_the_notification_id_breaking_a_tie(
 
 
 def test_unread_only_narrows_the_rows_and_leaves_the_unread_count_alone(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 7 over a MIXED set: two unread rows and one already read.
 
@@ -690,16 +639,16 @@ def test_unread_only_narrows_the_rows_and_leaves_the_unread_count_alone(
     rows there, two unread — which is the whole reason the count is its own
     aggregate.
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
-    unread_one = _plant_notification(url, tenant.tenant_id, tenant.user_id, created_at=NEWER)
-    unread_two = _plant_notification(url, tenant.tenant_id, tenant.user_id, created_at=NEWER)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
+    unread_one = _plant_notification(factory, tenant.tenant_id, tenant.user_id, created_at=NEWER)
+    unread_two = _plant_notification(factory, tenant.tenant_id, tenant.user_id, created_at=NEWER)
     read_row = _plant_notification(
-        url, tenant.tenant_id, tenant.user_id, created_at=OLDER, read_at=ALREADY_READ_AT
+        factory, tenant.tenant_id, tenant.user_id, created_at=OLDER, read_at=ALREADY_READ_AT
     )
 
-    every_id, every_count = _page(url, tenant.tenant_id, tenant.user_id, unread_only=False)
-    unread_ids, unread_count = _page(url, tenant.tenant_id, tenant.user_id, unread_only=True)
+    every_id, every_count = _page(factory, tenant.tenant_id, tenant.user_id, unread_only=False)
+    unread_ids, unread_count = _page(factory, tenant.tenant_id, tenant.user_id, unread_only=True)
 
     assert set(every_id) == {unread_one, unread_two, read_row}
     assert set(unread_ids) == {unread_one, unread_two}
@@ -709,7 +658,7 @@ def test_unread_only_narrows_the_rows_and_leaves_the_unread_count_alone(
 
 
 def test_the_unread_count_counts_beyond_the_page(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 4: `limit=1` over three unread rows answers ONE row and
     `unread_count == 3`.
@@ -719,19 +668,19 @@ def test_the_unread_count_counts_beyond_the_page(
     cannot count past the page size — quiet at fifty-one, and wrong by two
     here where the arithmetic is small enough to read.
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
     for _ in range(3):
-        _plant_notification(url, tenant.tenant_id, tenant.user_id)
+        _plant_notification(factory, tenant.tenant_id, tenant.user_id)
 
-    ids, unread_count = _page(url, tenant.tenant_id, tenant.user_id, limit=1)
+    ids, unread_count = _page(factory, tenant.tenant_id, tenant.user_id, limit=1)
 
     assert len(ids) == 1
     assert unread_count == 3
 
 
 def test_a_user_with_no_notifications_answers_no_rows_and_a_zero_count(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 10 at the library seam: an empty bell is a fact about the
     person, not a refusal.
@@ -742,13 +691,13 @@ def test_a_user_with_no_notifications_answers_no_rows_and_a_zero_count(
     page an error screen. The colleague's row proves the read is not simply
     answering empty for everybody.
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
-    colleague_id = _plant_colleague(url, tenant)
-    theirs = _plant_notification(url, tenant.tenant_id, colleague_id)
-    assert _read_at_of(url, tenant.tenant_id, theirs) is None
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
+    colleague_id = _plant_colleague(factory, tenant)
+    theirs = _plant_notification(factory, tenant.tenant_id, colleague_id)
+    assert _read_at_of(factory, tenant.tenant_id, theirs) is None
 
-    ids, unread_count = _page(url, tenant.tenant_id, tenant.user_id)
+    ids, unread_count = _page(factory, tenant.tenant_id, tenant.user_id)
 
     assert ids == []
     assert unread_count == 0
@@ -758,7 +707,7 @@ def test_a_user_with_no_notifications_answers_no_rows_and_a_zero_count(
 
 
 def test_mark_read_stamps_the_clock_it_was_handed_and_a_second_clock_moves_nothing(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criteria 8 and 9 in one arrangement: the first call is handed
     `FIRST_CLOCK` and the second a strictly LATER one.
@@ -772,22 +721,22 @@ def test_mark_read_stamps_the_clock_it_was_handed_and_a_second_clock_moves_nothi
     double-clicked bell. The row is re-read from the store afterwards, so a
     stamp that answered the old value while writing the new one fails too.
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
-    row_id = _plant_notification(url, tenant.tenant_id, tenant.user_id)
-    assert _read_at_of(url, tenant.tenant_id, row_id) is None
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
+    row_id = _plant_notification(factory, tenant.tenant_id, tenant.user_id)
+    assert _read_at_of(factory, tenant.tenant_id, row_id) is None
     assert SECOND_CLOCK > FIRST_CLOCK
 
-    first = _mark(url, tenant.tenant_id, tenant.user_id, row_id, FIRST_CLOCK)
-    second = _mark(url, tenant.tenant_id, tenant.user_id, row_id, SECOND_CLOCK)
+    first = _mark(factory, tenant.tenant_id, tenant.user_id, row_id, FIRST_CLOCK)
+    second = _mark(factory, tenant.tenant_id, tenant.user_id, row_id, SECOND_CLOCK)
 
     assert first == FIRST_CLOCK
     assert second == FIRST_CLOCK
-    assert _read_at_of(url, tenant.tenant_id, row_id) == FIRST_CLOCK
+    assert _read_at_of(factory, tenant.tenant_id, row_id) == FIRST_CLOCK
 
 
 def test_mark_read_refuses_a_colleagues_notification_and_stamps_nothing(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 11 (decision G), with the tenant guard taken out of the
     picture: the row belongs to a colleague in the SAME tenant (standing rule
@@ -799,20 +748,20 @@ def test_mark_read_refuses_a_colleagues_notification_and_stamps_nothing(
     `ErrorCode.NOT_FOUND` rather than `FORBIDDEN`, and the row is re-read to
     prove the refusal came BEFORE the write rather than after it.
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
-    colleague_id = _plant_colleague(url, tenant)
-    theirs = _plant_notification(url, tenant.tenant_id, colleague_id)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
+    colleague_id = _plant_colleague(factory, tenant)
+    theirs = _plant_notification(factory, tenant.tenant_id, colleague_id)
 
-    error = _mark_refused(url, tenant.tenant_id, tenant.user_id, theirs)
+    error = _mark_refused(factory, tenant.tenant_id, tenant.user_id, theirs)
 
     assert isinstance(error, NotFoundError)
     assert error.code is ErrorCode.NOT_FOUND
-    assert _read_at_of(url, tenant.tenant_id, theirs) is None
+    assert _read_at_of(factory, tenant.tenant_id, theirs) is None
 
 
 def test_mark_read_refuses_an_unknown_notification_id_with_not_found(
-    notification_db: tuple[str, SeededTenant],
+    notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
     """Criterion 11's other half: an id that resolves nowhere reads exactly
     like a colleague's, so the argument is not an existence oracle.
@@ -822,11 +771,11 @@ def test_mark_read_refuses_an_unknown_notification_id_with_not_found(
     `INTERNAL` — either of which would turn a stale bell in an open browser
     tab into an error the caller cannot act on.
     """
-    url, _ = notification_db
-    tenant = _own_tenant(url)
+    factory, _ = notification_db
+    tenant = _own_tenant(factory)
     unknown = uuid.uuid4()
 
-    error = _mark_refused(url, tenant.tenant_id, tenant.user_id, unknown)
+    error = _mark_refused(factory, tenant.tenant_id, tenant.user_id, unknown)
 
     assert isinstance(error, NotFoundError)
     assert error.code is ErrorCode.NOT_FOUND
