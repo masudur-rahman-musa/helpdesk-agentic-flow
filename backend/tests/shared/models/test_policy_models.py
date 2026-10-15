@@ -40,12 +40,13 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.sqltypes import Text
 
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
-from helpdesk.shared.models import Base, PolicyChunk, PolicyDocument
+from helpdesk.shared.models import Base, PolicyChunk, PolicyDocument, Tenant
 from helpdesk.shared.models.policy import SHA256_LENGTH
 from helpdesk.shared.services.policy_docs.naming import (
     SLUG_LENGTH,
@@ -63,8 +64,26 @@ TENANT_B_SLUG = "policy-tenant-b"
 # fixture and read by the by-slug lookup.
 _SEEDED_SLUGS: dict[str, str] = {}
 
+
 INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
 FAKE_SHA = "0" * SHA256_LENGTH
+
+
+async def _seed_with_label(factory: async_sessionmaker[AsyncSession], label: str) -> str:
+    """Seed one tenant and give it back its plain label as the slug.
+
+    `seed_tenant` adds a uuid ending so tenants on the shared database never
+    collide. This database is private to `policy_db_url`, so the
+    ending is not needed here, and the rag tests that share this fixture pass
+    the label as `tenant_slug`, which the store checks against the stored slug.
+    """
+    seeded = await seed_tenant(factory, label)
+    async with factory() as session:
+        tenant = await session.get(Tenant, seeded.tenant_id)
+        assert tenant is not None, label
+        tenant.slug = label
+        await session.commit()
+    return label
 
 
 @pytest.fixture(scope="session")
@@ -87,8 +106,8 @@ def policy_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
             # An earlier change: `seed_tenant` now suffixes the globally-unique tenant
             # slug, so the real slugs are read back here rather than assumed to
             # equal the labels, for the by-slug lookup below.
-            _SEEDED_SLUGS["a"] = (await seed_tenant(factory, TENANT_A_SLUG)).tenant_slug
-            _SEEDED_SLUGS["b"] = (await seed_tenant(factory, TENANT_B_SLUG)).tenant_slug
+            _SEEDED_SLUGS["a"] = await _seed_with_label(factory, TENANT_A_SLUG)
+            _SEEDED_SLUGS["b"] = await _seed_with_label(factory, TENANT_B_SLUG)
         finally:
             await engine.dispose()
 
