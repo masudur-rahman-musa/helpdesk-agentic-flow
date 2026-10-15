@@ -59,6 +59,10 @@ from tests.support.seed import TENANT_SCOPED_TABLES, seed_tenant
 TENANT_A_SLUG = "policy-tenant-a"
 TENANT_B_SLUG = "policy-tenant-b"
 
+# The real (suffixed) slugs `seed_tenant` wrote, filled by the `policy_db_url`
+# fixture and read by the by-slug lookup.
+_SEEDED_SLUGS: dict[str, str] = {}
+
 INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
 FAKE_SHA = "0" * SHA256_LENGTH
 
@@ -80,8 +84,11 @@ def policy_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             factory = create_session_factory(engine)
-            await seed_tenant(factory, TENANT_A_SLUG)
-            await seed_tenant(factory, TENANT_B_SLUG)
+            # An earlier change: `seed_tenant` now suffixes the globally-unique tenant
+            # slug, so the real slugs are read back here rather than assumed to
+            # equal the labels, for the by-slug lookup below.
+            _SEEDED_SLUGS["a"] = (await seed_tenant(factory, TENANT_A_SLUG)).tenant_slug
+            _SEEDED_SLUGS["b"] = (await seed_tenant(factory, TENANT_B_SLUG)).tenant_slug
         finally:
             await engine.dispose()
 
@@ -193,8 +200,8 @@ def test_another_tenants_documents_and_chunks_are_invisible(policy_db_url: str) 
             factory = create_session_factory(engine)
 
             async with factory() as session:
-                row_a = await find_tenant_by_slug(session, TENANT_A_SLUG)
-                row_b = await find_tenant_by_slug(session, TENANT_B_SLUG)
+                row_a = await find_tenant_by_slug(session, _SEEDED_SLUGS["a"])
+                row_b = await find_tenant_by_slug(session, _SEEDED_SLUGS["b"])
             assert row_a is not None and row_b is not None
             tenant_a, tenant_b = row_a.id, row_b.id
             assert tenant_a != tenant_b
