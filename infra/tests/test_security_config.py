@@ -683,14 +683,16 @@ def test_the_app_dockerfiles_exist_and_entrypoint_their_app() -> None:
     that never names its own app builds an image whose entrypoint is whatever the
     base image had. The restructure split the one root Dockerfile into three, so
     each `backend/Dockerfile.<app>` must exist and entrypoint its own app."""
-    for dockerfile, module in zip(
-        APP_DOCKERFILES, ("agent_api", "mcp_server", "scheduler"), strict=True
-    ):
+    # agent-api's app lives in `api/router.py` since an earlier change; the other two keep `main`.
+    entries = (
+        "helpdesk.agent_api.api.router:app",
+        "helpdesk.mcp_server.main:app",
+        "helpdesk.scheduler.main:app",
+    )
+    for dockerfile, entry in zip(APP_DOCKERFILES, entries, strict=True):
         assert dockerfile.is_file(), f"{dockerfile.name} does not exist"
         text = dockerfile.read_text(encoding="utf-8")
-        assert f"helpdesk.{module}.main:app" in text, (
-            f"{dockerfile.name} never entrypoints helpdesk.{module}.main:app"
-        )
+        assert entry in text, f"{dockerfile.name} never entrypoints {entry}"
         assert "ADAPT:" not in text, (
             f"{dockerfile.name} still carries an ADAPT placeholder"
         )

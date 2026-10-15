@@ -245,7 +245,7 @@ def _alembic_upgrade_head(database_url: str) -> None:
     """Migrate one throwaway database to head as the OWNER."""
     result = subprocess.run(
         ["uv", "run", "alembic", "upgrade", "head"],
-        cwd=_REPO_ROOT,
+        cwd=str(Path(_REPO_ROOT) / "backend"),  # alembic.ini lives in backend/
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
         text=True,

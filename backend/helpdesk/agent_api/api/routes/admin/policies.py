@@ -61,7 +61,12 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from helpdesk.agent_api.core.deps import authenticated, typed_refusal, unauthenticated
-from helpdesk.agent_api.schemas.policies import ListPolicyDocumentsArgs, ReingestPolicyDocumentArgs
+from helpdesk.agent_api.schemas.policies import (
+    ListPolicyDocumentsArgs as ListPolicyDocumentsArgs,
+)
+from helpdesk.agent_api.schemas.policies import (
+    ReingestPolicyDocumentArgs as ReingestPolicyDocumentArgs,
+)
 from helpdesk.agent_api.services.tool_proxy import call_tool_route
 from helpdesk.shared.core.errors import ErrorCode
 

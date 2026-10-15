@@ -36,6 +36,7 @@ from pathlib import Path
 
 import pytest
 
+import helpdesk.agent_api.agent as agent_package
 from helpdesk.agent_api.agent import prompts as prompts_module
 from helpdesk.agent_api.agent.gates import INTENT_TOOLS
 from helpdesk.agent_api.agent.prompts import (
@@ -189,3 +190,37 @@ def test_the_composition_prompt_states_the_agent_does_not_decide_access() -> Non
 
     missing = [phrase for phrase in SYSTEM_PROMPT_REQUIRED_PHRASES if phrase not in text]
     assert not missing, f"reply_composition.md does not state: {missing}"
+
+
+PLAN_54_PROMPT_FILES = (INTENT_PROMPT, PLANNING_PROMPT, COMPOSITION_PROMPT)
+"""The three files an earlier change names; `system.md` sits in the same folder."""
+
+
+def test_prompts_dir_is_the_folder_holding_the_prompt_files() -> None:
+    """An earlier change. Catches a `PROMPTS_DIR` resolved one level too high, at
+    `agent_api/prompts`, which does not exist: every `load_prompt` call then
+    raises `INTERNAL` and every turn dies before the first model call.
+
+    The expected path is built from the `agent` package's own location, not
+    from `PROMPTS_DIR`, so a wrong constant cannot agree with itself."""
+    expected = (Path(agent_package.__file__).resolve().parent / "prompts").resolve()
+
+    assert expected.parts[-4:] == ("helpdesk", "agent_api", "agent", "prompts")
+    assert PROMPTS_DIR.resolve() == expected
+    for name in PLAN_54_PROMPT_FILES:
+        assert (PROMPTS_DIR / f"{name}.md").is_file(), name
+
+
+def test_a_missing_prompt_still_raises_prompt_not_found() -> None:
+    """An earlier change, unhappy path, against the REAL folder rather than `tmp_path`.
+    Catches a fix that guards only a missing folder (an `is_dir()` check, then
+    an unguarded read): with the folder now present, a missing file would let
+    a bare `FileNotFoundError` escape instead of `INTERNAL`."""
+    name = "no_such_prompt_plan_54"
+    assert PROMPTS_DIR.is_dir()
+    assert not (PROMPTS_DIR / f"{name}.md").exists()
+
+    with pytest.raises(PromptNotFoundError) as excinfo:
+        load_prompt(name)
+
+    assert excinfo.value.code is ErrorCode.INTERNAL

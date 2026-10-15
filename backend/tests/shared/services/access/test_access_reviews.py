@@ -52,14 +52,6 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Imported, not redefined: one seeded database for the whole session, shared
-# with `test_access_snapshot.py` and its siblings.
-from test_access_snapshot import (
-    NOW,
-    ROWS,
-    access_db_url,  # noqa: F401
-)
-
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.crud import Repository
@@ -94,6 +86,14 @@ from helpdesk.shared.services.access.reviews import (
     open_review,
 )
 from scripts.seed import CUAN, generate_tenant
+
+# Imported, not redefined: one seeded database for the whole session, shared
+# with `test_access_snapshot.py` and its siblings.
+from tests.shared.services.access.test_access_snapshot import (
+    NOW,
+    ROWS,
+    access_db_url,  # noqa: F401
+)
 
 OTHER_TENANT_ROWS = generate_tenant(CUAN)
 

@@ -108,7 +108,7 @@ and never the digest of anything."""
 
 RETENTION_REVISION_GLOB = "*_audit_chain_anchor_retention.py"
 """How the revision is found: its hash cannot be written here before it
-exists, and `alembic/versions` is not an importable package."""
+exists, and `backend/migrations/versions` is not an importable package."""
 
 RETENTION_PARENT_REVISION = "f1a7c0d4e2b9"
 """The revision immediately below this plan's own: its `down_revision`.
@@ -345,7 +345,7 @@ async def _role_table_privileges(owner_url: str) -> dict[str, frozenset[str]]:
 def _alembic(*arguments: str, database_url: str) -> None:
     result = subprocess.run(
         ["uv", "run", "alembic", *arguments],
-        cwd=REPO_ROOT,
+        cwd=REPO_ROOT / "backend",  # alembic.ini lives in backend/
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
         text=True,
@@ -356,7 +356,8 @@ def _alembic(*arguments: str, database_url: str) -> None:
 
 def _retention_revision_text() -> str:
     """The revision file's raw text, found by the slug this plan fixes."""
-    matches = sorted((REPO_ROOT / "alembic" / "versions").glob(RETENTION_REVISION_GLOB))
+    versions = REPO_ROOT / "backend" / "migrations" / "versions"
+    matches = sorted(versions.glob(RETENTION_REVISION_GLOB))
     assert len(matches) == 1, (
         f"expected exactly one alembic revision matching {RETENTION_REVISION_GLOB!r}, "
         f"found {[match.name for match in matches]}"

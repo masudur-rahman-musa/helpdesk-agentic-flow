@@ -26,7 +26,7 @@ services:
   # Pinned by ::test_the_override_example_reloads_every_python_service and
   # ::test_the_override_example_mounts_python_source_read_only.
   helpdesk-agent-api:
-    entrypoint: ["uvicorn", "helpdesk.agent_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
+    entrypoint: ["uvicorn", "helpdesk.agent_api.api.router:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
                  "--reload-dir", "/app/helpdesk"]
     volumes:
       - "./backend/helpdesk:/app/helpdesk:ro"

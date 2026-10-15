@@ -127,7 +127,10 @@ def test_a_fresh_interpreter_importing_policy_pulls_in_nothing_else_from_helpdes
 
     assert completed.returncode == 0, completed.stderr
     loaded = {line for line in completed.stdout.splitlines() if line}
-    unexpected = {name for name in loaded if name != "helpdesk" and not name.startswith(PACKAGE)}
+    # A package always loads its parents first, so `helpdesk` and `helpdesk.shared`
+    # come with any import of the policy engine; both are empty packages.
+    parents = {"helpdesk", "helpdesk.shared"}
+    unexpected = {name for name in loaded if name not in parents and not name.startswith(PACKAGE)}
 
     assert unexpected == set(), f"importing {PACKAGE} loaded {sorted(unexpected)}"
 

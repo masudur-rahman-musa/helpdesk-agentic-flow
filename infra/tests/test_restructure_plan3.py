@@ -100,7 +100,7 @@ def test_shared_kept_what_two_apps_read() -> None:
         BACKEND / "helpdesk" / "shared" / "access" / "revoke.py",
         BACKEND / "helpdesk" / "shared" / "notifications" / "notify.py",
         BACKEND / "helpdesk" / "shared" / "audit" / "anchor.py",
-        BACKEND / "helpdesk" / "shared" / "rag" / "naming.py",
+        BACKEND / "helpdesk" / "shared" / "services" / "policy_docs" / "naming.py",
         BACKEND / "helpdesk" / "shared" / "gateway" / "keys.py",
     ]
     for path in stays:

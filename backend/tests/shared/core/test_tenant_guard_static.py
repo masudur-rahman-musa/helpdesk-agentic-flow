@@ -78,7 +78,7 @@ taking this path is a failure rather than a silent extension."""
 
 SETUP_GRANT_ALLOWLIST: frozenset[str] = frozenset(
     {
-        "backend/helpdesk/agent_api/checkpointer.py",
+        "backend/helpdesk/agent_api/agent/checkpointer.py",
     }
 )
 """The one service module sanctioned to call `.execute` outside readiness, added 2026-10-12.
@@ -88,6 +88,30 @@ tables, through a psycopg pool, from the migrate target only. It never runs on a
 request, reads no row, and touches no tenant data; the role name it interpolates
 is the migration's constant, never configuration. It builds no SQLAlchemy
 statement, so it is kept apart from `READINESS_ALLOWLIST`, whose members must."""
+
+STORE_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # The guard's own idempotency key table, keyed by tenant and key.
+        "backend/helpdesk/mcp_server/services/idempotency/guard.py",
+        # The one reader of `notifications`, filtered to the caller's tenant and user.
+        "backend/helpdesk/mcp_server/services/notifications/list.py",
+        # The one writer of `notifications.read_at`, same tenant and user filter.
+        "backend/helpdesk/mcp_server/services/notifications/mark.py",
+        # The one writer of `policy_chunks` rows during ingest, for one tenant.
+        "backend/helpdesk/mcp_server/services/rag/chunks.py",
+        # The sparse arm's read of one tenant's `policy_chunks`.
+        "backend/helpdesk/mcp_server/services/rag/retrieval.py",
+        # The one writer of `policy_documents` versions, for one tenant.
+        "backend/helpdesk/mcp_server/services/rag/store.py",
+    }
+)
+"""The store modules that build and run their own statements, added 2026-10-15.
+
+The restructure moved them under a service package, so this guard now sees
+them. Each is the one store for its table and runs through the tenant session,
+whose `do_orm_execute` filter still applies. Moving them into the repository
+helpers is a later change; until then each is named here with its reason, and
+`test_only_the_readiness_modules_build_or_run_a_statement` pins the set."""
 
 TEXT_ALLOWLIST: frozenset[str] = frozenset(
     {
@@ -256,7 +280,7 @@ def test_no_service_module_builds_a_sqlalchemy_statement(source_file: Path) -> N
     relative = str(source_file.relative_to(REPO_ROOT))
     findings = _builder_findings(source_file.read_text(encoding="utf-8"), relative)
 
-    if relative in READINESS_ALLOWLIST:
+    if relative in READINESS_ALLOWLIST | STORE_ALLOWLIST:
         assert findings, f"{relative} is allowlisted but builds nothing; drop it from the list"
         return
     assert findings == [], f"{relative} builds a SQLAlchemy statement: {findings}"
@@ -270,7 +294,7 @@ def test_no_service_module_calls_execute(source_file: Path) -> None:
     relative = str(source_file.relative_to(REPO_ROOT))
     findings = _execute_findings(source_file.read_text(encoding="utf-8"), relative)
 
-    if relative in READINESS_ALLOWLIST | SETUP_GRANT_ALLOWLIST:
+    if relative in READINESS_ALLOWLIST | SETUP_GRANT_ALLOWLIST | STORE_ALLOWLIST:
         assert findings, f"{relative} is allowlisted but calls no .execute; drop it from the list"
         return
     assert findings == [], f"{relative} executes a statement directly: {findings}"
@@ -286,7 +310,7 @@ def test_only_the_readiness_modules_build_or_run_a_statement() -> None:
         if _builder_findings(source, relative) or _execute_findings(source, relative):
             offenders.add(relative)
 
-    allowed = READINESS_ALLOWLIST | SETUP_GRANT_ALLOWLIST
+    allowed = READINESS_ALLOWLIST | SETUP_GRANT_ALLOWLIST | STORE_ALLOWLIST
     assert offenders == set(allowed), (
         f"raw-statement modules {sorted(offenders)} != allowlist {sorted(allowed)}"
     )

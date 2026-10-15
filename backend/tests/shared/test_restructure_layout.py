@@ -8,6 +8,7 @@ folder is red here rather than passing quietly.
 """
 
 import importlib
+import importlib.util
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -53,13 +54,23 @@ def test_old_roots_are_gone() -> None:
     surviving = [name for name in OLD_ROOTS if (REPO_ROOT / name).exists()]
     assert surviving == [], f"old top-level folders still present: {surviving}"
 
+    # pytest puts the test folders on the path, so `agent_api` and the like can
+    # resolve to `backend/tests/<name>`. That is not old code; only a name that
+    # resolves outside `backend/tests/` counts.
+    tests_root = BACKEND / "tests"
     importable = []
     for name in OLD_IMPORTS:
         try:
-            importlib.import_module(name)
-            importable.append(name)
+            spec = importlib.util.find_spec(name)
         except ModuleNotFoundError:
             continue
+        if spec is None:
+            continue
+        locations = [Path(p).resolve() for p in (spec.submodule_search_locations or [])]
+        if spec.origin and spec.origin not in ("namespace", "built-in"):
+            locations.append(Path(spec.origin).resolve())
+        if not locations or any(not loc.is_relative_to(tests_root) for loc in locations):
+            importable.append(name)
     assert importable == [], f"old import names still resolve: {importable}"
 
 

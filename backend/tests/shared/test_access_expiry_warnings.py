@@ -51,12 +51,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-# Imported, not redefined: one database with the schema created once, shared
-# with `test_access_expiry.py`. The two files never look at
-# the same tenant, so sharing it costs nothing and saves a whole database.
-from test_access_expiry import expiry_db_url  # noqa: F401
-
-from helpdesk.shared import access as access_package
+from helpdesk.shared.access import expiry as expiry_module
 from helpdesk.shared.access.expiry import (
     _WARNING_TITLE,
     EXPIRY_WARNING_HORIZON_DAYS,
@@ -67,6 +62,11 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS
 from helpdesk.shared.models import Grant, Notification, Role, User
 from helpdesk.shared.models.notification import NOTIFICATION_TITLE_MAX_LENGTH, NotificationKind
+
+# Imported, not redefined: one database with the schema created once, shared
+# with `test_access_expiry.py`. The two files never look at
+# the same tenant, so sharing it costs nothing and saves a whole database.
+from tests.shared.test_access_expiry import expiry_db_url  # noqa: F401
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
@@ -667,4 +667,4 @@ def test_the_expiry_warning_constants_are_exactly_the_planned_values() -> None:
     assert EXPIRY_WARNING_HORIZON_DAYS == 14
     assert timedelta(days=EXPIRY_WARNING_HORIZON_DAYS) == HORIZON
     assert NotificationKind.GRANT_EXPIRING.value == "grant_expiring"
-    assert access_package.warn_expiring_grants is warn_expiring_grants
+    assert expiry_module.warn_expiring_grants is warn_expiring_grants

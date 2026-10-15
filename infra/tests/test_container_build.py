@@ -64,6 +64,15 @@ PYTHON_DOCKERFILES: tuple[Path, ...] = tuple(
 )
 """The three per-app Dockerfiles, resolved as paths for the cases that read one."""
 
+APP_ENTRYPOINTS: dict[str, str] = {
+    "agent_api": "helpdesk.agent_api.api.router:app",
+    "mcp_server": "helpdesk.mcp_server.main:app",
+    "scheduler": "helpdesk.scheduler.main:app",
+}
+"""The ASGI app each module serves. agent-api's app lives in `api/router.py`
+since an earlier change; the other two keep `main`. Read by both entrypoint cases, so the
+image and the watch-mode override name the same target."""
+
 WEB_DOCKERFILE = REPO_ROOT / "web" / "Dockerfile"
 DOCKERIGNORE = BACKEND / ".dockerignore"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
@@ -237,8 +246,8 @@ def test_each_app_dockerfile_entrypoints_its_own_app(
     dockerfile = BACKEND / f"Dockerfile.{app}"
     text = _instruction_text(dockerfile)
 
-    assert f"helpdesk.{module}.main:app" in text, (
-        f"Dockerfile.{app} does not entrypoint helpdesk.{module}.main:app"
+    assert APP_ENTRYPOINTS[module] in text, (
+        f"Dockerfile.{app} does not entrypoint {APP_ENTRYPOINTS[module]}"
     )
     assert f"--port {port}" in text or f'"{port}"' in text, (
         f"Dockerfile.{app} does not bind port {port}"
@@ -758,7 +767,7 @@ def test_the_override_example_reloads_every_python_service(
     service: str, module: str, port: str
 ) -> None:
     """Catches a Python service left on its production entrypoint (no `--reload`),
-    an entrypoint copied from agent-api that serves `helpdesk.agent_api.main:app`
+    an entrypoint copied from agent-api that serves `helpdesk.agent_api.api.router:app`
     on 8000 inside mcp-server or scheduler, a server bound to loopback that the
     published port cannot reach, and a reload dir widened to `/app`, where the
     watcher walks the whole virtualenv, instead of the one `/app/helpdesk` tree."""
@@ -768,7 +777,7 @@ def test_the_override_example_reloads_every_python_service(
     )
     arguments = [str(argument) for argument in entrypoint]
 
-    assert arguments[:2] == ["uvicorn", f"helpdesk.{module}.main:app"], arguments
+    assert arguments[:2] == ["uvicorn", APP_ENTRYPOINTS[module]], arguments
     assert _flag_values(arguments, "--host") == ["0.0.0.0"], arguments
     assert _flag_values(arguments, "--port") == [port], arguments
     assert "--reload" in arguments, arguments

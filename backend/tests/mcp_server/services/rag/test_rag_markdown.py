@@ -18,7 +18,7 @@ Expected implementation surface (the implementer must provide exactly this):
         where the previous ended, and the last ends at ``len(markdown)``.
 
 The corpus round-trip is asserted PER SECTION over all 40 files under
-`policies/*/*/*.md` (plan §5's risk: bytes lost or duplicated at a heading
+`backend/data/policies/*/*/*.md` (plan §5's risk: bytes lost or duplicated at a heading
 boundary), plus the partition property, which is the half a per-section
 equality alone cannot see.
 
@@ -33,7 +33,7 @@ import pytest
 from helpdesk.mcp_server.services.rag.markdown import Section, split_sections
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
-CORPUS_FILES: tuple[Path, ...] = tuple(sorted(REPO_ROOT.glob("policies/*/*/*.md")))
+CORPUS_FILES: tuple[Path, ...] = tuple(sorted(REPO_ROOT.glob("backend/data/policies/*/*/*.md")))
 
 NESTED = """# Access Control Policy
 

@@ -432,7 +432,7 @@ def test_another_tenants_sessions_and_messages_are_invisible(
 def _alembic(*arguments: str, database_url: str) -> None:
     result = subprocess.run(
         ["uv", "run", "alembic", *arguments],
-        cwd=REPO_ROOT,
+        cwd=REPO_ROOT / "backend",  # alembic.ini lives in backend/
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
         text=True,

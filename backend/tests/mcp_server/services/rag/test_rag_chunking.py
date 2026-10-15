@@ -50,7 +50,7 @@ from helpdesk.mcp_server.services.rag.embedding import SparseVector, cosine
 from helpdesk.mcp_server.services.rag.markdown import Section, split_sections
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
-CORPUS_FILES: tuple[Path, ...] = tuple(sorted(REPO_ROOT.glob("policies/*/*/*.md")))
+CORPUS_FILES: tuple[Path, ...] = tuple(sorted(REPO_ROOT.glob("backend/data/policies/*/*/*.md")))
 
 # (1,0,0,0,0) has norm exactly 1.0; (3,2,1,1,1) has norm exactly sqrt(16) = 4.0.
 # cosine = 3.0 / 4.0 = 0.75, with no floating-point slack at all.

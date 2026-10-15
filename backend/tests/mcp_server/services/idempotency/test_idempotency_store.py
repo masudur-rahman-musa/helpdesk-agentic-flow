@@ -148,7 +148,7 @@ def test_migration_creates_the_table_with_its_indexes(fresh_db_url: str) -> None
     """Section 6: the table exists after `alembic upgrade head`, not only in metadata."""
     result = subprocess.run(
         ["uv", "run", "alembic", "upgrade", "head"],
-        cwd=REPO_ROOT,
+        cwd=REPO_ROOT / "backend",  # alembic.ini lives in backend/
         env={**os.environ, "DATABASE_URL": fresh_db_url},
         capture_output=True,
         text=True,

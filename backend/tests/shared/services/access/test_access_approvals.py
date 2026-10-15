@@ -42,15 +42,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-# Imported, not redefined: one seeded database for the whole session, shared
-# with `test_access_snapshot.py` and `test_access_execute.py`.
-from test_access_snapshot import (
-    NOW,
-    OTHER_TENANT_ROWS,
-    ROWS,
-    access_db_url,  # noqa: F401
-)
-
 from helpdesk.shared.access.requests import set_request_status
 from helpdesk.shared.auth.rbac import Principal, Scope
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
@@ -76,6 +67,15 @@ from helpdesk.shared.services.access.approvals import (
     request_in_scope,
 )
 from helpdesk.shared.services.access.directory import SimulatedDirectory
+
+# Imported, not redefined: one seeded database for the whole session, shared
+# with `test_access_snapshot.py` and `test_access_execute.py`.
+from tests.shared.services.access.test_access_snapshot import (
+    NOW,
+    OTHER_TENANT_ROWS,
+    ROWS,
+    access_db_url,  # noqa: F401
+)
 
 DECIDED_AT = NOW
 

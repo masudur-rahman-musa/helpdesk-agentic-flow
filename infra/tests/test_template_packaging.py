@@ -213,7 +213,7 @@ def test_the_adapter_guide_names_the_simulated_implementation() -> None:
     guide = _read(ADAPTER_GUIDE)
 
     assert "SimulatedDirectory" in guide
-    assert "backend/helpdesk/shared/access/directory.py" in guide
+    assert "backend/helpdesk/shared/services/access/directory.py" in guide
 
 
 # --- README.md ----------------------------------------------------------------

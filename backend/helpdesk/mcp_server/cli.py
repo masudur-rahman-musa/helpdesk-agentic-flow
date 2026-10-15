@@ -1,6 +1,6 @@
 """Ingest one tenant's policy corpus version into both stores.
 
-    uv run python -m helpdesk.mcp_server.cli --tenant nordlicht --version v1
+    uv run python -m helpdesk.mcp_server.cli --tenant <slug> --version v1
 
 Argument parsing, the corpus root, one line of output per document and the
 exit code — nothing else. Every effect lives in `helpdesk.rag.pipeline`: the design calls ingestion "also an admin API", and a
@@ -59,7 +59,7 @@ def _corpus_root(flag: Path | None, configured: Path) -> Path:
 
 def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--tenant", required=True, help="tenant slug, e.g. nordlicht")
+    parser.add_argument("--tenant", required=True, help="tenant slug, as seeded")
     parser.add_argument("--version", required=True, help="version directory, e.g. v1")
     parser.add_argument(
         "--corpus-root",

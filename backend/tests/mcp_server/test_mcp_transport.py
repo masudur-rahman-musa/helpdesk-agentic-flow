@@ -141,7 +141,7 @@ EXPECTED_TOOL_NAMES = {
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")
 
 # The stdio entrypoint, driven as a real subprocess.
-_STDIO_CODE = "from mcp_server.main import run_stdio; run_stdio()"
+_STDIO_CODE = "from helpdesk.mcp_server.main import run_stdio; run_stdio()"
 
 
 def test_registry_registers_exactly_the_expected_tools() -> None:

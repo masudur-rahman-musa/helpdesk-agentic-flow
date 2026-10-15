@@ -74,7 +74,7 @@ _INSERT_EVENT = text(
 def _alembic(command: str, revision: str, database_url: str) -> None:
     result = subprocess.run(
         ["uv", "run", "alembic", command, revision],
-        cwd=REPO_ROOT,
+        cwd=REPO_ROOT / "backend",  # alembic.ini lives in backend/
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
         text=True,

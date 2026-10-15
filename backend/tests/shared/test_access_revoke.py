@@ -42,15 +42,6 @@ from typing import Any
 import pytest
 from sqlalchemy import select, text
 
-# Imported, not redefined: one seeded database for the whole session, shared
-# with `test_access_snapshot.py`, `test_access_execute.py` and
-# `test_access_approvals.py`.
-from test_access_snapshot import (
-    NOW,
-    ROWS,
-    access_db_url,  # noqa: F401
-)
-
 from helpdesk.shared.access.revoke import (
     GRANT_REVOKED_EVENT_TYPE,
     REVOKED_GRANT_STATUS,
@@ -68,6 +59,15 @@ from helpdesk.shared.crud.grants import (
 )
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
 from helpdesk.shared.services.access.directory import SimulatedDirectory
+
+# Imported, not redefined: one seeded database for the whole session, shared
+# with `test_access_snapshot.py`, `test_access_execute.py` and
+# `test_access_approvals.py`.
+from tests.shared.services.access.test_access_snapshot import (
+    NOW,
+    ROWS,
+    access_db_url,  # noqa: F401
+)
 
 # The fixed clock every case revokes at, so `revoked_at` is never "whenever
 # the suite ran". `NOW` comes from the snapshot module, so every file in this

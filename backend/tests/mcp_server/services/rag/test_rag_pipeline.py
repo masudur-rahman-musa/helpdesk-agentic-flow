@@ -54,12 +54,6 @@ import httpx
 import pytest
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from test_rag_vectors import (
-    RecordingClient,
-    _as_client,
-    _settings,
-    qdrant_url,  # noqa: F401
-)
 
 from helpdesk.mcp_server.services.rag import pipeline
 from helpdesk.mcp_server.services.rag.embedding import DENSE_DIMENSION, SparseVector
@@ -82,6 +76,12 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyChunk, PolicyDocument
 from helpdesk.shared.services.policy_docs.naming import SLUG_LENGTH, InvalidPolicyNameError
+from tests.mcp_server.services.rag.test_rag_vectors import (
+    RecordingClient,
+    _as_client,
+    _settings,
+    qdrant_url,  # noqa: F401
+)
 
 # Imported, not redefined: one database and one Qdrant
 # namespace for the whole run.

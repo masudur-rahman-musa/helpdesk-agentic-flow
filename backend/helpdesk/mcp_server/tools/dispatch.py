@@ -82,12 +82,14 @@ from helpdesk.shared.core.redis import (
 )
 from helpdesk.shared.core.redis import (
     close_loop_clients,
-)
-from helpdesk.shared.core.redis import (
-    get_redis as _redis,  # re-exported as `_redis`: `test_mcp_pipeline.py` reads both from here
+    get_redis,
 )
 from helpdesk.shared.services.audit import AuditEventInput, append_event
 from helpdesk.shared.services.killswitch import KillSwitch
+
+_redis = get_redis
+"""Kept under its old name: `test_mcp_pipeline.py` reads the client the pipeline builds
+through it. An assignment, not an import alias, so mypy sees it as this module's own."""
 
 logger = logging.getLogger(__name__)
 

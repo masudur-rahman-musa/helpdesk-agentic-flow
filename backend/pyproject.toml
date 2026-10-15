@@ -104,11 +104,14 @@ known-first-party = ["helpdesk", "scripts", "tests"]
 [tool.mypy]
 strict = true
 files = ["helpdesk", "tests"]
+# One module name per file: tests/a/b/test_x.py is tests.a.b.test_x, read from
+# backend/, whether or not the folders hold an __init__.py.
+explicit_package_bases = true
 
 # Settings(_env_file=None) is valid at runtime; mypy's synthesized pydantic
 # __init__ rejects it. Scoped to the settings tests only.
 [[tool.mypy.overrides]]
-module = "test_settings"
+module = "tests.shared.core.test_settings"
 disable_error_code = ["call-arg"]
 
 [tool.pytest.ini_options]

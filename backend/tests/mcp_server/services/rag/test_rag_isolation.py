@@ -35,12 +35,6 @@ import httpx
 import pytest
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from test_rag_embedding import embedder  # noqa: F401
-from test_rag_pipeline import FakeRedactor
-from test_rag_vectors import (
-    _settings,
-    qdrant_url,  # noqa: F401
-)
 
 from helpdesk.mcp_server.services.rag.embedding import FastEmbedEmbedder
 from helpdesk.mcp_server.services.rag.pipeline import ingest_document
@@ -53,6 +47,12 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyChunk
+from tests.mcp_server.services.rag.test_rag_embedding import embedder  # noqa: F401
+from tests.mcp_server.services.rag.test_rag_pipeline import FakeRedactor
+from tests.mcp_server.services.rag.test_rag_vectors import (
+    _settings,
+    qdrant_url,  # noqa: F401
+)
 
 # Imported, not redefined: one database, one pair of models,
 # one Qdrant connectivity gate for the whole run.

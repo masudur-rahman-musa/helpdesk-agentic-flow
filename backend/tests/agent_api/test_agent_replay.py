@@ -25,10 +25,15 @@ reached a model would be a re-run.
 import uuid
 from typing import Any
 
+from helpdesk.agent_api.agent.checkpointer import build_checkpointer
+from helpdesk.agent_api.agent.graph import AWAIT_APPROVAL, EXECUTE_TOOLS
+from helpdesk.agent_api.agent.replay import CheckpointEntry, checkpoint_history, state_at
+from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
+
 # Imported, not redefined: the same database, tenant and checkpoint tables as
 # `test_agent_approval_interrupt.py` and `test_agent_approval_resume.py`
 # (a project rule, and the plan's §6 cost paragraph).
-from test_agent_approval_interrupt import (
+from tests.agent_api.test_agent_approval_interrupt import (
     CREATE_REQUEST,
     ApprovalEnv,
     ScriptedToolCaller,
@@ -41,11 +46,6 @@ from test_agent_approval_interrupt import (
     _with_pool,
     approval_env,  # noqa: F401
 )
-
-from helpdesk.agent_api.agent.checkpointer import build_checkpointer
-from helpdesk.agent_api.agent.graph import AWAIT_APPROVAL, EXECUTE_TOOLS
-from helpdesk.agent_api.agent.replay import CheckpointEntry, checkpoint_history, state_at
-from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 
 
 def _pause(env: ApprovalEnv) -> tuple[uuid.UUID, uuid.UUID]:

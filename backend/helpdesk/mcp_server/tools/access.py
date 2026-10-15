@@ -46,6 +46,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.shared.access.execute import execute_grant
+from helpdesk.shared.access.requests import (
+    approval_slots,
+    resolved_approver_ids,
+)
+from helpdesk.shared.access.requests import (
+    create_access_request as persist_access_request,
+)
+from helpdesk.shared.access.revoke import GrantNotActiveError, revoke_role_access
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
@@ -60,20 +69,9 @@ from helpdesk.shared.policy.types import (
     RiskClass,
     SodConflict,
 )
-from helpdesk.shared.services.access import (
-    DirectoryProvider,
-    GrantNotActiveError,
-    SimulatedDirectory,
-    approval_slots,
-    build_request_snapshot,
-    execute_grant,
-    request_in_scope,
-    resolved_approver_ids,
-    revoke_role_access,
-)
-from helpdesk.shared.services.access import (
-    create_access_request as persist_access_request,
-)
+from helpdesk.shared.services.access.approvals import request_in_scope
+from helpdesk.shared.services.access.directory import DirectoryProvider, SimulatedDirectory
+from helpdesk.shared.services.access.snapshot import build_request_snapshot
 from helpdesk.shared.services.audit import AuditEventInput, append_event
 
 CLASSIFIED_EVENT_TYPE = "request.classified"

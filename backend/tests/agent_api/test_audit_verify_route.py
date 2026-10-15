@@ -117,7 +117,7 @@ def audit_db(pg: TempDatabaseFactory) -> Iterator[str]:
     url = pg.create()
     result = subprocess.run(
         ["uv", "run", "alembic", "upgrade", "head"],
-        cwd=REPO_ROOT,
+        cwd=REPO_ROOT / "backend",  # alembic.ini lives in backend/
         env={**os.environ, "DATABASE_URL": url},
         capture_output=True,
         text=True,

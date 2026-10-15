@@ -53,22 +53,22 @@ from typing import Any, cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Imported, not redefined: one throwaway database with two
-# seeded tenants and one dedicated Redis index for the whole run.
-from test_scheduler_runner import (  # noqa: F401
-    NOW,
-    _delete_key,
-    _run_tick,
-    scheduler_db,
-    scheduler_redis_url,
-)
-
 from helpdesk.scheduler import jobs
 from helpdesk.scheduler.runner import (
     DAILY_CADENCE_SECONDS,
     REGISTRY,
     check_job_name,
     job_lock_key,
+)
+
+# Imported, not redefined: one throwaway database with two
+# seeded tenants and one dedicated Redis index for the whole run.
+from tests.scheduler.test_scheduler_runner import (  # noqa: F401
+    NOW,
+    _delete_key,
+    _run_tick,
+    scheduler_db,
+    scheduler_redis_url,
 )
 from tests.support.seed import SeededTenant
 

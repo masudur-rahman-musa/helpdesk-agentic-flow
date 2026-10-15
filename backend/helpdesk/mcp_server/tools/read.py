@@ -46,7 +46,8 @@ from helpdesk.shared.models import (
     System,
     User,
 )
-from helpdesk.shared.services.access import SimulatedDirectory, request_in_scope
+from helpdesk.shared.services.access.approvals import request_in_scope
+from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.audit import search_audit_events
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")

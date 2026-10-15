@@ -268,7 +268,7 @@ async def _role_table_privileges(owner_url: str) -> dict[str, frozenset[str]]:
 def _alembic(*arguments: str, database_url: str) -> None:
     result = subprocess.run(
         ["uv", "run", "alembic", *arguments],
-        cwd=REPO_ROOT,
+        cwd=REPO_ROOT / "backend",  # alembic.ini lives in backend/
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
         text=True,

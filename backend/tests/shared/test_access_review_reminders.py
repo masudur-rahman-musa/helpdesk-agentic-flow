@@ -57,11 +57,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Imported, not redefined: one database with the schema created once, shared
-# with `test_access_expiry.py` and its siblings.
-from test_access_expiry import expiry_db_url  # noqa: F401
-
-from helpdesk.shared import access as access_package
+from helpdesk.shared.access import review_schedule as review_schedule_module
 from helpdesk.shared.access.review_schedule import (
     _REMINDER_TITLE,
     REVIEW_ESCALATION_DAYS,
@@ -71,6 +67,10 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessReview, Department, Notification, ReviewStatus, User
 from helpdesk.shared.models.notification import NOTIFICATION_TITLE_MAX_LENGTH, NotificationKind
+
+# Imported, not redefined: one database with the schema created once, shared
+# with `test_access_expiry.py` and its siblings.
+from tests.shared.test_access_expiry import expiry_db_url  # noqa: F401
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
@@ -723,4 +723,4 @@ def test_the_review_reminder_constants_are_exactly_the_planned_values() -> None:
     assert timedelta(days=REVIEW_ESCALATION_DAYS) == ESCALATION
     assert NotificationKind.REVIEW_OVERDUE.value == "review_overdue"
     assert NotificationKind.REVIEW_ESCALATED.value == "review_escalated"
-    assert access_package.send_review_reminders is send_review_reminders
+    assert review_schedule_module.send_review_reminders is send_review_reminders

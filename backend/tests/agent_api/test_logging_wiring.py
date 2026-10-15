@@ -41,19 +41,6 @@ from typing import Any
 
 import httpx
 import pytest
-from test_agent_turn import (
-    COMPOSED_REPLY,
-    EMPTY_PLAN,
-    StagedGateway,
-    StubToolCaller,
-    TurnEnv,
-    _citation,
-    _page,
-    _payroll_answer,
-    _run_turn,
-    pg,  # noqa: F401
-    turn_env,  # noqa: F401
-)
 
 from helpdesk.agent_api.agent import graph as build_module
 from helpdesk.agent_api.agent.graph import TurnDeps
@@ -66,6 +53,19 @@ from helpdesk.shared.auth.jwt import TokenClaims, issue_token
 from helpdesk.shared.core.observability.context import bind_context
 from helpdesk.shared.core.observability.logging import FORBIDDEN_KEYS, REDACTED, JsonFormatter
 from tests.agent_api.services.test_obs_tracing import TRACE_ID_PATTERN, FakeTraceClient
+from tests.agent_api.test_agent_turn import (
+    COMPOSED_REPLY,
+    EMPTY_PLAN,
+    StagedGateway,
+    StubToolCaller,
+    TurnEnv,
+    _citation,
+    _page,
+    _payroll_answer,
+    _run_turn,
+    pg,  # noqa: F401
+    turn_env,  # noqa: F401
+)
 
 # Obviously fake, tests only; >= 32 bytes so the settings length gate passes.
 TEST_JWT_SIGNING_PHRASE = "logging-wiring-test-jwt-secret-0123456789"

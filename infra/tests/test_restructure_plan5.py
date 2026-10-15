@@ -13,8 +13,8 @@ An earlier change gives the mcp-server and the scheduler the app layout shape:
 `readiness.py` becomes `api/routes/health.py`; `scripts/ingest.py` becomes
 `mcp_server/cli.py`. The redis helper and a shared readiness helper do NOT
 move here (that is an earlier change). The happy paths prove the NEW locations are
-present; the unhappy paths prove the OLD files are GONE and that an earlier change's
-moves have not happened yet.
+present; the unhappy paths prove the OLD files are GONE. The case that held
+an earlier change's moves back was dropped once an earlier change made them.
 
 While the moves are still pending every "present" case is red on purpose.
 """
@@ -27,7 +27,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND = REPO_ROOT / "backend"
 MCP = BACKEND / "helpdesk" / "mcp_server"
 SCHEDULER = BACKEND / "helpdesk" / "scheduler"
-SHARED = BACKEND / "helpdesk" / "shared"
 
 
 def test_mcp_core_and_api_moves() -> None:
@@ -104,23 +103,3 @@ def test_scheduler_health_and_cli() -> None:
     for path in gone:
         assert not path.is_file(), f"old file still present: {path.relative_to(REPO_ROOT)}"
 
-
-def test_redis_not_moved_yet() -> None:
-    """Kills a move that pulls an earlier change's redis/readiness shift early into an earlier change."""
-    still_here = [
-        MCP / "redis_client.py",
-        SCHEDULER / "redis_client.py",
-    ]
-    for path in still_here:
-        assert path.is_file(), (
-            f"redis helper moved early (that is plan 50): {path.relative_to(REPO_ROOT)}"
-        )
-
-    not_yet = [
-        SHARED / "core" / "redis.py",
-        SHARED / "core" / "readiness.py",
-    ]
-    for path in not_yet:
-        assert not path.is_file(), (
-            f"plan 50 target exists already: {path.relative_to(REPO_ROOT)}"
-        )

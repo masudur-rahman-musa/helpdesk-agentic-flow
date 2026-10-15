@@ -55,14 +55,13 @@ from helpdesk.shared.models import (
     ReviewStatus,
     System,
 )
-from helpdesk.shared.services.access import (
-    ItemAlreadyDecidedError as ItemAlreadyDecidedError,  # re-exported for the tests
+from helpdesk.shared.services.access.approvals import request_in_scope
+from helpdesk.shared.services.access.directory import SimulatedDirectory
+from helpdesk.shared.services.access.reviews import (
+    ItemAlreadyDecidedError as ItemAlreadyDecidedError,
 )
-from helpdesk.shared.services.access import (
-    ReviewAlreadyOpenError as ReviewAlreadyOpenError,  # re-exported for the tests
-)
-from helpdesk.shared.services.access import (
-    SimulatedDirectory,
+from helpdesk.shared.services.access.reviews import ReviewAlreadyOpenError as ReviewAlreadyOpenError
+from helpdesk.shared.services.access.reviews import (
     decide_item,
     find_item,
     find_review,
@@ -70,7 +69,6 @@ from helpdesk.shared.services.access import (
     list_owned_system_ids,
     list_reviews_for_scope,
     open_review,
-    request_in_scope,
 )
 
 PERIOD_PATTERN = re.compile(r"\d{4}-Q[1-4]")

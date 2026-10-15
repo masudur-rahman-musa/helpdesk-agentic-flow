@@ -42,11 +42,24 @@ from typing import Any
 import httpx
 import pytest
 
+import helpdesk.agent_api.agent.resume as resume_module
+from helpdesk.agent_api.agent.checkpointer import build_checkpointer
+from helpdesk.agent_api.agent.gates import APPROVE_REQUEST, REJECT_REQUEST, decision_result
+from helpdesk.agent_api.agent.graph import TurnDeps
+from helpdesk.agent_api.agent.resume import ResumeRefusedError, resume_turn
+from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.crud.messages import list_recent_messages
+from helpdesk.shared.models.access import AccessRequest, RequestStatus
+from helpdesk.shared.models.conversation import MessageRole
+
 # Imported, not redefined: one seeded database, one set of checkpoint tables
 # and one staged-gateway arrangement for the whole session, shared with
 # `test_agent_approval_interrupt.py` and `test_agent_replay.py` (standing
 # rule 7 — the plan's §6 says "reused from that file's arrangement").
-from test_agent_approval_interrupt import (
+from tests.agent_api.test_agent_approval_interrupt import (
     API_KEYS,
     AWAIT_APPROVAL_VALUE,
     CREATE_REQUEST,
@@ -64,19 +77,6 @@ from test_agent_approval_interrupt import (
     _with_pool,
     approval_env,  # noqa: F401
 )
-
-import helpdesk.agent_api.agent.resume as resume_module
-from helpdesk.agent_api.agent.checkpointer import build_checkpointer
-from helpdesk.agent_api.agent.gates import APPROVE_REQUEST, REJECT_REQUEST, decision_result
-from helpdesk.agent_api.agent.graph import TurnDeps
-from helpdesk.agent_api.agent.resume import ResumeRefusedError, resume_turn
-from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
-from helpdesk.agent_api.services.model_gateway.client import ModelClient
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.errors import ErrorCode
-from helpdesk.shared.crud.messages import list_recent_messages
-from helpdesk.shared.models.access import AccessRequest, RequestStatus
-from helpdesk.shared.models.conversation import MessageRole
 
 COMPOSED_APPROVAL = "Your fake payroll access was approved and is now in place."
 """The one composition answer staged for a resumed approve run.

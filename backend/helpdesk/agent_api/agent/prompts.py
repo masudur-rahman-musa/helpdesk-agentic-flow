@@ -1,6 +1,6 @@
 """Prompt files, loaded from disk with their sha256 (the design).
 
-Prompts are files in `services/agent-api/prompts/`, versioned in git, and the
+Prompts are files in `helpdesk/agent_api/agent/prompts/`, versioned in git, and the
 digest of the FILE'S BYTES is what every trace records as `prompt_version`.
 Bytes, not stripped text: a prompt edited only in its whitespace is still a
 different prompt to the model, and a version that did not move would put two
@@ -25,9 +25,10 @@ from pathlib import Path
 
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 
-PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
-"""`services/agent-api/prompts/`, resolved from this module's own location so
-the loader works from any working directory."""
+PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+"""`helpdesk/agent_api/agent/prompts/`, beside this module, resolved from its own
+location so the loader works from any working directory. Pinned by
+`test_agent_prompts.py::test_prompts_dir_is_the_folder_holding_the_prompt_files`."""
 
 
 class PromptNotFoundError(ToolError):

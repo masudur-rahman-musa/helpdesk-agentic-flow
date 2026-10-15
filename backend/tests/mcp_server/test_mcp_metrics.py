@@ -30,7 +30,10 @@ from collections.abc import Iterator, Mapping
 
 import pytest
 from prometheus_client import CollectorRegistry
-from test_mcp_pipeline import (
+
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.observability import metrics
+from tests.mcp_server.test_mcp_pipeline import (
     NO_REAL_PRINCIPALS,
     SPEC_TOOL,
     _dispatch,
@@ -38,9 +41,6 @@ from test_mcp_pipeline import (
     _spec,
     _typed_error,
 )
-
-from helpdesk.shared.core.errors import ErrorCode
-from helpdesk.shared.core.observability import metrics
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,

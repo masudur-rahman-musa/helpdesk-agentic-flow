@@ -35,23 +35,37 @@ from collections.abc import Iterator, Mapping
 import httpx
 import pytest
 from prometheus_client import CollectorRegistry
-from test_agent_approval_interrupt import (
+
+from helpdesk.agent_api.agent.state import Intent, TurnOutcome
+from helpdesk.agent_api.api.sse import ERROR
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.observability import metrics
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.models import User
+from helpdesk.shared.models.access import RequestStatus
+from tests.agent_api.test_agent_approval_interrupt import (
     ApprovalEnv,
     approval_env,  # noqa: F401 - fixture resolved by name
 )
-from test_agent_approval_interrupt import (
+from tests.agent_api.test_agent_approval_interrupt import (
     ScriptedToolCaller as ApprovalToolCaller,
 )
-from test_agent_approval_interrupt import (
+from tests.agent_api.test_agent_approval_interrupt import (
     StagedGateway as ApprovalGateway,
 )
-from test_agent_approval_resume import COMPOSED_APPROVAL, _pause, _resume, _store_request
+from tests.agent_api.test_agent_approval_resume import (
+    COMPOSED_APPROVAL,
+    _pause,
+    _resume,
+    _store_request,
+)
 
 # The unreachable-gateway transport is this suite's, not a new one: a turn that
 # cannot reach the gateway is how a FAILED terminal is produced without faking
 # a node.
-from test_chat_route import UnreachableGateway
-from test_chat_stream import (
+from tests.agent_api.test_chat_route import UnreachableGateway
+from tests.agent_api.test_chat_stream import (
     MESSAGE,
     ScriptedToolCaller,
     StagedGateway,
@@ -66,15 +80,6 @@ from test_chat_stream import (
     stream_env,  # noqa: F401 - fixture resolved by name
     stream_route_db,  # noqa: F401 - fixture resolved by name
 )
-
-from helpdesk.agent_api.agent.state import Intent, TurnOutcome
-from helpdesk.agent_api.api.sse import ERROR
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.errors import ErrorCode
-from helpdesk.shared.core.observability import metrics
-from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import User
-from helpdesk.shared.models.access import RequestStatus
 
 TURNS = "helpdesk_turns_total"
 REFUSALS = "helpdesk_refusals_total"

@@ -4,5 +4,5 @@ import helpdesk.shared
 
 
 def test_version_is_nonempty_string() -> None:
-    assert isinstance(helpdesk.__version__, str)
-    assert helpdesk.__version__ != ""
+    assert isinstance(helpdesk.shared.__version__, str)
+    assert helpdesk.shared.__version__ != ""

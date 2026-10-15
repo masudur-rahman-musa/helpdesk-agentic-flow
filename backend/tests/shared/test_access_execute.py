@@ -39,14 +39,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import func, select, text
 
-# Imported, not redefined: one seeded database for the whole session, shared
-# with `test_access_snapshot.py`.
-from test_access_snapshot import (
-    NOW,
-    ROWS,
-    access_db_url,  # noqa: F401
-)
-
 from helpdesk.shared.access.execute import (
     GRANT_EXECUTED_EVENT_TYPE,
     PolicyBlockedAtExecutionError,
@@ -61,6 +53,14 @@ from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.types import Classification, Decision
 from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.access.snapshot import build_request_snapshot
+
+# Imported, not redefined: one seeded database for the whole session, shared
+# with `test_access_snapshot.py`.
+from tests.shared.services.access.test_access_snapshot import (
+    NOW,
+    ROWS,
+    access_db_url,  # noqa: F401
+)
 
 # `now` is the fixed clock every case passes in, so an expiry assertion cannot
 # depend on when the suite runs. `NOW` comes from the snapshot module so both

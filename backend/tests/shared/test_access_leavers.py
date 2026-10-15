@@ -49,12 +49,6 @@ from typing import Any
 import pytest
 from sqlalchemy import text
 
-# Imported, not redefined: one database with the schema created once, shared
-# with `test_access_expiry.py` and `test_access_expiry_warnings.py` (standing
-# rule 7). No two of those files ever look at the same tenant.
-from test_access_expiry import expiry_db_url  # noqa: F401
-
-from helpdesk.shared import access as access_package
 from helpdesk.shared.access import leavers as leavers_module
 from helpdesk.shared.access.leavers import LEAVER_SWEEP_ACTOR_REF, sweep_leavers
 from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE, revoke_role_access
@@ -73,6 +67,11 @@ from helpdesk.shared.services.access.lifecycle import (
     OffboardResult,
     offboard_user,
 )
+
+# Imported, not redefined: one database with the schema created once, shared
+# with `test_access_expiry.py` and `test_access_expiry_warnings.py` (standing
+# rule 7). No two of those files ever look at the same tenant.
+from tests.shared.test_access_expiry import expiry_db_url  # noqa: F401
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
@@ -841,4 +840,4 @@ def test_the_leaver_sweep_constants_are_exactly_the_planned_values() -> None:
     `helpdesk.access`, the way every other caller does.
     """
     assert LEAVER_SWEEP_ACTOR_REF == "scheduler:leaver_sweep"
-    assert access_package.sweep_leavers is sweep_leavers
+    assert leavers_module.sweep_leavers is sweep_leavers

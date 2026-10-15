@@ -15,7 +15,7 @@ help:       ## Show all targets
 setup:      ## Install dependencies and pre-commit hooks
 	uv sync --project backend && uv run --project backend pre-commit install
 run:        ## Run the project locally
-	docker compose up -d && cd backend && uv run uvicorn helpdesk.agent_api.main:app --reload
+	docker compose up -d && cd backend && uv run uvicorn helpdesk.agent_api.api.router:app --reload
 migrate:    ## Apply both schemas to the local compose database (hard rule 3)
 	cd backend && uv run alembic upgrade head && uv run python -m helpdesk.agent_api.cli
 ingest:     ## Ingest one tenant's corpus version from POLICY_DIR: make ingest TENANT=acme VERSION=v1

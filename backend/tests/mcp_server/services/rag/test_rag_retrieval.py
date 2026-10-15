@@ -45,11 +45,6 @@ import httpx
 import pytest
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from test_rag_vectors import (
-    CLOSED_PORT_URL,
-    _settings,
-    qdrant_url,  # noqa: F401
-)
 
 from helpdesk.mcp_server.services.rag.chunking import Chunk
 from helpdesk.mcp_server.services.rag.chunks import write_chunks
@@ -77,6 +72,11 @@ from helpdesk.shared.services.policy_docs.naming import (
     MAX_TOP_K,
     check_query,
     check_top_k,
+)
+from tests.mcp_server.services.rag.test_rag_vectors import (
+    CLOSED_PORT_URL,
+    _settings,
+    qdrant_url,  # noqa: F401
 )
 
 # Imported, not redefined: one database, one Qdrant connectivity gate for the

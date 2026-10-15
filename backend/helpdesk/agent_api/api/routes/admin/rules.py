@@ -45,7 +45,7 @@ which is why its tests enter no lifespan and open no socket.
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse
 
-from helpdesk.agent_api.schemas.rules import ListSodRulesArgs
+from helpdesk.agent_api.schemas.rules import ListSodRulesArgs as ListSodRulesArgs
 from helpdesk.agent_api.services.tool_proxy import call_tool_route
 
 router = APIRouter()

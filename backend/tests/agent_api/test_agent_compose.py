@@ -202,7 +202,9 @@ class StagedGateway:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
-        schema = json.loads(request.content).get("response_format", {}).get("json_schema", {})
+        # The two fixture-guard cases below send a bare request with no body.
+        body = json.loads(request.content) if request.content else {}
+        schema = body.get("response_format", {}).get("json_schema", {})
         if strict_schema_problems(schema.get("schema", {})):
             # As OpenAI answers a schema strict mode refuses, so a
             # non-strict schema cannot pass this suite unseen.

@@ -32,7 +32,7 @@ from helpdesk.mcp_server.services.rag.markdown import split_sections
 from helpdesk.mcp_server.services.rag.sentences import Sentence, split_sentences
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
-CORPUS_FILES: tuple[Path, ...] = tuple(sorted(REPO_ROOT.glob("policies/*/*/*.md")))
+CORPUS_FILES: tuple[Path, ...] = tuple(sorted(REPO_ROOT.glob("backend/data/policies/*/*/*.md")))
 
 PROSE = (
     "Access is granted by the system owner. "

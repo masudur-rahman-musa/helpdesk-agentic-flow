@@ -69,12 +69,6 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Imported, not redefined: one database with the schema created once, shared
-# with `test_access_expiry.py` and its siblings. No two of
-# those files ever look at the same tenant.
-from test_access_expiry import expiry_db_url  # noqa: F401
-
-from helpdesk.shared import access as access_package
 from helpdesk.shared.access import review_schedule as review_schedule_module
 from helpdesk.shared.access.review_schedule import (
     GENERATED_SYSTEM_SENSITIVITIES,
@@ -107,6 +101,11 @@ from helpdesk.shared.services.access.reviews import (
     open_review,
     quarter_period,
 )
+
+# Imported, not redefined: one database with the schema created once, shared
+# with `test_access_expiry.py` and its siblings. No two of
+# those files ever look at the same tenant.
+from tests.shared.test_access_expiry import expiry_db_url  # noqa: F401
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
@@ -1014,4 +1013,4 @@ def test_the_review_generation_constants_are_exactly_the_planned_values() -> Non
     assert frozenset({"high", "critical"}) == GENERATED_SYSTEM_SENSITIVITIES
     assert REVIEW_GENERATION_ACTOR_REF == "scheduler:review_generation"
     assert REVIEW_PERIOD_PATTERN == r"[0-9]{4}-Q[1-4]"
-    assert access_package.generate_reviews is generate_reviews
+    assert review_schedule_module.generate_reviews is generate_reviews

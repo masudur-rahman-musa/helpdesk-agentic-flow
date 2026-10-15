@@ -59,33 +59,33 @@ from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.shared.access.execute import (
     PolicyBlockedAtExecutionError,
     SodConflictAtExecutionError,
+    execute_grant,
 )
 from helpdesk.shared.access.requests import (
     REQUEST_REJECTED_EVENT_TYPE as REQUEST_REJECTED_EVENT_TYPE,  # re-exported, see below
 )
+from helpdesk.shared.access.requests import set_request_status
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
 from helpdesk.shared.policy.types import ApproverSlot
-from helpdesk.shared.services.access import (
+from helpdesk.shared.services.access.approvals import (
     NotAnApproverError,
     PendingWithContext,
     RequestNotPendingError,
-    SimulatedDirectory,
     SlotDecision,
     SlotState,
     chain_is_complete,
     decide_slot,
     dump_slots,
-    execute_grant,
     first_fillable_index,
     list_pending_with_context_for_approver,
     lock_request,
     parse_slots,
     request_in_scope,
-    set_request_status,
 )
+from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.audit import AuditEventInput, append_event
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"

@@ -52,10 +52,8 @@ from helpdesk.mcp_server.tools.access import REASON_MAX_LENGTH
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.models import RequestStatus
-from helpdesk.shared.services.access import (
-    SimulatedDirectory,
-    lock_request,
-)
+from helpdesk.shared.services.access.approvals import lock_request
+from helpdesk.shared.services.access.directory import SimulatedDirectory
 
 
 class RollbackRequestInput(MutatingToolInput):

@@ -135,7 +135,7 @@ def test_schema_round_trip_one_row_per_table(temp_db_url: str) -> None:
 def _alembic(command: str, database_url: str) -> None:
     result = subprocess.run(
         ["uv", "run", "alembic", command, "head" if command == "upgrade" else "base"],
-        cwd=REPO_ROOT,
+        cwd=REPO_ROOT / "backend",  # alembic.ini lives in backend/
         env={**os.environ, "DATABASE_URL": database_url},
         capture_output=True,
         text=True,

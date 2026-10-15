@@ -58,17 +58,7 @@ from typing import Any
 import pytest
 from sqlalchemy import select, text
 
-# Imported, not redefined: one seeded database for the whole session, shared
-# with `test_access_snapshot.py`, `test_access_execute.py`,
-# `test_access_revoke.py`, `test_access_lifecycle.py` and
-# `test_access_transfer.py`.
-from test_access_snapshot import (
-    NOW,
-    ROWS,
-    access_db_url,  # noqa: F401
-)
-
-from helpdesk.shared import access as access_package
+from helpdesk.shared.access import requests as requests_module
 from helpdesk.shared.access.requests import REQUEST_REJECTED_EVENT_TYPE
 from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
@@ -76,6 +66,7 @@ from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, User
+from helpdesk.shared.services.access import lifecycle as lifecycle_module
 from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.access.lifecycle import (
     LEAVER_STATUS,
@@ -83,6 +74,16 @@ from helpdesk.shared.services.access.lifecycle import (
     USER_OFFBOARDED_EVENT_TYPE,
     AlreadyLeaverError,
     offboard_user,
+)
+
+# Imported, not redefined: one seeded database for the whole session, shared
+# with `test_access_snapshot.py`, `test_access_execute.py`,
+# `test_access_revoke.py`, `test_access_lifecycle.py` and
+# `test_access_transfer.py`.
+from tests.shared.services.access.test_access_snapshot import (
+    NOW,
+    ROWS,
+    access_db_url,  # noqa: F401
 )
 
 # The fixed clock every offboard runs at, so `revoked_at` is never "whenever
@@ -926,7 +927,7 @@ def test_the_offboard_constants_and_error_code_are_exactly_the_spec_values(
     one, so it is pinned as the exact string.
 
     The exports are part of the surface: `mcp_server.tools.lifecycle` imports
-    from `helpdesk.access`, the way every other tool module does.
+    from the module that defines each name.
     """
     assert USER_OFFBOARDED_EVENT_TYPE == "user.offboarded"
     assert REQUEST_REJECTED_EVENT_TYPE == "request.rejected"
@@ -934,7 +935,7 @@ def test_the_offboard_constants_and_error_code_are_exactly_the_spec_values(
     assert LEAVER_STATUS == "leaver"
     assert AlreadyLeaverError.code is ErrorCode.POLICY_BLOCKED
     assert AlreadyLeaverError.code.value == "POLICY_BLOCKED"
-    assert access_package.offboard_user is offboard_user
-    assert access_package.USER_OFFBOARDED_EVENT_TYPE == USER_OFFBOARDED_EVENT_TYPE
-    assert access_package.OFFBOARD_REVOKE_REASON == OFFBOARD_REVOKE_REASON
-    assert access_package.REQUEST_REJECTED_EVENT_TYPE == REQUEST_REJECTED_EVENT_TYPE
+    assert lifecycle_module.offboard_user is offboard_user
+    assert lifecycle_module.USER_OFFBOARDED_EVENT_TYPE == USER_OFFBOARDED_EVENT_TYPE
+    assert lifecycle_module.OFFBOARD_REVOKE_REASON == OFFBOARD_REVOKE_REASON
+    assert requests_module.REQUEST_REJECTED_EVENT_TYPE == REQUEST_REJECTED_EVENT_TYPE
