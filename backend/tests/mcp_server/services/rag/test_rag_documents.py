@@ -53,12 +53,10 @@ import asyncio
 import dataclasses
 import hashlib
 import uuid
-from collections.abc import AsyncIterator, Iterator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import pytest
 from sqlalchemy import event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -68,9 +66,8 @@ from helpdesk.mcp_server.services.rag.documents import (
     PolicyVersion,
     read_policy_documents,
 )
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.models import Base, PolicyChunk, PolicyDocument, Tenant
-from tests.conftest import TempDatabaseFactory
+from helpdesk.shared.core.db import tenant_session
+from helpdesk.shared.models import PolicyChunk, PolicyDocument, Tenant
 
 DOCUMENT_FIELDS: tuple[str, ...] = ("slug", "title", "versions")
 """Plan criterion 3's three fields, written out.
@@ -115,33 +112,6 @@ def _field_names(value: object) -> tuple[str, ...]:
     fields = getattr(type(value), "model_fields", None)
     assert fields is not None, f"{type(value)!r} is neither a dataclass nor a Pydantic model"
     return tuple(fields)
-
-
-@pytest.fixture(scope="session")
-def policy_documents_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
-    """One database, schema created exactly once."""
-    url = pg.create()
-
-    async def prepare() -> None:
-        engine = create_engine(url)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-        finally:
-            await engine.dispose()
-
-    asyncio.run(prepare())
-    yield url
-    pg.drop(url)
-
-
-@asynccontextmanager
-async def _engine(url: str) -> AsyncIterator[AsyncEngine]:
-    engine = create_engine(url)
-    try:
-        yield engine
-    finally:
-        await engine.dispose()
 
 
 async def _tenant(factory: async_sessionmaker[AsyncSession], label: str) -> uuid.UUID:
@@ -234,7 +204,7 @@ def _versions(document: PolicyDocumentDetail) -> list[PolicyVersion]:
 
 
 def test_the_corpus_comes_back_one_row_per_slug_with_the_exact_two_field_sets(
-    policy_documents_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 3 and decision A, as the literals the tool puts on the wire.
 
@@ -255,62 +225,61 @@ def test_the_corpus_comes_back_one_row_per_slug_with_the_exact_two_field_sets(
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _tenant(factory, "shape")
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-access-policy",
-                title="Fake Access Policy",
-                version="v1",
-                is_current=False,
-                ingested_at=BASE_INSTANT,
-                chunks=2,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-access-policy",
-                title="Fake Access Policy",
-                version="v2",
-                is_current=True,
-                ingested_at=BASE_INSTANT + timedelta(days=1),
-                chunks=3,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-leave-policy",
-                title="Fake Leave Policy",
-                version="v1",
-                is_current=True,
-                ingested_at=BASE_INSTANT,
-                chunks=1,
-            )
+        factory = session_factory
+        tenant_id = await _tenant(factory, "shape")
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-access-policy",
+            title="Fake Access Policy",
+            version="v1",
+            is_current=False,
+            ingested_at=BASE_INSTANT,
+            chunks=2,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-access-policy",
+            title="Fake Access Policy",
+            version="v2",
+            is_current=True,
+            ingested_at=BASE_INSTANT + timedelta(days=1),
+            chunks=3,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-leave-policy",
+            title="Fake Leave Policy",
+            version="v1",
+            is_current=True,
+            ingested_at=BASE_INSTANT,
+            chunks=1,
+        )
 
-            documents = await _read(factory, tenant_id)
+        documents = await _read(factory, tenant_id)
 
-            assert len(documents) == 2, documents
-            for document in documents:
-                assert _field_names(document) == DOCUMENT_FIELDS
-                for version in document.versions:
-                    assert _field_names(version) == VERSION_FIELDS
+        assert len(documents) == 2, documents
+        for document in documents:
+            assert _field_names(document) == DOCUMENT_FIELDS
+            for version in document.versions:
+                assert _field_names(version) == VERSION_FIELDS
 
-            access = _one(documents, "fake-access-policy")
-            assert [version.version for version in access.versions] == ["v2", "v1"]
-            current, previous = _versions(access)
-            assert current.is_current is True
-            assert previous.is_current is False
-            assert current.chunk_count == 3
-            assert previous.chunk_count == 2
-            assert current.source_path == "policies/fake/v2/fake-access-policy.md"
-            assert previous.source_path == "policies/fake/v1/fake-access-policy.md"
-            assert current.sha256 != previous.sha256
-            assert len(current.sha256) == 64
+        access = _one(documents, "fake-access-policy")
+        assert [version.version for version in access.versions] == ["v2", "v1"]
+        current, previous = _versions(access)
+        assert current.is_current is True
+        assert previous.is_current is False
+        assert current.chunk_count == 3
+        assert previous.chunk_count == 2
+        assert current.source_path == "policies/fake/v2/fake-access-policy.md"
+        assert previous.source_path == "policies/fake/v1/fake-access-policy.md"
+        assert current.sha256 != previous.sha256
+        assert len(current.sha256) == 64
 
-            leave = _one(documents, "fake-leave-policy")
-            assert [version.version for version in leave.versions] == ["v1"]
+        leave = _one(documents, "fake-leave-policy")
+        assert [version.version for version in leave.versions] == ["v1"]
 
     asyncio.run(scenario())
 
@@ -319,7 +288,7 @@ def test_the_corpus_comes_back_one_row_per_slug_with_the_exact_two_field_sets(
 
 
 def test_the_documents_are_slug_ascending_and_the_versions_ingested_at_descending(
-    policy_documents_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 5 and decision C, asserted as exact sequences.
 
@@ -340,59 +309,58 @@ def test_the_documents_are_slug_ascending_and_the_versions_ingested_at_descendin
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _tenant(factory, "order")
-            # Planted last-first: the slug that must come SECOND, then the one
-            # that must come first. Their titles sort the other way round.
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-zz-retention",
-                title="Aaa Fake Retention Standard",
-                version="v1",
-                is_current=True,
-                ingested_at=BASE_INSTANT,
-                chunks=1,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-aa-access",
-                title="Zzz Fake Access Standard",
-                version="v2",
-                is_current=False,
-                ingested_at=BASE_INSTANT,
-                chunks=1,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-aa-access",
-                title="Zzz Fake Access Standard",
-                version="v10",
-                is_current=True,
-                ingested_at=BASE_INSTANT + timedelta(days=30),
-                chunks=1,
-            )
+        factory = session_factory
+        tenant_id = await _tenant(factory, "order")
+        # Planted last-first: the slug that must come SECOND, then the one
+        # that must come first. Their titles sort the other way round.
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-zz-retention",
+            title="Aaa Fake Retention Standard",
+            version="v1",
+            is_current=True,
+            ingested_at=BASE_INSTANT,
+            chunks=1,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-aa-access",
+            title="Zzz Fake Access Standard",
+            version="v2",
+            is_current=False,
+            ingested_at=BASE_INSTANT,
+            chunks=1,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-aa-access",
+            title="Zzz Fake Access Standard",
+            version="v10",
+            is_current=True,
+            ingested_at=BASE_INSTANT + timedelta(days=30),
+            chunks=1,
+        )
 
-            documents = await _read(factory, tenant_id)
+        documents = await _read(factory, tenant_id)
 
-            assert [document.slug for document in documents] == [
-                "fake-aa-access",
-                "fake-zz-retention",
-            ]
-            assert [version.version for version in documents[0].versions] == ["v10", "v2"]
-            assert [version.ingested_at for version in documents[0].versions] == [
-                BASE_INSTANT + timedelta(days=30),
-                BASE_INSTANT,
-            ]
+        assert [document.slug for document in documents] == [
+            "fake-aa-access",
+            "fake-zz-retention",
+        ]
+        assert [version.version for version in documents[0].versions] == ["v10", "v2"]
+        assert [version.ingested_at for version in documents[0].versions] == [
+            BASE_INSTANT + timedelta(days=30),
+            BASE_INSTANT,
+        ]
 
     asyncio.run(scenario())
 
 
 def test_two_versions_ingested_at_one_instant_are_tiebroken_by_version_descending(
-    policy_documents_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 5's tie-break, on the case section 5 says is real: two versions
     of one document ingested in a single transaction.
@@ -412,26 +380,25 @@ def test_two_versions_ingested_at_one_instant_are_tiebroken_by_version_descendin
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _tenant(factory, "tiebreak")
-            for version in ("v2", "v3"):
-                await _plant_version(
-                    factory,
-                    tenant_id,
-                    slug="fake-tiebreak-policy",
-                    title="Fake Tiebreak Policy",
-                    version=version,
-                    is_current=version == "v3",
-                    ingested_at=BASE_INSTANT,
-                    chunks=1,
-                )
+        factory = session_factory
+        tenant_id = await _tenant(factory, "tiebreak")
+        for version in ("v2", "v3"):
+            await _plant_version(
+                factory,
+                tenant_id,
+                slug="fake-tiebreak-policy",
+                title="Fake Tiebreak Policy",
+                version=version,
+                is_current=version == "v3",
+                ingested_at=BASE_INSTANT,
+                chunks=1,
+            )
 
-            documents = await _read(factory, tenant_id)
+        documents = await _read(factory, tenant_id)
 
-            tied = _one(documents, "fake-tiebreak-policy")
-            assert [version.version for version in tied.versions] == ["v3", "v2"]
-            assert {version.ingested_at for version in tied.versions} == {BASE_INSTANT}
+        tied = _one(documents, "fake-tiebreak-policy")
+        assert [version.version for version in tied.versions] == ["v3", "v2"]
+        assert {version.ingested_at for version in tied.versions} == {BASE_INSTANT}
 
     asyncio.run(scenario())
 
@@ -440,7 +407,7 @@ def test_two_versions_ingested_at_one_instant_are_tiebroken_by_version_descendin
 
 
 def test_each_versions_chunk_count_is_exact_and_a_version_with_no_chunk_is_kept(
-    policy_documents_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 7 and decision B: the failure this page exists to catch.
 
@@ -460,47 +427,46 @@ def test_each_versions_chunk_count_is_exact_and_a_version_with_no_chunk_is_kept(
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _tenant(factory, "chunks")
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-half-ingested",
-                title="Fake Half Ingested Policy",
-                version="v1",
-                is_current=False,
-                ingested_at=BASE_INSTANT,
-                chunks=3,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-half-ingested",
-                title="Fake Half Ingested Policy",
-                version="v2",
-                is_current=True,
-                ingested_at=BASE_INSTANT + timedelta(hours=1),
-                chunks=0,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-whole-policy",
-                title="Fake Whole Policy",
-                version="v1",
-                is_current=True,
-                ingested_at=BASE_INSTANT,
-                chunks=5,
-            )
+        factory = session_factory
+        tenant_id = await _tenant(factory, "chunks")
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-half-ingested",
+            title="Fake Half Ingested Policy",
+            version="v1",
+            is_current=False,
+            ingested_at=BASE_INSTANT,
+            chunks=3,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-half-ingested",
+            title="Fake Half Ingested Policy",
+            version="v2",
+            is_current=True,
+            ingested_at=BASE_INSTANT + timedelta(hours=1),
+            chunks=0,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-whole-policy",
+            title="Fake Whole Policy",
+            version="v1",
+            is_current=True,
+            ingested_at=BASE_INSTANT,
+            chunks=5,
+        )
 
-            documents = await _read(factory, tenant_id)
+        documents = await _read(factory, tenant_id)
 
-            half = _one(documents, "fake-half-ingested")
-            assert [version.version for version in half.versions] == ["v2", "v1"]
-            assert [version.chunk_count for version in half.versions] == [0, 3]
-            whole = _one(documents, "fake-whole-policy")
-            assert [version.chunk_count for version in whole.versions] == [5]
+        half = _one(documents, "fake-half-ingested")
+        assert [version.version for version in half.versions] == ["v2", "v1"]
+        assert [version.chunk_count for version in half.versions] == [0, 3]
+        whole = _one(documents, "fake-whole-policy")
+        assert [version.chunk_count for version in whole.versions] == [5]
 
     asyncio.run(scenario())
 
@@ -509,7 +475,7 @@ def test_each_versions_chunk_count_is_exact_and_a_version_with_no_chunk_is_kept(
 
 
 def test_the_title_is_the_current_versions_even_when_another_version_is_newer(
-    policy_documents_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 4's first half: a re-titled document reads as its LIVE title.
 
@@ -526,44 +492,43 @@ def test_the_title_is_the_current_versions_even_when_another_version_is_newer(
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _tenant(factory, "title-current")
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-retitled-policy",
-                title="Fake Live Title",
-                version="v1",
-                is_current=True,
-                ingested_at=BASE_INSTANT,
-                chunks=1,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-retitled-policy",
-                title="Fake Newer But Not Current Title",
-                version="v2",
-                is_current=False,
-                ingested_at=BASE_INSTANT + timedelta(days=7),
-                chunks=1,
-            )
+        factory = session_factory
+        tenant_id = await _tenant(factory, "title-current")
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-retitled-policy",
+            title="Fake Live Title",
+            version="v1",
+            is_current=True,
+            ingested_at=BASE_INSTANT,
+            chunks=1,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-retitled-policy",
+            title="Fake Newer But Not Current Title",
+            version="v2",
+            is_current=False,
+            ingested_at=BASE_INSTANT + timedelta(days=7),
+            chunks=1,
+        )
 
-            documents = await _read(factory, tenant_id)
+        documents = await _read(factory, tenant_id)
 
-            retitled = _one(documents, "fake-retitled-policy")
-            assert retitled.title == "Fake Live Title"
-            # The newest-ingested version is still LISTED; only the title
-            # comes from the current one.
-            assert [version.version for version in retitled.versions] == ["v2", "v1"]
-            assert [version.is_current for version in retitled.versions] == [False, True]
+        retitled = _one(documents, "fake-retitled-policy")
+        assert retitled.title == "Fake Live Title"
+        # The newest-ingested version is still LISTED; only the title
+        # comes from the current one.
+        assert [version.version for version in retitled.versions] == ["v2", "v1"]
+        assert [version.is_current for version in retitled.versions] == [False, True]
 
     asyncio.run(scenario())
 
 
 def test_a_document_with_no_current_version_appears_with_every_flag_false(
-    policy_documents_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criteria 4 (second half) and 6: the half-finished ingest is rendered.
 
@@ -585,49 +550,48 @@ def test_a_document_with_no_current_version_appears_with_every_flag_false(
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _tenant(factory, "no-current")
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-orphaned-policy",
-                title="Fake Newest Orphan Title",
-                version="v2",
-                is_current=False,
-                ingested_at=BASE_INSTANT + timedelta(days=2),
-                chunks=1,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-orphaned-policy",
-                title="Fake Older Orphan Title",
-                version="v1",
-                is_current=False,
-                ingested_at=BASE_INSTANT,
-                chunks=1,
-            )
-            await _plant_version(
-                factory,
-                tenant_id,
-                slug="fake-settled-policy",
-                title="Fake Settled Policy",
-                version="v1",
-                is_current=True,
-                ingested_at=BASE_INSTANT,
-                chunks=1,
-            )
+        factory = session_factory
+        tenant_id = await _tenant(factory, "no-current")
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-orphaned-policy",
+            title="Fake Newest Orphan Title",
+            version="v2",
+            is_current=False,
+            ingested_at=BASE_INSTANT + timedelta(days=2),
+            chunks=1,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-orphaned-policy",
+            title="Fake Older Orphan Title",
+            version="v1",
+            is_current=False,
+            ingested_at=BASE_INSTANT,
+            chunks=1,
+        )
+        await _plant_version(
+            factory,
+            tenant_id,
+            slug="fake-settled-policy",
+            title="Fake Settled Policy",
+            version="v1",
+            is_current=True,
+            ingested_at=BASE_INSTANT,
+            chunks=1,
+        )
 
-            documents = await _read(factory, tenant_id)
+        documents = await _read(factory, tenant_id)
 
-            orphaned = _one(documents, "fake-orphaned-policy")
-            assert [version.is_current for version in orphaned.versions] == [False, False]
-            assert orphaned.title == "Fake Newest Orphan Title"
-            assert [version.version for version in orphaned.versions] == ["v2", "v1"]
+        orphaned = _one(documents, "fake-orphaned-policy")
+        assert [version.is_current for version in orphaned.versions] == [False, False]
+        assert orphaned.title == "Fake Newest Orphan Title"
+        assert [version.version for version in orphaned.versions] == ["v2", "v1"]
 
-            settled = _one(documents, "fake-settled-policy")
-            assert [version.is_current for version in settled.versions] == [True]
+        settled = _one(documents, "fake-settled-policy")
+        assert [version.is_current for version in settled.versions] == [True]
 
     asyncio.run(scenario())
 
@@ -636,7 +600,7 @@ def test_a_document_with_no_current_version_appears_with_every_flag_false(
 
 
 def test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests(
-    policy_documents_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 8 and section 5's first risk, said out loud.
 
@@ -660,66 +624,65 @@ def test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests(
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            reader = await _tenant(factory, "iso-reader")
-            other = await _tenant(factory, "iso-other")
-            await _plant_version(
-                factory,
-                reader,
-                slug="fake-shared-slug",
-                title="Fake Reader Title",
-                version="v1",
-                is_current=True,
-                ingested_at=BASE_INSTANT,
-                chunks=2,
-                digest_label="reader-v1",
-            )
-            await _plant_version(
-                factory,
-                other,
-                slug="fake-shared-slug",
-                title="Fake Other Tenant Title",
-                version="v1",
-                is_current=True,
-                ingested_at=BASE_INSTANT + timedelta(days=1),
-                chunks=7,
-                digest_label="other-v1",
-            )
-            await _plant_version(
-                factory,
-                other,
-                slug="fake-other-only-slug",
-                title="Fake Other Only Title",
-                version="v1",
-                is_current=True,
-                ingested_at=BASE_INSTANT,
-                chunks=4,
-                digest_label="other-only-v1",
-            )
+        factory = session_factory
+        reader = await _tenant(factory, "iso-reader")
+        other = await _tenant(factory, "iso-other")
+        await _plant_version(
+            factory,
+            reader,
+            slug="fake-shared-slug",
+            title="Fake Reader Title",
+            version="v1",
+            is_current=True,
+            ingested_at=BASE_INSTANT,
+            chunks=2,
+            digest_label="reader-v1",
+        )
+        await _plant_version(
+            factory,
+            other,
+            slug="fake-shared-slug",
+            title="Fake Other Tenant Title",
+            version="v1",
+            is_current=True,
+            ingested_at=BASE_INSTANT + timedelta(days=1),
+            chunks=7,
+            digest_label="other-v1",
+        )
+        await _plant_version(
+            factory,
+            other,
+            slug="fake-other-only-slug",
+            title="Fake Other Only Title",
+            version="v1",
+            is_current=True,
+            ingested_at=BASE_INSTANT,
+            chunks=4,
+            digest_label="other-only-v1",
+        )
 
-            reader_documents = await _read(factory, reader)
-            other_documents = await _read(factory, other)
+        reader_documents = await _read(factory, reader)
+        other_documents = await _read(factory, other)
 
-            shared = _one(reader_documents, "fake-shared-slug")
-            assert shared.title == "Fake Reader Title"
-            assert [version.chunk_count for version in shared.versions] == [2]
-            assert [version.sha256 for version in shared.versions] == [_digest("reader-v1")]
-            titles = {document.title for document in reader_documents}
-            digests = {
-                version.sha256 for document in reader_documents for version in document.versions
-            }
-            assert "Fake Other Tenant Title" not in titles
-            assert "Fake Other Only Title" not in titles
-            assert _digest("other-v1") not in digests
-            assert _digest("other-only-v1") not in digests
-            assert [document.slug for document in reader_documents] == ["fake-shared-slug"]
+        shared = _one(reader_documents, "fake-shared-slug")
+        assert shared.title == "Fake Reader Title"
+        assert [version.chunk_count for version in shared.versions] == [2]
+        assert [version.sha256 for version in shared.versions] == [_digest("reader-v1")]
+        titles = {document.title for document in reader_documents}
+        digests = {
+            version.sha256 for document in reader_documents for version in document.versions
+        }
+        assert "Fake Other Tenant Title" not in titles
+        assert "Fake Other Only Title" not in titles
+        assert _digest("other-v1") not in digests
+        assert _digest("other-only-v1") not in digests
+        assert [document.slug for document in reader_documents] == ["fake-shared-slug"]
 
-            assert [document.slug for document in other_documents] == [
-                "fake-other-only-slug",
-                "fake-shared-slug",
-            ]
-            assert _one(other_documents, "fake-shared-slug").title == "Fake Other Tenant Title"
+        assert [document.slug for document in other_documents] == [
+            "fake-other-only-slug",
+            "fake-shared-slug",
+        ]
+        assert _one(other_documents, "fake-shared-slug").title == "Fake Other Tenant Title"
 
     asyncio.run(scenario())
 
@@ -727,7 +690,9 @@ def test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests(
 # --- a tenant with no corpus (criterion 9) ---------------------------------------
 
 
-def test_a_tenant_with_no_corpus_answers_an_empty_tuple(policy_documents_db_url: str) -> None:
+def test_a_tenant_with_no_corpus_answers_an_empty_tuple(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """Criterion 9's first half: an empty corpus is an answer, never a failure.
 
     KILL: a helper that raises on the empty read - a `.one()` on the document
@@ -739,13 +704,12 @@ def test_a_tenant_with_no_corpus_answers_an_empty_tuple(policy_documents_db_url:
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _tenant(factory, "empty")
+        factory = session_factory
+        tenant_id = await _tenant(factory, "empty")
 
-            documents = await _read(factory, tenant_id)
+        documents = await _read(factory, tenant_id)
 
-            assert documents == ()
+        assert documents == ()
 
     asyncio.run(scenario())
 
@@ -753,7 +717,10 @@ def test_a_tenant_with_no_corpus_answers_an_empty_tuple(policy_documents_db_url:
 # --- two statements, whatever the corpus size (section 2) ------------------------
 
 
-def test_the_whole_read_issues_exactly_two_selects(policy_documents_db_url: str) -> None:
+def test_the_whole_read_issues_exactly_two_selects(
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
+) -> None:
     """Section 2's count, taken off the engine rather than read off the source.
 
     KILL: the obvious count - one `SELECT count(*)` per VERSION, which is five
@@ -769,39 +736,39 @@ def test_the_whole_read_issues_exactly_two_selects(policy_documents_db_url: str)
     """
 
     async def scenario() -> None:
-        async with _engine(policy_documents_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _tenant(factory, "count")
-            for slug, version, instant, chunks in (
-                ("fake-count-a", "v1", BASE_INSTANT, 2),
-                ("fake-count-a", "v2", BASE_INSTANT + timedelta(days=1), 3),
-                ("fake-count-b", "v1", BASE_INSTANT, 0),
-                ("fake-count-c", "v1", BASE_INSTANT, 1),
-            ):
-                await _plant_version(
-                    factory,
-                    tenant_id,
-                    slug=slug,
-                    title=f"Fake Counted Policy {slug}",
-                    version=version,
-                    is_current=version != "v1" or slug != "fake-count-a",
-                    ingested_at=instant,
-                    chunks=chunks,
-                )
+        factory = session_factory
+        engine = shared_engine
+        tenant_id = await _tenant(factory, "count")
+        for slug, version, instant, chunks in (
+            ("fake-count-a", "v1", BASE_INSTANT, 2),
+            ("fake-count-a", "v2", BASE_INSTANT + timedelta(days=1), 3),
+            ("fake-count-b", "v1", BASE_INSTANT, 0),
+            ("fake-count-c", "v1", BASE_INSTANT, 1),
+        ):
+            await _plant_version(
+                factory,
+                tenant_id,
+                slug=slug,
+                title=f"Fake Counted Policy {slug}",
+                version=version,
+                is_current=version != "v1" or slug != "fake-count-a",
+                ingested_at=instant,
+                chunks=chunks,
+            )
 
-            warm_up = await _read(factory, tenant_id)
-            assert len(warm_up) == 3, warm_up
+        warm_up = await _read(factory, tenant_id)
+        assert len(warm_up) == 3, warm_up
 
-            statements: list[str] = []
-            _watch(engine, statements)
-            documents = await _read(factory, tenant_id)
+        statements: list[str] = []
+        _watch(engine, statements)
+        documents = await _read(factory, tenant_id)
 
-            assert len(documents) == 3, documents
-            assert sum(len(document.versions) for document in documents) == 4
-            assert statements, "the statement counter never fired"
-            assert len(statements) == EXPECTED_STATEMENTS, statements
-            for statement in statements:
-                assert statement.lstrip().upper().startswith("SELECT"), statement
+        assert len(documents) == 3, documents
+        assert sum(len(document.versions) for document in documents) == 4
+        assert statements, "the statement counter never fired"
+        assert len(statements) == EXPECTED_STATEMENTS, statements
+        for statement in statements:
+            assert statement.lstrip().upper().startswith("SELECT"), statement
 
     asyncio.run(scenario())
 

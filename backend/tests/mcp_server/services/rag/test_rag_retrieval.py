@@ -65,7 +65,7 @@ from helpdesk.mcp_server.services.rag.vectors import (
     supersede_points,
     upsert_chunks,
 )
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.services.policy_docs.naming import (
     MAX_QUERY_CHARS,
@@ -79,9 +79,8 @@ from tests.mcp_server.services.rag.test_rag_vectors import (
     qdrant_url,  # noqa: F401
 )
 
-# Imported, not redefined: one database, one Qdrant connectivity gate for the
-# whole run.
-from tests.shared.models.test_policy_models import policy_db_url  # noqa: F401
+# Imported, not redefined: one Qdrant connectivity gate for the whole run
+#. The database comes from the shared `session_factory`.
 from tests.support.seed import seed_tenant
 
 INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
@@ -92,27 +91,21 @@ INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
 
 @pytest.fixture(scope="session")
 def retrieval_tenant(
-    policy_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
     qdrant_url: str,  # noqa: F811
 ) -> Iterator[tuple[str, uuid.UUID]]:
     """One seeded tenant for the whole file, and its collection, dropped twice.
 
-    A tenant of its own rather than `test_policy_models.py`'s two: the
-    collection is named after the tenant slug, so a slug nothing else ingests
-    IS the namespace. Dropped before as well as after, so a
-    previous run's points can neither hide a filter bug nor invent one.
+    A tenant of its own on the shared database: the collection is named after
+    the tenant slug, so a slug nothing else ingests IS the namespace (standing
+    rule 7). Dropped before as well as after, so a previous run's points can
+    neither hide a filter bug nor invent one.
     """
-    slug = f"fake-retrieval-{uuid.uuid4().hex[:8]}"
+    async def prepare() -> tuple[str, uuid.UUID]:
+        seeded = await seed_tenant(session_factory, "fake-retrieval")
+        return seeded.tenant_slug, seeded.tenant_id
 
-    async def prepare() -> uuid.UUID:
-        engine = create_engine(policy_db_url)
-        try:
-            seeded = await seed_tenant(create_session_factory(engine), slug)
-            return seeded.tenant_id
-        finally:
-            await engine.dispose()
-
-    tenant_id = asyncio.run(prepare())
+    slug, tenant_id = asyncio.run(prepare())
     name = collection_name(slug)
     httpx.delete(f"{qdrant_url}/collections/{name}", timeout=30.0)
     yield slug, tenant_id
@@ -258,32 +251,29 @@ async def _plant(
 
 
 def _drive[T](
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     work: Callable[[async_sessionmaker[AsyncSession], AsyncQdrantClient], Awaitable[T]],
 ) -> T:
-    """One engine and one Qdrant client, both inside this case's event loop."""
+    """The shared factory and one Qdrant client, both inside this case's event loop."""
 
     async def scenario() -> T:
-        engine = create_engine(url)
         client = create_client(_settings())
         try:
-            return await work(create_session_factory(engine), client)
+            return await work(factory, client)
         finally:
             await client.close()
-            await engine.dispose()
 
     return asyncio.run(scenario())
 
 
-def _drive_db[T](url: str, work: Callable[[async_sessionmaker[AsyncSession]], Awaitable[T]]) -> T:
+def _drive_db[T](
+    factory: async_sessionmaker[AsyncSession],
+    work: Callable[[async_sessionmaker[AsyncSession]], Awaitable[T]],
+) -> T:
     """The same, for the cases that must never reach the store at all."""
 
     async def scenario() -> T:
-        engine = create_engine(url)
-        try:
-            return await work(create_session_factory(engine))
-        finally:
-            await engine.dispose()
+        return await work(factory)
 
     return asyncio.run(scenario())
 
@@ -364,7 +354,7 @@ def test_check_query_refuses_an_empty_or_oversized_query(value: str, label: str)
     ],
 )
 def test_a_refused_argument_reaches_neither_the_store_nor_the_embedder(
-    policy_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
     retrieval_tenant: tuple[str, uuid.UUID],
     top_k: int,
     query: str,
@@ -391,7 +381,7 @@ def test_a_refused_argument_reaches_neither_the_store_nor_the_embedder(
                 )
             return excinfo.value.code
 
-    code = _drive_db(policy_db_url, work)
+    code = _drive_db(session_factory, work)
 
     assert code is ErrorCode.VALIDATION
     assert store.calls == [], "the refused call reached the store"
@@ -402,7 +392,7 @@ def test_a_refused_argument_reaches_neither_the_store_nor_the_embedder(
 
 
 def test_each_arm_asks_for_the_candidate_count_against_its_own_named_vector(
-    policy_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
     retrieval_tenant: tuple[str, uuid.UUID],
 ) -> None:
     """Catches an arm that fetches `top_k` candidates instead of 30 (decision
@@ -424,7 +414,7 @@ def test_each_arm_asks_for_the_candidate_count_against_its_own_named_vector(
             )
         return store.calls
 
-    calls = _drive_db(policy_db_url, work)
+    calls = _drive_db(session_factory, work)
 
     queries = [kwargs for name, kwargs in calls if name == "query_points"]
     assert len(queries) == 2, calls
@@ -436,7 +426,7 @@ def test_each_arm_asks_for_the_candidate_count_against_its_own_named_vector(
 
 
 def test_only_the_current_version_comes_back_after_a_supersede(
-    policy_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
     retrieval_tenant: tuple[str, uuid.UUID],
 ) -> None:
     """Catches an arm built without the `is_current` filter: both versions of
@@ -504,7 +494,7 @@ def test_only_the_current_version_comes_back_after_a_supersede(
             )
         return citations, stored_v1
 
-    citations, stored_v1 = _drive(policy_db_url, work)
+    citations, stored_v1 = _drive(session_factory, work)
 
     # The premise: the superseded points are still in the collection, so what
     # follows is the filter doing its job and not a deletion.
@@ -516,7 +506,7 @@ def test_only_the_current_version_comes_back_after_a_supersede(
 
 
 def test_the_page_is_never_longer_than_top_k(
-    policy_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
     retrieval_tenant: tuple[str, uuid.UUID],
 ) -> None:
     """Catches a search that returns both arms' candidates concatenated, or
@@ -552,7 +542,7 @@ def test_the_page_is_never_longer_than_top_k(
             )
         return citations, len(planted.point_ids)
 
-    citations, planted_count = _drive(policy_db_url, work)
+    citations, planted_count = _drive(session_factory, work)
 
     # The premise: more matching chunks exist than the page asked for.
     assert planted_count == 8
@@ -560,7 +550,7 @@ def test_the_page_is_never_longer_than_top_k(
 
 
 def test_an_unreachable_store_is_typed_internal_without_naming_the_store(
-    policy_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
     retrieval_tenant: tuple[str, uuid.UUID],
 ) -> None:
     """Catches arms issued outside `vectors.py`'s `_translated`: the raw
@@ -574,11 +564,9 @@ def test_an_unreachable_store_is_typed_internal_without_naming_the_store(
     )
 
     async def scenario() -> tuple[ErrorCode, str]:
-        engine = create_engine(policy_db_url)
         client = create_client(settings)
         try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
+            async with tenant_session(session_factory, tenant_id) as session:
                 with pytest.raises(VectorStoreUnavailableError) as excinfo:
                     await search_policy_chunks(
                         session,
@@ -590,7 +578,6 @@ def test_an_unreachable_store_is_typed_internal_without_naming_the_store(
                 return excinfo.value.code, str(excinfo.value)
         finally:
             await client.close()
-            await engine.dispose()
 
     code, message = asyncio.run(scenario())
 
