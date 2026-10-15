@@ -31,9 +31,9 @@ microsecond later is not, and `now` exactly is not — that row is
 `expire_grants`', and warning about a grant in the same tick that ends it
 would put two contradictory rows in one person's bell.
 
-a project rule: ONE session-scoped database for the whole run, imported from
-`test_access_expiry.py` rather than rebuilt — the fixture there creates the
-schema exactly once. Per-test isolation is a namespace, not a rebuild: this
+a project rule: the session factory is the shared one from `conftest.py` --
+one engine for the whole run, schema created once. Per-test isolation is a
+namespace, not a rebuild: this
 job sweeps a whole tenant, so every case seeds a tenant of its OWN with
 `_seed.seed_tenant` and no case can see another's rows. `seed_tenant`'s own
 grant carries a NULL `expires_at`, so it is never warned and every "no rows"

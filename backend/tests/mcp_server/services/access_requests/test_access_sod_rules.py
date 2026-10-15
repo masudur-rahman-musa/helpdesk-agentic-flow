@@ -28,8 +28,9 @@ The plan names the two field sets but not the carrier (a frozen dataclass, as
 still asserted while the choice stays the implementer's - a value the plan left
 open, recorded here rather than invented.
 
-a project rule: ONE session-scoped database, its schema created exactly once.
-Per-test isolation is a namespace, never a rebuild - every case seeds a tenant
+a project rule: the engine and session factory are the shared ones from
+`conftest.py` - one engine for the whole run, schema created once. Per-test
+isolation is a namespace, never a rebuild - every case seeds a tenant
 of its OWN with `_seed.seed_tenant`, so no case can read another's rules.
 `seed_tenant` plants exactly one `sod_rules` row per tenant (role A against
 role B, `policy_ref` "POL-TEST-1"), and every expectation below is written as
@@ -351,8 +352,9 @@ def test_a_rule_naming_no_role_row_answers_that_side_null_and_keeps_its_id(
 
     `sod_rules.role_a_id` carries a foreign key to `roles.id`, so a dangling
     reference cannot be inserted while the constraint stands. It is dropped
-    and restored around the plant, on this file's own throwaway database:
-    dropping it permanently would silently weaken every other case here.
+    and restored around the plant on the shared conftest database, restored
+    in this test's own `finally` and with the suite running one test at a
+    time: dropping it permanently would silently weaken every other case here.
     """
 
     async def scenario() -> None:

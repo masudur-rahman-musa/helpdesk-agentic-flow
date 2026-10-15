@@ -39,8 +39,9 @@ rule 39):
   `_field_names` below reads either, so the exact field set is still asserted
   while the choice stays the implementer's.
 
-a project rule: ONE session-scoped database, its schema created exactly once.
-Per-test isolation is a namespace, never a rebuild - every case plants a
+a project rule: the engine and session factory are the shared ones from
+`conftest.py` - one engine for the whole run, schema created once. Per-test
+isolation is a namespace, never a rebuild - every case plants a
 tenant of its OWN and its own corpus, so no case can read another's documents.
 `_seed.seed_tenant` plants no `policy_documents` row at all, which is why a
 bare tenant is the empty-corpus fixture and every expectation below is exactly

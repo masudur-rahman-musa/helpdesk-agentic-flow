@@ -32,9 +32,9 @@ must provide exactly this):
     an OPEN review for that period is skipped (`ReviewAlreadyOpenError` is
     caught, decision A) and every other failure raises to the runner.
 
-a project rule: ONE session-scoped database for the whole run, imported from
-`test_access_expiry.py` rather than rebuilt — the schema is created there
-exactly once. Per-test isolation is a namespace, not a rebuild: this job
+a project rule: the session factory is the shared one from `conftest.py` --
+one engine for the whole run, schema created once. Per-test isolation is a
+namespace, not a rebuild: this job
 sweeps a whole tenant, so every case seeds a tenant of its OWN with
 `_seed.seed_tenant` and no case can see another's rows.
 

@@ -22,8 +22,9 @@ Expected implementation surface (the implementer must provide exactly this):
         constructed here, as `pipeline.py` already does it (decision D).
         An unreachable store raises ``VectorStoreUnavailableError``.
 
-a project rule: Postgres is `test_policy_models.py`'s session-scoped
-`policy_db_url` and Qdrant is the compose instance, neither rebuilt. Per-test
+a project rule: Postgres comes from the shared conftest `session_factory`
+-- one engine for the whole run, schema created once -- and Qdrant is the
+compose instance. Per-test
 isolation is a namespace — this file seeds ONE tenant of its own, whose slug
 is the collection name, and every case plants its own uuid-suffixed document
 slug inside it. The collection is dropped at both ends of the session.

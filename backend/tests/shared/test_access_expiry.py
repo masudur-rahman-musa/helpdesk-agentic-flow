@@ -31,8 +31,9 @@ Decision D is the boundary this file exists for: `expires_at <= now`, the
 exact complement of `core.repository.is_live_grant`'s `expires_at > now`, so
 a grant is never both not-live and not-expired.
 
-a project rule: ONE session-scoped database, schema created once. Per-test
-isolation is a namespace, not a rebuild — `expire_grants` sweeps a whole
+a project rule: the engine and session factory are the shared ones from
+`conftest.py` -- one engine for the whole run, schema created once. Per-test
+isolation is a namespace, not a rebuild -- `expire_grants` sweeps a whole
 tenant, so every case seeds a tenant of its OWN with `_seed.seed_tenant` and
 no case can see another's rows.
 

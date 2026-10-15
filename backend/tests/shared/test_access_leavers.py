@@ -30,9 +30,9 @@ revocation in the log as a system one. That is what the two "default
 preserved" cases below exist for, and they call the engines exactly the way
 the MCP tools do.
 
-a project rule: ONE session-scoped database for the whole run, imported from
-`test_access_expiry.py` rather than rebuilt. Per-test isolation is a
-namespace, not a rebuild — this job sweeps a whole tenant, so every case seeds
+a project rule: the session factory is the shared one from `conftest.py` --
+one engine for the whole run, schema created once. Per-test isolation is a
+namespace, not a rebuild -- this job sweeps a whole tenant, so every case seeds
 a tenant of its OWN with `_seed.seed_tenant`. That seeded tenant's only user
 is `active` with a NULL `end_date`, so it is never due and every count below
 stays exact.

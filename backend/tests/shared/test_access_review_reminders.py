@@ -34,8 +34,8 @@ reminder. `test_running_the_job_twice_writes_two_reminders_for_one_review`
 states that as the intended behaviour rather than leaving it to be discovered
 as a bug.
 
-a project rule: ONE session-scoped database for the whole run, imported from
-`test_access_expiry.py` rather than rebuilt. Per-test isolation is a
+a project rule: the session factory is the shared one from `conftest.py` --
+one engine for the whole run, schema created once. Per-test isolation is a
 namespace, not a rebuild: this job sweeps a whole tenant, so every case seeds
 a tenant of its OWN with `_seed.seed_tenant`. That seeded tenant holds no
 review at all and its only user carries `["employee"]` — read off `_seed.py`,

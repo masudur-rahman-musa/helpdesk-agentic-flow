@@ -48,8 +48,9 @@ same fixtures (no new fixture, a project rule):
     ``helpdesk.errors.NotFoundError`` (``ErrorCode.NOT_FOUND``) for a row
     that is absent or belongs to somebody else.
 
-a project rule: ONE session-scoped database and one session-scoped foreign
-tenant, built once. Per-test isolation is a namespace, not a rebuild — every
+a project rule: the session factory is the shared one from `conftest.py` --
+one engine for the whole run, schema created once -- and one session-scoped
+foreign tenant, built once. Per-test isolation is a namespace, not a rebuild -- every
 case seeds its OWN tenant with `_seed.seed_tenant` and asserts over that
 tenant's rows only, so no case can see another's notifications.
 
