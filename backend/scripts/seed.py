@@ -34,6 +34,7 @@ import asyncio
 import hashlib
 import unicodedata
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
@@ -708,18 +709,36 @@ def generate_tenant(spec: TenantSpec) -> TenantRows:
 
 class _SeedRepository[M: TenantScoped](Repository[M]):
     """Seed-local upsert: insert-when-absent by deterministic id (an earlier change
-    decision D). Never updates an existing row, so re-runs are no-ops. The
+    decision D). Never updates an existing row, so re-runs are no-ops
+    (`test_seed.py::test_upsert_many_leaves_an_existing_row_untouched`). The
     core `Repository.create` rejects caller-set ids on purpose; the seed is
     the one writer whose ids are part of its contract."""
 
-    async def upsert(self, id: uuid.UUID, /, **fields: object) -> M:
-        existing = await self.get(id)
-        if existing is not None:
-            return existing
-        obj = self._model(id=id, tenant_id=bound_tenant_id(self._session), **fields)
-        self._session.add(obj)
-        await self._session.flush()
-        return obj
+    async def upsert_many(
+        self, rows: Mapping[uuid.UUID, Mapping[str, object]], /
+    ) -> dict[uuid.UUID, M]:
+        """Insert every absent row of one table in a single batch.
+
+        One `get_many` read finds the ids already there, then one flush adds
+        the rest, instead of a read and a flush per row
+        (`test_seed.py::test_a_seed_sends_at_most_100_statements`,
+        `::test_a_reseed_sends_at_most_100_statements`). Returns every row by
+        id, existing ones untouched. An empty batch sends nothing
+        (`::test_upsert_many_with_no_rows_sends_no_statement`).
+        """
+        if not rows:
+            return {}
+        found = await self.get_many(rows.keys())
+        tenant_id = bound_tenant_id(self._session)
+        added = {
+            id: self._model(id=id, tenant_id=tenant_id, **fields)
+            for id, fields in rows.items()
+            if id not in found
+        }
+        if added:
+            self._session.add_all(added.values())
+            await self._session.flush()
+        return found | added
 
 
 def _password_hashes(rows: TenantRows) -> dict[uuid.UUID, str]:
@@ -744,98 +763,127 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
     grants = _SeedRepository(session, Grant)
     tickets = _SeedRepository(session, Ticket)
 
-    for department in spec.departments:
-        await departments.upsert(
-            rows.department_ids[department],
-            name=department,
-            manager_user_id=rows.users_by_department[department][0].id,
-        )
+    await departments.upsert_many(
+        {
+            rows.department_ids[department]: {
+                "name": department,
+                "manager_user_id": rows.users_by_department[department][0].id,
+            }
+            for department in spec.departments
+        }
+    )
 
     hashes = _password_hashes(rows)
-    for user in rows.users:
-        await users.upsert(
-            user.id,
-            department_id=rows.department_ids[user.department],
-            email=user.email,
-            display_name=user.display_name,
-            password_hash=hashes[user.id],
-            principals=sorted(user.principals),
-            status="active",
-            start_date=_HIRING_EPOCH + timedelta(days=(user.tenant_index * 97) % 2900),
-            end_date=None,
-        )
+    await users.upsert_many(
+        {
+            user.id: {
+                "department_id": rows.department_ids[user.department],
+                "email": user.email,
+                "display_name": user.display_name,
+                "password_hash": hashes[user.id],
+                "principals": sorted(user.principals),
+                "status": "active",
+                "start_date": _HIRING_EPOCH + timedelta(days=(user.tenant_index * 97) % 2900),
+                "end_date": None,
+            }
+            for user in rows.users
+        }
+    )
 
-    for slug, name, sensitivity, category in spec.systems:
-        system = await systems.upsert(
-            rows.system_ids[slug],
-            slug=slug,
-            name=name,
-            sensitivity=sensitivity,
-            category=category,
-            owner_user_id=rows.system_owners[slug].id,
-        )
+    written_systems = await systems.upsert_many(
+        {
+            rows.system_ids[slug]: {
+                "slug": slug,
+                "name": name,
+                "sensitivity": sensitivity,
+                "category": category,
+                "owner_user_id": rows.system_owners[slug].id,
+            }
+            for slug, name, sensitivity, category in spec.systems
+        }
+    )
+    for slug, _name, _sensitivity, category in spec.systems:
         # Backfill for rows seeded before the category column existed (plan
         # 11a): the migration server-defaults `other` and must not name
         # system slugs, so the seed is the only place real categories can
         # come from. Idempotent — a second run finds the value equal.
+        system = written_systems[rows.system_ids[slug]]
         if system.category != category:
             system.category = category
 
-    for role in spec.roles:
-        await roles.upsert(
-            rows.role_ids[(role.system, role.slug)],
-            system_id=rows.system_ids[role.system],
-            slug=role.slug,
-            name=f"{role.system}.{role.slug}",
-            privilege=role.privilege,
-            default_expiry_days=_PRIVILEGE_EXPIRY_DAYS[role.privilege],
-        )
+    await roles.upsert_many(
+        {
+            rows.role_ids[(role.system, role.slug)]: {
+                "system_id": rows.system_ids[role.system],
+                "slug": role.slug,
+                "name": f"{role.system}.{role.slug}",
+                "privilege": role.privilege,
+                "default_expiry_days": _PRIVILEGE_EXPIRY_DAYS[role.privilege],
+            }
+            for role in spec.roles
+        }
+    )
 
-    for department, template in spec.templates.items():
-        for role_key in template:
-            await templates.upsert(
-                _uid(f"{spec.key}:template:{department}:{role_key[0]}.{role_key[1]}"),
-                department_id=rows.department_ids[department],
-                role_id=rows.role_ids[role_key],
-            )
+    await templates.upsert_many(
+        {
+            _uid(f"{spec.key}:template:{department}:{role_key[0]}.{role_key[1]}"): {
+                "department_id": rows.department_ids[department],
+                "role_id": rows.role_ids[role_key],
+            }
+            for department, template in spec.templates.items()
+            for role_key in template
+        }
+    )
 
-    for rule in spec.sod_rules:
-        await sod_rules.upsert(
+    await sod_rules.upsert_many(
+        {
             _uid(
                 f"{spec.key}:sod:{rule.role_a[0]}.{rule.role_a[1]}:{rule.role_b[0]}.{rule.role_b[1]}"
-            ),
-            role_a_id=rows.role_ids[rule.role_a],
-            role_b_id=rows.role_ids[rule.role_b],
-            rationale=rule.rationale,
-            policy_ref=rule.policy_ref,
-        )
+            ): {
+                "role_a_id": rows.role_ids[rule.role_a],
+                "role_b_id": rows.role_ids[rule.role_b],
+                "rationale": rule.rationale,
+                "policy_ref": rule.policy_ref,
+            }
+            for rule in spec.sod_rules
+        }
+    )
 
     managers = {d: users_rows[0].id for d, users_rows in rows.users_by_department.items()}
     department_of = {user.id: user.department for user in rows.users}
-    for grant in rows.grants:
-        await grants.upsert(
-            grant.id,
-            user_id=grant.user_id,
-            role_id=rows.role_ids[grant.role],
-            request_id=None,
-            granted_by_user_id=managers[department_of[grant.user_id]],
-            granted_at=_GRANTED_AT,
-            expires_at=grant.expires_at,
-            revoked_at=None,
-            revoke_reason=None,
-            status="active",
-        )
+    await grants.upsert_many(
+        {
+            grant.id: {
+                "user_id": grant.user_id,
+                "role_id": rows.role_ids[grant.role],
+                "request_id": None,
+                "granted_by_user_id": managers[department_of[grant.user_id]],
+                "granted_at": _GRANTED_AT,
+                "expires_at": grant.expires_at,
+                "revoked_at": None,
+                "revoke_reason": None,
+                "status": "active",
+            }
+            for grant in rows.grants
+        }
+    )
 
-    for ticket in spec.tickets:
-        reporter = rows.users_by_department[ticket.department][ticket.user_index]
-        await tickets.upsert(
-            _uid(f"{spec.key}:ticket:{reporter.email}:{ticket.kind}:{ticket.title}"),
-            user_id=reporter.id,
-            kind=ticket.kind,
-            title=ticket.title,
-            body=ticket.body,
-            status="open",
-        )
+    reporters = [
+        (ticket, rows.users_by_department[ticket.department][ticket.user_index])
+        for ticket in spec.tickets
+    ]
+    await tickets.upsert_many(
+        {
+            _uid(f"{spec.key}:ticket:{reporter.email}:{ticket.kind}:{ticket.title}"): {
+                "user_id": reporter.id,
+                "kind": ticket.kind,
+                "title": ticket.title,
+                "body": ticket.body,
+                "status": "open",
+            }
+            for ticket, reporter in reporters
+        }
+    )
 
 
 async def _check_migrated(database_url: str) -> None:
