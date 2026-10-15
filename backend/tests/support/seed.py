@@ -99,10 +99,18 @@ async def schema_engine(database_url: str) -> AsyncIterator[AsyncEngine]:
 
 
 async def seed_tenant(factory: async_sessionmaker[AsyncSession], slug: str) -> SeededTenant:
-    """Insert one row per directory-core table for a new tenant; returns all ids."""
+    """Insert one row per directory-core table for a new tenant; returns all ids.
+
+    An earlier change: the suite now shares one database for the whole run, so the
+    globally-unique ``tenants.slug`` gets a uuid suffix to keep every call's
+    tenant distinct. ``slug`` stays the label for the human names (display
+    name, emails, role slugs), which are unique per tenant and so never clash
+    across tenants. Pinned by ``test_shared_db.py`` (a fresh tenant per test)
+    and by every converted file that seeds two tenants with the same label.
+    """
     async with factory() as session:
         tenant = Tenant(
-            slug=slug,
+            slug=f"{slug}-{uuid.uuid4().hex[:8]}",
             name=f"Fake Tenant {slug}",
             residency="eu",
             settings={},

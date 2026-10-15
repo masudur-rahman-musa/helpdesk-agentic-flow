@@ -202,6 +202,55 @@ def fresh_tenant(session_factory: async_sessionmaker[AsyncSession]) -> uuid.UUID
     return asyncio.run(make())
 
 
+# --- The shared seeded database ------------------------------------
+#
+# A SECOND shared engine, carrying the full `scripts.seed.seed_all` corpus,
+# built once for the whole run. It is separate from
+# `shared_engine` on purpose: the seed has fixed-count assertions (exactly two
+# tenants, a known role count), and the bare `fresh_tenant`/`seed_tenant` rows
+# other tests add to `shared_engine` would throw those counts off. Modules that
+# used to seed their own database take these instead of building an engine; a
+# test keeps apart inside the seed by addressing distinct seeded users or by
+# planting its own uuid-named rows, never by reseeding.
+
+
+@pytest.fixture(scope="session")
+def seeded_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
+    """One database, schema built and `seed_all` run exactly once for the whole run."""
+    from scripts.seed import seed_all
+
+    url = pg.create()
+    engine = create_async_engine(
+        url, poolclass=NullPool, connect_args={"timeout": CONNECT_TIMEOUT_SECONDS}
+    )
+
+    async def build() -> None:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await seed_all(url)
+        await engine.dispose()
+
+    asyncio.run(build())
+    yield url
+    pg.drop(url)
+
+
+@pytest.fixture(scope="session")
+def seeded_engine(seeded_db_url: str) -> Iterator[AsyncEngine]:
+    """The shared engine over the seeded database; `NullPool`, same reason as `shared_engine`."""
+    engine = create_async_engine(
+        seeded_db_url, poolclass=NullPool, connect_args={"timeout": CONNECT_TIMEOUT_SECONDS}
+    )
+    yield engine
+    asyncio.run(engine.dispose())
+
+
+@pytest.fixture(scope="session")
+def seeded_session_factory(seeded_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """One session factory over the seeded engine; carries the tenant guard."""
+    return create_session_factory(seeded_engine)
+
+
 # --- Redis ---------------------------------------------
 
 # The killswitch tests flush the database they run against, so they must never
