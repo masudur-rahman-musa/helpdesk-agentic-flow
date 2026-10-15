@@ -8,7 +8,7 @@ never-cancelling concurrency group, the Trivy gate over every pushed reference
 and its position after the push, the SBOM and provenance attestations, that
 every build actually pushes, that the emulator and the builder are set up, that
 no two builds share a cache scope, the GHCR login, and the two paragraphs
-`docs/deploy.md` owes about the published path and the console's wrong one.
+the project notes owes about the published path and the console's wrong one.
 
 Why static rather than a real push: the workflow's claims are properties of a
 checked-in file, and a real multi-architecture push needs a registry, a token
@@ -29,7 +29,7 @@ triggers, so the trigger block is reached through `_trigger_block()`, which
 looks up True first.
 
 The cases are red at HEAD because `.github/workflows/build.yml` does not exist,
-and because `docs/deploy.md` carries neither the published-images section nor
+and because the project notes carries neither the published-images section nor
 the console path-mismatch paragraph.
 """
 
@@ -53,7 +53,7 @@ REPO_ROOT = _repo_root()
 """Every path below is resolved from here."""
 
 BUILD_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "build.yml"
-DEPLOY_DOC = REPO_ROOT / "docs" / "deploy.md"
+DEPLOY_DOC = REPO_ROOT / "dev" / "ops" / "deploy.md"
 
 REGISTRY_PREFIX = "ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/"
 """The one path prefix every pushed reference carries. It is this repository's
@@ -103,7 +103,7 @@ PLATFORMS = "linux/amd64"
 emulated arm64 half made every run 14 to 24 minutes."""
 
 ARCHITECTURES: tuple[str, ...] = ("linux/amd64",)
-"""The architectures as separate strings, which is how `docs/deploy.md` has to
+"""The architectures as separate strings, which is how the project notes has to
 name them for a reader who never opens the workflow."""
 
 SHA_TAG_SUFFIX = ":${{ github.sha }}"
@@ -141,7 +141,7 @@ refs never queue behind one another."""
 
 BUILD_PUSH_ACTION = "docker/build-push-action"
 """The action every build step uses. Only buildx does multi-architecture builds
-and attestations, which is why `scripts/build_images.py` is not the publish
+and attestations, which is why `dev/scripts/build_images.py` is not the publish
 path."""
 
 LOGIN_ACTION = "docker/login-action"
@@ -170,7 +170,7 @@ It is neither this repository's owner nor its spelling; the console has since
 moved to this repository's own path, so the doc must not repeat the old one."""
 
 PUBLISHED_IMAGES_HEADING = "Published images"
-"""The heading of the section `docs/deploy.md` owes."""
+"""The heading of the section the project notes owes."""
 
 _TRUE_SPELLINGS: frozenset[str] = frozenset({"true"})
 """A GitHub Actions input is a string to the action either way, so `true` and
@@ -346,8 +346,8 @@ def _normalised(value: Any) -> str:
 
 
 def _deploy_doc() -> str:
-    """`docs/deploy.md` as text."""
-    assert DEPLOY_DOC.is_file(), "docs/deploy.md does not exist"
+    """the project notes as text."""
+    assert DEPLOY_DOC.is_file(), "dev/ops/deploy.md does not exist"
     return DEPLOY_DOC.read_text(encoding="utf-8")
 
 
@@ -656,13 +656,13 @@ def test_the_deploy_doc_publishes_the_registry_path() -> None:
     document = _deploy_doc()
 
     assert PUBLISHED_IMAGES_HEADING in document, (
-        f"docs/deploy.md has no {PUBLISHED_IMAGES_HEADING!r} section"
+        f"dev/ops/deploy.md has no {PUBLISHED_IMAGES_HEADING!r} section"
     )
     assert REGISTRY_PREFIX in document, (
-        f"docs/deploy.md does not name {REGISTRY_PREFIX}"
+        f"dev/ops/deploy.md does not name {REGISTRY_PREFIX}"
     )
     for architecture in ARCHITECTURES:
-        assert architecture in document, f"docs/deploy.md does not name {architecture}"
+        assert architecture in document, f"dev/ops/deploy.md does not name {architecture}"
 
 
 def test_the_deploy_doc_no_longer_names_the_old_console_path() -> None:
@@ -673,5 +673,5 @@ def test_the_deploy_doc_no_longer_names_the_old_console_path() -> None:
     document = _deploy_doc()
 
     assert CONSOLE_IMAGE_PATH not in document, (
-        f"docs/deploy.md still names the old console path {CONSOLE_IMAGE_PATH}"
+        f"dev/ops/deploy.md still names the old console path {CONSOLE_IMAGE_PATH}"
     )

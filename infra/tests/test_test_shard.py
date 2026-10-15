@@ -1,4 +1,4 @@
-"""`scripts/test_shard.py`: the CI slices cover the suite exactly once, balanced.
+"""`dev/scripts/test_shard.py`: the CI slices cover the suite exactly once, balanced.
 
 A file in no slice is a test CI silently stops running, and a file in two is
 run twice and double-counted in the combined coverage; both are invisible on a
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from scripts.test_shard import DURATIONS, slices, test_files
+from dev.scripts.test_shard import DURATIONS, slices, test_files
 
 SLICE_COUNT = 3
 

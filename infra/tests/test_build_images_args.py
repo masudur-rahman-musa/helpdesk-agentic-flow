@@ -1,4 +1,4 @@
-"""The argument pre-checks of `scripts/build_images.py`.
+"""The argument pre-checks of `dev/scripts/build_images.py`.
 
 What is pinned: the exact set of four accepted `SERVICE` values, the tag pattern
 and both of its length boundaries (128 accepted, 129 and the empty string
@@ -16,7 +16,7 @@ any effect runs, and a project rule wants the pattern applied with
 Pure: no Postgres, Redis, Qdrant or Docker daemon. The only seam is
 `subprocess.run`, monkeypatched in the one case that asserts nothing is spawned.
 
-The cases are red at HEAD because `scripts/build_images.py` does not exist yet,
+The cases are red at HEAD because `dev/scripts/build_images.py` does not exist yet,
 so the import of `ACCEPTED_SERVICES`, `TAG_PATTERN`, `TAG_MAX_LENGTH`,
 `BuildArgumentError`, `validate_build_arguments` and `build_image` fails at
 collection.
@@ -24,7 +24,7 @@ collection.
 
 import pytest
 
-from scripts.build_images import (
+from dev.scripts.build_images import (
     ACCEPTED_SERVICES,
     TAG_MAX_LENGTH,
     TAG_PATTERN,
@@ -146,7 +146,7 @@ def test_the_checks_run_before_any_docker_process_starts(
     argument parser the build entry point does not go through: a refused tag
     would then have already spawned `docker build`, tagged an image and left it
     on the machine before the refusal was read. The spy replaces
-    `scripts.build_images.subprocess.run`, the module's only process seam, so
+    `dev.scripts.build_images.subprocess.run`, the module's only process seam, so
     the case fails for the ordering and not for the refusal, which the cases
     above already pin."""
     calls: list[object] = []
@@ -155,7 +155,7 @@ def test_the_checks_run_before_any_docker_process_starts(
         calls.append(args)
         raise AssertionError(f"a docker process was started with {args!r}")
 
-    monkeypatch.setattr("scripts.build_images.subprocess.run", _spy)
+    monkeypatch.setattr("dev.scripts.build_images.subprocess.run", _spy)
 
     with pytest.raises(BuildArgumentError):
         build_image("agent_api", VALID_TAG)

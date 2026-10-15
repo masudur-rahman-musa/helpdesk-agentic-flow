@@ -403,7 +403,7 @@ def _tenure_days(user: UserRow) -> int:
 
     `_HIRING_EPOCH` and the `(tenant_index * 97) % 2900` offset are imported
     and recomputed rather than copied as a number, the precedent
-    `scripts/e2e_accounts.py` set for importing a private seed constant.
+    `dev/scripts/e2e_accounts.py` set for importing a private seed constant.
     """
     start_date = _HIRING_EPOCH + timedelta(days=(user.tenant_index * 97) % 2900)
     return (date.today() - start_date).days

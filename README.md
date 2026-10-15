@@ -84,12 +84,12 @@ images, so the picture and its source cannot disagree:
 Seven claims, each linked to the test that fails if it stops being true.
 
 1. **No direct mutation.** The model plans; typed tools act. Every tool call is authorized against the caller's token at the transport before a handler runs. Proof: [test_matrix_expectation_holds_through_the_transport](backend/tests/mcp_server/test_mcp_rbac_matrix.py)
-2. **Tenant isolation.** Every read and write is bound to the tenant on the token. Another tenant's row is not forbidden, it is absent. Proof: [test_other_tenants_id_is_not_found](backend/tests/shared/test_repository.py)
+2. **Tenant isolation.** Every read and write is bound to the tenant on the token. Another tenant's row is not forbidden, it is absent. Proof: [test_other_tenants_id_is_not_found](backend/tests/shared/crud/test_repository.py)
 3. **Mandatory expiry.** Access is granted for a bounded period, capped by the access class, and the cap is applied at grant time rather than promised. Proof: [test_the_grant_expires_exactly_one_class_cap_after_granted_at](backend/tests/shared/test_access_execute.py)
 4. **Segregation of duties blocks, and cites.** A conflicting combination is refused with the identifier of the rule that refused it, not with a generic denial. Proof: [test_classification_accepts_a_sod_conflict_reason_with_an_id](backend/tests/shared/test_policy_decision.py)
-5. **A cited answer or none.** Below the retrieval threshold the system refuses and offers a ticket instead of answering from the model's memory. Proof: [test_a_best_cosine_just_below_the_threshold_refuses](backend/tests/shared/test_rag_refusal.py)
-6. **Hash-chained audit.** Each event carries the hash of the one before it, so an edited, deleted or relabelled row breaks verification. Proof: [test_relabelling_a_chain_onto_another_tenant_is_detected](backend/tests/shared/test_audit_writer.py)
-7. **Idempotent retry.** A repeated call with the same key returns the first result and runs no second effect, so a timeout is safe to retry. Proof: [test_replay_returns_the_stored_response_without_running_the_effect](backend/tests/shared/test_idempotency_guard.py)
+5. **A cited answer or none.** Below the retrieval threshold the system refuses and offers a ticket instead of answering from the model's memory. Proof: [test_a_best_cosine_just_below_the_threshold_refuses](backend/tests/mcp_server/services/rag/test_rag_refusal.py)
+6. **Hash-chained audit.** Each event carries the hash of the one before it, so an edited, deleted or relabelled row breaks verification. Proof: [test_relabelling_a_chain_onto_another_tenant_is_detected](backend/tests/shared/services/audit/test_audit_writer.py)
+7. **Idempotent retry.** A repeated call with the same key returns the first result and runs no second effect, so a timeout is safe to retry. Proof: [test_replay_returns_the_stored_response_without_running_the_effect](backend/tests/mcp_server/services/idempotency/test_idempotency_guard.py)
 
 A guarantee whose link rots fails the suite: the README is parsed by
 `infra/tests/test_docs.py`, which opens each target and looks up
@@ -106,12 +106,12 @@ each named test.
   a similarity score and measured against a fused rank score on a completely
   different scale, so almost no answer cleared it. The fix was to measure the
   threshold on the dense cosine while the fused score keeps ordering the page,
-  recorded in [docs/adr/0009-refusal-threshold-is-measured-on-dense-cosine.md](docs/adr/0009-refusal-threshold-is-measured-on-dense-cosine.md).
+  recorded in the project notes
 - **A resumed turn would have granted twice.** Approval executes the grant in
   the same transaction as the last filled seat, so the paused conversation had
   nothing left to execute when it woke up. Fixed by having a resumed run
   compose its reply from the decision recorded on the row and make no tool call
-  at all, recorded in [docs/adr/0013-a-resumed-run-composes-and-never-re-executes.md](docs/adr/0013-a-resumed-run-composes-and-never-re-executes.md).
+  at all, recorded in the project notes
 - **A turn that ran out of budget told the user nothing had happened.** The
   templated refusal was sent over a turn that had already filed a request, so
   the reply and the audit log disagreed. The fix routes a spent budget on what
@@ -130,36 +130,36 @@ each named test.
 ## Design decisions
 
 Non-obvious choices are recorded as decision records in
-[docs/adr/](docs/adr/). Twenty-three of them so far; these are the ones that
+the project notes Twenty-three of them so far; these are the ones that
 shape the product.
 
 - **LangGraph orchestrates and decides nothing.** It owns the node sequence,
   the turn state, the checkpoint and the approval pause. It never owns the
   decision, the mutation, identity or the audit record.
-  [0001](docs/adr/0001-langgraph-orchestration-only.md)
+  0001
 - **The policy engine is pure.** No input or output, no imports from models or
   services, table-driven, and held at 100% coverage. The decision a tool
   enforces is the decision the reply explains.
 - **The checkpoint thread is the session.** The request a paused turn waits on
   rides on the state rather than in the key, because the request does not exist
   when the run starts.
-  [0012](docs/adr/0012-the-checkpoint-thread-is-the-session.md)
+  0012
 - **A resumed run composes and never re-executes.**
-  [0013](docs/adr/0013-a-resumed-run-composes-and-never-re-executes.md)
+  0013
 - **The stream carries the checked reply.** Tokens are slices of a reply that
   already passed the contradiction check, because a token on the socket cannot
   be taken back.
-  [0014](docs/adr/0014-the-stream-carries-the-checked-reply.md)
+  0014
 - **The scheduler is a loop with Redis locks**, not a job framework, so every
   sweep is callable from a test with a session and a fixed instant.
-  [0015](docs/adr/0015-the-scheduler-is-a-loop-with-redis-locks.md)
+  0015
 - **The approval queue lives in PostgreSQL**, next to the rows it decides
   about, so a decision and its effect share one transaction.
-  [0004](docs/adr/0004-approval-queue-lives-in-postgres.md)
+  0004
 - **Model access is a gateway with aliases.** Code names `agent-default` or
   `agent-strong`; the mapping to a provider model lives outside this
   repository, with the budgets and the traces.
-  [0010](docs/adr/0010-model-client-is-its-own-package.md)
+  0010
 
 ## Failure modes
 
@@ -313,7 +313,7 @@ The layout is `{tenant}/{version}/{file}`; the shipped `backend/data/policies/`
 folder is a demo corpus, not a dependency.
 
 The five things an adopter changes first are listed in
-[CUSTOMIZING.md](CUSTOMIZING.md), and the port is walked through method by
+[CUSTOMIZING](docs/customizing.md), and the port is walked through method by
 method in [docs/directory-adapter.md](docs/directory-adapter.md).
 
 Companion project:

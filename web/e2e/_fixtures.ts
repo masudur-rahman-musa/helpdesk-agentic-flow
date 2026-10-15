@@ -13,7 +13,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
  * selector.
  */
 
-/** One seeded person, exactly as `scripts/e2e_accounts.py` prints them. */
+/** One seeded person, exactly as `dev/scripts/e2e_accounts.py` prints them. */
 export interface Principal {
   email: string;
   password: string;
@@ -32,7 +32,7 @@ let cached: Record<string, Principal> | null = null;
  * The seeded accounts, read once per worker from `E2E_ACCOUNTS_FILE`.
  *
  * A file rather than an env var per person, and derived rather than written
- * down: `scripts/e2e_accounts.py` re-derives every password from the seed's
+ * down: `dev/scripts/e2e_accounts.py` re-derives every password from the seed's
  * own formula, so no password string exists in a spec, a fixture or
  * `.env.example` (a project rule, plan section 5).
  */

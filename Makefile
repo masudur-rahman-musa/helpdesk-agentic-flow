@@ -1,5 +1,5 @@
 .PHONY: help setup run migrate ingest test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check e2e load-smoke images app-up app-down
-# Where `scripts/e2e_accounts.py` writes the seeded principals Playwright signs
+# Where `dev/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
 # something to leave in the working tree.
@@ -34,9 +34,9 @@ test:       ## Run tests with the coverage gate (needs the compose Postgres: doc
 	# run as their own pass with the repo root and backend both on the path.
 	PYTHONPATH="$(CURDIR):$(CURDIR)/backend" uv run --project backend pytest -q infra/tests
 select-tests: ## Print the tests whose recorded coverage touches this change
-	@uv run --project backend python scripts/select_tests.py --explain
+	@uv run --project backend python dev/scripts/select_tests.py --explain
 test-adjacent: ## Run only the tests whose coverage touches this change
-	@uv run --project backend python scripts/select_tests.py | tr ' ' '\n' | xargs -I{} sh -c 'cd backend && uv run pytest -q {}'
+	@uv run --project backend python dev/scripts/select_tests.py | tr ' ' '\n' | xargs -I{} sh -c 'cd backend && uv run pytest -q {}'
 test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
 	cd backend && uv run pytest -q \
 	  tests/shared/test_policy_risk.py \
@@ -46,11 +46,13 @@ test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
 	  tests/shared/test_policy_purity.py \
 	  --cov=helpdesk.shared.policy --cov-branch --cov-report=term-missing --cov-fail-under=100
 lint:       ## Lint
-	uv run --project backend ruff check backend scripts
+	# dev/scripts and infra/load sit outside backend/, where the one ruff config
+	# lives, so --config holds them to the project's rule set, not ruff's default.
+	uv run --project backend ruff check --config backend/pyproject.toml backend dev/scripts infra/load
 typecheck:  ## Static types
 	cd backend && uv run mypy
 format:     ## Auto-format
-	uv run --project backend ruff format backend scripts
+	uv run --project backend ruff format --config backend/pyproject.toml backend dev/scripts infra/load
 web-verify: ## The web gate: types, lint, unit tests, production build
 	pnpm -C web install --frozen-lockfile && pnpm -C web typecheck && pnpm -C web lint \
 	  && pnpm -C web test && pnpm -C web build
@@ -58,13 +60,13 @@ verify: format lint typecheck test test-policy web-verify   ## The full gate, in
 e2e:        ## The five SPEC 16 flows in a real browser (manual; needs docker compose up -d)
 	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright pnpm -C web exec playwright install chromium
 	mkdir -p .cache
-	cd backend && uv run python ../scripts/e2e_reset.py
-	cd backend && E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) uv run python ../scripts/e2e_accounts.py
+	cd backend && uv run python ../dev/scripts/e2e_reset.py
+	cd backend && E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) uv run python ../dev/scripts/e2e_accounts.py
 	pnpm -C web build
 	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) \
 	  pnpm -C web exec playwright test
 load-smoke: ## 20 chat sessions for 5 minutes against the REAL gateway (manual, costs money)
-	uv run --project backend locust -f scripts/load_smoke.py --headless \
+	uv run --project backend locust -f infra/load/load_smoke.py --headless \
 	  --users 20 --spawn-rate 2 --run-time 5m \
 	  --host $${AGENT_API_URL:-http://localhost:8000}
 eval:       ## Project evals: golden set vs backend/evals/baseline.json
@@ -72,7 +74,7 @@ eval:       ## Project evals: golden set vs backend/evals/baseline.json
 infra-check: ## Validate infrastructure as code (no apply)
 	echo 'deployed by the companion console infra'
 images:     ## Build the four service images locally: make images TAG=local
-	uv run --project backend python scripts/build_images.py --tag $(IMAGE_TAG)
+	uv run --project backend python dev/scripts/build_images.py --tag $(IMAGE_TAG)
 app-up:     ## Backing services plus the four containers (needs .env and the images' build inputs)
 	docker compose --profile app up -d --build
 app-down:   ## Stop the app profile, leaving the backing services and their volumes

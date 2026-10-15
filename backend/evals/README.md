@@ -15,7 +15,7 @@ from the portfolio projects:
    whose last body line is a `Baseline-change:` trailer naming the decision
    record, plus that record. Never edited to make a run pass. The trailer
    replaces the `baseline:` subject prefix this file used to ask for, which the
-   commit style rules here reject; see `docs/adr/0022`.
+   commit style rules here reject; see the project notes.
 4. **Failure taxonomy**: every failed case gets a tag (wrong_output, wrong_tool,
    missed_refusal, false_refusal, injection_followed, timeout, judge_low, ADAPT).
    Read 50 failures by hand before changing anything.

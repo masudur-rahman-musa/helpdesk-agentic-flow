@@ -1,12 +1,12 @@
 """The repository works as a template.
 
-What is pinned here: the shape of `CUSTOMIZING.md`, the shape of
+What is pinned here: the shape of `docs/customizing.md`, the shape of
 `docs/directory-adapter.md`, the two README entry points, the `.env.example`
 line for `POLICY_DIR`, the `make ingest` target decision B settles, and the
 absence of any invented seed name from Python application source.
 
 Why the check is static rather than runtime: nothing in this list is read by
-the application at all. `CUSTOMIZING.md` and `docs/directory-adapter.md` are
+the application at all. `docs/customizing.md` and `docs/directory-adapter.md` are
 read by a human adopting the template, and a document nobody checks drifts
 from the code it describes within two plans. A green suite proves the code
 works; only parsing the document proves the document still describes it.
@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from helpdesk.shared.access.directory import DirectoryProvider, DirectoryReader
+from helpdesk.shared.services.access.directory import DirectoryProvider, DirectoryReader
 from scripts.seed import TENANTS
 
 
@@ -40,7 +40,7 @@ def _repo_root() -> Path:
 REPO_ROOT = _repo_root()
 """Every path below is resolved from here."""
 
-CUSTOMIZING = REPO_ROOT / "CUSTOMIZING.md"
+CUSTOMIZING = REPO_ROOT / "docs" / "customizing.md"
 ADAPTER_GUIDE = REPO_ROOT / "docs" / "directory-adapter.md"
 README = REPO_ROOT / "README.md"
 ENV_EXAMPLE = REPO_ROOT / "backend" / ".env.example"
@@ -140,11 +140,11 @@ def _section_body(markdown: str, heading: str) -> str:
     return "\n".join(body)
 
 
-# --- CUSTOMIZING.md -----------------------------------------------------------
+# --- docs/customizing.md -----------------------------------------------------------
 
 
 def test_customizing_lists_exactly_the_five_things_an_adopter_changes_first() -> None:
-    """Catches a `CUSTOMIZING.md` that is missing, that is a wall of prose with
+    """Catches a `docs/customizing.md` that is missing, that is a wall of prose with
     no headings, or that grew a sixth section.
 
     The file's whole value is that it is scannable in a minute, which is also
@@ -224,19 +224,19 @@ def test_the_readme_links_the_customizing_and_adapter_guides() -> None:
 
     Every case above opens its file by path, so both stay green when the README
     mentions neither. A reader arrives at the README and nowhere else; an
-    unlinked `CUSTOMIZING.md` is a file only the author knows about. The link
+    unlinked customizing guide is a file only the author knows about. The link
     target is asserted with the closing bracket and parenthesis
-    (`](CUSTOMIZING.md)`) so a bare mention of the filename in prose does not
-    pass for a link.
+    (`](docs/customizing.md)`) so a bare mention of the filename in prose does
+    not pass for a link.
     """
     readme = _read(README)
 
-    assert "](CUSTOMIZING.md)" in readme
+    assert "](docs/customizing.md)" in readme
     assert "](docs/directory-adapter.md)" in readme
 
 
 def test_the_readme_shows_the_bring_your_own_policies_command() -> None:
-    """Catches a README that links `CUSTOMIZING.md` and says nothing itself.
+    """Catches a README that links `docs/customizing.md` and says nothing itself.
 
     The link case above is green on exactly that README. Section 1 asks for the
     command in the README too, because the "can I use this with my policies?"
@@ -281,7 +281,7 @@ def test_the_env_example_declares_policy_dir_with_the_default_value() -> None:
 def test_the_makefile_declares_a_phony_ingest_target() -> None:
     """Catches decision B being documented but not implemented.
 
-    Both README cases and the `CUSTOMIZING.md` body case assert the string
+    Both README cases and the `docs/customizing.md` body case assert the string
     `make ingest` in prose; none of them proves the target exists, so a
     documented command that errors with "No rule to make target" passes every
     one of them. The `.PHONY` half matters on its own: without it a file or

@@ -87,7 +87,7 @@ AUDIT_SEQUENCE_NAME = "audit_events_seq_seq"
 _CREATED_MARKER = f"created by alembic revision {revision}"
 
 # The role is created with NOLOGIN on purpose: a password in a migration is a
-# secret in code. `docker/postgres/init-app-role.sh` grants LOGIN
+# secret in code. `infra/local/postgres/init-app-role.sh` grants LOGIN
 # with a password from the environment. Where that script never ran because an
 # existing `pgdata` volume skipped it, the role still exists and a service
 # started against it fails on connect, loudly, instead of silently falling back

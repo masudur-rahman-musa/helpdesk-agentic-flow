@@ -652,7 +652,7 @@ def test_a_delete_of_the_head_as_the_restricted_role_is_refused_by_the_trigger(
     delete inside the same transaction would satisfy `pytest.raises` alone.
 
     The MESSAGE is asserted here as well as the SQLSTATE, and this is the one
-    case that does it: `docs/runbook.md` tells the operator to grep a `P0001`
+    case that does it: the project notes tells the operator to grep a `P0001`
     naming `audit_chain_anchors`, so a later `CREATE OR REPLACE` raising a
     bare "not permitted" would keep every SQLSTATE assertion in this file
     green and silently break the instruction the runbook publishes.
@@ -755,7 +755,7 @@ def test_a_head_demoted_by_a_fresh_insert_can_then_be_deleted(
 
     The case exists to FAIL if the behaviour ever changes — a tightened
     trigger, or INSERT and DELETE split across two roles, which is what
-    `docs/threat-model.md` names as the close. Whoever makes that change is
+    the project notes names as the close. Whoever makes that change is
     told here, and updates this case and the ADR together rather than finding
     the documents disagreeing with the database.
 

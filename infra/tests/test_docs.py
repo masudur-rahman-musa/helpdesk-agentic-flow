@@ -20,7 +20,7 @@ and the link text's `test_...` identifier is looked up in it: a renamed or
 deleted test breaks the README here instead of hollowing it quietly.
 
 Two sets are READ OFF the repository rather than retyped: the four ADR
-headings come from `docs/adr/0000-template.md`, and the alert subsections the
+headings come from the project notes, and the alert subsections the
 runbook owes come from the files in `infra/monitoring/alerts/`. Each carries a
 tripwire literal of its state at HEAD, so a change to the
 source names itself in the failure message.
@@ -47,13 +47,13 @@ REPO_ROOT = _repo_root()
 """Every path below is resolved from here."""
 
 README = REPO_ROOT / "README.md"
-CUSTOMIZING = REPO_ROOT / "CUSTOMIZING.md"
+CUSTOMIZING = REPO_ROOT / "docs" / "customizing.md"
 DOCS = REPO_ROOT / "docs"
-ADR_DIR = DOCS / "adr"
+ADR_DIR = REPO_ROOT / "dev" / "adr"
 ADR_TEMPLATE = ADR_DIR / "0000-template.md"
 ADR_0001 = ADR_DIR / "0001-langgraph-orchestration-only.md"
 DIAGRAM_DIR = DOCS / "diagrams"
-RUNBOOK = DOCS / "runbook.md"
+RUNBOOK = REPO_ROOT / "dev" / "ops" / "runbook.md"
 ALERT_DIR = REPO_ROOT / "infra" / "monitoring" / "alerts"
 
 README_SECTIONS: tuple[str, ...] = (
@@ -142,7 +142,7 @@ ADR_HEADINGS_AT_HEAD: tuple[str, ...] = (
 """The template's four headings at HEAD, as a tripwire only.
 
 Never the source the ADRs are checked against: that is
-`_template_headings()`, read off `docs/adr/0000-template.md`. The literal
+`_template_headings()`, read off the project notes. The literal
 exists so a changed template names itself in the failure message instead of
 leaving the reader to work out which of the two sets moved (standing rule
 29)."""
@@ -275,7 +275,7 @@ def _template_headings() -> tuple[str, ...]:
 
 
 def _adr_files() -> list[Path]:
-    """Every `NNNN-*.md` under `docs/adr/`, template excluded, sorted."""
+    """Every `NNNN-*.md` under the project notes, template excluded, sorted."""
     assert ADR_DIR.is_dir(), f"missing ADR directory: {ADR_DIR}"
     return sorted(
         path
@@ -597,7 +597,7 @@ def test_adr_0001_names_the_rejected_alternative() -> None:
 
 
 def test_the_repo_holds_at_least_nine_adrs() -> None:
-    """Catches a decision record set that stopped being kept, and an `docs/adr/`
+    """Catches a decision record set that stopped being kept, and an the project notes
     holding nothing but its own template.
 
     Every other ADR case reads one named file or parametrises over whatever is
@@ -622,7 +622,7 @@ def test_every_adr_carries_the_template_headings(adr: Path) -> None:
     The count case above counts files and never opens one, and the two 0001
     cases read one file only, so every one of them is green on a directory of
     unstructured notes. The expected headings are read off
-    `docs/adr/0000-template.md` at test time, so changing the template moves
+    the project notes at test time, so changing the template moves
     every ADR's obligation with it instead of leaving this file guarding four
     strings nothing uses. The `**Status:**` line is required separately because
     an accepted and a superseded decision read identically without it.
@@ -713,7 +713,7 @@ def test_the_runbook_has_a_subsection_per_alert() -> None:
     """Catches the first alert that lands with no written response.
 
     Nothing else in the repository connects `infra/monitoring/alerts/` to
-    `docs/runbook.md`: the no-empty-section case is green on an alert section
+    the project notes: the no-empty-section case is green on an alert section
     holding one line of prose, however many alerts exist. The expected
     subsections are read off the directory, so this passes vacuously today,
     which is the design - it is a tripwire armed for the day a rule file is
@@ -761,15 +761,18 @@ MAKEFILE = REPO_ROOT / "Makefile"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 COMPOSE_OVERRIDE = REPO_ROOT / "docker-compose.override.example.yml"
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
-K8S_DIR = REPO_ROOT / "k8s"
+K8S_DIR = REPO_ROOT / "infra" / "k8s"
 
 PATH_IN_TEXT = re.compile(
-    r"(?:\./)?((?:backend|web|scripts|docs|infra|k8s)/[A-Za-z0-9_.\-/]+)"
+    r"(?:\./)?((?:backend|web|docs|infra|k8s)/[A-Za-z0-9_.\-/]+)"
 )
 """A repo-relative path starting with a real top-level folder. The character
 class stops at `:`, so a compose mount `./backend/data/policies:/srv/...` yields
-just the host side. `docker/` is left out: it collides with GitHub Action refs
-like `docker/build-push-action`, and the `docker/` tree did not move."""
+just the host side. `dev/` is left out: it would match device paths like
+`/dev/null` in the workflows, and the dev-only scripts under `dev/scripts/` are
+proven present by `test_restructure_plan8.py` instead. `docker/` is left out
+too: it collides with GitHub Action refs like `docker/build-push-action`, and
+there is no `docker/` tree now."""
 
 FORBIDDEN_OLD_PATHS: tuple[str, ...] = (
     "packages/helpdesk",

@@ -53,7 +53,7 @@ export default defineConfig({
   webServer: [
     {
       // The model, and nothing else about the stack (decision C).
-      command: "uv run python scripts/e2e_gateway_stub.py",
+      command: "uv run python dev/scripts/e2e/gateway_stub.py",
       url: `http://127.0.0.1:${STUB_PORT}/healthz`,
       cwd: "..",
       timeout: SERVER_TIMEOUT_MS,

@@ -16,7 +16,7 @@ import { accounts, loginAs, type Principal } from "./_fixtures";
  * flags a lapsed-but-active grant `stale` — `REVIEW_FLAG_LABELS.stale` is
  * `Expiring with no renewal`.
  *
- * HARNESS REQUIREMENT (`scripts/e2e_reset.py`, plan §7 step 3). No review
+ * HARNESS REQUIREMENT (`dev/scripts/e2e_reset.py`, plan §7 step 3). No review
  * exists after a seed: `scripts/seed.py` plants none, and the only writer is
  * `open_review`, driven by the scheduler, which plan §3 does not start as a
  * `webServer`. The reset therefore has to open one review over a scope that

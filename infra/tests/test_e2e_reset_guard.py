@@ -1,8 +1,8 @@
 """An earlier change's input-validation criterion: the e2e reset refuses a non-local
 database and an oversize tenant slug BEFORE it drops anything.
 
-Expected implementation surface (`scripts/e2e_reset.py`, importable as
-`scripts.e2e_reset` because `conftest.py` puts the repo root on `sys.path`):
+Expected implementation surface (`dev/scripts/e2e_reset.py`, importable as
+`dev.scripts.e2e_reset` because `conftest.py` puts the repo root on `sys.path`):
 
     LOCAL_HOSTS: tuple[str, str]
         Exactly `("localhost", "127.0.0.1")`.
@@ -44,11 +44,11 @@ import asyncio
 from collections.abc import Sequence
 
 import pytest
-from helpdesk.shared.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.models.directory import Tenant
 from sqlalchemy import String
 
-from scripts.e2e_reset import (
+from dev.scripts.e2e_reset import (
     DROP_STATEMENTS,
     LOCAL_HOSTS,
     TENANT_SLUG_CAP,

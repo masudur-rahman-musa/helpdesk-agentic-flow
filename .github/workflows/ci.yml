@@ -21,6 +21,8 @@ jobs:
       - run: uv run --project backend pre-commit run --all-files
       - run: uv run --project backend ruff format --check .
       - run: make lint typecheck test-policy
+      - name: Root allowlist
+        run: python3 dev/scripts/check_root.py
       - name: Import contracts
         working-directory: backend
         run: uv run lint-imports
@@ -42,8 +44,8 @@ jobs:
   # The Python suite in three slices, one runner each, every runner with its
   # own compose Postgres, Redis and Qdrant. One runner took 16 minutes, and two
   # workers on one runner were slower still (its 2 CPUs are shared with the
-  # services), so the split is across machines. `scripts/test_shard.py`
-  # balances the files by `scripts/test_durations.json`; each slice keeps its
+  # services), so the split is across machines. `dev/scripts/test_shard.py`
+  # balances the files by `dev/scripts/test_durations.json`; each slice keeps its
   # coverage data and the `coverage` job judges the floor on the whole.
   tests:
     runs-on: ubuntu-latest
@@ -68,7 +70,7 @@ jobs:
         env:
           COVERAGE_FILE: .coverage.shard${{ matrix.shard }}
         run: |
-          uv run pytest -q $(uv run python ../scripts/test_shard.py --shard ${{ matrix.shard }} --of 3) \
+          uv run pytest -q $(uv run python ../dev/scripts/test_shard.py --shard ${{ matrix.shard }} --of 3) \
             --cov=helpdesk --cov-report= --cov-fail-under=0
       # The repo-level tests sit outside the backend project's test paths, so they
       # are not in any shard. Run them once (on shard 0) as their own pass, with the

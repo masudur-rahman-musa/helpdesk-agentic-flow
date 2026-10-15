@@ -40,8 +40,8 @@ services:
       #. The .sql is mounted outside the init directory
       # because the entrypoint would otherwise run it a second time itself,
       # with no password variable set.
-      - "./docker/postgres/init-app-role.sh:/docker-entrypoint-initdb.d/init-app-role.sh:ro"
-      - "./docker/postgres/init-app-role.sql:/etc/helpdesk/init-app-role.sql:ro"
+      - "./infra/local/postgres/init-app-role.sh:/docker-entrypoint-initdb.d/init-app-role.sh:ro"
+      - "./infra/local/postgres/init-app-role.sql:/etc/helpdesk/init-app-role.sql:ro"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s

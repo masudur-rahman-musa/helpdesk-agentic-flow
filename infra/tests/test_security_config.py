@@ -15,7 +15,7 @@ cannot prove the job that should exist was not deleted.
 Every assertion is made against a parsed structure (`tomllib`, `yaml.safe_load`)
 and never against raw text or key order, so reformatting a workflow cannot
 redden a case. The cases are red at HEAD because none of the four config files
-exists yet, `ci.yml` has only a `check` job, and `docs/threat-model.md` is still
+exists yet, `ci.yml` has only a `check` job, and the project notes is still
 the skeleton stub.
 """
 
@@ -52,7 +52,7 @@ DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 IMAGE_SCAN_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "image-scan.yml"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
-THREAT_MODEL = REPO_ROOT / "docs" / "threat-model.md"
+THREAT_MODEL = REPO_ROOT / "dev" / "ops" / "threat-model.md"
 APP_DOCKERFILES: tuple[Path, ...] = (
     REPO_ROOT / "backend" / "Dockerfile.agent-api",
     REPO_ROOT / "backend" / "Dockerfile.mcp-server",
@@ -652,7 +652,7 @@ def test_the_threat_model_carries_a_row_for_every_named_threat(phrase: str) -> N
     """Catches a STRIDE table that skips one of the eight threats this system
     actually has, and catches a row present but answered with a placeholder
     instead of a mitigation that exists in the tree."""
-    assert THREAT_MODEL.is_file(), "docs/threat-model.md does not exist"
+    assert THREAT_MODEL.is_file(), "dev/ops/threat-model.md does not exist"
     rows = _table_rows(THREAT_MODEL.read_text(encoding="utf-8"))
     assert len(rows) >= 9, (
         f"only {len(rows)} table rows found (8 threats plus a header)"
@@ -672,7 +672,7 @@ def test_the_threat_model_carries_a_row_for_every_named_threat(phrase: str) -> N
 def test_the_threat_model_has_no_adapt_placeholders() -> None:
     """Catches the skeleton stub being kept and merely extended: `ADAPT` is the
     marker the skeleton leaves where a real answer is owed."""
-    assert THREAT_MODEL.is_file(), "docs/threat-model.md does not exist"
+    assert THREAT_MODEL.is_file(), "dev/ops/threat-model.md does not exist"
 
     assert "ADAPT" not in THREAT_MODEL.read_text(encoding="utf-8")
 
