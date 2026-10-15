@@ -45,9 +45,7 @@ def test_crud_within_bound_tenant(session_factory: async_sessionmaker[AsyncSessi
                 status="open",
                 session_id=None,
             )
-            assert created.tenant_id == seeded.tenant_id, (
-                "create must stamp the bound tenant_id"
-            )
+            assert created.tenant_id == seeded.tenant_id, "create must stamp the bound tenant_id"
 
             fetched = await repo.get(created.id)
             assert fetched is not None and fetched.id == created.id

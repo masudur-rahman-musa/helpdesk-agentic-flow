@@ -245,9 +245,7 @@ def test_events_come_back_newest_first_and_before_seq_resumes_without_a_gap(
 
         async with tenant_session(factory, tenant_id) as session:
             first = await search_audit_events(session, event_type="fake.walk")
-            second = await search_audit_events(
-                session, event_type="fake.walk", before_seq=seqs[2]
-            )
+            second = await search_audit_events(session, event_type="fake.walk", before_seq=seqs[2])
 
         assert _seqs(first) == sorted(seqs, reverse=True)
         assert first.lowest_seq == seqs[0]

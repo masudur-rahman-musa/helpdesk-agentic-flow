@@ -271,9 +271,7 @@ def test_replay_returns_the_stored_response_without_running_the_effect(
 
         for _ in range(3):
             async with tenant_session(factory, seeded.tenant_id) as session:
-                replayed: Any = await run_once(
-                    session, seeded.tenant_id, KEY, TOOL, ARGS, effect
-                )
+                replayed: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, ARGS, effect)
             assert replayed.response == first.response
             assert replayed.replayed is True
 
@@ -298,9 +296,7 @@ def test_replay_is_insensitive_to_argument_key_order(
 
         shuffled = dict(reversed(list(ARGS.items())))
         async with tenant_session(factory, seeded.tenant_id) as session:
-            replayed: Any = await run_once(
-                session, seeded.tenant_id, KEY, TOOL, shuffled, effect
-            )
+            replayed: Any = await run_once(session, seeded.tenant_id, KEY, TOOL, shuffled, effect)
 
         assert effect.calls == 1
         assert replayed.response == RESPONSE

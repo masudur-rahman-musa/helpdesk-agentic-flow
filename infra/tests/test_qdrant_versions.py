@@ -137,9 +137,7 @@ def test_client_floor_and_server_share_the_minor() -> None:
     assert server_minor == EXPECTED_MINOR, (
         f"both on minor {server_minor}, expected {EXPECTED_MINOR}"
     )
-    assert floor_minor == EXPECTED_MINOR, (
-        f"both on minor {floor_minor}, expected {EXPECTED_MINOR}"
-    )
+    assert floor_minor == EXPECTED_MINOR, f"both on minor {floor_minor}, expected {EXPECTED_MINOR}"
 
 
 def test_no_v1_12_4_pin_remains() -> None:

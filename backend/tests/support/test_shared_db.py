@@ -114,9 +114,7 @@ def test_the_shared_schema_has_all_twenty_tables(shared_engine: AsyncEngine) -> 
 
     async def scenario() -> None:
         async with shared_engine.connect() as conn:
-            names = await conn.run_sync(
-                lambda sync_conn: inspect(sync_conn).get_table_names()
-            )
+            names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
         assert len(ALL_TABLES) == 20, "ALL_TABLES should name exactly 20 tables"
         assert set(names) == set(ALL_TABLES)
 

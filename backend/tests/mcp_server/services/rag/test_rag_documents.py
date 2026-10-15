@@ -670,9 +670,7 @@ def test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests(
         assert [version.chunk_count for version in shared.versions] == [2]
         assert [version.sha256 for version in shared.versions] == [_digest("reader-v1")]
         titles = {document.title for document in reader_documents}
-        digests = {
-            version.sha256 for document in reader_documents for version in document.versions
-        }
+        digests = {version.sha256 for document in reader_documents for version in document.versions}
         assert "Fake Other Tenant Title" not in titles
         assert "Fake Other Only Title" not in titles
         assert _digest("other-v1") not in digests

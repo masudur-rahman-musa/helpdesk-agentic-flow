@@ -399,9 +399,7 @@ ALREADY_READ_AT = datetime(2026, 2, 2, 8, 0, tzinfo=UTC)
 COLLEAGUE_PASSWORD_HASH = "argon2id$obviously-fake-test-hash"
 
 
-def _plant_colleague(
-    factory: async_sessionmaker[AsyncSession], tenant: SeededTenant
-) -> uuid.UUID:
+def _plant_colleague(factory: async_sessionmaker[AsyncSession], tenant: SeededTenant) -> uuid.UUID:
     """A SECOND real user in an already-seeded tenant, for the same-tenant cases.
 
     `seed_tenant` makes exactly one user, and "one person's bell is not

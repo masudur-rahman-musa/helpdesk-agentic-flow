@@ -258,8 +258,7 @@ def test_the_builders_are_exactly_the_exempt_list() -> None:
     unexempt = sorted(builders - exempt)
     stale = sorted(exempt - builders)
     assert builders == exempt, (
-        f"builders off the exempt list: {unexempt}; "
-        f"exempt entries that build nothing: {stale}"
+        f"builders off the exempt list: {unexempt}; exempt entries that build nothing: {stale}"
     )
 
 
@@ -303,6 +302,4 @@ def test_the_scanned_test_set_is_not_empty() -> None:
     assert len(_scanned_test_sources()) >= 140, (
         f"only {len(_scanned_test_sources())} test files scanned"
     )
-    assert len(EXEMPT_BUILDERS) >= 60, (
-        f"only {len(EXEMPT_BUILDERS)} exempt builders listed"
-    )
+    assert len(EXEMPT_BUILDERS) >= 60, f"only {len(EXEMPT_BUILDERS)} exempt builders listed"

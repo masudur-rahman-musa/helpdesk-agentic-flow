@@ -102,6 +102,7 @@ def retrieval_tenant(
     rule 7). Dropped before as well as after, so a previous run's points can
     neither hide a filter bug nor invent one.
     """
+
     async def prepare() -> tuple[str, uuid.UUID]:
         seeded = await seed_tenant(session_factory, "fake-retrieval")
         return seeded.tenant_slug, seeded.tenant_id
