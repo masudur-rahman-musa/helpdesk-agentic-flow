@@ -165,7 +165,9 @@ def web_origin_from_env() -> str:
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # .env.demo holds a working value for every name; .env adds only the real
+    # paid keys on top. Later files win, so .env overrides .env.demo.
+    model_config = SettingsConfigDict(env_file=(".env.demo", ".env"), extra="ignore")
 
     database_url: str
     redis_url: str
