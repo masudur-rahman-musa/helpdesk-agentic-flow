@@ -41,11 +41,9 @@ No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
 import asyncio
 import dataclasses
 import uuid
-from collections.abc import AsyncIterator, Iterator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 from typing import Any
 
-import pytest
 from sqlalchemy import event, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -55,9 +53,8 @@ from helpdesk.mcp_server.services.access_requests.rules import (
     SodRuleRole,
     read_sod_rules,
 )
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.models import Base, Role, SodRule, System, Tenant
-from tests.conftest import TempDatabaseFactory
+from helpdesk.shared.core.db import tenant_session
+from helpdesk.shared.models import Role, SodRule, System, Tenant
 from tests.support.seed import SeededTenant, seed_tenant
 
 DETAIL_FIELDS: tuple[str, ...] = (
@@ -101,33 +98,6 @@ def _field_names(value: object) -> tuple[str, ...]:
     fields = getattr(type(value), "model_fields", None)
     assert fields is not None, f"{type(value)!r} is neither a dataclass nor a Pydantic model"
     return tuple(fields)
-
-
-@pytest.fixture(scope="session")
-def sod_rules_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
-    """One database, schema created exactly once."""
-    url = pg.create()
-
-    async def prepare() -> None:
-        engine = create_engine(url)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-        finally:
-            await engine.dispose()
-
-    asyncio.run(prepare())
-    yield url
-    pg.drop(url)
-
-
-@asynccontextmanager
-async def _engine(url: str) -> AsyncIterator[AsyncEngine]:
-    engine = create_engine(url)
-    try:
-        yield engine
-    finally:
-        await engine.dispose()
 
 
 async def _seed(factory: async_sessionmaker[AsyncSession], label: str) -> SeededTenant:
@@ -231,7 +201,7 @@ def _one(details: Sequence[SodRuleDetail], rule_id: uuid.UUID) -> SodRuleDetail:
 
 
 def test_a_rule_comes_back_with_both_sides_resolved_and_the_exact_two_field_sets(
-    sod_rules_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criteria 3 and 4, as the literals 24eb puts on the wire.
 
@@ -250,39 +220,38 @@ def test_a_rule_comes_back_with_both_sides_resolved_and_the_exact_two_field_sets
     """
 
     async def scenario() -> None:
-        async with _engine(sod_rules_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant = await _seed(factory, "happy")
+        factory = session_factory
+        tenant = await _seed(factory, "happy")
 
-            details = await _read(factory, tenant.tenant_id)
+        details = await _read(factory, tenant.tenant_id)
 
-            assert len(details) == 1, details
-            detail = details[0]
-            assert _field_names(detail) == DETAIL_FIELDS
-            assert detail.rule_id == tenant.sod_rule_id
-            assert detail.rationale == SEEDED_RATIONALE
-            assert detail.policy_ref == SEEDED_POLICY_REF
-            assert detail.role_a_id == tenant.role_id
-            assert detail.role_b_id == tenant.role_b_id
+        assert len(details) == 1, details
+        detail = details[0]
+        assert _field_names(detail) == DETAIL_FIELDS
+        assert detail.rule_id == tenant.sod_rule_id
+        assert detail.rationale == SEEDED_RATIONALE
+        assert detail.policy_ref == SEEDED_POLICY_REF
+        assert detail.role_a_id == tenant.role_id
+        assert detail.role_b_id == tenant.role_b_id
 
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                role_a = await session.get(Role, tenant.role_id)
-                role_b = await session.get(Role, tenant.role_b_id)
-                system = await session.get(System, tenant.system_id)
-            assert role_a is not None and role_b is not None and system is not None
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            role_a = await session.get(Role, tenant.role_id)
+            role_b = await session.get(Role, tenant.role_b_id)
+            system = await session.get(System, tenant.system_id)
+        assert role_a is not None and role_b is not None and system is not None
 
-            for side, role in ((detail.role_a, role_a), (detail.role_b, role_b)):
-                block = _resolved(side)
-                assert _field_names(block) == ROLE_FIELDS
-                assert block.role_id == role.id
-                assert block.slug == role.slug
-                assert block.name == role.name
-                assert block.system_slug == system.slug
-                assert block.system_name == system.name
+        for side, role in ((detail.role_a, role_a), (detail.role_b, role_b)):
+            block = _resolved(side)
+            assert _field_names(block) == ROLE_FIELDS
+            assert block.role_id == role.id
+            assert block.slug == role.slug
+            assert block.name == role.name
+            assert block.system_slug == system.slug
+            assert block.system_name == system.name
 
-            assert detail.role_a is not None and detail.role_b is not None
-            assert detail.role_a.slug != detail.role_b.slug
-            assert detail.role_a.name != detail.role_b.name
+        assert detail.role_a is not None and detail.role_b is not None
+        assert detail.role_a.slug != detail.role_b.slug
+        assert detail.role_a.name != detail.role_b.name
 
     asyncio.run(scenario())
 
@@ -290,7 +259,9 @@ def test_a_rule_comes_back_with_both_sides_resolved_and_the_exact_two_field_sets
 # --- the one total order, tie-break included (criterion 5) ----------------------
 
 
-def test_the_rows_are_ordered_by_policy_ref_then_rule_id(sod_rules_db_url: str) -> None:
+def test_the_rows_are_ordered_by_policy_ref_then_rule_id(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """Criterion 5 and decision C, asserted as an exact sequence.
 
     KILL: an order left to Postgres (no ORDER BY, so insertion order is what
@@ -306,55 +277,54 @@ def test_the_rows_are_ordered_by_policy_ref_then_rule_id(sod_rules_db_url: str) 
     """
 
     async def scenario() -> None:
-        async with _engine(sod_rules_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant = await _seed(factory, "order")
-            role_c = await _plant_role(factory, tenant, "role-c-fake", "Fake Writer C")
-            role_d = await _plant_role(factory, tenant, "role-d-fake", "Fake Writer D")
-            tie_low, tie_high = _sorted_ids(2)
-            second_ref_id = uuid.uuid4()
+        factory = session_factory
+        tenant = await _seed(factory, "order")
+        role_c = await _plant_role(factory, tenant, "role-c-fake", "Fake Writer C")
+        role_d = await _plant_role(factory, tenant, "role-d-fake", "Fake Writer D")
+        tie_low, tie_high = _sorted_ids(2)
+        second_ref_id = uuid.uuid4()
 
-            # Planted last-first: the seeded rule already exists, then
-            # FAKE-SOD-2, then the tie's HIGH id, then its LOW id.
-            await _plant_rule(
-                factory,
-                tenant.tenant_id,
-                rule_id=second_ref_id,
-                role_a_id=role_c,
-                role_b_id=role_d,
-                policy_ref=REF_TWO,
-            )
-            await _plant_rule(
-                factory,
-                tenant.tenant_id,
-                rule_id=tie_high,
-                role_a_id=tenant.role_b_id,
-                role_b_id=role_c,
-                policy_ref=REF_ONE,
-            )
-            await _plant_rule(
-                factory,
-                tenant.tenant_id,
-                rule_id=tie_low,
-                role_a_id=tenant.role_id,
-                role_b_id=role_c,
-                policy_ref=REF_ONE,
-            )
+        # Planted last-first: the seeded rule already exists, then
+        # FAKE-SOD-2, then the tie's HIGH id, then its LOW id.
+        await _plant_rule(
+            factory,
+            tenant.tenant_id,
+            rule_id=second_ref_id,
+            role_a_id=role_c,
+            role_b_id=role_d,
+            policy_ref=REF_TWO,
+        )
+        await _plant_rule(
+            factory,
+            tenant.tenant_id,
+            rule_id=tie_high,
+            role_a_id=tenant.role_b_id,
+            role_b_id=role_c,
+            policy_ref=REF_ONE,
+        )
+        await _plant_rule(
+            factory,
+            tenant.tenant_id,
+            rule_id=tie_low,
+            role_a_id=tenant.role_id,
+            role_b_id=role_c,
+            policy_ref=REF_ONE,
+        )
 
-            details = await _read(factory, tenant.tenant_id)
+        details = await _read(factory, tenant.tenant_id)
 
-            assert [detail.rule_id for detail in details] == [
-                tie_low,
-                tie_high,
-                second_ref_id,
-                tenant.sod_rule_id,
-            ]
-            assert [detail.policy_ref for detail in details] == [
-                REF_ONE,
-                REF_ONE,
-                REF_TWO,
-                SEEDED_POLICY_REF,
-            ]
+        assert [detail.rule_id for detail in details] == [
+            tie_low,
+            tie_high,
+            second_ref_id,
+            tenant.sod_rule_id,
+        ]
+        assert [detail.policy_ref for detail in details] == [
+            REF_ONE,
+            REF_ONE,
+            REF_TWO,
+            SEEDED_POLICY_REF,
+        ]
 
     asyncio.run(scenario())
 
@@ -363,7 +333,8 @@ def test_the_rows_are_ordered_by_policy_ref_then_rule_id(sod_rules_db_url: str) 
 
 
 def test_a_rule_naming_no_role_row_answers_that_side_null_and_keeps_its_id(
-    sod_rules_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 8: one bad reference may not blank the board.
 
@@ -385,48 +356,48 @@ def test_a_rule_naming_no_role_row_answers_that_side_null_and_keeps_its_id(
     """
 
     async def scenario() -> None:
-        async with _engine(sod_rules_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant = await _seed(factory, "dangling")
-            role_c = await _plant_role(factory, tenant, "role-c-fake", "Fake Writer C")
-            missing_role_id = uuid.uuid4()
-            dangling_id = uuid.uuid4()
+        factory = session_factory
+        engine = shared_engine
+        tenant = await _seed(factory, "dangling")
+        role_c = await _plant_role(factory, tenant, "role-c-fake", "Fake Writer C")
+        missing_role_id = uuid.uuid4()
+        dangling_id = uuid.uuid4()
 
-            constraint = await _drop_role_a_fk(engine)
-            try:
-                await _plant_rule(
-                    factory,
-                    tenant.tenant_id,
-                    rule_id=dangling_id,
-                    role_a_id=missing_role_id,
-                    role_b_id=role_c,
-                    policy_ref=REF_ONE,
-                )
+        constraint = await _drop_role_a_fk(engine)
+        try:
+            await _plant_rule(
+                factory,
+                tenant.tenant_id,
+                rule_id=dangling_id,
+                role_a_id=missing_role_id,
+                role_b_id=role_c,
+                policy_ref=REF_ONE,
+            )
 
-                details = await _read(factory, tenant.tenant_id)
+            details = await _read(factory, tenant.tenant_id)
 
-                assert len(details) == 2, details
-                dangling = _one(details, dangling_id)
-                assert dangling.role_a is None
-                assert dangling.role_a_id == missing_role_id
-                assert dangling.role_b is not None
-                assert dangling.role_b.role_id == role_c
-                assert dangling.role_b.slug == "role-c-fake"
+            assert len(details) == 2, details
+            dangling = _one(details, dangling_id)
+            assert dangling.role_a is None
+            assert dangling.role_a_id == missing_role_id
+            assert dangling.role_b is not None
+            assert dangling.role_b.role_id == role_c
+            assert dangling.role_b.slug == "role-c-fake"
 
-                seeded = _one(details, tenant.sod_rule_id)
-                assert seeded.role_a is not None
-                assert seeded.role_b is not None
-                assert seeded.role_a.role_id == tenant.role_id
-                assert seeded.role_b.role_id == tenant.role_b_id
-            finally:
-                await _delete_rule(engine, dangling_id)
-                await _restore_constraint(engine, constraint)
+            seeded = _one(details, tenant.sod_rule_id)
+            assert seeded.role_a is not None
+            assert seeded.role_b is not None
+            assert seeded.role_a.role_id == tenant.role_id
+            assert seeded.role_b.role_id == tenant.role_b_id
+        finally:
+            await _delete_rule(engine, dangling_id)
+            await _restore_constraint(engine, constraint)
 
     asyncio.run(scenario())
 
 
 def test_a_rule_naming_another_tenants_role_answers_null_and_never_that_name(
-    sod_rules_db_url: str,
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 7's second half: the resolution obeys the tenant guard too.
 
@@ -444,28 +415,27 @@ def test_a_rule_naming_another_tenants_role_answers_null_and_never_that_name(
     """
 
     async def scenario() -> None:
-        async with _engine(sod_rules_db_url) as engine:
-            factory = create_session_factory(engine)
-            reader = await _seed(factory, "reader")
-            other = await _seed(factory, "other")
-            foreign_id = uuid.uuid4()
+        factory = session_factory
+        reader = await _seed(factory, "reader")
+        other = await _seed(factory, "other")
+        foreign_id = uuid.uuid4()
 
-            await _plant_rule(
-                factory,
-                reader.tenant_id,
-                rule_id=foreign_id,
-                role_a_id=other.role_id,
-                role_b_id=reader.role_b_id,
-                policy_ref=REF_ONE,
-            )
+        await _plant_rule(
+            factory,
+            reader.tenant_id,
+            rule_id=foreign_id,
+            role_a_id=other.role_id,
+            role_b_id=reader.role_b_id,
+            policy_ref=REF_ONE,
+        )
 
-            details = await _read(factory, reader.tenant_id)
+        details = await _read(factory, reader.tenant_id)
 
-            foreign = _one(details, foreign_id)
-            assert foreign.role_a is None
-            assert foreign.role_a_id == other.role_id
-            assert foreign.role_b is not None
-            assert foreign.role_b.role_id == reader.role_b_id
+        foreign = _one(details, foreign_id)
+        assert foreign.role_a is None
+        assert foreign.role_a_id == other.role_id
+        assert foreign.role_b is not None
+        assert foreign.role_b.role_id == reader.role_b_id
 
     asyncio.run(scenario())
 
@@ -473,7 +443,9 @@ def test_a_rule_naming_another_tenants_role_answers_null_and_never_that_name(
 # --- tenant isolation of the rules themselves (criterion 7) ---------------------
 
 
-def test_another_tenants_rules_are_absent_from_the_answer(sod_rules_db_url: str) -> None:
+def test_another_tenants_rules_are_absent_from_the_answer(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """Criterion 7's first half: only the bound tenant's rows are read.
 
     KILL: a helper that takes a tenant id and filters on it, or
@@ -488,16 +460,15 @@ def test_another_tenants_rules_are_absent_from_the_answer(sod_rules_db_url: str)
     """
 
     async def scenario() -> None:
-        async with _engine(sod_rules_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_a = await _seed(factory, "iso-a")
-            tenant_b = await _seed(factory, "iso-b")
+        factory = session_factory
+        tenant_a = await _seed(factory, "iso-a")
+        tenant_b = await _seed(factory, "iso-b")
 
-            details_a = await _read(factory, tenant_a.tenant_id)
-            details_b = await _read(factory, tenant_b.tenant_id)
+        details_a = await _read(factory, tenant_a.tenant_id)
+        details_b = await _read(factory, tenant_b.tenant_id)
 
-            assert [detail.rule_id for detail in details_a] == [tenant_a.sod_rule_id]
-            assert [detail.rule_id for detail in details_b] == [tenant_b.sod_rule_id]
+        assert [detail.rule_id for detail in details_a] == [tenant_a.sod_rule_id]
+        assert [detail.rule_id for detail in details_b] == [tenant_b.sod_rule_id]
 
     asyncio.run(scenario())
 
@@ -505,7 +476,9 @@ def test_another_tenants_rules_are_absent_from_the_answer(sod_rules_db_url: str)
 # --- a tenant with no rules (criterion 10) --------------------------------------
 
 
-def test_a_tenant_with_no_rules_answers_an_empty_tuple(sod_rules_db_url: str) -> None:
+def test_a_tenant_with_no_rules_answers_an_empty_tuple(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """Criterion 10: an empty configuration is an answer, never a failure.
 
     KILL: a helper that raises on the empty read - a `.one()` on the rules
@@ -522,13 +495,12 @@ def test_a_tenant_with_no_rules_answers_an_empty_tuple(sod_rules_db_url: str) ->
     """
 
     async def scenario() -> None:
-        async with _engine(sod_rules_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant_id = await _bare_tenant(factory)
+        factory = session_factory
+        tenant_id = await _bare_tenant(factory)
 
-            details = await _read(factory, tenant_id)
+        details = await _read(factory, tenant_id)
 
-            assert details == ()
+        assert details == ()
 
     asyncio.run(scenario())
 
@@ -536,7 +508,10 @@ def test_a_tenant_with_no_rules_answers_an_empty_tuple(sod_rules_db_url: str) ->
 # --- three statements, whatever the rule count (criterion 6) --------------------
 
 
-def test_the_whole_read_issues_exactly_three_selects(sod_rules_db_url: str) -> None:
+def test_the_whole_read_issues_exactly_three_selects(
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
+) -> None:
     """Criterion 6, counted on the engine rather than read off the source.
 
     KILL: the obvious resolution - `Repository.get` per side per rule - which
@@ -553,37 +528,37 @@ def test_the_whole_read_issues_exactly_three_selects(sod_rules_db_url: str) -> N
     """
 
     async def scenario() -> None:
-        async with _engine(sod_rules_db_url) as engine:
-            factory = create_session_factory(engine)
-            tenant = await _seed(factory, "count")
-            role_c = await _plant_role(factory, tenant, "role-c-fake", "Fake Writer C")
-            role_d = await _plant_role(factory, tenant, "role-d-fake", "Fake Writer D")
-            for role_a_id, role_b_id, ref in (
-                (tenant.role_id, role_c, REF_ONE),
-                (tenant.role_b_id, role_c, REF_ONE),
-                (role_c, role_d, REF_TWO),
-            ):
-                await _plant_rule(
-                    factory,
-                    tenant.tenant_id,
-                    rule_id=uuid.uuid4(),
-                    role_a_id=role_a_id,
-                    role_b_id=role_b_id,
-                    policy_ref=ref,
-                )
+        factory = session_factory
+        engine = shared_engine
+        tenant = await _seed(factory, "count")
+        role_c = await _plant_role(factory, tenant, "role-c-fake", "Fake Writer C")
+        role_d = await _plant_role(factory, tenant, "role-d-fake", "Fake Writer D")
+        for role_a_id, role_b_id, ref in (
+            (tenant.role_id, role_c, REF_ONE),
+            (tenant.role_b_id, role_c, REF_ONE),
+            (role_c, role_d, REF_TWO),
+        ):
+            await _plant_rule(
+                factory,
+                tenant.tenant_id,
+                rule_id=uuid.uuid4(),
+                role_a_id=role_a_id,
+                role_b_id=role_b_id,
+                policy_ref=ref,
+            )
 
-            warm_up = await _read(factory, tenant.tenant_id)
-            assert len(warm_up) == 4, warm_up
+        warm_up = await _read(factory, tenant.tenant_id)
+        assert len(warm_up) == 4, warm_up
 
-            statements: list[str] = []
-            _watch(engine, statements)
-            details = await _read(factory, tenant.tenant_id)
+        statements: list[str] = []
+        _watch(engine, statements)
+        details = await _read(factory, tenant.tenant_id)
 
-            assert len(details) == 4, details
-            assert statements, "the statement counter never fired"
-            assert len(statements) == EXPECTED_STATEMENTS, statements
-            for statement in statements:
-                assert statement.lstrip().upper().startswith("SELECT"), statement
+        assert len(details) == 4, details
+        assert statements, "the statement counter never fired"
+        assert len(statements) == EXPECTED_STATEMENTS, statements
+        for statement in statements:
+            assert statement.lstrip().upper().startswith("SELECT"), statement
 
     asyncio.run(scenario())
 
