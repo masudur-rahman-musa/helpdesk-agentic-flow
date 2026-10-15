@@ -32,7 +32,7 @@ jobs:
     steps:
       - name: Scan the pinned base images
         run: |
-          for image in postgres:16.6-alpine redis:7.4-alpine qdrant/qdrant:v1.12.4; do
+          for image in postgres:16.6-alpine redis:7.4-alpine qdrant/qdrant:v1.19.1; do
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
               aquasec/trivy:0.58.1 image \
               --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "$image"

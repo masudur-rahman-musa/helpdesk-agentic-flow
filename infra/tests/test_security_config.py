@@ -116,7 +116,7 @@ SCANNERS: tuple[str, ...] = ("gitleaks", "pip-audit", "pnpm audit", "trivy")
 Python advisories, npm advisories, and container configuration."""
 
 PINNED_IMAGES: frozenset[str] = frozenset(
-    {"postgres:16.6-alpine", "redis:7.4-alpine", "qdrant/qdrant:v1.12.4"}
+    {"postgres:16.6-alpine", "redis:7.4-alpine", "qdrant/qdrant:v1.19.1"}
 )
 """The exact images `docker-compose.yml` pins today, read back off the compose
 file and matched against the weekly scan by
