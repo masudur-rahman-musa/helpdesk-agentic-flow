@@ -67,7 +67,7 @@ from typing import Any
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from helpdesk.shared.access import review_schedule as review_schedule_module
 from helpdesk.shared.access.review_schedule import (
@@ -76,7 +76,7 @@ from helpdesk.shared.access.review_schedule import (
     REVIEW_GENERATION_ACTOR_REF,
     generate_reviews,
 )
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS
@@ -101,11 +101,6 @@ from helpdesk.shared.services.access.reviews import (
     open_review,
     quarter_period,
 )
-
-# Imported, not redefined: one database with the schema created once, shared
-# with `test_access_expiry.py` and its siblings. No two of
-# those files ever look at the same tenant.
-from tests.shared.test_access_expiry import expiry_db_url  # noqa: F401
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
@@ -177,23 +172,20 @@ class EventFacts:
 
 
 def _in_tenant[T](
-    url: str, tenant_id: uuid.UUID, work: Callable[[AsyncSession], Awaitable[T]]
+    factory: async_sessionmaker[AsyncSession],
+    tenant_id: uuid.UUID,
+    work: Callable[[AsyncSession], Awaitable[T]],
 ) -> T:
     """Run `work` in one committed, tenant-bound transaction of its own."""
 
     async def scenario() -> T:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                return await work(session)
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            return await work(session)
 
     return asyncio.run(scenario())
 
 
-def _tenant(url: str) -> SeededTenant:
+def _tenant(factory: async_sessionmaker[AsyncSession]) -> SeededTenant:
     """A tenant of this case's own: the per-test namespace.
 
     `seed_tenant`'s department has no manager and its system is `low`, so
@@ -201,18 +193,17 @@ def _tenant(url: str) -> SeededTenant:
     """
 
     async def prepare() -> SeededTenant:
-        engine = create_engine(url)
-        try:
-            return await seed_tenant(
-                create_session_factory(engine), f"revgen-{uuid.uuid4().hex[:12]}"
-            )
-        finally:
-            await engine.dispose()
+        return await seed_tenant(factory, f"revgen-{uuid.uuid4().hex[:12]}")
 
     return asyncio.run(prepare())
 
 
-def _set_manager(url: str, tenant: SeededTenant, *, manager_user_id: uuid.UUID | None) -> None:
+def _set_manager(
+    factory: async_sessionmaker[AsyncSession],
+    tenant: SeededTenant,
+    *,
+    manager_user_id: uuid.UUID | None,
+) -> None:
     """Give (or take away) the seeded department's manager."""
 
     async def work(session: AsyncSession) -> None:
@@ -220,11 +211,14 @@ def _set_manager(url: str, tenant: SeededTenant, *, manager_user_id: uuid.UUID |
             tenant.department_id, manager_user_id=manager_user_id
         )
 
-    _in_tenant(url, tenant.tenant_id, work)
+    _in_tenant(factory, tenant.tenant_id, work)
 
 
 def _plant_department(
-    url: str, tenant: SeededTenant, *, manager_user_id: uuid.UUID | None
+    factory: async_sessionmaker[AsyncSession],
+    tenant: SeededTenant,
+    *,
+    manager_user_id: uuid.UUID | None,
 ) -> uuid.UUID:
     """One extra department, with or without an owner."""
     suffix = uuid.uuid4().hex[:12]
@@ -235,11 +229,11 @@ def _plant_department(
         )
         return row.id
 
-    return _in_tenant(url, tenant.tenant_id, work)
+    return _in_tenant(factory, tenant.tenant_id, work)
 
 
 def _plant_system(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     sensitivity: str,
@@ -258,10 +252,10 @@ def _plant_system(
         )
         return row.id
 
-    return _in_tenant(url, tenant.tenant_id, work)
+    return _in_tenant(factory, tenant.tenant_id, work)
 
 
-def _plant_user(url: str, tenant: SeededTenant) -> uuid.UUID:
+def _plant_user(factory: async_sessionmaker[AsyncSession], tenant: SeededTenant) -> uuid.UUID:
     """A second, obviously fake person in the seeded department."""
     suffix = uuid.uuid4().hex[:12]
 
@@ -278,11 +272,15 @@ def _plant_user(url: str, tenant: SeededTenant) -> uuid.UUID:
         )
         return row.id
 
-    return _in_tenant(url, tenant.tenant_id, work)
+    return _in_tenant(factory, tenant.tenant_id, work)
 
 
 def _plant_live_grant_in_system(
-    url: str, tenant: SeededTenant, *, system_id: uuid.UUID, user_id: uuid.UUID
+    factory: async_sessionmaker[AsyncSession],
+    tenant: SeededTenant,
+    *,
+    system_id: uuid.UUID,
+    user_id: uuid.UUID,
 ) -> uuid.UUID:
     """One role in that system and one live grant on it.
 
@@ -313,11 +311,11 @@ def _plant_live_grant_in_system(
         )
         return grant.id
 
-    return _in_tenant(url, tenant.tenant_id, work)
+    return _in_tenant(factory, tenant.tenant_id, work)
 
 
 def _plant_review(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     department_id: uuid.UUID | None = None,
@@ -339,30 +337,31 @@ def _plant_review(
         )
         return row.id
 
-    return _in_tenant(url, tenant.tenant_id, work)
+    return _in_tenant(factory, tenant.tenant_id, work)
 
 
 # --- driving the surface ------------------------------------------------------
 
 
-def _generate(url: str, tenant_id: uuid.UUID, *, now: datetime = NOW, times: int = 1) -> None:
+def _generate(
+    factory: async_sessionmaker[AsyncSession],
+    tenant_id: uuid.UUID,
+    *,
+    now: datetime = NOW,
+    times: int = 1,
+) -> None:
     """`generate_reviews`, once per committed transaction."""
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            for _ in range(times):
-                async with tenant_session(factory, tenant_id) as session:
-                    await generate_reviews(session, SimulatedDirectory(session), now=now)
-        finally:
-            await engine.dispose()
+        for _ in range(times):
+            async with tenant_session(factory, tenant_id) as session:
+                await generate_reviews(session, SimulatedDirectory(session), now=now)
 
     asyncio.run(scenario())
 
 
 def _open_review_as_the_tool_does(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant_id: uuid.UUID,
     *,
     department_id: uuid.UUID,
@@ -376,23 +375,18 @@ def _open_review_as_the_tool_does(
     """
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                await open_review(
-                    session,
-                    SimulatedDirectory(session),
-                    department_id=department_id,
-                    system_id=None,
-                    period=period,
-                    opened_by_user_id=opened_by_user_id,
-                    due_at=None,
-                    session_id=None,
-                    now=NOW,
-                )
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            await open_review(
+                session,
+                SimulatedDirectory(session),
+                department_id=department_id,
+                system_id=None,
+                period=period,
+                opened_by_user_id=opened_by_user_id,
+                due_at=None,
+                session_id=None,
+                now=NOW,
+            )
 
     asyncio.run(scenario())
 
@@ -400,7 +394,7 @@ def _open_review_as_the_tool_does(
 # --- probes around the surface, never through it ------------------------------
 
 
-def _reviews(url: str, tenant_id: uuid.UUID) -> list[ReviewFacts]:
+def _reviews(factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID) -> list[ReviewFacts]:
     """Every review of one tenant, whoever opened it."""
 
     async def work(session: AsyncSession) -> list[ReviewFacts]:
@@ -418,40 +412,36 @@ def _reviews(url: str, tenant_id: uuid.UUID) -> list[ReviewFacts]:
             for row in rows
         ]
 
-    return _in_tenant(url, tenant_id, work)
+    return _in_tenant(factory, tenant_id, work)
 
 
 def _scopes(rows: list[ReviewFacts]) -> set[tuple[uuid.UUID | None, uuid.UUID | None]]:
     return {(row.department_id, row.system_id) for row in rows}
 
 
-def _events(url: str, tenant_id: uuid.UUID, event_type: str) -> list[EventFacts]:
+def _events(shared_engine: AsyncEngine, tenant_id: uuid.UUID, event_type: str) -> list[EventFacts]:
     """Every event of one type in one tenant, in `seq` order."""
 
     async def scenario() -> list[EventFacts]:
-        engine = create_engine(url)
-        try:
-            async with engine.connect() as conn:
-                result = await conn.execute(
-                    text(
-                        "SELECT actor_kind, actor_ref, subject_type, subject_id, payload "
-                        "FROM audit_events WHERE tenant_id = :tenant "
-                        "AND event_type = :event_type ORDER BY seq"
-                    ),
-                    {"tenant": tenant_id, "event_type": event_type},
+        async with shared_engine.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT actor_kind, actor_ref, subject_type, subject_id, payload "
+                    "FROM audit_events WHERE tenant_id = :tenant "
+                    "AND event_type = :event_type ORDER BY seq"
+                ),
+                {"tenant": tenant_id, "event_type": event_type},
+            )
+            return [
+                EventFacts(
+                    actor_kind=str(row[0]),
+                    actor_ref=str(row[1]),
+                    subject_type=str(row[2]),
+                    subject_id=str(row[3]),
+                    payload=dict(row[4]),
                 )
-                return [
-                    EventFacts(
-                        actor_kind=str(row[0]),
-                        actor_ref=str(row[1]),
-                        subject_type=str(row[2]),
-                        subject_id=str(row[3]),
-                        payload=dict(row[4]),
-                    )
-                    for row in result.all()
-                ]
-        finally:
-            await engine.dispose()
+                for row in result.all()
+            ]
 
     return asyncio.run(scenario())
 
@@ -586,7 +576,7 @@ def test_check_period_refuses_a_period_longer_than_the_column() -> None:
 
 
 def test_a_department_and_a_critical_system_are_each_generated_for(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 3, as two exact rows.
 
@@ -604,15 +594,15 @@ def test_a_department_and_a_critical_system_are_each_generated_for(
     The seeded `low` system is left in place and asserted absent, so the two
     rows are the whole set.
     """
-    tenant = _tenant(expiry_db_url)
-    manager_id = _plant_user(expiry_db_url, tenant)
-    _set_manager(expiry_db_url, tenant, manager_user_id=manager_id)
-    owner_id = _plant_user(expiry_db_url, tenant)
-    system_id = _plant_system(expiry_db_url, tenant, sensitivity=CRITICAL, owner_user_id=owner_id)
+    tenant = _tenant(session_factory)
+    manager_id = _plant_user(session_factory, tenant)
+    _set_manager(session_factory, tenant, manager_user_id=manager_id)
+    owner_id = _plant_user(session_factory, tenant)
+    system_id = _plant_system(session_factory, tenant, sensitivity=CRITICAL, owner_user_id=owner_id)
 
-    _generate(expiry_db_url, tenant.tenant_id)
+    _generate(session_factory, tenant.tenant_id)
 
-    rows = _reviews(expiry_db_url, tenant.tenant_id)
+    rows = _reviews(session_factory, tenant.tenant_id)
     assert _scopes(rows) == {(tenant.department_id, None), (None, system_id)}
     assert {row.period for row in rows} == {EXPECTED_PERIOD}
     assert {row.due_at for row in rows} == {DUE_AT}
@@ -623,7 +613,7 @@ def test_a_department_and_a_critical_system_are_each_generated_for(
 
 
 def test_a_high_sensitivity_system_is_generated_for(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The second member of `GENERATED_SYSTEM_SENSITIVITIES`, on its own.
 
@@ -633,13 +623,13 @@ def test_a_high_sensitivity_system_is_generated_for(
     other case in this file notices. The department is left ownerless, so the
     single review here can only have come from the system branch.
     """
-    tenant = _tenant(expiry_db_url)
-    owner_id = _plant_user(expiry_db_url, tenant)
-    system_id = _plant_system(expiry_db_url, tenant, sensitivity=HIGH, owner_user_id=owner_id)
+    tenant = _tenant(session_factory)
+    owner_id = _plant_user(session_factory, tenant)
+    system_id = _plant_system(session_factory, tenant, sensitivity=HIGH, owner_user_id=owner_id)
 
-    _generate(expiry_db_url, tenant.tenant_id)
+    _generate(session_factory, tenant.tenant_id)
 
-    assert _scopes(_reviews(expiry_db_url, tenant.tenant_id)) == {(None, system_id)}
+    assert _scopes(_reviews(session_factory, tenant.tenant_id)) == {(None, system_id)}
 
 
 @pytest.mark.parametrize(
@@ -647,7 +637,7 @@ def test_a_high_sensitivity_system_is_generated_for(
     [pytest.param("medium", id="medium"), pytest.param("low", id="low")],
 )
 def test_a_system_of_this_sensitivity_is_never_generated_for(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
     sensitivity: str,
 ) -> None:
     """Criterion 4, one case per excluded value, so a widened filter fails
@@ -660,23 +650,25 @@ def test_a_system_of_this_sensitivity_is_never_generated_for(
     it. The department is left ownerless so the assertion is the EMPTY set,
     not "one fewer row".
     """
-    tenant = _tenant(expiry_db_url)
-    owner_id = _plant_user(expiry_db_url, tenant)
+    tenant = _tenant(session_factory)
+    owner_id = _plant_user(session_factory, tenant)
     system_id = _plant_system(
-        expiry_db_url, tenant, sensitivity=sensitivity, owner_user_id=owner_id
+        session_factory, tenant, sensitivity=sensitivity, owner_user_id=owner_id
     )
-    _plant_live_grant_in_system(expiry_db_url, tenant, system_id=system_id, user_id=tenant.user_id)
+    _plant_live_grant_in_system(
+        session_factory, tenant, system_id=system_id, user_id=tenant.user_id
+    )
 
-    _generate(expiry_db_url, tenant.tenant_id)
+    _generate(session_factory, tenant.tenant_id)
 
-    assert _reviews(expiry_db_url, tenant.tenant_id) == []
+    assert _reviews(session_factory, tenant.tenant_id) == []
 
 
 # --- the already-open skip and idempotence (criterion 5, decision A) ----------
 
 
 def test_a_scope_with_an_open_review_is_skipped_and_the_other_scope_still_opens(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 5's first half: the refusal is caught PER SCOPE.
 
@@ -692,23 +684,23 @@ def test_a_scope_with_an_open_review_is_skipped_and_the_other_scope_still_opens(
     state `_refuse_if_open` blocks on, and it is the only review the
     department ends up with.
     """
-    tenant = _tenant(expiry_db_url)
-    manager_id = _plant_user(expiry_db_url, tenant)
-    _set_manager(expiry_db_url, tenant, manager_user_id=manager_id)
-    owner_id = _plant_user(expiry_db_url, tenant)
-    system_id = _plant_system(expiry_db_url, tenant, sensitivity=CRITICAL, owner_user_id=owner_id)
-    planted = _plant_review(expiry_db_url, tenant, department_id=tenant.department_id)
+    tenant = _tenant(session_factory)
+    manager_id = _plant_user(session_factory, tenant)
+    _set_manager(session_factory, tenant, manager_user_id=manager_id)
+    owner_id = _plant_user(session_factory, tenant)
+    system_id = _plant_system(session_factory, tenant, sensitivity=CRITICAL, owner_user_id=owner_id)
+    planted = _plant_review(session_factory, tenant, department_id=tenant.department_id)
 
-    _generate(expiry_db_url, tenant.tenant_id)
+    _generate(session_factory, tenant.tenant_id)
 
-    rows = _reviews(expiry_db_url, tenant.tenant_id)
+    rows = _reviews(session_factory, tenant.tenant_id)
     assert _scopes(rows) == {(tenant.department_id, None), (None, system_id)}
     department_rows = [row for row in rows if row.department_id == tenant.department_id]
     assert [row.review_id for row in department_rows] == [planted]
 
 
 def test_a_second_run_over_the_same_tenant_opens_no_second_review(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 5's second half, and the whole reason decision A registers a
     QUARTERLY job on a DAILY cadence.
@@ -724,16 +716,18 @@ def test_a_second_run_over_the_same_tenant_opens_no_second_review(
     duplicate here no matter how the skip is written, and the case would be
     asserting the engine's gap rather than this plan's rule.
     """
-    tenant = _tenant(expiry_db_url)
-    manager_id = _plant_user(expiry_db_url, tenant)
-    _set_manager(expiry_db_url, tenant, manager_user_id=manager_id)
-    owner_id = _plant_user(expiry_db_url, tenant)
-    system_id = _plant_system(expiry_db_url, tenant, sensitivity=CRITICAL, owner_user_id=owner_id)
-    _plant_live_grant_in_system(expiry_db_url, tenant, system_id=system_id, user_id=tenant.user_id)
+    tenant = _tenant(session_factory)
+    manager_id = _plant_user(session_factory, tenant)
+    _set_manager(session_factory, tenant, manager_user_id=manager_id)
+    owner_id = _plant_user(session_factory, tenant)
+    system_id = _plant_system(session_factory, tenant, sensitivity=CRITICAL, owner_user_id=owner_id)
+    _plant_live_grant_in_system(
+        session_factory, tenant, system_id=system_id, user_id=tenant.user_id
+    )
 
-    _generate(expiry_db_url, tenant.tenant_id, times=2)
+    _generate(session_factory, tenant.tenant_id, times=2)
 
-    rows = _reviews(expiry_db_url, tenant.tenant_id)
+    rows = _reviews(session_factory, tenant.tenant_id)
     assert len(rows) == 2
     assert _scopes(rows) == {(tenant.department_id, None), (None, system_id)}
     assert {row.status for row in rows} == {ReviewStatus.OPEN.value}
@@ -743,7 +737,7 @@ def test_a_second_run_over_the_same_tenant_opens_no_second_review(
 
 
 def test_a_department_with_no_manager_is_skipped_and_writes_no_review(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Decision C for the department half, isolated.
 
@@ -757,20 +751,20 @@ def test_a_department_with_no_manager_is_skipped_and_writes_no_review(
     The critical system IS generated for in the same run, so this case cannot
     pass because the generator did nothing.
     """
-    tenant = _tenant(expiry_db_url)
-    ownerless = _plant_department(expiry_db_url, tenant, manager_user_id=None)
-    owner_id = _plant_user(expiry_db_url, tenant)
-    system_id = _plant_system(expiry_db_url, tenant, sensitivity=CRITICAL, owner_user_id=owner_id)
+    tenant = _tenant(session_factory)
+    ownerless = _plant_department(session_factory, tenant, manager_user_id=None)
+    owner_id = _plant_user(session_factory, tenant)
+    system_id = _plant_system(session_factory, tenant, sensitivity=CRITICAL, owner_user_id=owner_id)
 
-    _generate(expiry_db_url, tenant.tenant_id)
+    _generate(session_factory, tenant.tenant_id)
 
-    rows = _reviews(expiry_db_url, tenant.tenant_id)
+    rows = _reviews(session_factory, tenant.tenant_id)
     assert _scopes(rows) == {(None, system_id)}
     assert [row for row in rows if row.department_id == ownerless] == []
 
 
 def test_a_system_with_no_owner_is_skipped_and_writes_no_review(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Decision C for the system half, which has its own read and its own way
     of being got wrong.
@@ -781,20 +775,21 @@ def test_a_system_with_no_owner_is_skipped_and_writes_no_review(
     least likely to be answerable. The department IS generated for in the same
     run, so a generator that skipped everything fails here.
     """
-    tenant = _tenant(expiry_db_url)
-    manager_id = _plant_user(expiry_db_url, tenant)
-    _set_manager(expiry_db_url, tenant, manager_user_id=manager_id)
-    ownerless = _plant_system(expiry_db_url, tenant, sensitivity=CRITICAL, owner_user_id=None)
+    tenant = _tenant(session_factory)
+    manager_id = _plant_user(session_factory, tenant)
+    _set_manager(session_factory, tenant, manager_user_id=manager_id)
+    ownerless = _plant_system(session_factory, tenant, sensitivity=CRITICAL, owner_user_id=None)
 
-    _generate(expiry_db_url, tenant.tenant_id)
+    _generate(session_factory, tenant.tenant_id)
 
-    rows = _reviews(expiry_db_url, tenant.tenant_id)
+    rows = _reviews(session_factory, tenant.tenant_id)
     assert _scopes(rows) == {(tenant.department_id, None)}
     assert [row for row in rows if row.system_id == ownerless] == []
 
 
 def test_another_tenants_scopes_are_never_generated_for(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 7. Catches a generator that builds its own statement over
     `departments` and `systems` instead of going through the tenant-bound
@@ -806,25 +801,26 @@ def test_another_tenants_scopes_are_never_generated_for(
     a reviewer from another company. The neighbour's scopes are set up
     identically, so only the scoping can save them.
     """
-    tenant = _tenant(expiry_db_url)
-    neighbour = _tenant(expiry_db_url)
+    tenant = _tenant(session_factory)
+    neighbour = _tenant(session_factory)
     for seeded in (tenant, neighbour):
-        manager_id = _plant_user(expiry_db_url, seeded)
-        _set_manager(expiry_db_url, seeded, manager_user_id=manager_id)
-        _plant_system(expiry_db_url, seeded, sensitivity=CRITICAL, owner_user_id=manager_id)
+        manager_id = _plant_user(session_factory, seeded)
+        _set_manager(session_factory, seeded, manager_user_id=manager_id)
+        _plant_system(session_factory, seeded, sensitivity=CRITICAL, owner_user_id=manager_id)
 
-    _generate(expiry_db_url, tenant.tenant_id)
+    _generate(session_factory, tenant.tenant_id)
 
-    assert len(_reviews(expiry_db_url, tenant.tenant_id)) == 2
-    assert _reviews(expiry_db_url, neighbour.tenant_id) == []
-    assert _events(expiry_db_url, neighbour.tenant_id, REVIEW_OPENED_EVENT_TYPE) == []
+    assert len(_reviews(session_factory, tenant.tenant_id)) == 2
+    assert _reviews(session_factory, neighbour.tenant_id) == []
+    assert _events(shared_engine, neighbour.tenant_id, REVIEW_OPENED_EVENT_TYPE) == []
 
 
 # --- the actor on the audit event (criteria 8 to 10, decision D) --------------
 
 
 def test_every_review_opened_event_the_generator_causes_carries_the_system_actor(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 8, over the whole union of events this run composes.
 
@@ -842,15 +838,17 @@ def test_every_review_opened_event_the_generator_causes_carries_the_system_actor
     asserted UNCHANGED: this plan threads a new actor
     through an existing event and may not quietly reshape what it carries.
     """
-    tenant = _tenant(expiry_db_url)
-    manager_id = _plant_user(expiry_db_url, tenant)
-    _set_manager(expiry_db_url, tenant, manager_user_id=manager_id)
-    system_id = _plant_system(expiry_db_url, tenant, sensitivity=CRITICAL, owner_user_id=manager_id)
+    tenant = _tenant(session_factory)
+    manager_id = _plant_user(session_factory, tenant)
+    _set_manager(session_factory, tenant, manager_user_id=manager_id)
+    system_id = _plant_system(
+        session_factory, tenant, sensitivity=CRITICAL, owner_user_id=manager_id
+    )
 
-    _generate(expiry_db_url, tenant.tenant_id)
+    _generate(session_factory, tenant.tenant_id)
 
-    events = _events(expiry_db_url, tenant.tenant_id, REVIEW_OPENED_EVENT_TYPE)
-    reviews = {str(row.review_id): row for row in _reviews(expiry_db_url, tenant.tenant_id)}
+    events = _events(shared_engine, tenant.tenant_id, REVIEW_OPENED_EVENT_TYPE)
+    reviews = {str(row.review_id): row for row in _reviews(session_factory, tenant.tenant_id)}
     assert len(events) == 2
     for event in events:
         assert event.actor_kind == SYSTEM_ACTOR_KIND
@@ -865,7 +863,8 @@ def test_every_review_opened_event_the_generator_causes_carries_the_system_actor
 
 
 def test_open_review_with_an_opener_id_and_no_actor_kind_still_writes_the_user_actor(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 9, the default decision D turns on, called exactly the way
     `mcp_server/tools/reviews.py` calls it: an opener id, no `actor_kind`, no
@@ -879,25 +878,26 @@ def test_open_review_with_an_opener_id_and_no_actor_kind_still_writes_the_user_a
     asserted as the opener's id for the same reason: it is the only field
     naming WHO asked for the review.
     """
-    tenant = _tenant(expiry_db_url)
-    opener_id = _plant_user(expiry_db_url, tenant)
-    _set_manager(expiry_db_url, tenant, manager_user_id=opener_id)
+    tenant = _tenant(session_factory)
+    opener_id = _plant_user(session_factory, tenant)
+    _set_manager(session_factory, tenant, manager_user_id=opener_id)
 
     _open_review_as_the_tool_does(
-        expiry_db_url,
+        session_factory,
         tenant.tenant_id,
         department_id=tenant.department_id,
         opened_by_user_id=opener_id,
     )
 
-    events = _events(expiry_db_url, tenant.tenant_id, REVIEW_OPENED_EVENT_TYPE)
+    events = _events(shared_engine, tenant.tenant_id, REVIEW_OPENED_EVENT_TYPE)
     assert len(events) == 1
     assert events[0].actor_kind == USER_ACTOR_KIND
     assert events[0].actor_ref == str(opener_id)
 
 
 def test_open_review_with_neither_an_opener_id_nor_an_actor_ref_is_refused(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 10, and the price of widening the opener to `uuid.UUID | None`.
 
@@ -913,28 +913,28 @@ def test_open_review_with_neither_an_opener_id_nor_an_actor_ref_is_refused(
     nothing may be written first: both the review rows and the events are
     re-read empty.
     """
-    tenant = _tenant(expiry_db_url)
-    manager_id = _plant_user(expiry_db_url, tenant)
-    _set_manager(expiry_db_url, tenant, manager_user_id=manager_id)
+    tenant = _tenant(session_factory)
+    manager_id = _plant_user(session_factory, tenant)
+    _set_manager(session_factory, tenant, manager_user_id=manager_id)
 
     with pytest.raises(ToolError) as excinfo:
         _open_review_as_the_tool_does(
-            expiry_db_url,
+            session_factory,
             tenant.tenant_id,
             department_id=tenant.department_id,
             opened_by_user_id=None,
         )
 
     assert excinfo.value.code is ErrorCode.VALIDATION
-    assert _reviews(expiry_db_url, tenant.tenant_id) == []
-    assert _events(expiry_db_url, tenant.tenant_id, REVIEW_OPENED_EVENT_TYPE) == []
+    assert _reviews(session_factory, tenant.tenant_id) == []
+    assert _events(shared_engine, tenant.tenant_id, REVIEW_OPENED_EVENT_TYPE) == []
 
 
 # --- the unhappy path (criterion 12, 21a decision C) --------------------------
 
 
 def test_a_failure_other_than_already_open_propagates_out_of_generate_reviews(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Criterion 12: only `ReviewAlreadyOpenError` is caught, and everything
@@ -954,10 +954,10 @@ def test_a_failure_other_than_already_open_propagates_out_of_generate_reviews(
     error is a `NotFoundError`, which is a `ToolError` and therefore exactly
     the class a too-wide `except ToolError` would swallow.
     """
-    tenant = _tenant(expiry_db_url)
-    manager_id = _plant_user(expiry_db_url, tenant)
-    _set_manager(expiry_db_url, tenant, manager_user_id=manager_id)
-    _plant_system(expiry_db_url, tenant, sensitivity=CRITICAL, owner_user_id=manager_id)
+    tenant = _tenant(session_factory)
+    manager_id = _plant_user(session_factory, tenant)
+    _set_manager(session_factory, tenant, manager_user_id=manager_id)
+    _plant_system(session_factory, tenant, sensitivity=CRITICAL, owner_user_id=manager_id)
 
     async def proxy(
         session: AsyncSession,
@@ -982,9 +982,9 @@ def test_a_failure_other_than_already_open_propagates_out_of_generate_reviews(
         monkeypatch.setattr(module, "open_review", proxy, raising=False)
 
     with pytest.raises(NotFoundError):
-        _generate(expiry_db_url, tenant.tenant_id)
+        _generate(session_factory, tenant.tenant_id)
 
-    assert _reviews(expiry_db_url, tenant.tenant_id) == []
+    assert _reviews(session_factory, tenant.tenant_id) == []
 
 
 # --- the constants and the exports --------------------------

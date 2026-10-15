@@ -55,7 +55,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.shared.access import review_schedule as review_schedule_module
 from helpdesk.shared.access.review_schedule import (
@@ -63,14 +63,10 @@ from helpdesk.shared.access.review_schedule import (
     REVIEW_ESCALATION_DAYS,
     send_review_reminders,
 )
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessReview, Department, Notification, ReviewStatus, User
 from helpdesk.shared.models.notification import NOTIFICATION_TITLE_MAX_LENGTH, NotificationKind
-
-# Imported, not redefined: one database with the schema created once, shared
-# with `test_access_expiry.py` and its siblings.
-from tests.shared.test_access_expiry import expiry_db_url  # noqa: F401
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
@@ -132,23 +128,20 @@ class NotificationFacts:
 
 
 def _in_tenant[T](
-    url: str, tenant_id: uuid.UUID, work: Callable[[AsyncSession], Awaitable[T]]
+    factory: async_sessionmaker[AsyncSession],
+    tenant_id: uuid.UUID,
+    work: Callable[[AsyncSession], Awaitable[T]],
 ) -> T:
     """Run `work` in one committed, tenant-bound transaction of its own."""
 
     async def scenario() -> T:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                return await work(session)
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            return await work(session)
 
     return asyncio.run(scenario())
 
 
-def _tenant(url: str) -> SeededTenant:
+def _tenant(factory: async_sessionmaker[AsyncSession]) -> SeededTenant:
     """A tenant of this case's own: the per-test namespace.
 
     `seed_tenant` plants no review and no notification, and its single user
@@ -157,19 +150,13 @@ def _tenant(url: str) -> SeededTenant:
     """
 
     async def prepare() -> SeededTenant:
-        engine = create_engine(url)
-        try:
-            return await seed_tenant(
-                create_session_factory(engine), f"revrem-{uuid.uuid4().hex[:12]}"
-            )
-        finally:
-            await engine.dispose()
+        return await seed_tenant(factory, f"revrem-{uuid.uuid4().hex[:12]}")
 
     return asyncio.run(prepare())
 
 
 def _plant_user(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     principals: list[str] | None = None,
@@ -191,21 +178,23 @@ def _plant_user(
         )
         return row.id
 
-    return _in_tenant(url, tenant.tenant_id, work)
+    return _in_tenant(factory, tenant.tenant_id, work)
 
 
-def _plant_department(url: str, tenant: SeededTenant, *, name: str) -> uuid.UUID:
+def _plant_department(
+    factory: async_sessionmaker[AsyncSession], tenant: SeededTenant, *, name: str
+) -> uuid.UUID:
     """One extra department, so a case can choose the name a reminder carries."""
 
     async def work(session: AsyncSession) -> uuid.UUID:
         row = await Repository(session, Department).create(name=name, manager_user_id=None)
         return row.id
 
-    return _in_tenant(url, tenant.tenant_id, work)
+    return _in_tenant(factory, tenant.tenant_id, work)
 
 
 def _plant_review(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     reviewer_user_id: uuid.UUID | None = None,
@@ -232,29 +221,32 @@ def _plant_review(
         )
         return row.id
 
-    return _in_tenant(url, tenant.tenant_id, work)
+    return _in_tenant(factory, tenant.tenant_id, work)
 
 
 # --- driving the surface ------------------------------------------------------
 
 
-def _remind(url: str, tenant_id: uuid.UUID, *, now: datetime = NOW, times: int = 1) -> None:
+def _remind(
+    factory: async_sessionmaker[AsyncSession],
+    tenant_id: uuid.UUID,
+    *,
+    now: datetime = NOW,
+    times: int = 1,
+) -> None:
     """`send_review_reminders`, once per committed transaction."""
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            for _ in range(times):
-                async with tenant_session(factory, tenant_id) as session:
-                    await send_review_reminders(session, now=now)
-        finally:
-            await engine.dispose()
+        for _ in range(times):
+            async with tenant_session(factory, tenant_id) as session:
+                await send_review_reminders(session, now=now)
 
     asyncio.run(scenario())
 
 
-def _notifications(url: str, tenant_id: uuid.UUID) -> list[NotificationFacts]:
+def _notifications(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID
+) -> list[NotificationFacts]:
     """Every notification of one tenant, whoever wrote it."""
 
     async def work(session: AsyncSession) -> list[NotificationFacts]:
@@ -272,18 +264,20 @@ def _notifications(url: str, tenant_id: uuid.UUID) -> list[NotificationFacts]:
             for row in rows
         ]
 
-    return _in_tenant(url, tenant_id, work)
+    return _in_tenant(factory, tenant_id, work)
 
 
-def _of_kind(url: str, tenant_id: uuid.UUID, kind: str) -> list[NotificationFacts]:
-    return [row for row in _notifications(url, tenant_id) if row.kind == kind]
+def _of_kind(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID, kind: str
+) -> list[NotificationFacts]:
+    return [row for row in _notifications(factory, tenant_id) if row.kind == kind]
 
 
 # --- the reminder itself (criterion 13) ---------------------------------------
 
 
 def test_an_overdue_open_review_reminds_its_reviewer_once(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 13, as one exact row.
 
@@ -298,13 +292,13 @@ def test_an_overdue_open_review_reminds_its_reviewer_once(
     links nowhere. And one that stamps `read_at`, which makes the row
     invisible to the unread list that is the whole point of writing it.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
-    review_id = _plant_review(expiry_db_url, tenant, reviewer_user_id=reviewer, due_at=OVERDUE)
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
+    review_id = _plant_review(session_factory, tenant, reviewer_user_id=reviewer, due_at=OVERDUE)
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    rows = _notifications(expiry_db_url, tenant.tenant_id)
+    rows = _notifications(session_factory, tenant.tenant_id)
     assert [row.user_id for row in rows] == [reviewer]
     assert rows[0].kind == OVERDUE_KIND
     assert rows[0].kind == NotificationKind.REVIEW_OVERDUE.value
@@ -314,7 +308,7 @@ def test_an_overdue_open_review_reminds_its_reviewer_once(
 
 
 def test_the_scope_name_is_in_the_body_and_the_title_is_the_fixed_literal(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 13's second half, at the length that makes it observable.
 
@@ -332,11 +326,11 @@ def test_the_scope_name_is_in_the_body_and_the_title_is_the_fixed_literal(
     "some fixed string", so a title that varies per review — the other way the
     cap gets reached — fails here too.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
-    department_id = _plant_department(expiry_db_url, tenant, name=LONG_DEPARTMENT_NAME)
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
+    department_id = _plant_department(session_factory, tenant, name=LONG_DEPARTMENT_NAME)
     _plant_review(
-        expiry_db_url,
+        session_factory,
         tenant,
         reviewer_user_id=reviewer,
         department_id=department_id,
@@ -347,9 +341,9 @@ def test_the_scope_name_is_in_the_body_and_the_title_is_the_fixed_literal(
         "premise: this name cannot fit in a notification title"
     )
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    rows = _of_kind(expiry_db_url, tenant.tenant_id, OVERDUE_KIND)
+    rows = _of_kind(session_factory, tenant.tenant_id, OVERDUE_KIND)
     assert len(rows) == 1
     assert rows[0].title == _REMINDER_TITLE
     assert LONG_DEPARTMENT_NAME not in rows[0].title
@@ -361,7 +355,7 @@ def test_the_scope_name_is_in_the_body_and_the_title_is_the_fixed_literal(
 
 
 def test_a_review_due_at_exactly_now_is_not_overdue(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 14's strict half, at the exact instant.
 
@@ -373,16 +367,16 @@ def test_a_review_due_at_exactly_now_is_not_overdue(
     refuse this row: the review is `open`, has a `due_at` and belongs to the
     swept tenant.
     """
-    tenant = _tenant(expiry_db_url)
-    _plant_review(expiry_db_url, tenant, due_at=NOW)
+    tenant = _tenant(session_factory)
+    _plant_review(session_factory, tenant, due_at=NOW)
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 def test_a_review_one_microsecond_past_its_due_date_is_overdue(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 14's other half, one microsecond out.
 
@@ -392,12 +386,12 @@ def test_a_review_one_microsecond_past_its_due_date_is_overdue(
     fifteen. Nothing else in the filter can refuse this row, so it fails only
     when the comparison itself is wrong.
     """
-    tenant = _tenant(expiry_db_url)
-    review_id = _plant_review(expiry_db_url, tenant, due_at=JUST_OVERDUE)
+    tenant = _tenant(session_factory)
+    review_id = _plant_review(session_factory, tenant, due_at=JUST_OVERDUE)
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    rows = _of_kind(expiry_db_url, tenant.tenant_id, OVERDUE_KIND)
+    rows = _of_kind(session_factory, tenant.tenant_id, OVERDUE_KIND)
     assert [row.subject_id for row in rows] == [str(review_id)]
 
 
@@ -405,7 +399,7 @@ def test_a_review_one_microsecond_past_its_due_date_is_overdue(
 
 
 def test_a_review_with_no_due_date_is_never_reminded_about(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The `due_at IS NOT NULL` conjunct, alone.
 
@@ -416,16 +410,16 @@ def test_a_review_with_no_due_date_is_never_reminded_about(
     about every review that was never given a deadline, daily, for ever.
     Nothing else here refuses this row: it is `open` and in the swept tenant.
     """
-    tenant = _tenant(expiry_db_url)
-    _plant_review(expiry_db_url, tenant, due_at=None)
+    tenant = _tenant(session_factory)
+    _plant_review(session_factory, tenant, due_at=None)
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 def test_a_completed_review_long_past_its_due_date_is_never_reminded_about(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The `status = 'open'` conjunct, ISOLATED from the other two.
 
@@ -436,21 +430,21 @@ def test_a_completed_review_long_past_its_due_date_is_never_reminded_about(
     every day, for every review the tenant has ever completed. That is the
     failure mode that gets a notification surface switched off.
     """
-    tenant = _tenant(expiry_db_url)
+    tenant = _tenant(session_factory)
     _plant_review(
-        expiry_db_url,
+        session_factory,
         tenant,
         due_at=NOW - timedelta(days=60),
         status=ReviewStatus.COMPLETED.value,
     )
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 def test_another_tenants_overdue_review_is_never_reminded_about(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Catches a job that builds its own statement over `access_reviews`
     instead of going through the tenant-bound session.
@@ -461,23 +455,23 @@ def test_another_tenants_overdue_review_is_never_reminded_about(
     shows, naming a review id from another company. The neighbour's review is
     overdue by exactly the same amount, so only the scoping can save it.
     """
-    tenant = _tenant(expiry_db_url)
-    neighbour = _tenant(expiry_db_url)
-    mine = _plant_review(expiry_db_url, tenant, due_at=OVERDUE)
-    _plant_review(expiry_db_url, neighbour, due_at=OVERDUE)
+    tenant = _tenant(session_factory)
+    neighbour = _tenant(session_factory)
+    mine = _plant_review(session_factory, tenant, due_at=OVERDUE)
+    _plant_review(session_factory, neighbour, due_at=OVERDUE)
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    rows = _of_kind(expiry_db_url, tenant.tenant_id, OVERDUE_KIND)
+    rows = _of_kind(session_factory, tenant.tenant_id, OVERDUE_KIND)
     assert [row.subject_id for row in rows] == [str(mine)]
-    assert _notifications(expiry_db_url, neighbour.tenant_id) == []
+    assert _notifications(session_factory, neighbour.tenant_id) == []
 
 
 # --- the escalation band, both halves exactly (criteria 16 and 17) ------------
 
 
 def test_a_review_exactly_fourteen_days_overdue_escalates_to_every_active_it_admin(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Decision J's INCLUSIVE edge, at the exact instant, plus criterion 16's
     recipient set.
@@ -491,25 +485,25 @@ def test_a_review_exactly_fourteen_days_overdue_escalates_to_every_active_it_adm
     active holder of the principal: two are planted, and a plain `employee` is
     planted beside them so "everybody in the tenant" fails as well.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
-    admin_one = _plant_user(expiry_db_url, tenant, principals=[IT_ADMIN])
-    admin_two = _plant_user(expiry_db_url, tenant, principals=[EMPLOYEE, IT_ADMIN])
-    _plant_user(expiry_db_url, tenant, principals=[EMPLOYEE])
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
+    admin_one = _plant_user(session_factory, tenant, principals=[IT_ADMIN])
+    admin_two = _plant_user(session_factory, tenant, principals=[EMPLOYEE, IT_ADMIN])
+    _plant_user(session_factory, tenant, principals=[EMPLOYEE])
     review_id = _plant_review(
-        expiry_db_url, tenant, reviewer_user_id=reviewer, due_at=AT_ESCALATION
+        session_factory, tenant, reviewer_user_id=reviewer, due_at=AT_ESCALATION
     )
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    escalated = _of_kind(expiry_db_url, tenant.tenant_id, ESCALATED_KIND)
+    escalated = _of_kind(session_factory, tenant.tenant_id, ESCALATED_KIND)
     assert {row.user_id for row in escalated} == {admin_one, admin_two}
     assert {row.subject_id for row in escalated} == {str(review_id)}
     assert {row.subject_type for row in escalated} == {SUBJECT_TYPE}
 
 
 def test_a_review_one_microsecond_short_of_fourteen_days_does_not_escalate(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The exclusive half of the same boundary, one microsecond in.
 
@@ -521,22 +515,22 @@ def test_a_review_one_microsecond_short_of_fourteen_days_does_not_escalate(
     present, so an implementation that simply stopped writing anything for
     this row fails here too.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
-    _plant_user(expiry_db_url, tenant, principals=[IT_ADMIN])
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
+    _plant_user(session_factory, tenant, principals=[IT_ADMIN])
     review_id = _plant_review(
-        expiry_db_url, tenant, reviewer_user_id=reviewer, due_at=JUST_INSIDE_ESCALATION
+        session_factory, tenant, reviewer_user_id=reviewer, due_at=JUST_INSIDE_ESCALATION
     )
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    assert _of_kind(expiry_db_url, tenant.tenant_id, ESCALATED_KIND) == []
-    overdue = _of_kind(expiry_db_url, tenant.tenant_id, OVERDUE_KIND)
+    assert _of_kind(session_factory, tenant.tenant_id, ESCALATED_KIND) == []
+    overdue = _of_kind(session_factory, tenant.tenant_id, OVERDUE_KIND)
     assert [(row.user_id, row.subject_id) for row in overdue] == [(reviewer, str(review_id))]
 
 
 def test_an_escalating_review_still_writes_the_reviewers_own_reminder(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Decision F: the escalation is an ADDITION, never a substitution.
 
@@ -549,16 +543,16 @@ def test_an_escalating_review_still_writes_the_reviewers_own_reminder(
     the `review_escalated` one, so a job that sent both kinds to both people
     fails as well.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
-    admin = _plant_user(expiry_db_url, tenant, principals=[IT_ADMIN])
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
+    admin = _plant_user(session_factory, tenant, principals=[IT_ADMIN])
     review_id = _plant_review(
-        expiry_db_url, tenant, reviewer_user_id=reviewer, due_at=AT_ESCALATION - timedelta(days=3)
+        session_factory, tenant, reviewer_user_id=reviewer, due_at=AT_ESCALATION - timedelta(days=3)
     )
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    rows = _notifications(expiry_db_url, tenant.tenant_id)
+    rows = _notifications(session_factory, tenant.tenant_id)
     assert {(row.user_id, row.kind, row.subject_id) for row in rows} == {
         (reviewer, OVERDUE_KIND, str(review_id)),
         (admin, ESCALATED_KIND, str(review_id)),
@@ -566,7 +560,7 @@ def test_an_escalating_review_still_writes_the_reviewers_own_reminder(
 
 
 def test_a_tenant_with_no_active_it_admin_escalates_to_nobody_and_still_reminds(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 17's first half.
 
@@ -578,22 +572,22 @@ def test_a_tenant_with_no_active_it_admin_escalates_to_nobody_and_still_reminds(
     is asserted present beside the empty escalation set, so "wrote nothing"
     does not pass.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
     review_id = _plant_review(
-        expiry_db_url, tenant, reviewer_user_id=reviewer, due_at=AT_ESCALATION
+        session_factory, tenant, reviewer_user_id=reviewer, due_at=AT_ESCALATION
     )
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    rows = _notifications(expiry_db_url, tenant.tenant_id)
+    rows = _notifications(session_factory, tenant.tenant_id)
     assert [(row.user_id, row.kind, row.subject_id) for row in rows] == [
         (reviewer, OVERDUE_KIND, str(review_id))
     ]
 
 
 def test_a_leaver_holding_it_admin_is_never_escalated_to(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 17's second half, ISOLATED from the principal test.
 
@@ -606,15 +600,15 @@ def test_a_leaver_holding_it_admin_is_never_escalated_to(
     The active admin's row is asserted present, so a query that escalated to
     nobody fails too.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
-    active_admin = _plant_user(expiry_db_url, tenant, principals=[IT_ADMIN])
-    _plant_user(expiry_db_url, tenant, principals=[IT_ADMIN], status=LEAVER_STATUS_LITERAL)
-    _plant_review(expiry_db_url, tenant, reviewer_user_id=reviewer, due_at=AT_ESCALATION)
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
+    active_admin = _plant_user(session_factory, tenant, principals=[IT_ADMIN])
+    _plant_user(session_factory, tenant, principals=[IT_ADMIN], status=LEAVER_STATUS_LITERAL)
+    _plant_review(session_factory, tenant, reviewer_user_id=reviewer, due_at=AT_ESCALATION)
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    escalated = _of_kind(expiry_db_url, tenant.tenant_id, ESCALATED_KIND)
+    escalated = _of_kind(session_factory, tenant.tenant_id, ESCALATED_KIND)
     assert [row.user_id for row in escalated] == [active_admin]
 
 
@@ -622,7 +616,7 @@ def test_a_leaver_holding_it_admin_is_never_escalated_to(
 
 
 def test_two_overdue_reviews_for_one_reviewer_write_one_row_each(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 18. Catches a job that writes one row per REVIEWER rather
     than one per review — the natural shape if the overdue set is grouped by
@@ -634,30 +628,30 @@ def test_two_overdue_reviews_for_one_reviewer_write_one_row_each(
     departments and have different `due_at` values, so a merged row cannot
     accidentally be right.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
     other_department = _plant_department(
-        expiry_db_url, tenant, name=f"Fake Second Dept {uuid.uuid4().hex[:12]}"
+        session_factory, tenant, name=f"Fake Second Dept {uuid.uuid4().hex[:12]}"
     )
-    first = _plant_review(expiry_db_url, tenant, reviewer_user_id=reviewer, due_at=OVERDUE)
+    first = _plant_review(session_factory, tenant, reviewer_user_id=reviewer, due_at=OVERDUE)
     second = _plant_review(
-        expiry_db_url,
+        session_factory,
         tenant,
         reviewer_user_id=reviewer,
         department_id=other_department,
         due_at=JUST_OVERDUE,
     )
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    rows = _of_kind(expiry_db_url, tenant.tenant_id, OVERDUE_KIND)
+    rows = _of_kind(session_factory, tenant.tenant_id, OVERDUE_KIND)
     assert {row.user_id for row in rows} == {reviewer}
     assert {row.subject_id for row in rows} == {str(first), str(second)}
     assert len(rows) == 2
 
 
 def test_running_the_job_twice_writes_two_reminders_for_one_review(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Decision E, stated as the intended behaviour rather than discovered as a
     bug.
@@ -672,19 +666,19 @@ def test_running_the_job_twice_writes_two_reminders_for_one_review(
     It is the one case here that would go RED for a change somebody might
     think is an improvement, which is exactly why decision E is written down.
     """
-    tenant = _tenant(expiry_db_url)
-    reviewer = _plant_user(expiry_db_url, tenant)
-    review_id = _plant_review(expiry_db_url, tenant, reviewer_user_id=reviewer, due_at=OVERDUE)
+    tenant = _tenant(session_factory)
+    reviewer = _plant_user(session_factory, tenant)
+    review_id = _plant_review(session_factory, tenant, reviewer_user_id=reviewer, due_at=OVERDUE)
 
-    _remind(expiry_db_url, tenant.tenant_id, times=2)
+    _remind(session_factory, tenant.tenant_id, times=2)
 
-    rows = _of_kind(expiry_db_url, tenant.tenant_id, OVERDUE_KIND)
+    rows = _of_kind(session_factory, tenant.tenant_id, OVERDUE_KIND)
     assert [row.subject_id for row in rows] == [str(review_id), str(review_id)]
     assert {row.user_id for row in rows} == {reviewer}
 
 
 def test_a_review_that_is_not_yet_due_writes_nothing(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The ordinary case the whole band exists to leave alone.
 
@@ -694,12 +688,12 @@ def test_a_review_that_is_not_yet_due_writes_nothing(
     review here is open, has a `due_at` and belongs to the swept tenant; only
     the comparison against `now` can refuse it.
     """
-    tenant = _tenant(expiry_db_url)
-    _plant_review(expiry_db_url, tenant, due_at=NOT_YET_DUE)
+    tenant = _tenant(session_factory)
+    _plant_review(session_factory, tenant, due_at=NOT_YET_DUE)
 
-    _remind(expiry_db_url, tenant.tenant_id)
+    _remind(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 # --- the constants ------------------------------------------

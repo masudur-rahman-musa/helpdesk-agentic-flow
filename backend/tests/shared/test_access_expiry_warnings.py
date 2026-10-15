@@ -51,22 +51,19 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from helpdesk.shared.access import expiry as expiry_module
 from helpdesk.shared.access.expiry import (
     _WARNING_TITLE,
     EXPIRY_WARNING_HORIZON_DAYS,
     warn_expiring_grants,
 )
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS
 from helpdesk.shared.models import Grant, Notification, Role, User
 from helpdesk.shared.models.notification import NOTIFICATION_TITLE_MAX_LENGTH, NotificationKind
-
-# Imported, not redefined: one database with the schema created once, shared
-# with `test_access_expiry.py`. The two files never look at
-# the same tenant, so sharing it costs nothing and saves a whole database.
-from tests.shared.test_access_expiry import expiry_db_url  # noqa: F401
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
@@ -122,7 +119,7 @@ class NotificationFacts:
 # --- the per-case namespace ---------------------------------------------------
 
 
-def _tenant(url: str) -> SeededTenant:
+def _tenant(factory: async_sessionmaker[AsyncSession]) -> SeededTenant:
     """A tenant of this case's own: the per-test namespace.
 
     `seed_tenant` plants one grant with a NULL `expires_at` and one `active`
@@ -132,19 +129,13 @@ def _tenant(url: str) -> SeededTenant:
     """
 
     async def prepare() -> SeededTenant:
-        engine = create_engine(url)
-        try:
-            return await seed_tenant(
-                create_session_factory(engine), f"warn-{uuid.uuid4().hex[:12]}"
-            )
-        finally:
-            await engine.dispose()
+        return await seed_tenant(factory, f"warn-{uuid.uuid4().hex[:12]}")
 
     return asyncio.run(prepare())
 
 
 def _plant_grant(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     user_id: uuid.UUID | None = None,
@@ -157,79 +148,71 @@ def _plant_grant(
     """One committed `grants` row, written around the sweep."""
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                row = await Repository(session, Grant).create(
-                    user_id=tenant.user_id if user_id is None else user_id,
-                    role_id=tenant.role_b_id if role_id is None else role_id,
-                    request_id=None,
-                    granted_by_user_id=None,
-                    granted_at=GRANTED_AT,
-                    expires_at=expires_at,
-                    revoked_at=revoked_at,
-                    revoke_reason=revoke_reason,
-                    status=status,
-                )
-                return row.id
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            row = await Repository(session, Grant).create(
+                user_id=tenant.user_id if user_id is None else user_id,
+                role_id=tenant.role_b_id if role_id is None else role_id,
+                request_id=None,
+                granted_by_user_id=None,
+                granted_at=GRANTED_AT,
+                expires_at=expires_at,
+                revoked_at=revoked_at,
+                revoke_reason=revoke_reason,
+                status=status,
+            )
+            return row.id
 
     return asyncio.run(scenario())
 
 
-def _plant_user(url: str, tenant: SeededTenant, *, status: str = ACTIVE_USER_STATUS) -> uuid.UUID:
+def _plant_user(
+    factory: async_sessionmaker[AsyncSession],
+    tenant: SeededTenant,
+    *,
+    status: str = ACTIVE_USER_STATUS,
+) -> uuid.UUID:
     """A second, obviously fake person in the seeded department."""
     suffix = uuid.uuid4().hex[:12]
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                row = await Repository(session, User).create(
-                    department_id=tenant.department_id,
-                    email=f"fake.person.{suffix}@example.test",
-                    display_name=f"Fake Person {suffix}",
-                    password_hash="argon2id$obviously-fake-test-hash",
-                    principals=["employee"],
-                    status=status,
-                    start_date=date(2026, 1, 5),
-                    end_date=None,
-                )
-                return row.id
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            row = await Repository(session, User).create(
+                department_id=tenant.department_id,
+                email=f"fake.person.{suffix}@example.test",
+                display_name=f"Fake Person {suffix}",
+                password_hash="argon2id$obviously-fake-test-hash",
+                principals=["employee"],
+                status=status,
+                start_date=date(2026, 1, 5),
+                end_date=None,
+            )
+            return row.id
 
     return asyncio.run(scenario())
 
 
-def _plant_role(url: str, tenant: SeededTenant, *, name: str) -> uuid.UUID:
+def _plant_role(
+    factory: async_sessionmaker[AsyncSession], tenant: SeededTenant, *, name: str
+) -> uuid.UUID:
     """One extra role, so a case can choose the name a warning has to carry."""
     suffix = uuid.uuid4().hex[:12]
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                row = await Repository(session, Role).create(
-                    system_id=tenant.system_id,
-                    slug=f"role-c-{suffix}",
-                    name=name,
-                    privilege="read",
-                    default_expiry_days=30,
-                )
-                return row.id
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            row = await Repository(session, Role).create(
+                system_id=tenant.system_id,
+                slug=f"role-c-{suffix}",
+                name=name,
+                privilege="read",
+                default_expiry_days=30,
+            )
+            return row.id
 
     return asyncio.run(scenario())
 
 
 def _plant_notification(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     user_id: uuid.UUID,
@@ -244,21 +227,16 @@ def _plant_notification(
     """
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                await Repository(session, Notification).create(
-                    user_id=user_id,
-                    kind=kind,
-                    title="fake planted notification",
-                    body="planted by the test, not by the sweep",
-                    subject_type=SUBJECT_TYPE,
-                    subject_id=subject_id,
-                    read_at=None,
-                )
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            await Repository(session, Notification).create(
+                user_id=user_id,
+                kind=kind,
+                title="fake planted notification",
+                body="planted by the test, not by the sweep",
+                subject_type=SUBJECT_TYPE,
+                subject_id=subject_id,
+                read_at=None,
+            )
 
     asyncio.run(scenario())
 
@@ -266,59 +244,59 @@ def _plant_notification(
 # --- driving the surface ------------------------------------------------------
 
 
-def _warn(url: str, tenant_id: uuid.UUID, *, now: datetime = NOW, times: int = 1) -> None:
+def _warn(
+    factory: async_sessionmaker[AsyncSession],
+    tenant_id: uuid.UUID,
+    *,
+    now: datetime = NOW,
+    times: int = 1,
+) -> None:
     """`warn_expiring_grants`, once per committed transaction."""
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            for _ in range(times):
-                async with tenant_session(factory, tenant_id) as session:
-                    await warn_expiring_grants(session, now=now)
-        finally:
-            await engine.dispose()
+        for _ in range(times):
+            async with tenant_session(factory, tenant_id) as session:
+                await warn_expiring_grants(session, now=now)
 
     asyncio.run(scenario())
 
 
-def _notifications(url: str, tenant_id: uuid.UUID) -> list[NotificationFacts]:
+def _notifications(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID
+) -> list[NotificationFacts]:
     """Every notification of one tenant, whoever wrote it."""
 
     async def scenario() -> list[NotificationFacts]:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                rows = await Repository(session, Notification).list()
-                return [
-                    NotificationFacts(
-                        user_id=row.user_id,
-                        kind=str(row.kind),
-                        title=str(row.title),
-                        body=str(row.body),
-                        subject_type=None if row.subject_type is None else str(row.subject_type),
-                        subject_id=None if row.subject_id is None else str(row.subject_id),
-                        read_at=row.read_at,
-                    )
-                    for row in rows
-                ]
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            rows = await Repository(session, Notification).list()
+            return [
+                NotificationFacts(
+                    user_id=row.user_id,
+                    kind=str(row.kind),
+                    title=str(row.title),
+                    body=str(row.body),
+                    subject_type=None if row.subject_type is None else str(row.subject_type),
+                    subject_id=None if row.subject_id is None else str(row.subject_id),
+                    read_at=row.read_at,
+                )
+                for row in rows
+            ]
 
     return asyncio.run(scenario())
 
 
-def _warnings(url: str, tenant_id: uuid.UUID) -> list[NotificationFacts]:
+def _warnings(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID
+) -> list[NotificationFacts]:
     """Only the rows this job claims to write."""
-    return [row for row in _notifications(url, tenant_id) if row.kind == EXPIRING_KIND]
+    return [row for row in _notifications(factory, tenant_id) if row.kind == EXPIRING_KIND]
 
 
 # --- the warning itself (criterion 2) -----------------------------------------
 
 
 def test_a_grant_expiring_inside_the_horizon_warns_its_holder_once(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 2, as one exact row.
 
@@ -333,12 +311,12 @@ def test_a_grant_expiring_inside_the_horizon_warns_its_holder_once(
     one that stamps `read_at`, which makes the row invisible to the unread
     list that is the whole point of writing it.
     """
-    tenant = _tenant(expiry_db_url)
-    grant_id = _plant_grant(expiry_db_url, tenant, expires_at=INSIDE)
+    tenant = _tenant(session_factory)
+    grant_id = _plant_grant(session_factory, tenant, expires_at=INSIDE)
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    rows = _notifications(expiry_db_url, tenant.tenant_id)
+    rows = _notifications(session_factory, tenant.tenant_id)
     assert [row.user_id for row in rows] == [tenant.user_id]
     assert rows[0].kind == EXPIRING_KIND
     assert rows[0].kind == NotificationKind.GRANT_EXPIRING.value
@@ -348,7 +326,7 @@ def test_a_grant_expiring_inside_the_horizon_warns_its_holder_once(
 
 
 def test_the_role_name_is_in_the_body_and_the_title_is_the_fixed_literal(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 2's second half, at the length that makes it observable.
 
@@ -365,17 +343,17 @@ def test_the_role_name_is_in_the_body_and_the_title_is_the_fixed_literal(
     "some fixed string", so a title that varies per grant — the other way the
     cap gets reached — fails here too.
     """
-    tenant = _tenant(expiry_db_url)
-    role_id = _plant_role(expiry_db_url, tenant, name=LONG_ROLE_NAME)
-    _plant_grant(expiry_db_url, tenant, role_id=role_id, expires_at=INSIDE)
+    tenant = _tenant(session_factory)
+    role_id = _plant_role(session_factory, tenant, name=LONG_ROLE_NAME)
+    _plant_grant(session_factory, tenant, role_id=role_id, expires_at=INSIDE)
     assert len(LONG_ROLE_NAME) == 256, "premise: the name fills the roles.name column"
     assert len(LONG_ROLE_NAME) > NOTIFICATION_TITLE_MAX_LENGTH, (
         "premise: this name cannot fit in a notification title"
     )
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    rows = _warnings(expiry_db_url, tenant.tenant_id)
+    rows = _warnings(session_factory, tenant.tenant_id)
     assert len(rows) == 1
     assert rows[0].title == _WARNING_TITLE
     assert LONG_ROLE_NAME not in rows[0].title
@@ -387,7 +365,7 @@ def test_the_role_name_is_in_the_body_and_the_title_is_the_fixed_literal(
 
 
 def test_a_grant_expiring_at_exactly_the_horizon_is_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The inclusive half of decision A's top boundary, at the exact instant.
 
@@ -397,17 +375,17 @@ def test_a_grant_expiring_at_exactly_the_horizon_is_warned(
     at all if the tick drifts (decision H). The lower bound cannot save this
     row: it is inside the band on that side either way.
     """
-    tenant = _tenant(expiry_db_url)
-    grant_id = _plant_grant(expiry_db_url, tenant, expires_at=AT_HORIZON)
+    tenant = _tenant(session_factory)
+    grant_id = _plant_grant(session_factory, tenant, expires_at=AT_HORIZON)
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    rows = _warnings(expiry_db_url, tenant.tenant_id)
+    rows = _warnings(session_factory, tenant.tenant_id)
     assert [row.subject_id for row in rows] == [str(grant_id)]
 
 
 def test_a_grant_one_microsecond_past_the_horizon_is_not_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The exclusive half of the same boundary, one microsecond out.
 
@@ -417,16 +395,16 @@ def test_a_grant_one_microsecond_past_the_horizon_is_not_warned(
     costs exactly the renewals this job exists to prompt. Only the upper bound
     can refuse this row: it is above `now`, so the lower bound admits it.
     """
-    tenant = _tenant(expiry_db_url)
-    _plant_grant(expiry_db_url, tenant, expires_at=JUST_PAST_HORIZON)
+    tenant = _tenant(session_factory)
+    _plant_grant(session_factory, tenant, expires_at=JUST_PAST_HORIZON)
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 def test_a_grant_expiring_at_exactly_now_is_not_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 3's third row: the STRICT lower bound.
 
@@ -436,19 +414,19 @@ def test_a_grant_expiring_at_exactly_now_is_not_warned(
     carry "your access ended" and "your access is about to end" for one id.
     Only the lower bound can refuse this row; it is well under the horizon.
     """
-    tenant = _tenant(expiry_db_url)
-    _plant_grant(expiry_db_url, tenant, expires_at=NOW)
+    tenant = _tenant(session_factory)
+    _plant_grant(session_factory, tenant, expires_at=NOW)
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 # --- the dedupe (criterion 4, decision A) -------------------------------------
 
 
 def test_a_second_run_over_the_same_grant_writes_no_second_notification(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 4. Catches the band with no dedupe at all.
 
@@ -458,17 +436,17 @@ def test_a_second_run_over_the_same_grant_writes_no_second_notification(
     identical rows in one person's bell for one grant, which is how a
     notification surface stops being read. Two runs over one grant, one row.
     """
-    tenant = _tenant(expiry_db_url)
-    grant_id = _plant_grant(expiry_db_url, tenant, expires_at=INSIDE)
+    tenant = _tenant(session_factory)
+    grant_id = _plant_grant(session_factory, tenant, expires_at=INSIDE)
 
-    _warn(expiry_db_url, tenant.tenant_id, times=2)
+    _warn(session_factory, tenant.tenant_id, times=2)
 
-    rows = _warnings(expiry_db_url, tenant.tenant_id)
+    rows = _warnings(session_factory, tenant.tenant_id)
     assert [row.subject_id for row in rows] == [str(grant_id)]
 
 
 def test_a_grant_already_carrying_an_expired_notification_is_still_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 7: the dedupe is on kind AND subject, never subject alone.
 
@@ -479,19 +457,19 @@ def test_a_grant_already_carrying_an_expired_notification_is_still_warned(
     to lapse again. The planted row is the shape that sweep leaves behind, and
     the case asserts the warning appears BESIDE it.
     """
-    tenant = _tenant(expiry_db_url)
-    grant_id = _plant_grant(expiry_db_url, tenant, expires_at=INSIDE)
+    tenant = _tenant(session_factory)
+    grant_id = _plant_grant(session_factory, tenant, expires_at=INSIDE)
     _plant_notification(
-        expiry_db_url,
+        session_factory,
         tenant,
         user_id=tenant.user_id,
         kind=EXPIRED_KIND,
         subject_id=str(grant_id),
     )
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    rows = _notifications(expiry_db_url, tenant.tenant_id)
+    rows = _notifications(session_factory, tenant.tenant_id)
     assert sorted(row.kind for row in rows) == [EXPIRED_KIND, EXPIRING_KIND]
     warned = [row for row in rows if row.kind == EXPIRING_KIND]
     assert [row.subject_id for row in warned] == [str(grant_id)]
@@ -501,7 +479,7 @@ def test_a_grant_already_carrying_an_expired_notification_is_still_warned(
 
 
 def test_a_grant_that_never_expires_is_not_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The `expires_at IS NOT NULL` conjunct, alone.
 
@@ -512,16 +490,16 @@ def test_a_grant_that_never_expires_is_not_warned(
     filter refuses this row: it is `active`, unrevoked and held by an active
     user.
     """
-    tenant = _tenant(expiry_db_url)
-    _plant_grant(expiry_db_url, tenant, expires_at=None)
+    tenant = _tenant(session_factory)
+    _plant_grant(session_factory, tenant, expires_at=None)
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 def test_a_grant_stamped_revoked_at_inside_the_horizon_is_not_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The `revoked_at IS NULL` conjunct, ISOLATED from the status conjunct.
 
@@ -533,9 +511,9 @@ def test_a_grant_stamped_revoked_at_inside_the_horizon_is_not_warned(
     implementation it describes tells somebody to renew access that has
     already been taken off them.
     """
-    tenant = _tenant(expiry_db_url)
+    tenant = _tenant(session_factory)
     _plant_grant(
-        expiry_db_url,
+        session_factory,
         tenant,
         expires_at=INSIDE,
         status=ACTIVE_GRANT_STATUS,
@@ -543,13 +521,13 @@ def test_a_grant_stamped_revoked_at_inside_the_horizon_is_not_warned(
         revoke_reason="fake revocation planted to isolate the revoked_at conjunct",
     )
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 def test_an_already_expired_grant_inside_the_horizon_is_not_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The `status = 'active'` conjunct, ISOLATED from the `revoked_at` one.
 
@@ -560,22 +538,22 @@ def test_an_already_expired_grant_inside_the_horizon_is_not_warned(
     still ahead of `now` only because somebody re-dated it; a person told to
     renew what they no longer hold files a ticket, not a request.
     """
-    tenant = _tenant(expiry_db_url)
+    tenant = _tenant(session_factory)
     _plant_grant(
-        expiry_db_url,
+        session_factory,
         tenant,
         expires_at=INSIDE,
         status=EXPIRED_GRANT_STATUS,
         revoked_at=None,
     )
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 def test_another_tenants_grant_inside_the_horizon_is_not_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Catches a job that builds its own statement over `grants` instead of
     going through the tenant-bound session.
@@ -586,19 +564,19 @@ def test_another_tenants_grant_inside_the_horizon_is_not_warned(
     naming a grant id from another company. The neighbour's grant sits at the
     same instant inside the band, so only the scoping can save it.
     """
-    tenant = _tenant(expiry_db_url)
-    neighbour = _tenant(expiry_db_url)
-    mine = _plant_grant(expiry_db_url, tenant, expires_at=INSIDE)
-    _plant_grant(expiry_db_url, neighbour, expires_at=INSIDE)
+    tenant = _tenant(session_factory)
+    neighbour = _tenant(session_factory)
+    mine = _plant_grant(session_factory, tenant, expires_at=INSIDE)
+    _plant_grant(session_factory, neighbour, expires_at=INSIDE)
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    assert [row.subject_id for row in _warnings(expiry_db_url, tenant.tenant_id)] == [str(mine)]
-    assert _notifications(expiry_db_url, neighbour.tenant_id) == []
+    assert [row.subject_id for row in _warnings(session_factory, tenant.tenant_id)] == [str(mine)]
+    assert _notifications(session_factory, neighbour.tenant_id) == []
 
 
 def test_a_grant_held_by_a_leaver_is_not_warned(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Decision C's exclusion, which needs the join to `users`.
 
@@ -609,17 +587,17 @@ def test_a_grant_held_by_a_leaver_is_not_warned(
     purely over `grants` cannot refuse: the grant is `active`, unrevoked, and
     squarely inside the band.
     """
-    tenant = _tenant(expiry_db_url)
-    leaver = _plant_user(expiry_db_url, tenant, status=LEAVER_STATUS_LITERAL)
-    _plant_grant(expiry_db_url, tenant, user_id=leaver, expires_at=INSIDE)
+    tenant = _tenant(session_factory)
+    leaver = _plant_user(session_factory, tenant, status=LEAVER_STATUS_LITERAL)
+    _plant_grant(session_factory, tenant, user_id=leaver, expires_at=INSIDE)
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    assert _notifications(expiry_db_url, tenant.tenant_id) == []
+    assert _notifications(session_factory, tenant.tenant_id) == []
 
 
 def test_two_holders_in_the_band_are_each_warned_on_their_own_grant(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Catches a job that writes ONE row per sweep rather than one per grant,
     and one that sends every warning to the first holder it read.
@@ -629,20 +607,20 @@ def test_two_holders_in_the_band_are_each_warned_on_their_own_grant(
     row addressed to the wrong holder tells one person about another's access.
     Two holders, two roles, two different expiry instants inside the band.
     """
-    tenant = _tenant(expiry_db_url)
-    other = _plant_user(expiry_db_url, tenant)
-    mine = _plant_grant(expiry_db_url, tenant, expires_at=INSIDE, role_id=tenant.role_b_id)
+    tenant = _tenant(session_factory)
+    other = _plant_user(session_factory, tenant)
+    mine = _plant_grant(session_factory, tenant, expires_at=INSIDE, role_id=tenant.role_b_id)
     theirs = _plant_grant(
-        expiry_db_url,
+        session_factory,
         tenant,
         user_id=other,
         role_id=tenant.role_id,
         expires_at=AT_HORIZON,
     )
 
-    _warn(expiry_db_url, tenant.tenant_id)
+    _warn(session_factory, tenant.tenant_id)
 
-    rows = _warnings(expiry_db_url, tenant.tenant_id)
+    rows = _warnings(session_factory, tenant.tenant_id)
     assert {(row.user_id, row.subject_id) for row in rows} == {
         (tenant.user_id, str(mine)),
         (other, str(theirs)),

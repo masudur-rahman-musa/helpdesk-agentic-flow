@@ -48,11 +48,12 @@ from typing import Any
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from helpdesk.shared.access import leavers as leavers_module
 from helpdesk.shared.access.leavers import LEAVER_SWEEP_ACTOR_REF, sweep_leavers
 from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE, revoke_role_access
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
@@ -67,11 +68,6 @@ from helpdesk.shared.services.access.lifecycle import (
     OffboardResult,
     offboard_user,
 )
-
-# Imported, not redefined: one database with the schema created once, shared
-# with `test_access_expiry.py` and `test_access_expiry_warnings.py` (standing
-# rule 7). No two of those files ever look at the same tenant.
-from tests.shared.test_access_expiry import expiry_db_url  # noqa: F401
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
@@ -131,7 +127,7 @@ class EventFacts:
 # --- the per-case namespace ---------------------------------------------------
 
 
-def _tenant(url: str) -> SeededTenant:
+def _tenant(factory: async_sessionmaker[AsyncSession]) -> SeededTenant:
     """A tenant of this case's own: the per-test namespace.
 
     `seed_tenant`'s user is `active` with a NULL `end_date` and holds one
@@ -140,19 +136,13 @@ def _tenant(url: str) -> SeededTenant:
     """
 
     async def prepare() -> SeededTenant:
-        engine = create_engine(url)
-        try:
-            return await seed_tenant(
-                create_session_factory(engine), f"leaver-{uuid.uuid4().hex[:12]}"
-            )
-        finally:
-            await engine.dispose()
+        return await seed_tenant(factory, f"leaver-{uuid.uuid4().hex[:12]}")
 
     return asyncio.run(prepare())
 
 
 def _plant_user(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     end_date: date | None,
@@ -162,29 +152,24 @@ def _plant_user(
     suffix = uuid.uuid4().hex[:12]
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                row = await Repository(session, User).create(
-                    department_id=tenant.department_id,
-                    email=f"fake.leaver.{suffix}@example.test",
-                    display_name=f"Fake Leaver {suffix}",
-                    password_hash="argon2id$obviously-fake-test-hash",
-                    principals=["employee"],
-                    status=status,
-                    start_date=TENURED_START,
-                    end_date=end_date,
-                )
-                return row.id
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            row = await Repository(session, User).create(
+                department_id=tenant.department_id,
+                email=f"fake.leaver.{suffix}@example.test",
+                display_name=f"Fake Leaver {suffix}",
+                password_hash="argon2id$obviously-fake-test-hash",
+                principals=["employee"],
+                status=status,
+                start_date=TENURED_START,
+                end_date=end_date,
+            )
+            return row.id
 
     return asyncio.run(scenario())
 
 
 def _plant_grant(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant: SeededTenant,
     *,
     user_id: uuid.UUID,
@@ -193,24 +178,19 @@ def _plant_grant(
     """One committed live `grants` row, held at `NOW`."""
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant.tenant_id) as session:
-                row = await Repository(session, Grant).create(
-                    user_id=user_id,
-                    role_id=tenant.role_b_id if role_id is None else role_id,
-                    request_id=None,
-                    granted_by_user_id=None,
-                    granted_at=GRANTED_AT,
-                    expires_at=FAR_FUTURE,
-                    revoked_at=None,
-                    revoke_reason=None,
-                    status=ACTIVE_GRANT_STATUS,
-                )
-                return row.id
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant.tenant_id) as session:
+            row = await Repository(session, Grant).create(
+                user_id=user_id,
+                role_id=tenant.role_b_id if role_id is None else role_id,
+                request_id=None,
+                granted_by_user_id=None,
+                granted_at=GRANTED_AT,
+                expires_at=FAR_FUTURE,
+                revoked_at=None,
+                revoke_reason=None,
+                status=ACTIVE_GRANT_STATUS,
+            )
+            return row.id
 
     return asyncio.run(scenario())
 
@@ -218,23 +198,20 @@ def _plant_grant(
 # --- driving the surface ------------------------------------------------------
 
 
-def _sweep(url: str, tenant_id: uuid.UUID, *, now: datetime = NOW) -> None:
+def _sweep(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID, *, now: datetime = NOW
+) -> None:
     """One `sweep_leavers` in one committed transaction."""
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                await sweep_leavers(session, now=now)
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            await sweep_leavers(session, now=now)
 
     asyncio.run(scenario())
 
 
 def _offboard_directly(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant_id: uuid.UUID,
     *,
     user_id: uuid.UUID,
@@ -248,27 +225,22 @@ def _offboard_directly(
     """
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                await offboard_user(
-                    session,
-                    SimulatedDirectory(session),
-                    user_id=user_id,
-                    end_date=end_date,
-                    offboarded_by_user_id=offboarded_by_user_id,
-                    session_id=None,
-                    now=NOW,
-                )
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            await offboard_user(
+                session,
+                SimulatedDirectory(session),
+                user_id=user_id,
+                end_date=end_date,
+                offboarded_by_user_id=offboarded_by_user_id,
+                session_id=None,
+                now=NOW,
+            )
 
     asyncio.run(scenario())
 
 
 def _revoke_directly(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant_id: uuid.UUID,
     *,
     user_id: uuid.UUID,
@@ -278,22 +250,17 @@ def _revoke_directly(
     """`revoke_role_access` called the way `mcp_server.tools.access` calls it."""
 
     async def scenario() -> None:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                await revoke_role_access(
-                    session,
-                    SimulatedDirectory(session),
-                    user_id=user_id,
-                    role_id=role_id,
-                    reason="fake manual revocation, decided by a person",
-                    revoked_by_user_id=revoked_by_user_id,
-                    session_id=None,
-                    now=NOW,
-                )
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            await revoke_role_access(
+                session,
+                SimulatedDirectory(session),
+                user_id=user_id,
+                role_id=role_id,
+                reason="fake manual revocation, decided by a person",
+                revoked_by_user_id=revoked_by_user_id,
+                session_id=None,
+                now=NOW,
+            )
 
     asyncio.run(scenario())
 
@@ -301,68 +268,58 @@ def _revoke_directly(
 # --- probes around the surface, never through it ------------------------------
 
 
-def _user_facts(url: str, tenant_id: uuid.UUID, user_id: uuid.UUID) -> UserFacts:
+def _user_facts(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID, user_id: uuid.UUID
+) -> UserFacts:
     async def scenario() -> UserFacts:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                row = await Repository(session, User).get(user_id)
-                assert row is not None, f"planted user {user_id} is gone"
-                return UserFacts(status=row.status, end_date=row.end_date)
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            row = await Repository(session, User).get(user_id)
+            assert row is not None, f"planted user {user_id} is gone"
+            return UserFacts(status=row.status, end_date=row.end_date)
 
     return asyncio.run(scenario())
 
 
-def _grant_facts(url: str, tenant_id: uuid.UUID, grant_id: uuid.UUID) -> GrantFacts:
+def _grant_facts(
+    factory: async_sessionmaker[AsyncSession], tenant_id: uuid.UUID, grant_id: uuid.UUID
+) -> GrantFacts:
     async def scenario() -> GrantFacts:
-        engine = create_engine(url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, tenant_id) as session:
-                row = await Repository(session, Grant).get(grant_id)
-                assert row is not None, f"planted grant {grant_id} is gone"
-                return GrantFacts(
-                    grant_id=row.id,
-                    status=row.status,
-                    revoked_at=row.revoked_at,
-                    revoke_reason=row.revoke_reason,
-                )
-        finally:
-            await engine.dispose()
+        async with tenant_session(factory, tenant_id) as session:
+            row = await Repository(session, Grant).get(grant_id)
+            assert row is not None, f"planted grant {grant_id} is gone"
+            return GrantFacts(
+                grant_id=row.id,
+                status=row.status,
+                revoked_at=row.revoked_at,
+                revoke_reason=row.revoke_reason,
+            )
 
     return asyncio.run(scenario())
 
 
-def _events(url: str, tenant_id: uuid.UUID, event_type: str) -> list[EventFacts]:
+def _events(shared_engine: AsyncEngine, tenant_id: uuid.UUID, event_type: str) -> list[EventFacts]:
     """Every event of one type in one tenant, in `seq` order."""
 
     async def scenario() -> list[EventFacts]:
-        engine = create_engine(url)
-        try:
-            async with engine.connect() as conn:
-                result = await conn.execute(
-                    text(
-                        "SELECT actor_kind, actor_ref, subject_type, subject_id, payload "
-                        "FROM audit_events WHERE tenant_id = :tenant "
-                        "AND event_type = :event_type ORDER BY seq"
-                    ),
-                    {"tenant": tenant_id, "event_type": event_type},
+        async with shared_engine.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT actor_kind, actor_ref, subject_type, subject_id, payload "
+                    "FROM audit_events WHERE tenant_id = :tenant "
+                    "AND event_type = :event_type ORDER BY seq"
+                ),
+                {"tenant": tenant_id, "event_type": event_type},
+            )
+            return [
+                EventFacts(
+                    actor_kind=str(row[0]),
+                    actor_ref=str(row[1]),
+                    subject_type=str(row[2]),
+                    subject_id=str(row[3]),
+                    payload=dict(row[4]),
                 )
-                return [
-                    EventFacts(
-                        actor_kind=str(row[0]),
-                        actor_ref=str(row[1]),
-                        subject_type=str(row[2]),
-                        subject_id=str(row[3]),
-                        payload=dict(row[4]),
-                    )
-                    for row in result.all()
-                ]
-        finally:
-            await engine.dispose()
+                for row in result.all()
+            ]
 
     return asyncio.run(scenario())
 
@@ -371,7 +328,7 @@ def _events(url: str, tenant_id: uuid.UUID, event_type: str) -> list[EventFacts]
 
 
 def test_a_user_whose_end_date_has_passed_is_offboarded_with_their_grants_revoked(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Criterion 6's main claim: the sweep DELEGATES, it does not decide.
 
@@ -388,23 +345,23 @@ def test_a_user_whose_end_date_has_passed_is_offboarded_with_their_grants_revoke
     an implementation passing `now.date()` down would silently rewrite ten
     days of history on the first tick after a delayed deployment.
     """
-    tenant = _tenant(expiry_db_url)
-    user_id = _plant_user(expiry_db_url, tenant, end_date=LONG_GONE)
-    grant_id = _plant_grant(expiry_db_url, tenant, user_id=user_id)
+    tenant = _tenant(session_factory)
+    user_id = _plant_user(session_factory, tenant, end_date=LONG_GONE)
+    grant_id = _plant_grant(session_factory, tenant, user_id=user_id)
 
-    _sweep(expiry_db_url, tenant.tenant_id)
+    _sweep(session_factory, tenant.tenant_id)
 
-    facts = _user_facts(expiry_db_url, tenant.tenant_id, user_id)
+    facts = _user_facts(session_factory, tenant.tenant_id, user_id)
     assert facts.status == LEAVER_STATUS
     assert facts.end_date == LONG_GONE
-    grant = _grant_facts(expiry_db_url, tenant.tenant_id, grant_id)
+    grant = _grant_facts(session_factory, tenant.tenant_id, grant_id)
     assert grant.status == REVOKED_GRANT_STATUS
     assert grant.revoked_at == NOW
     assert grant.revoke_reason == OFFBOARD_REVOKE_REASON
 
 
 def test_a_user_whose_end_date_was_yesterday_is_swept(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Decision E's inclusive half, at the exact day.
 
@@ -415,16 +372,17 @@ def test_a_user_whose_end_date_was_yesterday_is_swept(
     was yesterday still holding every account today is exactly the gap this
     job closes.
     """
-    tenant = _tenant(expiry_db_url)
-    user_id = _plant_user(expiry_db_url, tenant, end_date=YESTERDAY)
+    tenant = _tenant(session_factory)
+    user_id = _plant_user(session_factory, tenant, end_date=YESTERDAY)
 
-    _sweep(expiry_db_url, tenant.tenant_id)
+    _sweep(session_factory, tenant.tenant_id)
 
-    assert _user_facts(expiry_db_url, tenant.tenant_id, user_id).status == LEAVER_STATUS
+    assert _user_facts(session_factory, tenant.tenant_id, user_id).status == LEAVER_STATUS
 
 
 def test_a_user_whose_end_date_is_today_is_untouched(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Decision E's exclusive half: `<`, never `<=` (the design's own comparison).
 
@@ -435,21 +393,22 @@ def test_a_user_whose_end_date_is_today_is_untouched(
     row: the user is `active` and has a non-null end date, so every other
     conjunct admits it.
     """
-    tenant = _tenant(expiry_db_url)
-    user_id = _plant_user(expiry_db_url, tenant, end_date=TODAY)
-    grant_id = _plant_grant(expiry_db_url, tenant, user_id=user_id)
+    tenant = _tenant(session_factory)
+    user_id = _plant_user(session_factory, tenant, end_date=TODAY)
+    grant_id = _plant_grant(session_factory, tenant, user_id=user_id)
 
-    _sweep(expiry_db_url, tenant.tenant_id)
+    _sweep(session_factory, tenant.tenant_id)
 
-    facts = _user_facts(expiry_db_url, tenant.tenant_id, user_id)
+    facts = _user_facts(session_factory, tenant.tenant_id, user_id)
     assert facts.status == ACTIVE_USER_STATUS
     assert facts.end_date == TODAY
-    assert _grant_facts(expiry_db_url, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
-    assert _events(expiry_db_url, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE) == []
+    assert _grant_facts(session_factory, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
+    assert _events(shared_engine, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE) == []
 
 
 def test_a_user_with_no_end_date_is_never_due(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """The `end_date IS NOT NULL` half of the due set, alone.
 
@@ -461,21 +420,22 @@ def test_a_user_with_no_end_date_is_never_due(
     and a future-dated colleague beside them, so nothing but the null test can
     keep them.
     """
-    tenant = _tenant(expiry_db_url)
-    permanent = _plant_user(expiry_db_url, tenant, end_date=None)
-    staying = _plant_user(expiry_db_url, tenant, end_date=STILL_HERE)
-    grant_id = _plant_grant(expiry_db_url, tenant, user_id=permanent)
+    tenant = _tenant(session_factory)
+    permanent = _plant_user(session_factory, tenant, end_date=None)
+    staying = _plant_user(session_factory, tenant, end_date=STILL_HERE)
+    grant_id = _plant_grant(session_factory, tenant, user_id=permanent)
 
-    _sweep(expiry_db_url, tenant.tenant_id)
+    _sweep(session_factory, tenant.tenant_id)
 
-    assert _user_facts(expiry_db_url, tenant.tenant_id, permanent).status == ACTIVE_USER_STATUS
-    assert _user_facts(expiry_db_url, tenant.tenant_id, staying).status == ACTIVE_USER_STATUS
-    assert _grant_facts(expiry_db_url, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
-    assert _events(expiry_db_url, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE) == []
+    assert _user_facts(session_factory, tenant.tenant_id, permanent).status == ACTIVE_USER_STATUS
+    assert _user_facts(session_factory, tenant.tenant_id, staying).status == ACTIVE_USER_STATUS
+    assert _grant_facts(session_factory, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
+    assert _events(shared_engine, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE) == []
 
 
 def test_a_user_who_is_already_a_leaver_is_not_swept_again(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """The `status = 'active'` half of the due set.
 
@@ -488,21 +448,22 @@ def test_a_user_who_is_already_a_leaver_is_not_swept_again(
     The already-departed user keeps a live grant here, so a re-run that got as
     far as revoking would be visible too.
     """
-    tenant = _tenant(expiry_db_url)
-    departed = _plant_user(expiry_db_url, tenant, end_date=LONG_GONE, status=LEAVER_STATUS)
-    grant_id = _plant_grant(expiry_db_url, tenant, user_id=departed)
-    due = _plant_user(expiry_db_url, tenant, end_date=YESTERDAY)
+    tenant = _tenant(session_factory)
+    departed = _plant_user(session_factory, tenant, end_date=LONG_GONE, status=LEAVER_STATUS)
+    grant_id = _plant_grant(session_factory, tenant, user_id=departed)
+    due = _plant_user(session_factory, tenant, end_date=YESTERDAY)
 
-    _sweep(expiry_db_url, tenant.tenant_id)
+    _sweep(session_factory, tenant.tenant_id)
 
-    assert _user_facts(expiry_db_url, tenant.tenant_id, due).status == LEAVER_STATUS
-    assert _grant_facts(expiry_db_url, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
-    offboarded = _events(expiry_db_url, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
+    assert _user_facts(session_factory, tenant.tenant_id, due).status == LEAVER_STATUS
+    assert _grant_facts(session_factory, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
+    offboarded = _events(shared_engine, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
     assert [event.subject_id for event in offboarded] == [str(due)]
 
 
 def test_another_tenants_due_user_is_untouched(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Catches a sweep that builds its own statement over `users` instead of
     going through the tenant-bound session.
@@ -513,20 +474,21 @@ def test_another_tenants_due_user_is_untouched(
     filed under the wrong audit chain. The neighbour's user is due by exactly
     the same date, so only the scoping can save them.
     """
-    tenant = _tenant(expiry_db_url)
-    neighbour = _tenant(expiry_db_url)
-    mine = _plant_user(expiry_db_url, tenant, end_date=YESTERDAY)
-    theirs = _plant_user(expiry_db_url, neighbour, end_date=YESTERDAY)
+    tenant = _tenant(session_factory)
+    neighbour = _tenant(session_factory)
+    mine = _plant_user(session_factory, tenant, end_date=YESTERDAY)
+    theirs = _plant_user(session_factory, neighbour, end_date=YESTERDAY)
 
-    _sweep(expiry_db_url, tenant.tenant_id)
+    _sweep(session_factory, tenant.tenant_id)
 
-    assert _user_facts(expiry_db_url, tenant.tenant_id, mine).status == LEAVER_STATUS
-    assert _user_facts(expiry_db_url, neighbour.tenant_id, theirs).status == ACTIVE_USER_STATUS
-    assert _events(expiry_db_url, neighbour.tenant_id, USER_OFFBOARDED_EVENT_TYPE) == []
+    assert _user_facts(session_factory, tenant.tenant_id, mine).status == LEAVER_STATUS
+    assert _user_facts(session_factory, neighbour.tenant_id, theirs).status == ACTIVE_USER_STATUS
+    assert _events(shared_engine, neighbour.tenant_id, USER_OFFBOARDED_EVENT_TYPE) == []
 
 
 def test_each_swept_user_keeps_their_own_end_date(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 6's "that user's OWN end_date", pinned with two dates.
 
@@ -538,18 +500,18 @@ def test_each_swept_user_keeps_their_own_end_date(
     carrying today's date for a departure ten days old rewrites the history an
     auditor reconstructs a leaver's access from.
     """
-    tenant = _tenant(expiry_db_url)
-    recent = _plant_user(expiry_db_url, tenant, end_date=YESTERDAY)
-    old = _plant_user(expiry_db_url, tenant, end_date=LONG_GONE)
+    tenant = _tenant(session_factory)
+    recent = _plant_user(session_factory, tenant, end_date=YESTERDAY)
+    old = _plant_user(session_factory, tenant, end_date=LONG_GONE)
     assert YESTERDAY != LONG_GONE != TODAY, "premise: three distinct dates"
 
-    _sweep(expiry_db_url, tenant.tenant_id)
+    _sweep(session_factory, tenant.tenant_id)
 
-    assert _user_facts(expiry_db_url, tenant.tenant_id, recent).end_date == YESTERDAY
-    assert _user_facts(expiry_db_url, tenant.tenant_id, old).end_date == LONG_GONE
+    assert _user_facts(session_factory, tenant.tenant_id, recent).end_date == YESTERDAY
+    assert _user_facts(session_factory, tenant.tenant_id, old).end_date == LONG_GONE
     dates = {
         event.subject_id: event.payload["end_date"]
-        for event in _events(expiry_db_url, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
+        for event in _events(shared_engine, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
     }
     assert dates == {
         str(recent): YESTERDAY.isoformat(),
@@ -561,7 +523,8 @@ def test_each_swept_user_keeps_their_own_end_date(
 
 
 def test_every_event_the_sweep_causes_carries_the_system_actor_and_its_ref(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 7, on BOTH event types the sweep produces.
 
@@ -577,20 +540,20 @@ def test_every_event_the_sweep_causes_carries_the_system_actor_and_its_ref(
     `offboard_user` fails: two grants are planted, so the per-row events
     cannot pass as the summary one.
     """
-    tenant = _tenant(expiry_db_url)
-    user_id = _plant_user(expiry_db_url, tenant, end_date=YESTERDAY)
-    first = _plant_grant(expiry_db_url, tenant, user_id=user_id, role_id=tenant.role_id)
-    second = _plant_grant(expiry_db_url, tenant, user_id=user_id, role_id=tenant.role_b_id)
+    tenant = _tenant(session_factory)
+    user_id = _plant_user(session_factory, tenant, end_date=YESTERDAY)
+    first = _plant_grant(session_factory, tenant, user_id=user_id, role_id=tenant.role_id)
+    second = _plant_grant(session_factory, tenant, user_id=user_id, role_id=tenant.role_b_id)
 
-    _sweep(expiry_db_url, tenant.tenant_id)
+    _sweep(session_factory, tenant.tenant_id)
 
-    offboarded = _events(expiry_db_url, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
+    offboarded = _events(shared_engine, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
     assert [event.subject_id for event in offboarded] == [str(user_id)]
     assert offboarded[0].actor_kind == SYSTEM_ACTOR_KIND
     assert offboarded[0].actor_ref == LEAVER_SWEEP_ACTOR_REF
     assert offboarded[0].actor_ref == "scheduler:leaver_sweep"
 
-    revoked = _events(expiry_db_url, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE)
+    revoked = _events(shared_engine, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE)
     assert {event.subject_id for event in revoked} == {str(first), str(second)}
     for event in revoked:
         assert event.actor_kind == SYSTEM_ACTOR_KIND
@@ -598,7 +561,8 @@ def test_every_event_the_sweep_causes_carries_the_system_actor_and_its_ref(
 
 
 def test_an_offboard_with_an_actor_id_and_no_actor_kind_still_writes_the_user_actor(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 8 for `offboard_user`, called exactly as the MCP tool calls
     it: an actor id, no `actor_kind`.
@@ -611,30 +575,31 @@ def test_an_offboard_with_an_actor_id_and_no_actor_kind_still_writes_the_user_ac
     stopped rendering the id (leaving the ref empty or literal `None`) fails
     here as well.
     """
-    tenant = _tenant(expiry_db_url)
+    tenant = _tenant(session_factory)
     actor = tenant.user_id
-    user_id = _plant_user(expiry_db_url, tenant, end_date=YESTERDAY)
-    _plant_grant(expiry_db_url, tenant, user_id=user_id)
+    user_id = _plant_user(session_factory, tenant, end_date=YESTERDAY)
+    _plant_grant(session_factory, tenant, user_id=user_id)
 
     _offboard_directly(
-        expiry_db_url,
+        session_factory,
         tenant.tenant_id,
         user_id=user_id,
         offboarded_by_user_id=actor,
     )
 
-    offboarded = _events(expiry_db_url, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
+    offboarded = _events(shared_engine, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
     assert [event.subject_id for event in offboarded] == [str(user_id)]
     assert offboarded[0].actor_kind == USER_ACTOR_KIND
     assert offboarded[0].actor_ref == str(actor)
-    revoked = _events(expiry_db_url, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE)
+    revoked = _events(shared_engine, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE)
     assert len(revoked) == 1
     assert revoked[0].actor_kind == USER_ACTOR_KIND
     assert revoked[0].actor_ref == str(actor)
 
 
 def test_a_revocation_with_an_actor_id_and_no_actor_kind_still_writes_the_user_actor(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 8 for `revoke_role_access`, reached directly rather than
     through an offboard.
@@ -646,21 +611,21 @@ def test_a_revocation_with_an_actor_id_and_no_actor_kind_still_writes_the_user_a
     attributes to anybody. The grant is revoked by a DIFFERENT user from its
     holder, so the ref cannot pass by matching the holder's id.
     """
-    tenant = _tenant(expiry_db_url)
+    tenant = _tenant(session_factory)
     actor = tenant.user_id
-    holder = _plant_user(expiry_db_url, tenant, end_date=None)
-    grant_id = _plant_grant(expiry_db_url, tenant, user_id=holder, role_id=tenant.role_b_id)
+    holder = _plant_user(session_factory, tenant, end_date=None)
+    grant_id = _plant_grant(session_factory, tenant, user_id=holder, role_id=tenant.role_b_id)
     assert actor != holder, "premise: the revoker is not the holder"
 
     _revoke_directly(
-        expiry_db_url,
+        session_factory,
         tenant.tenant_id,
         user_id=holder,
         role_id=tenant.role_b_id,
         revoked_by_user_id=actor,
     )
 
-    revoked = _events(expiry_db_url, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE)
+    revoked = _events(shared_engine, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE)
     assert [event.subject_id for event in revoked] == [str(grant_id)]
     assert revoked[0].actor_kind == USER_ACTOR_KIND
     assert revoked[0].actor_ref == str(actor)
@@ -670,7 +635,8 @@ def test_a_revocation_with_an_actor_id_and_no_actor_kind_still_writes_the_user_a
 
 
 def test_an_offboard_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """Criterion 8's refusal for `offboard_user`, and the price of widening the
     id to `uuid.UUID | None`.
@@ -684,13 +650,13 @@ def test_an_offboard_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
     nothing. Nothing may be written first: the user's status, their grant and
     the event count are all re-read.
     """
-    tenant = _tenant(expiry_db_url)
-    user_id = _plant_user(expiry_db_url, tenant, end_date=YESTERDAY)
-    grant_id = _plant_grant(expiry_db_url, tenant, user_id=user_id)
+    tenant = _tenant(session_factory)
+    user_id = _plant_user(session_factory, tenant, end_date=YESTERDAY)
+    grant_id = _plant_grant(session_factory, tenant, user_id=user_id)
 
     with pytest.raises(ToolError) as excinfo:
         _offboard_directly(
-            expiry_db_url,
+            session_factory,
             tenant.tenant_id,
             user_id=user_id,
             offboarded_by_user_id=None,
@@ -698,13 +664,14 @@ def test_an_offboard_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
 
     assert excinfo.value.code is ErrorCode.VALIDATION
     assert excinfo.value.code.value == "VALIDATION"
-    assert _user_facts(expiry_db_url, tenant.tenant_id, user_id).status == ACTIVE_USER_STATUS
-    assert _grant_facts(expiry_db_url, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
-    assert _events(expiry_db_url, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE) == []
+    assert _user_facts(session_factory, tenant.tenant_id, user_id).status == ACTIVE_USER_STATUS
+    assert _grant_facts(session_factory, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
+    assert _events(shared_engine, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE) == []
 
 
 def test_a_revocation_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
 ) -> None:
     """The same refusal on `revoke_role_access`, which has its own call site
     and therefore its own way of being called with nothing.
@@ -715,13 +682,13 @@ def test_a_revocation_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
     who ended a specific grant. The grant is asserted still `active`, so a
     refusal raised after the rows were stamped fails too.
     """
-    tenant = _tenant(expiry_db_url)
-    holder = _plant_user(expiry_db_url, tenant, end_date=None)
-    grant_id = _plant_grant(expiry_db_url, tenant, user_id=holder, role_id=tenant.role_b_id)
+    tenant = _tenant(session_factory)
+    holder = _plant_user(session_factory, tenant, end_date=None)
+    grant_id = _plant_grant(session_factory, tenant, user_id=holder, role_id=tenant.role_b_id)
 
     with pytest.raises(ToolError) as excinfo:
         _revoke_directly(
-            expiry_db_url,
+            session_factory,
             tenant.tenant_id,
             user_id=holder,
             role_id=tenant.role_b_id,
@@ -729,15 +696,16 @@ def test_a_revocation_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
         )
 
     assert excinfo.value.code is ErrorCode.VALIDATION
-    assert _grant_facts(expiry_db_url, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
-    assert _events(expiry_db_url, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE) == []
+    assert _grant_facts(session_factory, tenant.tenant_id, grant_id).status == ACTIVE_GRANT_STATUS
+    assert _events(shared_engine, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE) == []
 
 
 # --- the concurrent departure (criterion 9, decision I) -----------------------
 
 
 def test_a_user_turned_leaver_mid_sweep_is_skipped_and_the_rest_still_go(
-    expiry_db_url: str,  # noqa: F811
+    session_factory: async_sessionmaker[AsyncSession],
+    shared_engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Decision I, made deterministic, and the case criterion 9 names.
@@ -758,24 +726,24 @@ def test_a_user_turned_leaver_mid_sweep_is_skipped_and_the_rest_still_go(
     status, their revoked grant and a single `user.offboarded` are asserted,
     so a sweep that caught the error and then abandoned the loop fails too.
     """
-    tenant = _tenant(expiry_db_url)
-    skipped = _plant_user(expiry_db_url, tenant, end_date=LONG_GONE)
-    surviving = _plant_user(expiry_db_url, tenant, end_date=YESTERDAY)
-    grant_id = _plant_grant(expiry_db_url, tenant, user_id=surviving)
+    tenant = _tenant(session_factory)
+    skipped = _plant_user(session_factory, tenant, end_date=LONG_GONE)
+    surviving = _plant_user(session_factory, tenant, end_date=YESTERDAY)
+    grant_id = _plant_grant(session_factory, tenant, user_id=surviving)
 
     _sweep_with_a_concurrent_departure(
-        expiry_db_url, tenant.tenant_id, raising_for=skipped, monkeypatch=monkeypatch
+        session_factory, tenant.tenant_id, raising_for=skipped, monkeypatch=monkeypatch
     )
 
-    assert _user_facts(expiry_db_url, tenant.tenant_id, skipped).status == ACTIVE_USER_STATUS
-    assert _user_facts(expiry_db_url, tenant.tenant_id, surviving).status == LEAVER_STATUS
-    assert _grant_facts(expiry_db_url, tenant.tenant_id, grant_id).status == REVOKED_GRANT_STATUS
-    offboarded = _events(expiry_db_url, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
+    assert _user_facts(session_factory, tenant.tenant_id, skipped).status == ACTIVE_USER_STATUS
+    assert _user_facts(session_factory, tenant.tenant_id, surviving).status == LEAVER_STATUS
+    assert _grant_facts(session_factory, tenant.tenant_id, grant_id).status == REVOKED_GRANT_STATUS
+    offboarded = _events(shared_engine, tenant.tenant_id, USER_OFFBOARDED_EVENT_TYPE)
     assert [event.subject_id for event in offboarded] == [str(surviving)]
 
 
 def _sweep_with_a_concurrent_departure(
-    url: str,
+    factory: async_sessionmaker[AsyncSession],
     tenant_id: uuid.UUID,
     *,
     raising_for: uuid.UUID,
@@ -822,7 +790,7 @@ def _sweep_with_a_concurrent_departure(
     for module in (leavers_module, lifecycle_module):
         monkeypatch.setattr(module, "offboard_user", proxy, raising=False)
 
-    _sweep(url, tenant_id)
+    _sweep(factory, tenant_id)
 
 
 # --- the constants and the exports --------------------------
