@@ -2,10 +2,15 @@
 
 What is pinned: the three app services read `backend/.env.demo` then
 `backend/.env`, both optional; every `${...}` in `docker-compose.yml` that
-names a key of `backend/.env.demo` carries a default equal to that line, so
-`docker compose config` passes with no `.env` anywhere; `check_root.py`
+names a key of `backend/.env.example` carries a default, one value per name,
+so `docker compose config` passes with no env file anywhere; `check_root.py`
 refuses a root `.env` even when `.gitignore` hides it from git; `.editorconfig`
 is gone; and the CI config scan names the moved `infra/.trivyignore`.
+
+An earlier change: `backend/.env.demo` is gitignored and untracked, so it is never in a
+CI checkout and no case here reads it. The CI `tests` job sets the URLs the
+app needs itself, pointed at the ports and Postgres defaults compose
+publishes, and makes `JWT_SECRET` fresh on every run with `openssl rand`.
 
 Why the checks are static: none of these files is read by the application.
 They are read by compose, git hooks, CI and the dev scripts, so the only place
@@ -27,6 +32,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +50,7 @@ def _repo_root() -> Path:
 
 REPO_ROOT = _repo_root()
 COMPOSE = REPO_ROOT / "docker-compose.yml"
-ENV_DEMO = REPO_ROOT / "backend" / ".env.demo"
+ENV_EXAMPLE = REPO_ROOT / "backend" / ".env.example"
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 CHECK_ROOT = REPO_ROOT / "dev" / "scripts" / "check_root.py"
 
@@ -68,18 +74,15 @@ def _compose() -> dict[str, Any]:
     return data
 
 
-def _env_demo() -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw in ENV_DEMO.read_text(encoding="utf-8").splitlines():
+def _env_example_names() -> set[str]:
+    """The names `backend/.env.example` lists; its values are placeholders, never read."""
+    names: set[str] = set()
+    for raw in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        key, _, value = line.partition("=")
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        values[key.strip()] = value
-    return values
+        names.add(line.partition("=")[0].strip())
+    return names
 
 
 def _strings(node: object) -> list[str]:
@@ -128,59 +131,62 @@ def test_app_services_read_backend_env_files() -> None:
         assert ".env" not in paths, f"{name} still reads the root .env"
 
 
-def test_compose_defaults_match_env_demo() -> None:
-    """Catches a default drifting from `.env.demo`, a `${...:?}` left in, or a bare `${NAME}`.
+def test_compose_defaults_are_set_and_consistent() -> None:
+    """Catches a `${...:?}` left in, a bare `${NAME}` of a setting, or two defaults for one name.
 
-    A bare lookup of a `.env.demo` key is empty once no root `.env` exists.
+    A bare lookup of a `.env.example` name is empty once no env file exists, and
+    two different defaults for one name (the Postgres password in the server and
+    in the app DSN) make a stack that starts but cannot log in.
     """
-    demo = _env_demo()
+    names = _env_example_names() | set(POSTGRES_NAMES)
     for name in POSTGRES_NAMES:
-        assert name in demo, f"premise: {name} has a line in backend/.env.demo"
+        assert name in _env_example_names(), f"premise: {name} has a line in backend/.env.example"
 
     required: list[str] = []
     bare: list[str] = []
-    mismatched: list[str] = []
-    defaulted: set[str] = set()
+    defaults: dict[str, set[str]] = {}
     for text in _strings(_compose()):
         for match in _BRACED.finditer(text):
             name, op, value = match.group(1), match.group(2), match.group(3)
             if op in (":?", "?"):
                 required.append(match.group(0))
-            elif name not in demo:
+            elif name not in names:
                 continue
             elif op is None or op in (":+", "+"):
                 bare.append(match.group(0))
             else:
-                defaulted.add(name)
-                if value != demo[name]:
-                    mismatched.append(f"{match.group(0)} vs .env.demo {name}={demo[name]}")
+                defaults.setdefault(name, set()).add(value)
         for match in _UNBRACED.finditer(text):
-            if match.group(1) in demo:
+            if match.group(1) in names:
                 bare.append(match.group(0))
 
     assert required == [], f"required lookups remain: {required}"
-    assert bare == [], f"lookups with no default for a .env.demo key: {bare}"
-    assert mismatched == [], f"defaults differ from backend/.env.demo: {mismatched}"
-    assert set(POSTGRES_NAMES) <= defaulted, (
-        f"the Postgres values carry no default: {set(POSTGRES_NAMES) - defaulted}"
+    assert bare == [], f"lookups with no default for a .env.example name: {bare}"
+    split = {name: values for name, values in defaults.items() if len(values) != 1}
+    assert split == {}, f"one name, more than one default: {split}"
+    assert set(POSTGRES_NAMES) <= set(defaults), (
+        f"the Postgres values carry no default: {set(POSTGRES_NAMES) - set(defaults)}"
     )
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker is not on PATH")
 def test_compose_config_without_any_env(tmp_path: Path) -> None:
-    """Catches a compose file that still needs a root `.env` or a `backend/.env` to load."""
+    """Catches a compose file that needs any env file (root `.env`, `.env.demo`, `.env`) to load.
+
+    Nothing is copied beside the compose file, as in a fresh CI checkout.
+    """
     shutil.copy(COMPOSE, tmp_path / "docker-compose.yml")
     (tmp_path / "backend").mkdir()
     (tmp_path / "web").mkdir()
-    shutil.copy(ENV_DEMO, tmp_path / "backend" / ".env.demo")
     assert not (tmp_path / ".env").exists()
+    assert not (tmp_path / "backend" / ".env.demo").exists()
     assert not (tmp_path / "backend" / ".env").exists()
 
-    demo = _env_demo()
+    names = _env_example_names()
     env = {
         k: v
         for k, v in os.environ.items()
-        if k not in demo
+        if k not in names
         and not k.startswith("POSTGRES_")
         and k != "APP_DB_PASSWORD"
         and not k.startswith("COMPOSE_")
@@ -259,3 +265,155 @@ def test_ci_scan_names_the_moved_ignore_file() -> None:
     assert set(found) == {"infra/.trivyignore"}, found
     assert (REPO_ROOT / "infra" / ".trivyignore").is_file()
     assert not (REPO_ROOT / ".trivyignore").exists()
+
+
+# --- an earlier change: backend/.env.demo out of git, CI sets its own values ---
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+def _ci() -> dict[str, Any]:
+    data: dict[str, Any] = yaml.safe_load(CI.read_text(encoding="utf-8"))
+    return data
+
+
+def _tests_job() -> dict[str, Any]:
+    job: dict[str, Any] = _ci()["jobs"]["tests"]
+    return job
+
+
+def _tests_job_env() -> dict[str, str]:
+    env = _tests_job().get("env") or {}
+    return {str(k): str(v) for k, v in env.items()}
+
+
+def _published_host_ports(service: str) -> set[int]:
+    """The host side of every `ports:` entry of one compose service."""
+    out: set[int] = set()
+    for entry in _compose()["services"][service].get("ports", []):
+        if isinstance(entry, dict):
+            out.add(int(entry["published"]))
+        else:
+            parts = str(entry).split(":")
+            out.add(int(parts[-2] if len(parts) >= 2 else parts[-1]))
+    return out
+
+
+def _postgres_default(name: str) -> str:
+    """The `${NAME:-default}` default the compose postgres service gives one name."""
+    raw = str(_compose()["services"]["postgres"]["environment"][name])
+    match = _BRACED.fullmatch(raw)
+    assert match is not None and match.group(1) == name, f"premise: {name} is ${{{name}:-...}}"
+    assert match.group(2) in (":-", "-"), f"premise: {name} carries a default"
+    return match.group(3)
+
+
+def test_env_demo_is_gitignored() -> None:
+    """Catches a `.gitignore` that still carries the `!backend/.env.demo` exception."""
+    result = _git("check-ignore", "-q", "--no-index", "backend/.env.demo")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_env_demo_is_not_tracked() -> None:
+    """Catches a change that ignores the file but never runs `git rm --cached` on it."""
+    result = _git("ls-files", "--", "backend/.env.demo")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    ("name", "scheme", "service", "port"),
+    [
+        ("DATABASE_URL", "postgresql+asyncpg", "postgres", 5432),
+        ("REDIS_URL", "redis", "redis", 6379),
+        ("QDRANT_URL", "http", "qdrant", 6333),
+    ],
+)
+def test_ci_tests_job_points_at_the_compose_ports(
+    name: str, scheme: str, service: str, port: int
+) -> None:
+    """Catches a CI URL that is missing, on the wrong port, or on a port compose never publishes."""
+    env = _tests_job_env()
+    assert name in env, f"the tests job env sets no {name}: {sorted(env)}"
+    url = urllib.parse.urlsplit(env[name])
+    assert url.scheme == scheme, env[name]
+    assert url.hostname == "localhost", env[name]
+    assert url.port == port, env[name]
+    assert port in _published_host_ports(service), (
+        f"compose {service} does not publish {port}: {_published_host_ports(service)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("part", "compose_name"),
+    [("username", "POSTGRES_USER"), ("password", "POSTGRES_PASSWORD"), ("database", "POSTGRES_DB")],
+)
+def test_ci_database_url_matches_the_compose_postgres_defaults(
+    part: str, compose_name: str
+) -> None:
+    """Catches a CI DSN whose user, password or database differs from what compose creates."""
+    env = _tests_job_env()
+    assert "DATABASE_URL" in env, f"the tests job env sets no DATABASE_URL: {sorted(env)}"
+    url = urllib.parse.urlsplit(env["DATABASE_URL"])
+    got = {
+        "username": urllib.parse.unquote(url.username or ""),
+        "password": urllib.parse.unquote(url.password or ""),
+        "database": url.path.removeprefix("/"),
+    }[part]
+    assert got == _postgres_default(compose_name), env["DATABASE_URL"]
+
+
+_JWT_LINE = re.compile(r"JWT_SECRET=\$\(openssl rand -hex 32\).*>>\s*\"?\$GITHUB_ENV\"?")
+
+
+def _keys(node: object) -> list[str]:
+    """Every mapping key in a parsed YAML tree."""
+    if isinstance(node, dict):
+        return [str(k) for k in node] + [k for v in node.values() for k in _keys(v)]
+    if isinstance(node, list):
+        return [k for item in node for k in _keys(item)]
+    return []
+
+
+def test_ci_jwt_secret_is_random_per_run() -> None:
+    """Catches a literal `JWT_SECRET` in `ci.yml`, a shorter secret, or one set after the suite.
+
+    The step must come before the pytest slice and carry no `if:`, so every shard gets it.
+    """
+    assert "JWT_SECRET" not in _keys(_ci()), "ci.yml sets JWT_SECRET as a literal value"
+
+    steps: list[dict[str, Any]] = _tests_job()["steps"]
+    writers = [
+        i
+        for i, step in enumerate(steps)
+        if isinstance(step.get("run"), str) and _JWT_LINE.search(step["run"])
+    ]
+    suite = [
+        i
+        for i, step in enumerate(steps)
+        if isinstance(step.get("run"), str) and "test_shard.py" in step["run"]
+    ]
+    assert suite, "premise: the tests job runs the pytest slice"
+    assert len(writers) == 1, f"steps writing JWT_SECRET from openssl rand -hex 32: {writers}"
+    assert writers[0] < suite[0], "JWT_SECRET is written after the suite runs"
+    assert "if" not in steps[writers[0]], "JWT_SECRET is written on some shards only"
+
+
+def test_ci_writes_no_env_demo() -> None:
+    """Catches a CI step that copies or writes a `.env.demo` instead of setting values itself."""
+    found = [
+        f"{job_name}: {text}"
+        for job_name, job in _ci()["jobs"].items()
+        for step in job.get("steps", [])
+        for text in _strings(step.get("run")) + _strings(step.get("with"))
+        if ".env.demo" in text
+    ]
+    assert found == [], found

@@ -49,6 +49,13 @@ jobs:
   # coverage data and the `coverage` job judges the floor on the whole.
   tests:
     runs-on: ubuntu-latest
+    # CI has no backend/.env.demo (it is gitignored), so the job sets the
+    # values the app cannot start without. Each points at the port compose
+    # publishes; the Postgres login is compose's own default.
+    env:
+      DATABASE_URL: postgresql+asyncpg://helpdesk:change-me@localhost:5432/helpdesk
+      REDIS_URL: redis://localhost:6379/0
+      QDRANT_URL: http://localhost:6333
     strategy:
       fail-fast: false
       matrix:
@@ -59,9 +66,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --project backend
+      # A fresh random secret each run, so ci.yml holds no value for it.
+      - name: Make a JWT secret for this run
+        run: echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       # The same compose file as a laptop, so the app role init script runs
-      # here too, with the placeholder credentials from backend/.env.demo.
-      # Compose reads backend/.env as optional; CI never writes one.
+      # here too, with compose's own default credentials.
+      # Compose reads both backend env files as optional; CI writes neither.
       - name: Start the backing services
         run: docker compose up -d --wait postgres redis qdrant
       - name: Run this slice
