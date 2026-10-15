@@ -43,7 +43,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from helpdesk.shared.core.db import (
     UnboundTenantQueryError,
-    create_session_factory,
     tenant_session,
 )
 from helpdesk.shared.crud import Repository
@@ -54,7 +53,7 @@ from helpdesk.shared.crud.idempotency import (
     purge_expired,
 )
 from helpdesk.shared.models import Base, IdempotencyKey
-from tests.support.seed import schema_engine, seed_tenant
+from tests.support.seed import seed_tenant
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 
@@ -176,16 +175,17 @@ def test_migration_creates_the_table_with_its_indexes(fresh_db_url: str) -> None
     asyncio.run(check())
 
 
-def test_unique_constraint_rejects_a_second_row_for_the_same_key(temp_db_url: str) -> None:
+def test_unique_constraint_rejects_a_second_row_for_the_same_key(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded = await seed_tenant(factory, "idem-uniq")
+        factory = session_factory
+        seeded = await seed_tenant(factory, "idem-uniq")
 
-            with pytest.raises(IntegrityError):
-                async with tenant_session(factory, seeded.tenant_id) as session:
-                    await _store(session, "fake-key-1")
-                    await _store(session, "fake-key-1", fingerprint="b" * 64)
+        with pytest.raises(IntegrityError):
+            async with tenant_session(factory, seeded.tenant_id) as session:
+                await _store(session, "fake-key-1")
+                await _store(session, "fake-key-1", fingerprint="b" * 64)
 
     asyncio.run(scenario())
 
@@ -193,110 +193,113 @@ def test_unique_constraint_rejects_a_second_row_for_the_same_key(temp_db_url: st
 # --- the helpers are tenant-scoped --------------------------------------------
 
 
-def test_create_stamps_the_bound_tenant_and_find_returns_the_row(temp_db_url: str) -> None:
+def test_create_stamps_the_bound_tenant_and_find_returns_the_row(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded = await seed_tenant(factory, "idem-roundtrip")
+        factory = session_factory
+        seeded = await seed_tenant(factory, "idem-roundtrip")
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                created = await _store(
-                    session,
-                    "fake-key-roundtrip",
-                    tool_name="approve_request",
-                    fingerprint="c" * 64,
-                    response={"status": "approved", "fake": True},
-                )
-                assert created.tenant_id == seeded.tenant_id
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            created = await _store(
+                session,
+                "fake-key-roundtrip",
+                tool_name="approve_request",
+                fingerprint="c" * 64,
+                response={"status": "approved", "fake": True},
+            )
+            assert created.tenant_id == seeded.tenant_id
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                found = await find_idempotency_key(session, "fake-key-roundtrip", NOW)
-            assert found is not None
-            assert found.key == "fake-key-roundtrip"
-            assert found.tool_name == "approve_request"
-            assert found.request_fingerprint == "c" * 64
-            assert found.response == {"status": "approved", "fake": True}
-            assert found.expires_at == LIVE
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            found = await find_idempotency_key(session, "fake-key-roundtrip", NOW)
+        assert found is not None
+        assert found.key == "fake-key-roundtrip"
+        assert found.tool_name == "approve_request"
+        assert found.request_fingerprint == "c" * 64
+        assert found.response == {"status": "approved", "fake": True}
+        assert found.expires_at == LIVE
 
     asyncio.run(scenario())
 
 
-def test_an_unknown_key_is_absent(temp_db_url: str) -> None:
+def test_an_unknown_key_is_absent(session_factory: async_sessionmaker[AsyncSession]) -> None:
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded = await seed_tenant(factory, "idem-missing")
+        factory = session_factory
+        seeded = await seed_tenant(factory, "idem-missing")
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                assert await find_idempotency_key(session, "never-stored", NOW) is None
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            assert await find_idempotency_key(session, "never-stored", NOW) is None
 
     asyncio.run(scenario())
 
 
-def test_the_same_key_in_another_tenant_is_an_independent_entry(temp_db_url: str) -> None:
+def test_the_same_key_in_another_tenant_is_an_independent_entry(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """Keys are tenant-scoped: one tenant's UUID v4 can never answer another's call."""
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded_a = await seed_tenant(factory, "idem-x")
-            seeded_b = await seed_tenant(factory, "idem-y")
+        factory = session_factory
+        seeded_a = await seed_tenant(factory, "idem-x")
+        seeded_b = await seed_tenant(factory, "idem-y")
 
-            async with tenant_session(factory, seeded_a.tenant_id) as session:
-                await _store(session, "shared-fake-key", response={"tenant": "a"})
-            async with tenant_session(factory, seeded_b.tenant_id) as session:
-                await _store(session, "shared-fake-key", response={"tenant": "b"})
+        async with tenant_session(factory, seeded_a.tenant_id) as session:
+            await _store(session, "shared-fake-key", response={"tenant": "a"})
+        async with tenant_session(factory, seeded_b.tenant_id) as session:
+            await _store(session, "shared-fake-key", response={"tenant": "b"})
 
-            async with tenant_session(factory, seeded_a.tenant_id) as session:
-                row_a = await find_idempotency_key(session, "shared-fake-key", NOW)
-            async with tenant_session(factory, seeded_b.tenant_id) as session:
-                row_b = await find_idempotency_key(session, "shared-fake-key", NOW)
+        async with tenant_session(factory, seeded_a.tenant_id) as session:
+            row_a = await find_idempotency_key(session, "shared-fake-key", NOW)
+        async with tenant_session(factory, seeded_b.tenant_id) as session:
+            row_b = await find_idempotency_key(session, "shared-fake-key", NOW)
 
-            assert row_a is not None and row_b is not None
-            assert row_a.id != row_b.id
-            assert row_a.response == {"tenant": "a"}
-            assert row_b.response == {"tenant": "b"}
+        assert row_a is not None and row_b is not None
+        assert row_a.id != row_b.id
+        assert row_a.response == {"tenant": "a"}
+        assert row_b.response == {"tenant": "b"}
 
     asyncio.run(scenario())
 
 
-def test_a_key_stored_by_another_tenant_reads_as_absent(temp_db_url: str) -> None:
+def test_a_key_stored_by_another_tenant_reads_as_absent(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded_a = await seed_tenant(factory, "idem-cross-a")
-            seeded_b = await seed_tenant(factory, "idem-cross-b")
+        factory = session_factory
+        seeded_a = await seed_tenant(factory, "idem-cross-a")
+        seeded_b = await seed_tenant(factory, "idem-cross-b")
 
-            async with tenant_session(factory, seeded_a.tenant_id) as session:
-                await _store(session, "only-in-a")
+        async with tenant_session(factory, seeded_a.tenant_id) as session:
+            await _store(session, "only-in-a")
 
-            async with tenant_session(factory, seeded_b.tenant_id) as session:
-                assert await find_idempotency_key(session, "only-in-a", NOW) is None
+        async with tenant_session(factory, seeded_b.tenant_id) as session:
+            assert await find_idempotency_key(session, "only-in-a", NOW) is None
 
-            assert len(await _rows(factory, seeded_b.tenant_id)) == 0
+        assert len(await _rows(factory, seeded_b.tenant_id)) == 0
 
     asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("helper", ["create", "find", "purge", "delete-expired"])
-def test_helpers_refuse_a_session_with_no_tenant_bound(temp_db_url: str, helper: str) -> None:
+def test_helpers_refuse_a_session_with_no_tenant_bound(
+    session_factory: async_sessionmaker[AsyncSession], helper: str
+) -> None:
     """No tenant bound means no silent full-table access (a project rule, an earlier change)."""
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            await seed_tenant(factory, f"idem-unbound-{helper}")
+        factory = session_factory
+        await seed_tenant(factory, f"idem-unbound-{helper}")
 
-            async with factory() as session:
-                with pytest.raises(UnboundTenantQueryError):
-                    if helper == "create":
-                        await _store(session, "fake-key-unbound")
-                    elif helper == "find":
-                        await find_idempotency_key(session, "fake-key-unbound", NOW)
-                    elif helper == "purge":
-                        await purge_expired(session, NOW)
-                    else:
-                        await delete_expired_idempotency_key(session, "fake-key-unbound", NOW)
+        async with factory() as session:
+            with pytest.raises(UnboundTenantQueryError):
+                if helper == "create":
+                    await _store(session, "fake-key-unbound")
+                elif helper == "find":
+                    await find_idempotency_key(session, "fake-key-unbound", NOW)
+                elif helper == "purge":
+                    await purge_expired(session, NOW)
+                else:
+                    await delete_expired_idempotency_key(session, "fake-key-unbound", NOW)
 
     asyncio.run(scenario())
 
@@ -315,126 +318,130 @@ def test_helpers_refuse_a_session_with_no_tenant_bound(temp_db_url: str, helper:
     ],
 )
 def test_expiry_boundary_decides_whether_the_reader_sees_the_row(
-    temp_db_url: str, expires_at: datetime, still_visible: bool
+    session_factory: async_sessionmaker[AsyncSession], expires_at: datetime, still_visible: bool
 ) -> None:
     """An expired key is treated as absent, so the effect may run again."""
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded = await seed_tenant(factory, f"idem-exp-{expires_at.timestamp()}")
+        factory = session_factory
+        seeded = await seed_tenant(factory, f"idem-exp-{expires_at.timestamp()}")
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                await _store(session, "fake-key-expiry", expires_at=expires_at)
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            await _store(session, "fake-key-expiry", expires_at=expires_at)
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                found = await find_idempotency_key(session, "fake-key-expiry", NOW)
-            assert (found is not None) is still_visible
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            found = await find_idempotency_key(session, "fake-key-expiry", NOW)
+        assert (found is not None) is still_visible
 
-            # Absent to the reader, but still on disk until the purge runs.
-            assert len(await _rows(factory, seeded.tenant_id)) == 1
+        # Absent to the reader, but still on disk until the purge runs.
+        assert len(await _rows(factory, seeded.tenant_id)) == 1
 
     asyncio.run(scenario())
 
 
-def test_deleting_one_expired_key_never_touches_a_live_one(temp_db_url: str) -> None:
+def test_deleting_one_expired_key_never_touches_a_live_one(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """The guard calls this to free an expired key before re-claiming it, so
     the expiry condition has to be in the statement, not in the caller."""
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded = await seed_tenant(factory, "idem-delete-one")
+        factory = session_factory
+        seeded = await seed_tenant(factory, "idem-delete-one")
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                await _store(session, "stale", expires_at=NOW - timedelta(seconds=1))
-                await _store(session, "live", expires_at=NOW + timedelta(days=1))
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            await _store(session, "stale", expires_at=NOW - timedelta(seconds=1))
+            await _store(session, "live", expires_at=NOW + timedelta(days=1))
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                assert await delete_expired_idempotency_key(session, "live", NOW) is False
-                assert await delete_expired_idempotency_key(session, "absent", NOW) is False
-                assert await delete_expired_idempotency_key(session, "stale", NOW) is True
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            assert await delete_expired_idempotency_key(session, "live", NOW) is False
+            assert await delete_expired_idempotency_key(session, "absent", NOW) is False
+            assert await delete_expired_idempotency_key(session, "stale", NOW) is True
 
-            assert {row.key for row in await _rows(factory, seeded.tenant_id)} == {"live"}
+        assert {row.key for row in await _rows(factory, seeded.tenant_id)} == {"live"}
 
     asyncio.run(scenario())
 
 
-def test_deleting_an_expired_key_is_tenant_scoped(temp_db_url: str) -> None:
+def test_deleting_an_expired_key_is_tenant_scoped(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded_a = await seed_tenant(factory, "idem-del-a")
-            seeded_b = await seed_tenant(factory, "idem-del-b")
+        factory = session_factory
+        seeded_a = await seed_tenant(factory, "idem-del-a")
+        seeded_b = await seed_tenant(factory, "idem-del-b")
 
-            async with tenant_session(factory, seeded_b.tenant_id) as session:
-                await _store(session, "stale", expires_at=NOW - timedelta(seconds=1))
+        async with tenant_session(factory, seeded_b.tenant_id) as session:
+            await _store(session, "stale", expires_at=NOW - timedelta(seconds=1))
 
-            async with tenant_session(factory, seeded_a.tenant_id) as session:
-                assert await delete_expired_idempotency_key(session, "stale", NOW) is False
+        async with tenant_session(factory, seeded_a.tenant_id) as session:
+            assert await delete_expired_idempotency_key(session, "stale", NOW) is False
 
-            assert len(await _rows(factory, seeded_b.tenant_id)) == 1
+        assert len(await _rows(factory, seeded_b.tenant_id)) == 1
 
     asyncio.run(scenario())
 
 
-def test_purge_expired_deletes_only_expired_rows_and_returns_the_count(temp_db_url: str) -> None:
+def test_purge_expired_deletes_only_expired_rows_and_returns_the_count(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded = await seed_tenant(factory, "idem-purge")
+        factory = session_factory
+        seeded = await seed_tenant(factory, "idem-purge")
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                await _store(session, "gone-1", expires_at=NOW - timedelta(days=1))
-                await _store(session, "gone-2", expires_at=NOW - timedelta(seconds=1))
-                await _store(session, "gone-3-boundary", expires_at=NOW)
-                await _store(session, "kept-1", expires_at=NOW + timedelta(seconds=1))
-                await _store(session, "kept-2", expires_at=NOW + timedelta(days=7))
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            await _store(session, "gone-1", expires_at=NOW - timedelta(days=1))
+            await _store(session, "gone-2", expires_at=NOW - timedelta(seconds=1))
+            await _store(session, "gone-3-boundary", expires_at=NOW)
+            await _store(session, "kept-1", expires_at=NOW + timedelta(seconds=1))
+            await _store(session, "kept-2", expires_at=NOW + timedelta(days=7))
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                deleted = await purge_expired(session, NOW)
-            assert deleted == 3
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            deleted = await purge_expired(session, NOW)
+        assert deleted == 3
 
-            remaining = {row.key for row in await _rows(factory, seeded.tenant_id)}
-            assert remaining == {"kept-1", "kept-2"}
+        remaining = {row.key for row in await _rows(factory, seeded.tenant_id)}
+        assert remaining == {"kept-1", "kept-2"}
 
     asyncio.run(scenario())
 
 
-def test_purge_expired_returns_zero_when_nothing_has_expired(temp_db_url: str) -> None:
+def test_purge_expired_returns_zero_when_nothing_has_expired(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded = await seed_tenant(factory, "idem-purge-none")
+        factory = session_factory
+        seeded = await seed_tenant(factory, "idem-purge-none")
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                await _store(session, "kept", expires_at=NOW + timedelta(days=1))
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            await _store(session, "kept", expires_at=NOW + timedelta(days=1))
 
-            async with tenant_session(factory, seeded.tenant_id) as session:
-                assert await purge_expired(session, NOW) == 0
+        async with tenant_session(factory, seeded.tenant_id) as session:
+            assert await purge_expired(session, NOW) == 0
 
-            assert len(await _rows(factory, seeded.tenant_id)) == 1
+        assert len(await _rows(factory, seeded.tenant_id)) == 1
 
     asyncio.run(scenario())
 
 
-def test_purge_expired_is_tenant_scoped(temp_db_url: str) -> None:
+def test_purge_expired_is_tenant_scoped(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
     """A purge run for one tenant must never reach into another's rows."""
 
     async def scenario() -> None:
-        async with schema_engine(temp_db_url) as engine:
-            factory = create_session_factory(engine)
-            seeded_a = await seed_tenant(factory, "idem-purge-a")
-            seeded_b = await seed_tenant(factory, "idem-purge-b")
+        factory = session_factory
+        seeded_a = await seed_tenant(factory, "idem-purge-a")
+        seeded_b = await seed_tenant(factory, "idem-purge-b")
 
-            for seeded in (seeded_a, seeded_b):
-                async with tenant_session(factory, seeded.tenant_id) as session:
-                    await _store(session, "expired", expires_at=NOW - timedelta(days=1))
+        for seeded in (seeded_a, seeded_b):
+            async with tenant_session(factory, seeded.tenant_id) as session:
+                await _store(session, "expired", expires_at=NOW - timedelta(days=1))
 
-            async with tenant_session(factory, seeded_a.tenant_id) as session:
-                assert await purge_expired(session, NOW) == 1
+        async with tenant_session(factory, seeded_a.tenant_id) as session:
+            assert await purge_expired(session, NOW) == 1
 
-            assert await _rows(factory, seeded_a.tenant_id) == []
-            assert len(await _rows(factory, seeded_b.tenant_id)) == 1
+        assert await _rows(factory, seeded_a.tenant_id) == []
+        assert len(await _rows(factory, seeded_b.tenant_id)) == 1
 
     asyncio.run(scenario())
