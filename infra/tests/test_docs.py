@@ -30,6 +30,7 @@ import of application code.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -756,6 +757,13 @@ FORBIDDEN_OLD_PATHS: tuple[str, ...] = (
 )
 """Old-layout path fragments. None may survive in a committed reference file."""
 
+# The local env files: gitignored, loaded by compose with `required: false`,
+# and so absent from a fresh CI checkout. The path check skips them; that the
+# skip hides no committed file is pinned by
+# `test_every_skipped_env_path_is_gitignored` and
+# `test_the_skip_list_holds_only_env_files`.
+LOCAL_ENV_PATHS: tuple[str, ...] = ("backend/.env", "backend/.env.demo")
+
 # Runtime artifacts and the real (gitignored) env file are named in workflows
 # and the Makefile but never exist in a checkout; they are not static paths.
 PATH_NOISE: tuple[str, ...] = (
@@ -798,15 +806,53 @@ def test_every_named_path_exists() -> None:
             candidate = raw.rstrip("./,:;)\"'`").removeprefix("./")
             if not candidate or any(noise in candidate for noise in (".coverage", "shard")):
                 continue
-            if candidate in {"backend/.env"} or candidate.endswith("/node_modules"):
+            if candidate in LOCAL_ENV_PATHS or candidate.endswith("/node_modules"):
                 continue
-            # A bare "backend/<file>" the build writes at runtime, e.g. the env
-            # copy, is skipped above; everything else must be on disk.
+            # A local env file (LOCAL_ENV_PATHS) is skipped above; everything
+            # else must be on disk.
             if not (REPO_ROOT / candidate).exists():
                 missing.append(f"{where}: {candidate}")
 
     assert stale == [], f"old-layout paths still named: {stale}"
     assert missing == [], f"named paths that do not exist: {missing}"
+
+
+def test_every_skipped_env_path_is_gitignored() -> None:
+    """Catches a skip list that holds a committed file, so the path check would
+    quietly stop reporting it missing.
+
+    Each name on `LOCAL_ENV_PATHS` is asked of `git check-ignore -q`, run from
+    the repository root; exit 0 means git ignores it, so no checkout owes it.
+    A tracked or un-ignored name exits 1 and fails here.
+    """
+    assert len(LOCAL_ENV_PATHS) > 0, "the skip list is empty; nothing is checked"
+    not_ignored: list[str] = []
+    for name in LOCAL_ENV_PATHS:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", name],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode != 0:
+            not_ignored.append(f"{name} (exit {result.returncode}) {result.stderr.strip()}")
+    assert not_ignored == [], f"skipped env paths git does not ignore: {not_ignored}"
+
+
+def test_the_skip_list_holds_only_env_files() -> None:
+    """Catches a skip list widened to a source file (say `backend/Dockerfile`),
+    which the gitignore check alone would miss if that file were also ignored.
+
+    Every name's last part must be exactly `.env` or `.env.demo`. The tripwire
+    pins both names this plan puts on the list, so dropping `backend/.env.demo`
+    (the CI break) or `backend/.env` fails here by name.
+    """
+    assert "backend/.env" in LOCAL_ENV_PATHS
+    assert "backend/.env.demo" in LOCAL_ENV_PATHS
+    not_env = [name for name in LOCAL_ENV_PATHS if Path(name).name not in {".env", ".env.demo"}]
+    assert not_env == [], f"skip list names that are not env files: {not_env}"
 
 
 # --- privacy ------------------------------------------------------------------
