@@ -21,11 +21,11 @@ the skeleton stub.
 
 import json
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
-import tomllib
 import yaml  # type: ignore[import-untyped]
 
 
@@ -158,9 +158,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     """Parse one YAML document, failing with the path when it is missing."""
     assert path.is_file(), f"{path.relative_to(REPO_ROOT)} does not exist"
     parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert isinstance(parsed, dict), (
-        f"{path.relative_to(REPO_ROOT)} is not a YAML mapping"
-    )
+    assert isinstance(parsed, dict), f"{path.relative_to(REPO_ROOT)} is not a YAML mapping"
     return parsed
 
 
@@ -176,9 +174,7 @@ def _triggers(document: dict[str, Any]) -> dict[str, Any]:
         value = mapping.get(key)
         if isinstance(value, dict):
             return value
-    raise AssertionError(
-        f"no trigger mapping found, keys are {sorted(map(str, document))}"
-    )
+    raise AssertionError(f"no trigger mapping found, keys are {sorted(map(str, document))}")
 
 
 def _steps(job: dict[str, Any]) -> list[dict[str, Any]]:
@@ -213,9 +209,7 @@ def _security_job() -> dict[str, Any]:
 def _step_running(job: dict[str, Any], marker: str) -> dict[str, Any]:
     """The one step of `job` whose text names `marker`, asserted to be exactly one."""
     matching = [step for step in _steps(job) if marker in _step_text(step)]
-    assert len(matching) == 1, (
-        f"expected 1 step naming {marker!r}, found {len(matching)}"
-    )
+    assert len(matching) == 1, f"expected 1 step naming {marker!r}, found {len(matching)}"
     return matching[0]
 
 
@@ -234,9 +228,7 @@ def _version_tuple(raw: str, source: str) -> tuple[int, ...]:
 def _pre_commit_ruff_rev() -> str:
     """The `rev` of the ruff-pre-commit repo entry, asserted to be exactly one."""
     repos = _load_yaml(PRE_COMMIT_CONFIG).get("repos")
-    assert isinstance(repos, list) and repos, (
-        ".pre-commit-config.yaml declares no repos"
-    )
+    assert isinstance(repos, list) and repos, ".pre-commit-config.yaml declares no repos"
 
     matching = [
         entry
@@ -265,31 +257,23 @@ def _locked_ruff_version() -> str:
         for entry in packages
         if isinstance(entry, dict) and entry.get("name") == "ruff"
     ]
-    assert len(versions) == 1, (
-        f"uv.lock locks {len(versions)} ruff versions: {versions}"
-    )
+    assert len(versions) == 1, f"uv.lock locks {len(versions)} ruff versions: {versions}"
     return versions[0]
 
 
 def _ruff_dev_floor() -> str:
     """The lower bound of `pyproject.toml`'s dev-group `ruff` specifier."""
-    groups = tomllib.loads(PYPROJECT.read_text(encoding="utf-8")).get(
-        "dependency-groups"
-    )
+    groups = tomllib.loads(PYPROJECT.read_text(encoding="utf-8")).get("dependency-groups")
     assert isinstance(groups, dict), "pyproject.toml declares no dependency-groups"
     dev = groups.get("dev")
-    assert isinstance(dev, list) and dev, (
-        "pyproject.toml declares no dev dependency group"
-    )
+    assert isinstance(dev, list) and dev, "pyproject.toml declares no dev dependency group"
 
     floors = [
         match.group(1)
         for match in (RUFF_FLOOR_SPECIFIER.match(str(entry).strip()) for entry in dev)
         if match is not None
     ]
-    assert len(floors) == 1, (
-        f"expected 1 `ruff>=` dev entry, found {len(floors)}: {floors}"
-    )
+    assert len(floors) == 1, f"expected 1 `ruff>=` dev entry, found {len(floors)}: {floors}"
     return floors[0]
 
 
@@ -377,9 +361,7 @@ def test_the_gitleaks_step_passes_a_baseline_path() -> None:
     every entry stop matching and reddens the job again."""
     run = str(_step_running(_security_job(), "gitleaks").get("run", ""))
 
-    assert "--baseline-path" in run, (
-        f"the gitleaks step passes no --baseline-path: {run!r}"
-    )
+    assert "--baseline-path" in run, f"the gitleaks step passes no --baseline-path: {run!r}"
 
     assert "--redact" not in run, (
         "the gitleaks step passes --redact, which rewrites Match and Secret to "
@@ -426,9 +408,7 @@ def test_the_gitleaks_hook_and_the_ci_job_pass_the_same_baseline() -> None:
     assert hook_flag, f"the gitleaks hook passes no --baseline-path: {args}"
 
     hook_named = hook_flag[0].split("=", 1)[1].strip("\"'")
-    assert (REPO_ROOT / hook_named).is_file(), (
-        f"the hook's baseline {hook_named} does not exist"
-    )
+    assert (REPO_ROOT / hook_named).is_file(), f"the hook's baseline {hook_named} does not exist"
 
     run = str(_step_running(_security_job(), "gitleaks").get("run", ""))
     job_flag = re.search(r"--baseline-path[=\s]+(\S+)", run)
@@ -509,8 +489,7 @@ def test_the_security_job_runs_the_four_planned_scanners() -> None:
     unplanned = [
         text
         for text in texts
-        if text not in scanner_steps
-        and ("audit" in text.lower() or "scan" in text.lower())
+        if text not in scanner_steps and ("audit" in text.lower() or "scan" in text.lower())
     ]
     assert unplanned == []
 
@@ -524,9 +503,7 @@ def test_gitleaks_reads_the_full_history() -> None:
     assert isinstance(arguments, dict), "the checkout step passes no `with:` block"
 
     depth = arguments.get("fetch-depth")
-    assert isinstance(depth, int) and not isinstance(depth, bool), (
-        f"fetch-depth is {depth!r}"
-    )
+    assert isinstance(depth, int) and not isinstance(depth, bool), f"fetch-depth is {depth!r}"
     assert depth == 0
 
 
@@ -588,9 +565,7 @@ def test_the_image_scan_covers_exactly_the_three_pinned_compose_images() -> None
     catches a version bump in compose that the scan file did not follow."""
     services = _load_yaml(COMPOSE).get("services")
     assert isinstance(services, dict), "docker-compose.yml declares no services"
-    images = {
-        str(service["image"]) for service in services.values() if "image" in service
-    }
+    images = {str(service["image"]) for service in services.values() if "image" in service}
 
     assert images == set(PINNED_IMAGES)
 
@@ -631,16 +606,12 @@ def test_dependabot_is_turned_off() -> None:
 def test_every_action_is_pinned_to_a_tag() -> None:
     """Catches a `uses: owner/action@master`, a ref that re-points under us so a
     compromised action reaches CI with no diff in this repo (decision G)."""
-    refs = _uses_refs(_load_yaml(CI_WORKFLOW)) + _uses_refs(
-        _load_yaml(IMAGE_SCAN_WORKFLOW)
-    )
+    refs = _uses_refs(_load_yaml(CI_WORKFLOW)) + _uses_refs(_load_yaml(IMAGE_SCAN_WORKFLOW))
 
     assert len(refs) >= 2, f"only {len(refs)} actions found across both workflows"
     for ref in refs:
         assert ACTION_REF.fullmatch(ref), f"{ref} is not owner/repo@ref"
-        assert ref.rsplit("@", 1)[1] not in FLOATING_REFS, (
-            f"{ref} is pinned to a branch"
-        )
+        assert ref.rsplit("@", 1)[1] not in FLOATING_REFS, f"{ref} is pinned to a branch"
 
 
 @pytest.mark.parametrize(
@@ -654,9 +625,7 @@ def test_the_threat_model_carries_a_row_for_every_named_threat(phrase: str) -> N
     instead of a mitigation that exists in the tree."""
     assert THREAT_MODEL.is_file(), "dev/ops/threat-model.md does not exist"
     rows = _table_rows(THREAT_MODEL.read_text(encoding="utf-8"))
-    assert len(rows) >= 9, (
-        f"only {len(rows)} table rows found (8 threats plus a header)"
-    )
+    assert len(rows) >= 9, f"only {len(rows)} table rows found (8 threats plus a header)"
 
     matching = [row for row in rows if len(row) >= 3 and phrase in row[2].lower()]
 
@@ -664,9 +633,7 @@ def test_the_threat_model_carries_a_row_for_every_named_threat(phrase: str) -> N
     for row in matching:
         assert len(row) == 5, f"row has {len(row)} cells, expected 5: {row}"
         assert all(cell for cell in row), f"row has an empty cell: {row}"
-        assert row[3].lower() not in MITIGATION_PLACEHOLDERS, (
-            f"mitigation is a stub: {row}"
-        )
+        assert row[3].lower() not in MITIGATION_PLACEHOLDERS, f"mitigation is a stub: {row}"
 
 
 def test_the_threat_model_has_no_adapt_placeholders() -> None:
@@ -693,6 +660,4 @@ def test_the_app_dockerfiles_exist_and_entrypoint_their_app() -> None:
         assert dockerfile.is_file(), f"{dockerfile.name} does not exist"
         text = dockerfile.read_text(encoding="utf-8")
         assert entry in text, f"{dockerfile.name} never entrypoints {entry}"
-        assert "ADAPT:" not in text, (
-            f"{dockerfile.name} still carries an ADAPT placeholder"
-        )
+        assert "ADAPT:" not in text, f"{dockerfile.name} still carries an ADAPT placeholder"

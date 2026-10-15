@@ -102,4 +102,3 @@ def test_scheduler_health_and_cli() -> None:
     ]
     for path in gone:
         assert not path.is_file(), f"old file still present: {path.relative_to(REPO_ROOT)}"
-

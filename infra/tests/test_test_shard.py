@@ -16,9 +16,7 @@ SLICE_COUNT = 3
 
 def test_every_test_file_is_in_exactly_one_slice() -> None:
     files = test_files()
-    chunks = slices(
-        files, json.loads(DURATIONS.read_text(encoding="utf-8")), SLICE_COUNT
-    )
+    chunks = slices(files, json.loads(DURATIONS.read_text(encoding="utf-8")), SLICE_COUNT)
     flat = [name for chunk in chunks for name in chunk]
     assert sorted(flat) == files
     assert len(flat) == len(set(flat))

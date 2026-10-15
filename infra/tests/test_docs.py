@@ -194,9 +194,7 @@ def _section_headings(markdown: str) -> list[str]:
     sub-heading inside a section counts as that section's prose.
     """
     return [
-        line.removeprefix("## ").strip()
-        for line in markdown.splitlines()
-        if line.startswith("## ")
+        line.removeprefix("## ").strip() for line in markdown.splitlines() if line.startswith("## ")
     ]
 
 
@@ -246,9 +244,7 @@ def _table_rows(body: str) -> list[str]:
     The header row and the `|---|` separator are dropped, so a count is a
     count of scenarios rather than of pipe characters.
     """
-    pipe_lines = [
-        line.strip() for line in body.splitlines() if line.strip().startswith("|")
-    ]
+    pipe_lines = [line.strip() for line in body.splitlines() if line.strip().startswith("|")]
     rows = [line for line in pipe_lines if not set(line) <= set("|-: ")]
     return rows[1:] if rows else []
 
@@ -294,9 +290,7 @@ def _alert_stems() -> list[str]:
     """
     if not ALERT_DIR.is_dir():
         return []
-    return sorted(
-        path.stem for path in ALERT_DIR.iterdir() if not path.name.startswith(".")
-    )
+    return sorted(path.stem for path in ALERT_DIR.iterdir() if not path.name.startswith("."))
 
 
 def _documented_files() -> list[Path]:
@@ -304,9 +298,7 @@ def _documented_files() -> list[Path]:
     files: list[Path] = [README, CUSTOMIZING]
     assert DOCS.is_dir(), f"missing documentation root: {DOCS}"
     files.extend(
-        path
-        for path in sorted(DOCS.rglob("*"))
-        if path.is_file() and path.suffix in DOC_SUFFIXES
+        path for path in sorted(DOCS.rglob("*")) if path.is_file() and path.suffix in DOC_SUFFIXES
     )
     return files
 
@@ -347,9 +339,7 @@ def test_the_readme_lists_exactly_seven_guarantees() -> None:
     """
     guarantees = _guarantee_lines()
 
-    assert len(guarantees) == 7, (
-        f"expected 7 numbered guarantees, found {len(guarantees)}"
-    )
+    assert len(guarantees) == 7, f"expected 7 numbered guarantees, found {len(guarantees)}"
     assert [number for number, _ in guarantees] == [1, 2, 3, 4, 5, 6, 7]
 
     for index, (_, text) in enumerate(guarantees):
@@ -411,9 +401,7 @@ def test_every_guarantee_names_a_test_that_its_file_defines() -> None:
             for name in names:
                 if f"def {name}(" not in source:
                     unproved.append(f"guarantee {number}: {target} defines no {name}")
-    assert unproved == [], (
-        f"guarantees naming a test their file does not define: {unproved}"
-    )
+    assert unproved == [], f"guarantees naming a test their file does not define: {unproved}"
 
 
 def test_the_failure_modes_table_has_exactly_six_rows() -> None:
@@ -453,13 +441,11 @@ def test_the_numbers_table_carries_the_five_labels() -> None:
     assert len(rows) == 5, f"expected 5 numbers rows, found {len(rows)}: {rows}"
     for index, label in enumerate(NUMBERS_LABELS):
         cells = _cells(rows[index])
-        assert label in cells[0].lower(), (
-            f"numbers row {index + 1} is not {label!r}: {cells[0]!r}"
-        )
+        assert label in cells[0].lower(), f"numbers row {index + 1} is not {label!r}: {cells[0]!r}"
         for cell in cells[1:]:
-            assert cell == NOT_MEASURED or any(
-                character.isdigit() for character in cell
-            ), f"numbers cell {cell!r} is neither a number nor exactly {NOT_MEASURED!r}"
+            assert cell == NOT_MEASURED or any(character.isdigit() for character in cell), (
+                f"numbers cell {cell!r} is neither a number nor exactly {NOT_MEASURED!r}"
+            )
 
 
 def test_the_what_broke_section_has_at_least_five_entries() -> None:
@@ -488,12 +474,8 @@ def test_the_what_broke_section_has_at_least_five_entries() -> None:
     if current:
         entries.append("\n".join(current))
 
-    assert len(entries) >= 5, (
-        f"expected at least 5 what-broke entries, found {len(entries)}"
-    )
-    without_fix = [
-        entry.splitlines()[0] for entry in entries if "fix" not in entry.lower()
-    ]
+    assert len(entries) >= 5, f"expected at least 5 what-broke entries, found {len(entries)}"
+    without_fix = [entry.splitlines()[0] for entry in entries if "fix" not in entry.lower()]
     assert without_fix == [], f"what-broke entries with no fix sentence: {without_fix}"
 
 
@@ -529,9 +511,7 @@ def test_the_readme_embeds_the_architecture_diagram() -> None:
     """
     body = _section_body(_read(README), "Architecture diagram")
 
-    assert MERMAID_FENCE in body, (
-        "no fenced mermaid block under the architecture heading"
-    )
+    assert MERMAID_FENCE in body, "no fenced mermaid block under the architecture heading"
 
 
 def test_the_readme_links_every_diagram_source() -> None:
@@ -574,9 +554,7 @@ def test_adr_0001_exists_and_names_what_langgraph_must_never_own() -> None:
     body = _section_body(_read(ADR_0001), "Decision").lower()
 
     assert "langgraph" in body, "the Decision section does not name LangGraph"
-    assert "never" in body, (
-        "the Decision section does not say what LangGraph must never own"
-    )
+    assert "never" in body, "the Decision section does not say what LangGraph must never own"
 
 
 def test_adr_0001_names_the_rejected_alternative() -> None:
@@ -701,8 +679,7 @@ def test_no_runbook_section_is_empty() -> None:
     for heading in headings:
         body = _section_body(runbook, heading)
         has_prose = any(
-            line.strip() and not line.lstrip().startswith("#")
-            for line in body.splitlines()
+            line.strip() and not line.lstrip().startswith("#") for line in body.splitlines()
         )
         if not has_prose:
             empty.append(heading)
@@ -727,9 +704,7 @@ def test_the_runbook_has_a_subsection_per_alert() -> None:
 
     _, body = _section_matching(_read(RUNBOOK), "alert")
     subsections = [
-        line.removeprefix("### ").strip()
-        for line in body.splitlines()
-        if line.startswith("### ")
+        line.removeprefix("### ").strip() for line in body.splitlines() if line.startswith("### ")
     ]
     unanswered = [stem for stem in stems if stem not in subsections]
     assert unanswered == [], f"alerts with no runbook subsection: {unanswered}"
@@ -763,9 +738,7 @@ COMPOSE_OVERRIDE = REPO_ROOT / "docker-compose.override.example.yml"
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 K8S_DIR = REPO_ROOT / "infra" / "k8s"
 
-PATH_IN_TEXT = re.compile(
-    r"(?:\./)?((?:backend|web|docs|infra|k8s)/[A-Za-z0-9_.\-/]+)"
-)
+PATH_IN_TEXT = re.compile(r"(?:\./)?((?:backend|web|docs|infra|k8s)/[A-Za-z0-9_.\-/]+)")
 """A repo-relative path starting with a real top-level folder. The character
 class stops at `:`, so a compose mount `./backend/data/policies:/srv/...` yields
 just the host side. `dev/` is left out: it would match device paths like
@@ -823,9 +796,7 @@ def test_every_named_path_exists() -> None:
 
         for raw in PATH_IN_TEXT.findall(text):
             candidate = raw.rstrip("./,:;)\"'`").removeprefix("./")
-            if not candidate or any(
-                noise in candidate for noise in (".coverage", "shard")
-            ):
+            if not candidate or any(noise in candidate for noise in (".coverage", "shard")):
                 continue
             if candidate in {"backend/.env"} or candidate.endswith("/node_modules"):
                 continue

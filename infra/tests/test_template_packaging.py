@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from helpdesk.shared.services.access.directory import DirectoryProvider, DirectoryReader
 from scripts.seed import TENANTS
 
@@ -117,9 +118,7 @@ def _section_headings(markdown: str) -> list[str]:
     their notes.
     """
     return [
-        line.removeprefix("## ").strip()
-        for line in markdown.splitlines()
-        if line.startswith("## ")
+        line.removeprefix("## ").strip() for line in markdown.splitlines() if line.startswith("## ")
     ]
 
 
@@ -268,9 +267,7 @@ def test_the_env_example_declares_policy_dir_with_the_default_value() -> None:
     """
     lines = _read(ENV_EXAMPLE).splitlines()
 
-    assert ENV_EXAMPLE_LINE in lines, (
-        f"no exact line {ENV_EXAMPLE_LINE!r} in .env.example"
-    )
+    assert ENV_EXAMPLE_LINE in lines, f"no exact line {ENV_EXAMPLE_LINE!r} in .env.example"
     index = lines.index(ENV_EXAMPLE_LINE)
     assert index > 0, "POLICY_DIR is the first line, so it carries no comment above it"
     assert lines[index - 1].startswith("#"), (
@@ -290,17 +287,13 @@ def test_the_makefile_declares_a_phony_ingest_target() -> None:
     """
     lines = _read(MAKEFILE).splitlines()
 
-    assert any(line.startswith("ingest:") for line in lines), (
-        "no `ingest:` target in the Makefile"
-    )
+    assert any(line.startswith("ingest:") for line in lines), "no `ingest:` target in the Makefile"
 
     phony_tokens: set[str] = set()
     for line in lines:
         if line.startswith(".PHONY:"):
             phony_tokens.update(line.removeprefix(".PHONY:").split())
-    assert "ingest" in phony_tokens, (
-        f"`ingest` is not in .PHONY: {sorted(phony_tokens)}"
-    )
+    assert "ingest" in phony_tokens, f"`ingest` is not in .PHONY: {sorted(phony_tokens)}"
 
 
 # --- no invented name in application source (decision D) -----------------------
@@ -335,9 +328,7 @@ def _application_source_files() -> list[Path]:
     [(spec.slug, spec.name) for spec in TENANTS],
     ids=[spec.key for spec in TENANTS],
 )
-def test_no_invented_name_appears_in_python_application_source(
-    slug: str, name: str
-) -> None:
+def test_no_invented_name_appears_in_python_application_source(slug: str, name: str) -> None:
     """Catches a later plan hardcoding a seeded tenant into shipped code.
 
     This is the template criterion with the longest reach: an adopter who
@@ -359,6 +350,4 @@ def test_no_invented_name_appears_in_python_application_source(
         if any(needle in text for needle in needles):
             offenders.append(str(path.relative_to(REPO_ROOT)))
 
-    assert offenders == [], (
-        f"invented seed name {slug!r}/{name!r} appears in: {offenders}"
-    )
+    assert offenders == [], f"invented seed name {slug!r}/{name!r} appears in: {offenders}"

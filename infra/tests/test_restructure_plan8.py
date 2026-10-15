@@ -40,9 +40,7 @@ def test_infra_tree() -> None:
         REPO_ROOT / "infra" / "load" / "load_smoke.py",
     ]
     for path in present:
-        assert path.is_file(), (
-            f"expected infra file is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected infra file is missing: {path.relative_to(REPO_ROOT)}"
 
 
 def test_dev_scripts_moved() -> None:
@@ -54,9 +52,7 @@ def test_dev_scripts_moved() -> None:
         REPO_ROOT / "dev" / "scripts" / "e2e" / "fixtures" / "01-wiki-viewer.json",
     ]
     for path in present:
-        assert path.is_file(), (
-            f"expected dev script is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected dev script is missing: {path.relative_to(REPO_ROOT)}"
 
 
 def test_docs_relocated() -> None:
@@ -71,9 +67,7 @@ def test_docs_relocated() -> None:
         REPO_ROOT / "ARCHITECTURE.md",
     ]
     for path in present:
-        assert path.is_file(), (
-            f"expected relocated doc is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected relocated doc is missing: {path.relative_to(REPO_ROOT)}"
 
 
 def test_root_placeholders_added() -> None:
@@ -101,9 +95,7 @@ def test_old_locations_gone() -> None:
         REPO_ROOT / "docs" / "adr",
     ]
     for path in gone:
-        assert not path.exists(), (
-            f"old path still present: {path.relative_to(REPO_ROOT)}"
-        )
+        assert not path.exists(), f"old path still present: {path.relative_to(REPO_ROOT)}"
 
 
 def test_temporary_allowlist_removed() -> None:
@@ -124,13 +116,9 @@ def test_temporary_allowlist_removed() -> None:
 def test_check_root_wired() -> None:
     """Kills a move that forgets to wire check_root.py into pre-commit or CI."""
     pre_commit = (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    assert "check_root.py" in pre_commit, (
-        "check_root.py is not wired into .pre-commit-config.yaml"
-    )
+    assert "check_root.py" in pre_commit, "check_root.py is not wired into .pre-commit-config.yaml"
     ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "check_root.py" in ci, (
-        "check_root.py is not wired into .github/workflows/ci.yml"
-    )
+    assert "check_root.py" in ci, "check_root.py is not wired into .github/workflows/ci.yml"
 
 
 def test_compose_mounts_new_postgres_path() -> None:

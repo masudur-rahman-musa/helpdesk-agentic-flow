@@ -27,8 +27,13 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.5
     hooks:
+      # The one ruff config lives in backend/; without --config, files outside
+      # it (infra/tests, dev/scripts) get ruff's defaults. Pinned by
+      # infra/tests/test_ruff_config.py.
       - id: ruff-format
+        args: [--config, backend/pyproject.toml]
       - id: ruff-check
+        args: [--config, backend/pyproject.toml]
   - repo: local
     hooks:
       # Keep the repo root to the names in .claude/root-allowlist. Runs the full

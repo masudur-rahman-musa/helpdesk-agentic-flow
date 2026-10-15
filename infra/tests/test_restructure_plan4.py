@@ -23,7 +23,9 @@ AGENT_API = BACKEND / "helpdesk" / "agent_api"
 
 
 def test_routes_under_api() -> None:
-    """Kills a move that leaves routes as top-level *_routes.py files instead of under api/routes/."""
+    """Kills a move that leaves routes as top-level *_routes.py files
+    instead of under api/routes/.
+    """
     present = [
         AGENT_API / "api" / "router.py",
         AGENT_API / "api" / "sse.py",
@@ -62,7 +64,9 @@ def test_routes_under_api() -> None:
 
 
 def test_schemas_and_services_split_out() -> None:
-    """Kills a move that keeps schemas and services inline instead of split into schemas/ and services/."""
+    """Kills a move that keeps schemas and services inline
+    instead of split into schemas/ and services/.
+    """
     present = [
         AGENT_API / "schemas" / "chat.py",
         AGENT_API / "schemas" / "auth.py",

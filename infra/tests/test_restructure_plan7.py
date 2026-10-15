@@ -37,9 +37,7 @@ def test_src_tree_exists() -> None:
         SRC / "features" / "chat" / "components",
     ]
     for path in present:
-        assert path.is_dir(), (
-            f"expected src directory is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_dir(), f"expected src directory is missing: {path.relative_to(REPO_ROOT)}"
 
 
 def test_features_laid_out() -> None:
@@ -51,9 +49,7 @@ def test_features_laid_out() -> None:
         SRC / "features" / "chat" / "decision-labels.ts",
     ]
     for path in present:
-        assert path.is_file(), (
-            f"expected feature file is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected feature file is missing: {path.relative_to(REPO_ROOT)}"
 
 
 def test_middleware_moved() -> None:
@@ -71,17 +67,13 @@ def test_old_tree_gone() -> None:
         WEB / "middleware.ts",
     ]
     for path in gone:
-        assert not path.exists(), (
-            f"old path still present: {path.relative_to(REPO_ROOT)}"
-        )
+        assert not path.exists(), f"old path still present: {path.relative_to(REPO_ROOT)}"
 
 
 def test_alias_points_at_src() -> None:
     """Kills an alias left at ./* instead of repointed to ./src/*."""
     text = (WEB / "tsconfig.json").read_text(encoding="utf-8")
-    assert '"@/*": ["./src/*"]' in text, (
-        "tsconfig @/* is not mapped to ./src/*"
-    )
+    assert '"@/*": ["./src/*"]' in text, "tsconfig @/* is not mapped to ./src/*"
     assert '"@/*": ["./*"]' not in text, "old @/* -> ./* mapping is still present"
 
 

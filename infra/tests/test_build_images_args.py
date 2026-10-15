@@ -33,9 +33,7 @@ from dev.scripts.build_images import (
     validate_build_arguments,
 )
 
-EXPECTED_SERVICES: frozenset[str] = frozenset(
-    {"agent-api", "mcp-server", "scheduler", "web"}
-)
+EXPECTED_SERVICES: frozenset[str] = frozenset({"agent-api", "mcp-server", "scheduler", "web"})
 """The four literals criterion 17 names, asserted as an EXACT set: an extra
 accepted name is a build target nothing else in this repo knows how to make."""
 

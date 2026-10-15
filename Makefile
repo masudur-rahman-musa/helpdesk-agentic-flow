@@ -39,13 +39,13 @@ test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
 	  tests/shared/test_policy_purity.py \
 	  --cov=helpdesk.shared.policy --cov-branch --cov-report=term-missing --cov-fail-under=100
 lint:       ## Lint
-	# dev/scripts and infra/load sit outside backend/, where the one ruff config
+	# dev/scripts, infra/load and infra/tests sit outside backend/, where the one ruff config
 	# lives, so --config holds them to the project's rule set, not ruff's default.
-	uv run --project backend ruff check --config backend/pyproject.toml backend dev/scripts infra/load
+	uv run --project backend ruff check --config backend/pyproject.toml backend dev/scripts infra/load infra/tests
 typecheck:  ## Static types
 	cd backend && uv run mypy
 format:     ## Auto-format
-	uv run --project backend ruff format --config backend/pyproject.toml backend dev/scripts infra/load
+	uv run --project backend ruff format --config backend/pyproject.toml backend dev/scripts infra/load infra/tests
 web-verify: ## The web gate: types, lint, unit tests, production build
 	pnpm -C web install --frozen-lockfile && pnpm -C web typecheck && pnpm -C web lint \
 	  && pnpm -C web test && pnpm -C web build

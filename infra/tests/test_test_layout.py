@@ -36,7 +36,9 @@ def test_no_sys_path_insert_remains() -> None:
 
 
 def test_support_helpers_import_by_package_path() -> None:
-    """Kills a move that forgets the new `tests.support.*` package or leaves the old helper files."""
+    """Kills a move that forgets the new `tests.support.*` package
+    or leaves the old helper files.
+    """
     if str(BACKEND) not in sys.path:
         sys.path.insert(0, str(BACKEND))
 
@@ -77,7 +79,9 @@ def test_seed_moved_under_backend() -> None:
 
 
 def test_repo_level_tests_live_in_infra() -> None:
-    """Kills a move that leaves the repo-level tests under backend/tests/shared instead of infra/tests."""
+    """Kills a move that leaves the repo-level tests under backend/tests/shared
+    instead of infra/tests.
+    """
     repo_level_tests = [
         "test_build_images_args.py",
         "test_build_workflow.py",
@@ -91,20 +95,15 @@ def test_repo_level_tests_live_in_infra() -> None:
     ]
 
     missing_in_infra = [
-        name
-        for name in repo_level_tests
-        if not (REPO_ROOT / "infra" / "tests" / name).exists()
+        name for name in repo_level_tests if not (REPO_ROOT / "infra" / "tests" / name).exists()
     ]
-    assert not missing_in_infra, (
-        "repo-level tests missing from infra/tests: " + ", ".join(missing_in_infra)
+    assert not missing_in_infra, "repo-level tests missing from infra/tests: " + ", ".join(
+        missing_in_infra
     )
 
     still_in_backend = [
-        name
-        for name in repo_level_tests
-        if (BACKEND / "tests" / "shared" / name).exists()
+        name for name in repo_level_tests if (BACKEND / "tests" / "shared" / name).exists()
     ]
-    assert not still_in_backend, (
-        "repo-level tests still under backend/tests/shared: "
-        + ", ".join(still_in_backend)
+    assert not still_in_backend, "repo-level tests still under backend/tests/shared: " + ", ".join(
+        still_in_backend
     )

@@ -45,9 +45,7 @@ def test_crud_split() -> None:
     ]:
         present.append(SHARED / "crud" / f"{m}.py")
     for path in present:
-        assert path.is_file(), (
-            f"expected split file is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected split file is missing: {path.relative_to(REPO_ROOT)}"
 
     init_text = (SHARED / "crud" / "__init__.py").read_text(encoding="utf-8")
     assert "class Repository" in init_text, (
@@ -66,9 +64,7 @@ def test_dropped_crud_targets_absent() -> None:
         SHARED / "crud" / "reviews.py",
     ]
     for path in gone:
-        assert not path.is_file(), (
-            f"crud module should not exist: {path.relative_to(REPO_ROOT)}"
-        )
+        assert not path.is_file(), f"crud module should not exist: {path.relative_to(REPO_ROOT)}"
 
 
 def test_config_and_errors_renamed() -> None:
@@ -78,18 +74,14 @@ def test_config_and_errors_renamed() -> None:
         SHARED / "core" / "errors.py",
     ]
     for path in present:
-        assert path.is_file(), (
-            f"expected moved file is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected moved file is missing: {path.relative_to(REPO_ROOT)}"
 
     gone = [
         SHARED / "core" / "settings.py",
         SHARED / "errors.py",
     ]
     for path in gone:
-        assert not path.is_file(), (
-            f"old file still present: {path.relative_to(REPO_ROOT)}"
-        )
+        assert not path.is_file(), f"old file still present: {path.relative_to(REPO_ROOT)}"
 
 
 def test_observability_moved() -> None:
@@ -98,9 +90,7 @@ def test_observability_moved() -> None:
     for m in ["context", "logging", "metrics"]:
         present.append(SHARED / "core" / "observability" / f"{m}.py")
     for path in present:
-        assert path.is_file(), (
-            f"expected moved file is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected moved file is missing: {path.relative_to(REPO_ROOT)}"
 
     assert not (SHARED / "obs").is_dir(), (
         f"old package still present: {(SHARED / 'obs').relative_to(REPO_ROOT)}"
@@ -118,17 +108,13 @@ def test_services_split() -> None:
         present.append(SHARED / "services" / "access" / f"{m}.py")
     present.append(SHARED / "services" / "policy_docs" / "naming.py")
     for path in present:
-        assert path.is_file(), (
-            f"expected split file is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected split file is missing: {path.relative_to(REPO_ROOT)}"
 
     assert not (SHARED / "killswitch").is_dir(), (
         f"old package still present: {(SHARED / 'killswitch').relative_to(REPO_ROOT)}"
     )
     gone_file = SHARED / "rag" / "naming.py"
-    assert not gone_file.is_file(), (
-        f"old file still present: {gone_file.relative_to(REPO_ROOT)}"
-    )
+    assert not gone_file.is_file(), f"old file still present: {gone_file.relative_to(REPO_ROOT)}"
 
 
 def test_kept_modules_get_fresh_init() -> None:
@@ -142,18 +128,14 @@ def test_kept_modules_get_fresh_init() -> None:
         SHARED / "access" / "__init__.py",
     ]
     for path in present:
-        assert path.is_file(), (
-            f"expected kept file is missing: {path.relative_to(REPO_ROOT)}"
-        )
+        assert path.is_file(), f"expected kept file is missing: {path.relative_to(REPO_ROOT)}"
 
     gone = [
         SHARED / "audit" / "chain.py",
         SHARED / "access" / "approvals.py",
     ]
     for path in gone:
-        assert not path.is_file(), (
-            f"moved file still present: {path.relative_to(REPO_ROOT)}"
-        )
+        assert not path.is_file(), f"moved file still present: {path.relative_to(REPO_ROOT)}"
 
 
 def test_redis_shared() -> None:
@@ -172,6 +154,4 @@ def test_redis_shared() -> None:
         BACKEND / "helpdesk" / "scheduler" / "redis_client.py",
     ]
     for path in gone:
-        assert not path.is_file(), (
-            f"old file still present: {path.relative_to(REPO_ROOT)}"
-        )
+        assert not path.is_file(), f"old file still present: {path.relative_to(REPO_ROOT)}"

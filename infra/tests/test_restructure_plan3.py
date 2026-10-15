@@ -21,7 +21,9 @@ BACKEND = REPO_ROOT / "backend"
 
 
 def test_gateway_and_tracing_under_agent_api() -> None:
-    """Kills a move that leaves the gateway client and tracing in shared instead of under agent_api."""
+    """Kills a move that leaves the gateway client and tracing in shared
+    instead of under agent_api.
+    """
     moved = [
         BACKEND / "helpdesk" / "agent_api" / "services" / "model_gateway" / "client.py",
         BACKEND / "helpdesk" / "agent_api" / "services" / "tracing.py",
@@ -41,7 +43,9 @@ def test_gateway_and_tracing_under_agent_api() -> None:
 
 
 def test_mcp_services_present() -> None:
-    """Kills a move that leaves mcp-only rag, idempotency, notifications list and rollback in shared."""
+    """Kills a move that leaves mcp-only rag, idempotency, notifications list and rollback in shared
+    Kills a move that leaves mcp-only rag, idempotency, notifications list and rollback in shared.
+    """
     moved = [
         BACKEND / "helpdesk" / "mcp_server" / "services" / "rag" / "pipeline.py",
         BACKEND / "helpdesk" / "mcp_server" / "services" / "idempotency" / "guard.py",
@@ -62,7 +66,9 @@ def test_mcp_services_present() -> None:
 
 
 def test_metrics_sweep_merged() -> None:
-    """Kills a move that leaves the two gauge refreshers in shared instead of merged into one scheduler job."""
+    """Kills a move that leaves the two gauge refreshers in shared
+    instead of merged into one scheduler job.
+    """
     sweep = BACKEND / "helpdesk" / "scheduler" / "jobs" / "metrics_sweep.py"
     assert sweep.is_file(), f"merged metrics sweep job is missing: {sweep.relative_to(REPO_ROOT)}"
 
