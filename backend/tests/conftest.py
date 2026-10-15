@@ -9,9 +9,11 @@ If Postgres is unreachable the ``pg`` fixture FAILS the tests loudly with
 an explicit message. There is no silent skip: a green run must mean the
 isolation guarantees were actually proven against Postgres.
 
-This conftest deliberately imports nothing from ``helpdesk.models`` or
-``helpdesk.core.db`` so that, before the implementation exists, the
-collection errors point at the test modules that name the missing API.
+An earlier change adds the shared-engine fixtures: one ``AsyncEngine`` and one session
+factory for the whole run, with the schema created once.
+Each test gets a clean slate from a fresh tenant row (a namespace), never a
+rebuilt schema or a second database. Pinned by
+``tests/support/test_shared_db.py``.
 
 No event-loop plugin is installed (pytest-asyncio is not a dependency),
 so tests are synchronous functions that drive their async scenario with a
@@ -32,9 +34,17 @@ from pydantic import ValidationError
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool
 
 from helpdesk.shared.core.config import load_settings
+from helpdesk.shared.core.db import CONNECT_TIMEOUT_SECONDS, create_session_factory
+from helpdesk.shared.models import Base, Tenant
 
 # The repo root, used as the cwd for the Alembic subprocess below. The import
 # path for `scripts.seed` and `tests.support.*` is set once in
@@ -111,6 +121,85 @@ def fresh_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
     url = pg.create()
     yield url
     pg.drop(url)
+
+
+# --- The shared engine ---------------------------------------------
+#
+# a project rule: the engine, the session factory and the schema are built
+# ONCE for the whole run. A test that reaches Postgres takes these instead of
+# building its own; per-test isolation is a fresh tenant row (a namespace), not
+# a rebuilt schema or a second database. The exempt schema and migration tests
+# (test_models, test_audit_model, test_audit_anchor, test_audit_db_role, ...)
+# still build their own schema, because that build is the thing they prove.
+
+
+@pytest.fixture(scope="session")
+def shared_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
+    """One throwaway database for the whole run; the shared engine builds its schema once."""
+    url = pg.create()
+    yield url
+    pg.drop(url)
+
+
+@pytest.fixture(scope="session")
+def shared_engine(shared_db_url: str) -> Iterator[AsyncEngine]:
+    """The ONE engine for the whole run; the same object every test gets.
+
+    ``NullPool`` so the single engine is safe to reuse across every test's own
+    ``asyncio.run`` loop: asyncpg's pooled connections bind to the loop that
+    opened them, so a pooled engine shared across loops poisons. NullPool keeps
+    no connection between calls, so each ``connect()`` opens a fresh one in the
+    current loop. The schema is created exactly once here; no test rebuilds it.
+    Pinned by ``tests/support/test_shared_db.py``: the engine is the same object
+    across tests, and the once-built schema names exactly the 20 tables.
+    """
+    engine = create_async_engine(
+        shared_db_url,
+        poolclass=NullPool,
+        connect_args={"timeout": CONNECT_TIMEOUT_SECONDS},
+    )
+
+    async def build() -> None:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+    asyncio.run(build())
+    yield engine
+    asyncio.run(engine.dispose())
+
+
+@pytest.fixture(scope="session")
+def session_factory(shared_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """One session factory over the shared engine; still carries the tenant guard.
+
+    Pinned by ``tests/support/test_shared_db.py::test_an_unbound_tenant_query_still_raises``.
+    """
+    return create_session_factory(shared_engine)
+
+
+@pytest.fixture
+def fresh_tenant(session_factory: async_sessionmaker[AsyncSession]) -> uuid.UUID:
+    """A brand-new empty tenant for one test: a clean namespace, no schema rebuild.
+
+    ``Tenant`` is not tenant-scoped, so a plain session inserts it with no bind.
+    Pinned by ``tests/support/test_shared_db.py::test_each_test_gets_a_new_tenant_id_second``
+    and ``::test_a_fresh_tenants_scoped_tables_start_empty_second``.
+    """
+
+    async def make() -> uuid.UUID:
+        async with session_factory() as session:
+            tenant = Tenant(
+                slug=f"fresh-{uuid.uuid4().hex[:12]}",
+                name="Fake Fresh Tenant",
+                residency="eu",
+                settings={},
+            )
+            session.add(tenant)
+            await session.commit()
+            tenant_id: uuid.UUID = tenant.id
+            return tenant_id
+
+    return asyncio.run(make())
 
 
 # --- Redis ---------------------------------------------
