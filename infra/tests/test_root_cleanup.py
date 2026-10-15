@@ -4,8 +4,7 @@ What is pinned: the three app services read `backend/.env.demo` then
 `backend/.env`, both optional; every `${...}` in `docker-compose.yml` that
 names a key of `backend/.env.demo` carries a default equal to that line, so
 `docker compose config` passes with no `.env` anywhere; `check_root.py`
-refuses a root `.env` even when `.gitignore` hides it from git;
-`select_tests.py` reads the coverage baseline `make test` writes; `.editorconfig`
+refuses a root `.env` even when `.gitignore` hides it from git; `.editorconfig`
 is gone; and the CI config scan names the moved `infra/.trivyignore`.
 
 Why the checks are static: none of these files is read by the application.
@@ -17,13 +16,12 @@ docker is not on PATH. No backing service is touched.
 
 The cases are red at HEAD because compose still reads a root `.env` with
 required `${...:?}` lookups, `check_root.py` only reads `git ls-files`,
-`select_tests.BASELINE` is a root file, `.editorconfig` exists, and `ci.yml`
+`.editorconfig` exists, and `ci.yml`
 passes `--ignorefile .trivyignore`.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import shutil
@@ -49,7 +47,6 @@ COMPOSE = REPO_ROOT / "docker-compose.yml"
 ENV_DEMO = REPO_ROOT / "backend" / ".env.demo"
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 CHECK_ROOT = REPO_ROOT / "dev" / "scripts" / "check_root.py"
-SELECT_TESTS = REPO_ROOT / "dev" / "scripts" / "select_tests.py"
 
 APP_SERVICES = ("helpdesk-agent-api", "helpdesk-mcp-server", "helpdesk-scheduler")
 """The three services that read `env_file: [.env]` before this plan."""
@@ -241,21 +238,6 @@ def test_root_check_refuses_root_env(tmp_path: Path) -> None:
     dirty = _check_root(tmp_path)
     assert dirty.returncode == 1, dirty.stdout + dirty.stderr
     assert ".env" in dirty.stdout
-
-
-def test_select_tests_reads_backend_baseline() -> None:
-    """Catches `select_tests.py` reading a stale root baseline, not the file `make test` writes."""
-    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-    written = re.search(r"cd (\S+) && COVERAGE_FILE=(\S+) ", makefile)
-    assert written is not None, "premise: the Makefile's test target sets COVERAGE_FILE"
-    target = REPO_ROOT / written.group(1) / written.group(2)
-    assert target == REPO_ROOT / "backend" / ".coverage-baseline"
-
-    spec = importlib.util.spec_from_file_location("select_tests_plan53", SELECT_TESTS)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    assert Path(module.BASELINE) == target
 
 
 def test_no_editorconfig() -> None:

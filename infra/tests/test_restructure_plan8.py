@@ -49,7 +49,6 @@ def test_dev_scripts_moved() -> None:
     """Kills a move that drops a dev script or an e2e stub/fixture from dev/scripts."""
     present = [
         REPO_ROOT / "dev" / "scripts" / "build_images.py",
-        REPO_ROOT / "dev" / "scripts" / "select_tests.py",
         REPO_ROOT / "dev" / "scripts" / "test_shard.py",
         REPO_ROOT / "dev" / "scripts" / "e2e" / "gateway_stub.py",
         REPO_ROOT / "dev" / "scripts" / "e2e" / "fixtures" / "01-wiki-viewer.json",

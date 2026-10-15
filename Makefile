@@ -1,4 +1,4 @@
-.PHONY: help setup run migrate ingest test test-policy select-tests test-adjacent lint typecheck format web-verify verify eval infra-check e2e load-smoke images app-up app-down
+.PHONY: help setup run migrate ingest test test-policy lint typecheck format web-verify verify eval infra-check e2e load-smoke images app-up app-down
 # Where `dev/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
@@ -20,23 +20,16 @@ migrate:    ## Apply both schemas to the local compose database (hard rule 3)
 	cd backend && uv run alembic upgrade head && uv run python -m helpdesk.agent_api.cli
 ingest:     ## Ingest one tenant's corpus version from POLICY_DIR: make ingest TENANT=acme VERSION=v1
 	cd backend && uv run python -m helpdesk.mcp_server.cli --tenant $(TENANT) --version $(VERSION)
-# Per-test coverage contexts feed `select-tests` on a laptop and slow the suite a
-# lot. CI keeps the 80% floor and sets COV_CONTEXT= to skip the recording.
-COV_CONTEXT ?= --cov-context=test
 # Parallel workers (pytest-xdist), empty for a plain run. For a laptop with
 # CPUs to spare: `make test TEST_WORKERS="-n 3"`. At most 3: each worker needs
 # its own Redis indexes. CI stays on one; two were slower on its 2-CPU runner.
 TEST_WORKERS ?=
 test:       ## Run tests with the coverage gate (needs the compose Postgres: docker compose up -d)
-	cd backend && COVERAGE_FILE=.coverage-baseline uv run pytest -q --cov=helpdesk \
-	  $(COV_CONTEXT) $(TEST_WORKERS) --cov-fail-under=80
+	cd backend && uv run pytest -q --cov=helpdesk \
+	  $(TEST_WORKERS) --cov-fail-under=80
 	# The repo-level tests live outside the backend project's test paths, so they
 	# run as their own pass with the repo root and backend both on the path.
 	PYTHONPATH="$(CURDIR):$(CURDIR)/backend" uv run --project backend pytest -q infra/tests
-select-tests: ## Print the tests whose recorded coverage touches this change
-	@uv run --project backend python dev/scripts/select_tests.py --explain
-test-adjacent: ## Run only the tests whose coverage touches this change
-	@uv run --project backend python dev/scripts/select_tests.py | tr ' ' '\n' | xargs -I{} sh -c 'cd backend && uv run pytest -q {}'
 test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
 	cd backend && uv run pytest -q \
 	  tests/shared/test_policy_risk.py \

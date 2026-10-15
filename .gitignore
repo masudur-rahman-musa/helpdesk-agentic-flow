@@ -13,7 +13,6 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
-.coverage-baseline
 htmlcov/
 .cache/
 node_modules/
