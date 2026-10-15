@@ -377,6 +377,7 @@ def test_all_refusals_return_identical_forbidden_bodies(login_env: SeededLogin) 
 # --- demo-account tie-in -------------------------------
 
 
+@pytest.mark.slow  # an earlier change: 5.5s call, logs in every seeded demo account
 def test_every_documented_demo_account_can_log_in(login_env: SeededLogin) -> None:
     accounts = parse_demo_accounts()
     # Parse failure must fail loudly, not pass vacuously: the doc pins one

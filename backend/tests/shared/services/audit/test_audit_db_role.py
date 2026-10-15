@@ -513,6 +513,7 @@ def test_append_event_and_verify_chain_through_a_restricted_role_session(
 # --- the migration itself -----------------------------------------------------
 
 
+@pytest.mark.slow  # an earlier change: 3.0s call, runs the role migration up and down
 def test_migration_round_trips_and_downgrade_leaves_no_grant_on_audit_events(
     fresh_db_url: str,
 ) -> None:

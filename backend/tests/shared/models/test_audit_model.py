@@ -265,6 +265,7 @@ def test_update_and_delete_are_rejected_by_the_trigger(
     asyncio.run(scenario())
 
 
+@pytest.mark.slow  # an earlier change: 2.6s call, runs the audit migration down then up
 def test_downgrade_then_upgrade_round_trips_with_the_trigger_intact(fresh_db_url: str) -> None:
     """The trigger and its function must be dropped explicitly."""
     _alembic("upgrade", "head", fresh_db_url)

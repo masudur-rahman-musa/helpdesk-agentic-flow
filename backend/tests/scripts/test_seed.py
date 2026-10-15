@@ -56,6 +56,10 @@ from helpdesk.shared.models import (
 from scripts.seed import SeedError, seed_all
 from tests.conftest import TempDatabaseFactory
 
+# An earlier change reading: every test here runs 5.5-18.6s (it seeds both tenants into a
+# fresh database), so the whole module is slow and `make test-fast` skips it.
+pytestmark = pytest.mark.slow
+
 # --- the design constants -------------------------------------------------------
 
 EXPECTED_USERS = {"nordlicht": 220, "cuan": 180}  # ±10% tolerance below

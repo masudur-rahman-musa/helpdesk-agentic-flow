@@ -880,6 +880,7 @@ def test_update_and_truncate_are_still_refused_by_privilege_after_the_grant(
 # --- the migration ------------------------------------------------------------
 
 
+@pytest.mark.slow  # an earlier change: 2.8s call, runs the retention migration up and down
 def test_the_retention_migration_round_trips_and_its_downgrade_restores_the_refusal(
     fresh_db_url: str,
 ) -> None:

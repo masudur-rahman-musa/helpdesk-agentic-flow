@@ -463,6 +463,7 @@ def _metadata_is_nullable(database_url: str) -> bool:
     return asyncio.run(scenario())
 
 
+@pytest.mark.slow  # an earlier change: 2.3s call, runs the conversation migration up and down
 def test_the_metadata_column_is_not_null_after_the_migration_and_nullable_after_its_downgrade(
     fresh_db_url: str,
 ) -> None:

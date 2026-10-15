@@ -71,6 +71,11 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     token_for,
 )
 
+# An earlier change reading: this file's 96 tests run 1.5-3.7s each (heavy seeded-database
+# RBAC checks) and it is the suite's single largest time sink, so the module is
+# slow as a whole and `make test-fast` skips it.
+pytestmark = pytest.mark.slow
+
 OPEN = "open_access_review"
 LIST = "list_review_items"
 

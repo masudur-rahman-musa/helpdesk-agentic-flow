@@ -282,7 +282,9 @@ Gates, in increasing order of cost:
 
 ```
 make lint typecheck     # seconds
-make test               # the suite, needs the compose stack up
+make test-fast          # everyday run: skips slow tests, 3 workers, needs the compose stack up
+make test-slowest       # print the 30 slowest tests and fixtures, serial, no coverage
+make test               # the whole suite with the coverage gate, needs the compose stack up
 make verify             # everything, including the web build
 make e2e                # five flows in a real browser; resets the database
 ```

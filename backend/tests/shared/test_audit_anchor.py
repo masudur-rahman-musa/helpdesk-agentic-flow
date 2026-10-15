@@ -962,6 +962,7 @@ def test_a_truncated_tenant_drives_the_chain_gauge_to_zero(
 # --- the migration ------------------------------------------------------------
 
 
+@pytest.mark.slow  # an earlier change: 2.5s call, runs the anchor migration up and down
 def test_the_anchor_migration_round_trips_and_its_downgrade_takes_the_grants(
     fresh_db_url: str,
 ) -> None:

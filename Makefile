@@ -1,4 +1,4 @@
-.PHONY: help setup run migrate ingest test test-policy lint typecheck format web-verify verify eval infra-check e2e load-smoke images app-up app-down
+.PHONY: help setup run migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify verify eval infra-check e2e load-smoke images app-up app-down
 # Where `dev/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
@@ -30,6 +30,16 @@ test:       ## Run tests with the coverage gate (needs the compose Postgres: doc
 	# The repo-level tests live outside the backend project's test paths, so they
 	# run as their own pass with the repo root and backend both on the path.
 	PYTHONPATH="$(CURDIR):$(CURDIR)/backend" uv run --project backend pytest -q infra/tests
+# The everyday run: everything NOT marked slow, on 3 parallel workers. 3 is the
+# cap each worker's own Redis indexes allow. Slow tests, the whole
+# suite and the coverage gate are `make test`, `make verify` and CI.
+test-fast:  ## Everyday run: tests not marked slow, on 3 workers (plan 56)
+	cd backend && uv run pytest -q -m "not slow" -n 3
+# One serial run that prints the 30 slowest tests and their fixture setup. No
+# -n and no --cov, so workers and coverage tracing do not bend the numbers
+#. This is the reading that decides which tests get the slow marker.
+test-slowest: ## Print the 30 slowest tests and fixtures, serial, no coverage (plan 56)
+	cd backend && uv run pytest --durations=30
 test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
 	cd backend && uv run pytest -q \
 	  tests/shared/test_policy_risk.py \

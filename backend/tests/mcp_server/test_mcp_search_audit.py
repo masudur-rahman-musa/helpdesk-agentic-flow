@@ -88,6 +88,11 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     token_for,
 )
 
+# An earlier change reading: most of this file's tests run 2.0-3.7s (each plants audit
+# events in a seeded database and queries them back), so it is slow as a whole
+# and `make test-fast` skips it.
+pytestmark = pytest.mark.slow
+
 SEARCH = "search_audit"
 
 # The audit contract as literals, never imports: reading these strings from

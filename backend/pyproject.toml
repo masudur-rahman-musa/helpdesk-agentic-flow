@@ -116,7 +116,15 @@ disable_error_code = ["call-arg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# --strict-markers so a misspelt marker fails collection instead of running
+# the test unmarked in the fast set. Registered markers below.
+addopts = "-q --strict-markers"
+# A `slow` test's setup plus call took 2 seconds or more in an earlier change's first
+# `make test-slowest` reading. `make test-fast` runs `-m "not slow"` as the
+# everyday set; `make test`, `make verify` and CI carry no filter and run all.
+markers = [
+    "slow: a test at or over 2s setup-plus-call in plan 56's reading; skipped by `make test-fast`",
+]
 # The repo root (`..`) and `backend/` (`.`) are on the path for the whole suite,
 # set once here instead of a `sys.path.insert` in each test file. The
 # root makes the `scripts` namespace reachable (`scripts.build_images` at the root,
