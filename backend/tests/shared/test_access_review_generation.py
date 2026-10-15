@@ -75,6 +75,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from test_access_expiry import expiry_db_url  # noqa: F401
 
 from helpdesk.shared import access as access_package
+from helpdesk.shared.access import review_schedule as review_schedule_module
 from helpdesk.shared.access.review_schedule import (
     GENERATED_SYSTEM_SENSITIVITIES,
     REVIEW_DUE_DAYS,
@@ -95,7 +96,6 @@ from helpdesk.shared.models import (
     User,
 )
 from helpdesk.shared.models.access import PERIOD_LENGTH as COLUMN_PERIOD_LENGTH
-from helpdesk.shared.access import review_schedule as review_schedule_module
 from helpdesk.shared.services.access import reviews as reviews_module
 from helpdesk.shared.services.access.directory import DirectoryReader, SimulatedDirectory
 from helpdesk.shared.services.access.reviews import (

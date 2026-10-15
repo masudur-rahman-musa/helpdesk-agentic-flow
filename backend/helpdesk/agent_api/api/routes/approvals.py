@@ -35,8 +35,8 @@ import uuid
 from fastapi import APIRouter, Header, Query
 from fastapi.responses import JSONResponse
 
+from helpdesk.agent_api.agent.keys import derive_decision_key
 from helpdesk.agent_api.core.deps import authenticated, unauthenticated
-from helpdesk.agent_api.services.tool_proxy import call_tool_route
 from helpdesk.agent_api.schemas.approvals import (
     ApproveBody,
     ApproveRequestArgs,
@@ -45,7 +45,7 @@ from helpdesk.agent_api.schemas.approvals import (
     RejectBody,
     RejectRequestArgs,
 )
-from helpdesk.agent_api.agent.keys import derive_decision_key
+from helpdesk.agent_api.services.tool_proxy import call_tool_route
 
 router = APIRouter()
 

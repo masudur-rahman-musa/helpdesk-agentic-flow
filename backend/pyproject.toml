@@ -96,6 +96,11 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # first usage (the project notes 2026-09-03 and 2026-09-04).
 unfixable = ["F401"]
 
+# make lint runs ruff from the repo root, where ruff cannot tell which top-level
+# packages are ours. Naming them keeps the import order the same from any folder.
+[tool.ruff.lint.isort]
+known-first-party = ["helpdesk", "scripts", "tests"]
+
 [tool.mypy]
 strict = true
 files = ["helpdesk", "tests"]

@@ -55,6 +55,7 @@ from sqlalchemy import text
 from test_access_expiry import expiry_db_url  # noqa: F401
 
 from helpdesk.shared import access as access_package
+from helpdesk.shared.access import leavers as leavers_module
 from helpdesk.shared.access.leavers import LEAVER_SWEEP_ACTOR_REF, sweep_leavers
 from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE, revoke_role_access
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
@@ -62,7 +63,6 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
 from helpdesk.shared.models import Grant, User
-from helpdesk.shared.access import leavers as leavers_module
 from helpdesk.shared.services.access import lifecycle as lifecycle_module
 from helpdesk.shared.services.access.directory import DirectoryProvider, SimulatedDirectory
 from helpdesk.shared.services.access.lifecycle import (

@@ -58,6 +58,8 @@ import uuid
 from fastapi import APIRouter, Header, Query
 from fastapi.responses import JSONResponse
 
+from helpdesk.agent_api.agent.keys import derive_notification_read_key
+from helpdesk.agent_api.core.deps import authenticated, unauthenticated
 from helpdesk.agent_api.schemas.notifications import (
     ListNotificationsArgs,
     ListNotificationsArgsWithLimit,
@@ -66,8 +68,6 @@ from helpdesk.agent_api.schemas.notifications import (
     MarkNotificationReadArgs,
 )
 from helpdesk.agent_api.services.tool_proxy import call_tool_route
-from helpdesk.agent_api.core.deps import authenticated, unauthenticated
-from helpdesk.agent_api.agent.keys import derive_notification_read_key
 
 router = APIRouter()
 
