@@ -73,6 +73,7 @@ class SeededTenant:
     """Ids of one fully populated tenant (one row per table, two roles for the SoD rule)."""
 
     tenant_id: uuid.UUID
+    tenant_slug: str
     department_id: uuid.UUID
     user_id: uuid.UUID
     system_id: uuid.UUID
@@ -108,9 +109,10 @@ async def seed_tenant(factory: async_sessionmaker[AsyncSession], slug: str) -> S
     across tenants. Pinned by ``test_shared_db.py`` (a fresh tenant per test)
     and by every converted file that seeds two tenants with the same label.
     """
+    tenant_slug = f"{slug}-{uuid.uuid4().hex[:8]}"
     async with factory() as session:
         tenant = Tenant(
-            slug=f"{slug}-{uuid.uuid4().hex[:8]}",
+            slug=tenant_slug,
             name=f"Fake Tenant {slug}",
             residency="eu",
             settings={},
@@ -203,6 +205,7 @@ async def seed_tenant(factory: async_sessionmaker[AsyncSession], slug: str) -> S
 
         seeded = SeededTenant(
             tenant_id=tenant_id,
+            tenant_slug=tenant_slug,
             department_id=department.id,
             user_id=user.id,
             system_id=system.id,
