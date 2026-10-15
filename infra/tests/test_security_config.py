@@ -47,7 +47,7 @@ REPO_ROOT = _repo_root()
 """Every file below is resolved from here."""
 
 GITLEAKS_CONFIG = REPO_ROOT / ".gitleaks.toml"
-TRIVYIGNORE = REPO_ROOT / ".trivyignore"
+TRIVYIGNORE = REPO_ROOT / "infra" / ".trivyignore"
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 IMAGE_SCAN_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "image-scan.yml"

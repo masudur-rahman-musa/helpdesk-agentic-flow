@@ -16,7 +16,6 @@
 .git
 .gitignore
 .gitattributes
-.editorconfig
 .vscode
 .idea
 .DS_Store
@@ -40,7 +39,6 @@ infra
 .github
 .pre-commit-config.yaml
 .gitleaks.toml
-.trivyignore
 Makefile
 
 # our working process and documentation

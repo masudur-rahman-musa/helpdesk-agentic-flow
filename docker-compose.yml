@@ -15,22 +15,25 @@
 # image that named one would add a fourth name to that set for an image no
 # registry holds.
 #
-# Credentials come from .env (compose reads it for ${...} substitution). The
-# app services take it as an `env_file` as well, then override every variable
-# whose value names `localhost`: inside this network the hostname of a backing
-# service is its service name, and a container that read the host spelling
-# would dial its own loopback and find nothing.
+# No .env sits at the repo root. Every ${...} below carries a default equal to
+# its line in backend/.env.demo (local-only demo values, never a real
+# credential; infra/tests/test_root_cleanup.py keeps the two equal). The app
+# services load backend/.env.demo, then backend/.env over it (only the real
+# keys), both optional. They then override every variable whose value names
+# `localhost`: inside this network the hostname of a backing service is its
+# service name, and a container that read the host spelling would dial its own
+# loopback and find nothing.
 services:
   postgres:
     image: postgres:16.6-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?copy backend/.env.example to .env first}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy backend/.env.example to .env first}
-      POSTGRES_DB: ${POSTGRES_DB:?copy backend/.env.example to .env first}
+      POSTGRES_USER: ${POSTGRES_USER:-helpdesk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-helpdesk}
       # Read by the init script below, never by a service. The restricted role
       # exists so that a compromised service cannot rewrite the audit log; the
       # owner credentials above stay with Alembic and the test suite.
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?copy backend/.env.example to .env first}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-m2n_IzBnZTPtYshdudXUt4J-kBZuPJby}
     ports: ["5432:5432"]
     volumes:
       - "pgdata:/var/lib/postgresql/data"
@@ -73,16 +76,18 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.agent-api
-    env_file: [.env]
+    env_file:
+      - {path: backend/.env.demo, required: false}
+      - {path: backend/.env, required: false}
     environment:
-      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD:-m2n_IzBnZTPtYshdudXUt4J-kBZuPJby}@postgres:5432/${POSTGRES_DB:-helpdesk}
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       MCP_URL: http://helpdesk-mcp-server:8081/mcp
       WEB_ORIGIN: http://localhost:3000
       # The one localhost variable whose target is NOT on this network: the
       # model gateway is the companion console's service, run separately. Left
-      # to `.env` it would arrive as `http://localhost:8080/v1` and this
+      # to `backend/.env.demo` it would arrive as `http://localhost:8080/v1` and this
       # container would dial its own loopback, so `/readyz` reported unready
       # with a gateway running the whole time. `host.docker.internal`
       # is the host as seen from inside, which is where 8080 is published.
@@ -113,9 +118,11 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.mcp-server
-    env_file: [.env]
+    env_file:
+      - {path: backend/.env.demo, required: false}
+      - {path: backend/.env, required: false}
     environment:
-      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD:-m2n_IzBnZTPtYshdudXUt4J-kBZuPJby}@postgres:5432/${POSTGRES_DB:-helpdesk}
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       POLICY_DIR: /srv/policies
@@ -126,7 +133,7 @@ services:
       #
       # The host side is written `./backend/data/policies` and not
       # `${POLICY_DIR}`. A bind mount's source has to start with `.` or `/` or
-      # compose reads it as a NAMED VOLUME, and .env ships POLICY_DIR as a bare
+      # compose reads it as a NAMED VOLUME, and backend/.env.demo ships POLICY_DIR as a bare
       # relative path -- which would silently mount an empty volume and ingest
       # zero chunks. A corpus kept elsewhere is mounted through
       # docker-compose.override.example.yml, not by editing this line.
@@ -147,9 +154,11 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.scheduler
-    env_file: [.env]
+    env_file:
+      - {path: backend/.env.demo, required: false}
+      - {path: backend/.env, required: false}
     environment:
-      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+asyncpg://helpdesk_app:${APP_DB_PASSWORD:-m2n_IzBnZTPtYshdudXUt4J-kBZuPJby}@postgres:5432/${POSTGRES_DB:-helpdesk}
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       MCP_URL: http://helpdesk-mcp-server:8081/mcp

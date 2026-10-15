@@ -7,4 +7,4 @@
 # Dependabot is configured to open it.
 #
 # Read by the trivy config scan in .github/workflows/ci.yml. Pinned empty by
-# packages/helpdesk/tests/test_security_config.py::test_the_trivyignore_file_exists_and_is_empty_of_entries.
+# infra/tests/test_security_config.py::test_the_trivyignore_file_exists_and_is_empty_of_entries.

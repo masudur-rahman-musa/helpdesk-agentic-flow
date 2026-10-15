@@ -174,12 +174,12 @@ jobs:
         run: pnpm audit --audit-level high
 
       # Both compose files, because the override example is copied verbatim by
-      # anyone running the stack locally. .trivyignore is empty at HEAD.
+      # anyone running the stack locally. infra/.trivyignore is empty at HEAD.
       - name: Compose configuration
         run: |
           docker run --rm -v "$PWD:/work" -w /work aquasec/trivy:0.58.1 \
-            config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore \
+            config --severity HIGH,CRITICAL --exit-code 1 --ignorefile infra/.trivyignore \
             docker-compose.yml
           docker run --rm -v "$PWD:/work" -w /work aquasec/trivy:0.58.1 \
-            config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore \
+            config --severity HIGH,CRITICAL --exit-code 1 --ignorefile infra/.trivyignore \
             docker-compose.override.example.yml
