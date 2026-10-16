@@ -85,7 +85,7 @@ offboarding and the kill switches that stop the agent from granting.
 
 ### What to try at Cuan
 
-**employee** (Elisha Devereaux de Aueroux, Operations). Already holds
+**employee** (Elisha Devereaux Deaueroux, Operations). Already holds
 everything the Operations department gets by default: `core-banking.operator`,
 `ledger.viewer`, `vpn.user`, `m365.user`, `wiki.viewer`. So every new ask
 needs an approval.
