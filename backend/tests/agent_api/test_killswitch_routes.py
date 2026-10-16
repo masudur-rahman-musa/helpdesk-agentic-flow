@@ -14,8 +14,9 @@ of these names until steps 1 and 2 land):
     of them opens a socket.
 
 ``agent_api.deps`` (step 2, decision D)
-    ``STATUS_FOR_CODE`` gains ``ErrorCode.POLICY_BLOCKED: 409``, the fifth and
-    last row, still with no ``INTERNAL`` row.
+    ``STATUS_FOR_CODE`` gains ``ErrorCode.POLICY_BLOCKED: 409`` (the fifth row
+    at 24cb; an earlier change later folded the map to all eight codes incl
+    ``INTERNAL`` 500, a design note).
 
 Shapes this file fixes that the plan left open (a project rule and 55;
 these belong in 24cb's Deviations):
@@ -961,8 +962,9 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
     body), and a body that carries the client's message -
     `TRANSPORT_FAILURE_MESSAGE` is opaque on purpose, and a route rendering the
     exception's `str` would leak the MCP host and path to a browser.
-    `INTERNAL` has no row in `STATUS_FOR_CODE`, so the 500 here also pins that
-    the fall-through is the unreachable case and not a forgotten row.
+    `INTERNAL` maps to 500 in the one shared map, so the
+    500 here pins that an unreachable server renders the typed `INTERNAL` and
+    leaks neither the host nor the path.
     """
     caller = UnreachableToolCaller()
 
@@ -980,16 +982,18 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
 # --- the shared map, as a whole (decision D) ----------------------------------
 
 
-def test_the_shared_status_map_answers_exactly_five_codes_with_no_internal_row() -> None:
-    """Section 1's eleventh criterion, the map asserted as a WHOLE.
+def test_the_shared_status_map_answers_all_eight_codes_with_an_internal_row() -> None:
+    """The shared map asserted as a WHOLE, from this router's decision-D angle.
 
-    Catches the row added as a local special case in this router instead of in
-    the shared map (decision D and 23c decision C's reason: a typed-refusal map
-    that forks is a map answering one code two ways), a row added with any
-    other status, and an `INTERNAL` row - which would dress an unreachable MCP
-    server as something a caller can act on.
+    An earlier change folded the two disagreeing maps into one with a row for every
+    one of the eight codes, so a code no longer falls through to
+    500 by accident. This pins that the proxied-route conflicts this router can
+    produce each have their 409 row, and that `INTERNAL` is now an explicit 500
+    rather than a fall-through. The canonical whole-map pin is
+    `test_error_map.py::test_the_one_map_has_a_row_for_every_code`; this one
+    stays because decision D is why this router had the fifth row.
 
-    Asserted as the exact mapping rather than key by key, so a sixth row added
+    Asserted as the exact mapping rather than key by key, so a ninth row added
     by a later plan goes red here, where the behaviour lives, rather than on a
     page that renders one sentence per code.
     """
@@ -997,8 +1001,11 @@ def test_the_shared_status_map_answers_exactly_five_codes_with_no_internal_row()
         ErrorCode.VALIDATION: 400,
         ErrorCode.FORBIDDEN: 403,
         ErrorCode.NOT_FOUND: 404,
+        ErrorCode.SOD_CONFLICT: 409,
         ErrorCode.POLICY_BLOCKED: 409,
+        ErrorCode.IDEMPOTENCY_CONFLICT: 409,
         ErrorCode.TOOL_DISABLED: 503,
+        ErrorCode.INTERNAL: 500,
     }
-    assert len(deps.STATUS_FOR_CODE) == 5
-    assert ErrorCode.INTERNAL not in deps.STATUS_FOR_CODE
+    assert len(deps.STATUS_FOR_CODE) == 8
+    assert deps.STATUS_FOR_CODE[ErrorCode.INTERNAL] == 500

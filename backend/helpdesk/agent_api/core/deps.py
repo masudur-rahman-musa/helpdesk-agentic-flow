@@ -23,42 +23,48 @@ STATUS_FOR_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.VALIDATION: 400,
     ErrorCode.FORBIDDEN: 403,
     ErrorCode.NOT_FOUND: 404,
+    ErrorCode.SOD_CONFLICT: 409,
     ErrorCode.POLICY_BLOCKED: 409,
+    ErrorCode.IDEMPOTENCY_CONFLICT: 409,
     ErrorCode.TOOL_DISABLED: 503,
+    ErrorCode.INTERNAL: 500,
 }
-"""The HTTP status each typed code a proxied tool route can answer with.
+"""The one HTTP status each of the eight typed codes crosses the wire as.
 
-Moved here from `me_routes` by an earlier change (decision C) when `approval_routes`
-became the second router to need it, and 23e, 23f and 24 will each be the
-next: a typed-refusal map that forks twice is a map that answers one code two
-ways.
+The single map the whole agent-api turns a code into a status with (an earlier change,
+a design note). Before it there were two that disagreed: the proxied routes read
+`FORBIDDEN` as 403 and `POLICY_BLOCKED` as 409 with no row for `INTERNAL`, and
+the chat routes read the same `FORBIDDEN` as 401 and `POLICY_BLOCKED` as 429
+with only four rows. One code now crosses the wire as one status, and every
+code has a row so nothing falls through to 500 by accident. The `.get(code,
+500)` in `typed_refusal` is kept as a backstop for a code added to the enum
+without a row, but every one of today's eight is listed.
 
-`FORBIDDEN` is **403** and not the 401 `chat_routes.STATUS_FOR_CODE` carries,
-because on these routers the two facts are different ones: a caller who did
-not prove who they are gets a literal 401 in `call_tool_route`, and a
-FORBIDDEN can then only have come from the RBAC matrix, which is a 403.
+Two answers stay explicit and are NOT a lookup in this map:
+- an unauthenticated caller is `RequireAuthMiddleware`'s literal 401,
+  so a caller learns they are not authenticated and never which of absent,
+  malformed, forged or expired it was. `FORBIDDEN` here is the matrix's 403.
+- the rate limit is a literal 429 where it is caught in `api/routes/chat.py`.
+  `POLICY_BLOCKED` in this map is the proxied conflict's 409, a different fact.
 
-`INTERNAL` has no row on purpose: an unreachable MCP server is a failure the
-caller cannot act on, so it falls through to 500 carrying the code and nothing
-of the client's own message (the host and the path are internal detail).
-`TOOL_DISABLED` is 503 because an admin tripping the kill switch is exactly
-"this call is unavailable right now", not a permission decision.
+The rows, one by one:
+- `FORBIDDEN` is 403: on a proxied route it can only have come from the RBAC
+  matrix, which is a permission decision.
+- `SOD_CONFLICT` and `IDEMPOTENCY_CONFLICT` are 409: the caller holds the
+  permission and the action conflicts with the platform's own state.
+- `POLICY_BLOCKED` is 409: the protected-tool guard
+  refusing an admin aiming `set_kill_switch` at `set_kill_switch` is a conflict
+  with platform state, exactly `ProtectedToolError`'s docstring, not an outage.
+- `TOOL_DISABLED` is 503: an admin tripping the kill switch is "this call is
+  unavailable right now", not a permission decision.
+- `INTERNAL` is 500: a failure the caller cannot act on, carrying the code and
+  nothing of the client's own message (an MCP host and path are internal).
 
-`POLICY_BLOCKED` is **409**. It became reachable from a
-proxied route with `/admin/killswitch`: an admin aiming `set_kill_switch` at
-`set_kill_switch` is refused by the protected-tool guard, and with no row here
-that refusal fell through to a 500 — telling an admin the platform broke when
-the platform refused, the one message that would send somebody looking for an
-outage. 409 because the caller holds the permission and the action conflicts
-with the platform's own state, which is exactly `ProtectedToolError`'s
-docstring. Added here rather than special-cased in that router, for the same
-reason 23c decision C moved the map at all.
-
-Pinned, as a whole — the five rows and the missing `INTERNAL` one — by
-`test_killswitch_routes.py::test_the_shared_status_map_answers_exactly_five_codes_with_no_internal_row`,
-and row by row by
+Pinned as a WHOLE, every row and the count, by
+`test_error_map.py::test_the_one_map_has_a_row_for_every_code`, and row by row
+by
 `test_approval_routes.py::test_the_shared_status_map_answers_a_matrix_refusal_403_and_a_kill_switch_503`
-and `test_me_routes.py::test_the_status_map_dresses_forbidden_as_403_and_not_as_chats_401`.
+and `test_me_routes.py::test_the_one_shared_map_dresses_forbidden_as_403`.
 """
 
 

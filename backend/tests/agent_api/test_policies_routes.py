@@ -33,9 +33,8 @@ these belong in 24g's Deviations):
 
 Not asserted here, and why (a project rule - already pinned, not duplicated):
 - ``deps.STATUS_FOR_CODE`` gaining no row is pinned as an EXACT mapping by
-  ``test_killswitch_routes.py::
-  test_the_shared_status_map_answers_exactly_five_codes_with_no_internal_row``,
-  which goes red for any sixth row whoever adds it.
+  ``test_error_map.py::test_the_one_map_has_a_row_for_every_code``,
+  which goes red for any ninth row whoever adds it.
 - a forged and an expired bearer are pinned against the same single
   ``deps.call_tool_route`` seam by ``test_rules_routes.py::
   test_a_forged_bearer_is_a_typed_401_and_opens_no_session`` and
@@ -636,9 +635,9 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """Section 1's "answers `FORBIDDEN` 403 and `TOOL_DISABLED` 503 from the
-    existing five", read through the SHARED `deps.STATUS_FOR_CODE` (which this
-    plan does not touch).
+    """Section 1's "answers `FORBIDDEN` 403 and `TOOL_DISABLED` 503", read
+    through the SHARED `deps.STATUS_FOR_CODE` (which this plan does not touch;
+    an earlier change later folded it to all eight codes, a design note).
 
     Catches a route that maps every refusal onto one status: a matrix denial
     the caller cannot act on and a kill switch tripped on
@@ -677,9 +676,8 @@ def test_a_tool_refusal_answers_its_own_typed_code(
 #     caller's own token and renders the tool's structured output unchanged.
 #
 # Nothing new in ``deps.STATUS_FOR_CODE`` (31a criterion 15): four of its
-# existing five codes cross this route, and the map itself is pinned as an
-# exact mapping by ``test_killswitch_routes.py::
-# test_the_shared_status_map_answers_exactly_five_codes_with_no_internal_row``
+# eight codes cross this route, and the map itself is pinned as an exact
+# mapping by ``test_error_map.py::test_the_one_map_has_a_row_for_every_code``
 # (a project rule - already held, not duplicated here).
 
 REINGEST_PATH = "/admin/policies/reingest"
@@ -802,7 +800,7 @@ def test_a_reingest_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """Section 1's criterion 15: four of `deps.STATUS_FOR_CODE`'s existing five
+    """Section 1's criterion 15: four of `deps.STATUS_FOR_CODE`'s eight codes
     cross THIS route, each as its own typed code.
 
     Catches a route that maps every refusal onto one status. All four are

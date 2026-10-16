@@ -1,13 +1,14 @@
-"""The chat turn logic the routes call: status map, identity, render, stream.
+"""The chat turn logic the routes call: identity, render, stream.
 
 Pulled out of `chat_routes` by an earlier change so `api/routes/chat.py` holds only the
-HTTP wiring and the `build_tool_caller` seam its tests patch. No behaviour
-changes: the endpoints import `_identity`, `_typed`, `_rendered` and
-`_stream_frames` from here.
+HTTP wiring and the `build_tool_caller` seam its tests patch. The endpoints
+import `_identity`, `_rendered` and `_stream_frames` from here; a typed refusal
+is `deps.typed_refusal`, the one shared map since an earlier change, so this
+module no longer keeps a second status map of its own.
 """
 
 import uuid
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from datetime import datetime
 
 from fastapi import Request
@@ -17,6 +18,7 @@ from helpdesk.agent_api.agent.graph import stream_turn
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.api.sse import DONE, ERROR, encode_event
+from helpdesk.agent_api.core.deps import typed_refusal
 from helpdesk.agent_api.schemas.chat import ChatResponse, _Identity
 from helpdesk.agent_api.services.decision_card import decision_card
 from helpdesk.agent_api.services.mcp_client import ToolCaller
@@ -24,30 +26,6 @@ from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.tenants import find_tenant_by_id
-
-_TOO_MANY_REQUESTS = 429
-
-STATUS_FOR_CODE: Mapping[ErrorCode, int] = {
-    ErrorCode.VALIDATION: 400,
-    ErrorCode.FORBIDDEN: 401,
-    ErrorCode.NOT_FOUND: 404,
-    ErrorCode.POLICY_BLOCKED: _TOO_MANY_REQUESTS,
-}
-"""The HTTP status each typed code this route can answer with is dressed in.
-
-Only the codes this surface actually produces. Everything else — an
-`INTERNAL` from an unreachable gateway, MCP server or Redis, and any code a
-future turn learns to fail with — falls through to 500, which is the right
-answer for a failure the caller cannot act on. `POLICY_BLOCKED` is 429 here
-because the only thing on this route that raises it is the rate limit
-(`ratelimit.RateLimitExceededError`); a tool-level `POLICY_BLOCKED` never
-escapes `run_turn`, it becomes a composed reply.
-"""
-
-
-def _typed(code: ErrorCode) -> JSONResponse:
-    """One typed body, dressed in this code's status. Never free text."""
-    return JSONResponse(status_code=STATUS_FOR_CODE.get(code, 500), content={"code": code.value})
 
 
 def _identity(claims: TokenClaims) -> _Identity:
@@ -77,7 +55,7 @@ def _rendered(state: TurnState) -> JSONResponse:
     `::test_a_turn_with_no_access_tool_answers_a_null_decision`.
     """
     if state.outcome is TurnOutcome.FAILED:
-        return _typed(state.error_code or ErrorCode.INTERNAL)
+        return typed_refusal(state.error_code or ErrorCode.INTERNAL)
     card = decision_card(state)
     body = ChatResponse(
         reply=state.reply,

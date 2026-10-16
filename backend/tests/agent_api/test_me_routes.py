@@ -15,23 +15,25 @@ of these names until steps 2 and 3 land):
     ``limit``) and ``GET /me/access``, both calling the MCP tools
     ``list_my_requests`` and ``list_my_access`` through the MODULE attribute
     ``me_routes.build_tool_caller`` — the same seam ``chat_routes`` uses, so
-    these cases drive a scripted caller and open no socket.
-    ``STATUS_FOR_CODE: Mapping[ErrorCode, int]`` — this router's own map.
+    these cases drive a scripted caller and open no socket. Every refusal
+    renders through ``core.deps.typed_refusal`` and the one shared
+    ``core.deps.STATUS_FOR_CODE``; since an earlier change this router keeps no map of
+    its own.
 ``agent_api.main``
     the router registered beside the other three.
 
 Shapes this file fixes that the plan left open (a project rule and 55;
 these belong in 23a's Deviations):
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``, agent-api's own
-  shape from ``chat_routes._typed``, and never free text.
-- ``STATUS_FOR_CODE[ErrorCode.FORBIDDEN]`` is **403** here, deliberately NOT
-  the 401 ``chat_routes.STATUS_FOR_CODE`` carries: on this router a FORBIDDEN
-  can only come from the RBAC matrix, and §1 says a matrix refusal is a 403.
-  The bearer refusal is therefore answered as a literal 401 rather than
-  through the map — the two are different facts ("you did not prove who you
-  are" against "you may not read this") and one map cannot say both.
-- an unreachable MCP server is ``500 {"code": "INTERNAL"}``: ``INTERNAL`` has
-  no row in the map and falls through to 500, exactly as it does on ``/chat``.
+  shape from ``deps.typed_refusal``, and never free text.
+- ``core.deps.STATUS_FOR_CODE[ErrorCode.FORBIDDEN]`` is **403**: on this router a
+  FORBIDDEN can only come from the RBAC matrix, and §1 says a matrix refusal is
+  a 403. The bearer refusal is answered as a literal 401 (now
+  ``RequireAuthMiddleware``'s, an earlier change) rather than through the map — the two
+  are different facts ("you did not prove who you are" against "you may not
+  read this") and one map cannot say both.
+- an unreachable MCP server is ``500 {"code": "INTERNAL"}``: ``INTERNAL`` maps
+  to 500 in the shared map, exactly as it does on ``/chat``.
 - both routes read their bearer from the ``Authorization`` header, and both
   answer JSON (``application/json``), never a stream.
 
@@ -55,7 +57,7 @@ import pytest
 from pydantic import BaseModel
 
 from helpdesk.agent_api.api.router import app
-from helpdesk.agent_api.api.routes import me as me_routes
+from helpdesk.agent_api.core import deps as core_deps
 from helpdesk.agent_api.services import tool_proxy as deps
 from helpdesk.agent_api.services.mcp_client import (
     TRANSPORT_FAILURE_MESSAGE,
@@ -468,16 +470,20 @@ def test_an_expired_bearer_is_a_typed_401_and_opens_no_session(
     assert spy.bearer_tokens == []
 
 
-def test_the_status_map_dresses_forbidden_as_403_and_not_as_chats_401() -> None:
-    """Catches the map copied wholesale from `chat_routes`, where FORBIDDEN is
-    401: on this router a FORBIDDEN can only come from the RBAC matrix, and
-    §1 says a matrix refusal is a 403 and never a 500. a project rule wants
-    the value, and the pair asserted together is what stops the two routers
-    from being "fixed" into agreeing.
+def test_the_one_shared_map_dresses_forbidden_as_403() -> None:
+    """The two routers are now one map.
+
+    Before the fold `chat_routes` read FORBIDDEN as 401 and these proxied
+    routes read it as 403; the two maps are now `core.deps.STATUS_FOR_CODE`
+    alone (`core_deps` here; `deps` in this file is the tool-proxy seam). On
+    this router a FORBIDDEN can only come from the RBAC matrix, and §1 says a
+    matrix refusal is a 403 and never a 500. a project rule wants the value;
+    `POLICY_BLOCKED` 409 and `INTERNAL` 500 are pinned beside it so the fold is
+    read off the one map this router now shares.
     """
-    assert me_routes.STATUS_FOR_CODE[ErrorCode.FORBIDDEN] == 403
-    assert me_routes.STATUS_FOR_CODE[ErrorCode.POLICY_BLOCKED] == 409
-    assert ErrorCode.INTERNAL not in me_routes.STATUS_FOR_CODE
+    assert core_deps.STATUS_FOR_CODE[ErrorCode.FORBIDDEN] == 403
+    assert core_deps.STATUS_FOR_CODE[ErrorCode.POLICY_BLOCKED] == 409
+    assert core_deps.STATUS_FOR_CODE[ErrorCode.INTERNAL] == 500
 
 
 @pytest.mark.parametrize("path", [REQUESTS_PATH, ACCESS_PATH], ids=["requests", "access"])
@@ -508,8 +514,9 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
     (an untyped 500 with a traceback body), and a body that carries the
     client's message — `TRANSPORT_FAILURE_MESSAGE` is opaque on purpose, and a
     route rendering the exception's `str` would leak the MCP host and path to
-    a browser. `INTERNAL` has no row in the map, so 500 here also pins that
-    the fall-through is the unreachable case rather than a forgotten row.
+    a browser. `INTERNAL` maps to 500 in the one shared map (an earlier change, ADR
+    0025), so 500 here pins that an unreachable server renders the typed
+    `INTERNAL` and leaks neither the host nor the path.
     """
     caller = UnreachableToolCaller()
 

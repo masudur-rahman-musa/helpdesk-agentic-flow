@@ -42,10 +42,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from helpdesk.agent_api.agent.graph import run_turn
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.agent_api.core.deps import request_bearer, request_claims
+from helpdesk.agent_api.core.deps import request_bearer, request_claims, typed_refusal
 from helpdesk.agent_api.schemas.chat import ChatHistoryResponse, ChatMessage, ChatRequest
 from helpdesk.agent_api.services import tool_proxy
-from helpdesk.agent_api.services.chat import _identity, _rendered, _stream_frames, _typed
+from helpdesk.agent_api.services.chat import _identity, _rendered, _stream_frames
 from helpdesk.agent_api.services.ratelimit import RateLimitExceededError, check_rate_limit
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import tenant_session
@@ -55,6 +55,21 @@ from helpdesk.shared.crud.tenants import find_tenant_by_id
 from helpdesk.shared.models.conversation import check_message_content
 
 router = APIRouter()
+
+_TOO_MANY_REQUESTS = 429
+
+
+def _rate_limited() -> JSONResponse:
+    """The rate limit's literal 429, not a lookup in `deps.STATUS_FOR_CODE`.
+
+    `POLICY_BLOCKED` in that map is the proxied conflict's 409 (an earlier change, ADR
+    0025); the only thing on this route that raises it is the window limiter,
+    which is a different fact and keeps its own 429. Pinned by
+    `test_error_map.py::test_the_rate_limit_still_answers_429`.
+    """
+    return JSONResponse(
+        status_code=_TOO_MANY_REQUESTS, content={"code": ErrorCode.POLICY_BLOCKED.value}
+    )
 
 build_tool_caller = tool_proxy.build_tool_caller
 """The turn's MCP caller, `agent_api.deps`' since an earlier change (decision C).
@@ -94,7 +109,7 @@ async def chat(request: Request, body: ChatRequest) -> JSONResponse:
     try:
         identity = _identity(claims)
     except ValueError:
-        return _typed(ErrorCode.VALIDATION)
+        return typed_refusal(ErrorCode.VALIDATION)
 
     try:
         await check_rate_limit(
@@ -104,9 +119,9 @@ async def chat(request: Request, body: ChatRequest) -> JSONResponse:
             now=now,
         )
     except RateLimitExceededError:
-        return _typed(ErrorCode.POLICY_BLOCKED)
+        return _rate_limited()
     except ToolError as exc:
-        return _typed(exc.code)
+        return typed_refusal(exc.code)
 
     tools = build_tool_caller(settings, token)
     try:
@@ -116,7 +131,7 @@ async def chat(request: Request, body: ChatRequest) -> JSONResponse:
                 # A verified token for a tenant that no longer exists: nothing
                 # the caller can act on, and not a 404 either — the row they
                 # asked about is their own tenant.
-                return _typed(ErrorCode.INTERNAL)
+                return typed_refusal(ErrorCode.INTERNAL)
             state = await run_turn(
                 deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
                 tenant_id=identity.tenant_id,
@@ -131,7 +146,7 @@ async def chat(request: Request, body: ChatRequest) -> JSONResponse:
         # nothing on the turn path converts them into state: without this an
         # oversized message and an unreachable MCP server both reach the client
         # as FastAPI's untyped 500 with a stack trace.
-        return _typed(exc.code)
+        return typed_refusal(exc.code)
     return _rendered(state)
 
 
@@ -170,12 +185,12 @@ async def chat_stream(request: Request, body: ChatRequest) -> Response:
     try:
         identity = _identity(claims)
     except ValueError:
-        return _typed(ErrorCode.VALIDATION)
+        return typed_refusal(ErrorCode.VALIDATION)
 
     try:
         check_message_content(body.message)
     except ToolError as exc:
-        return _typed(exc.code)
+        return typed_refusal(exc.code)
 
     try:
         await check_rate_limit(
@@ -185,9 +200,9 @@ async def chat_stream(request: Request, body: ChatRequest) -> Response:
             now=now,
         )
     except RateLimitExceededError:
-        return _typed(ErrorCode.POLICY_BLOCKED)
+        return _rate_limited()
     except ToolError as exc:
-        return _typed(exc.code)
+        return typed_refusal(exc.code)
 
     frames = _stream_frames(
         request,
@@ -218,7 +233,7 @@ async def chat_messages(request: Request) -> JSONResponse:
     try:
         identity = _identity(claims)
     except ValueError:
-        return _typed(ErrorCode.VALIDATION)
+        return typed_refusal(ErrorCode.VALIDATION)
 
     try:
         async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
@@ -227,5 +242,5 @@ async def chat_messages(request: Request) -> JSONResponse:
                 messages=[ChatMessage(role=row.role, content=row.content) for row in rows]
             )
     except ToolError as exc:
-        return _typed(exc.code)
+        return typed_refusal(exc.code)
     return JSONResponse(content=body.model_dump())

@@ -68,7 +68,8 @@ async def call_tool_route(
     A tool refusal crosses as its own typed code
     (`test_approval_routes.py::test_a_tool_refusal_answers_its_own_typed_code`);
     an unreachable server raises `RemoteInternalError`, which is a `ToolError`
-    too and falls through the map to 500 carrying the code alone
+    too and crosses as `INTERNAL` 500 through the one shared map,
+    carrying the code alone
     (`::test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor_path`).
 
     `extend` adds keys computed from the VERIFIED claims to a

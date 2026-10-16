@@ -21,9 +21,10 @@ the shape is decided.
 
 **Every refusal is a typed body from `helpdesk.errors`**, the same eight codes
 the tools answer with. The map, the typed body and the call itself are
-`agent_api.deps`' since an earlier change (decision C), shared with every other proxied
-route and deliberately not `chat_routes`'. `STATUS_FOR_CODE` is re-exported
-below so this module's own name still resolves.
+`agent_api.deps`' since an earlier change (decision C), and since an earlier change they are the
+ONE map the whole agent-api shares, chat routes included. This
+module reads nothing of the map by name: `call_tool_route` renders every
+refusal through `deps.typed_refusal`.
 
 No lifespan resource is touched: these two routes read nothing off
 `app.state`, which is why their tests enter no lifespan and open no socket.
@@ -32,11 +33,6 @@ No lifespan resource is touched: these two routes read nothing off
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
-# `STATUS_FOR_CODE` is re-exported rather than used here: 23c moved the map
-# into `deps`, and `me_routes.STATUS_FOR_CODE` is still the name
-# `test_me_routes.py::test_the_status_map_dresses_forbidden_as_403_and_not_as_chats_401`
-# reads it under.
-from helpdesk.agent_api.core.deps import STATUS_FOR_CODE as STATUS_FOR_CODE
 from helpdesk.agent_api.schemas.me import (
     GetMeArgs,
     ListMyAccessArgs,

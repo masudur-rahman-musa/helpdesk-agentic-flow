@@ -668,18 +668,19 @@ def test_an_expired_bearer_is_a_typed_401_and_opens_no_session(
 def test_the_shared_status_map_answers_a_matrix_refusal_403_and_a_kill_switch_503() -> None:
     """a project rule on the map decision C moves into `deps`.
 
-    Catches the map copied from `chat_routes`, where FORBIDDEN is 401: on
-    these routes a FORBIDDEN can only come from the RBAC matrix, and §1 says a
-    matrix refusal is a 403. `TOOL_DISABLED` is pinned beside it because a
-    tripped kill switch is "this decision is unavailable right now" and not a
-    permission answer, and the missing `INTERNAL` row is what makes an
-    unreachable server fall through to 500.
+    Catches the map reading FORBIDDEN as 401 (the shape the chat routes carried
+    before an earlier change folded both maps into one): on these routes a FORBIDDEN can
+    only come from the RBAC matrix, and §1 says a matrix refusal is a 403.
+    `TOOL_DISABLED` is pinned beside it because a tripped kill switch is "this
+    decision is unavailable right now" and not a permission answer, and the
+    `INTERNAL` row dresses an unreachable server as a 500 the caller cannot act
+    on.
     """
     assert deps.STATUS_FOR_CODE[ErrorCode.FORBIDDEN] == 403
     assert deps.STATUS_FOR_CODE[ErrorCode.TOOL_DISABLED] == 503
     assert deps.STATUS_FOR_CODE[ErrorCode.VALIDATION] == 400
     assert deps.STATUS_FOR_CODE[ErrorCode.POLICY_BLOCKED] == 409
-    assert ErrorCode.INTERNAL not in deps.STATUS_FOR_CODE
+    assert deps.STATUS_FOR_CODE[ErrorCode.INTERNAL] == 500
 
 
 @pytest.mark.parametrize(
@@ -738,8 +739,9 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
     untyped 500 with a traceback body), and a body that carries the client's
     message — `TRANSPORT_FAILURE_MESSAGE` is opaque on purpose, and a route
     rendering the exception's `str` would leak the MCP host and path to a
-    browser. `INTERNAL` has no row in the map, so the 500 here also pins that
-    the fall-through is the unreachable case and not a forgotten row.
+    browser. `INTERNAL` maps to 500 in the one shared map,
+    so the 500 here pins that an unreachable server renders the typed `INTERNAL`
+    and leaks neither the host nor the path.
     """
     caller = UnreachableToolCaller()
 

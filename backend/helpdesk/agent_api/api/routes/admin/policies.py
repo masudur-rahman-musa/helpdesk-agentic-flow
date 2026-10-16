@@ -49,8 +49,8 @@ That route carries its own path, `REINGEST_PATH`, rather than a second verb on
 `POLICIES_PATH` (31a decision I): the two paths differ upstream, and 24eb
 decision C's rule is that the browser's path equals this service's. Its four
 reachable refusals are `VALIDATION`, `FORBIDDEN`, `NOT_FOUND` and
-`TOOL_DISABLED`, four of the same five, so `deps.STATUS_FOR_CODE` gains no row
-for it either.
+`TOOL_DISABLED`, four of the shared map's codes, so `deps.STATUS_FOR_CODE`
+gains no row for it either.
 
 No lifespan resource is touched: neither route reads anything off `app.state`,
 which is why their tests enter no lifespan and open no socket.

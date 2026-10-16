@@ -711,9 +711,9 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
     failure left to propagate (an untyped 500 carrying a traceback body), and a
     body that carries the client's own message - `TRANSPORT_FAILURE_MESSAGE` is
     opaque on purpose, and a route rendering the exception's `str` would leak
-    the MCP host and path to a browser. `INTERNAL` has no row in
-    `STATUS_FOR_CODE`, so the 500 here also pins that this is the fall-through
-    for an unreachable server and not a forgotten row.
+    the MCP host and path to a browser. `INTERNAL` maps to 500 in the one
+    shared map, so the 500 here pins that an unreachable
+    server renders the typed `INTERNAL` and leaks neither the host nor the path.
     """
     caller = UnreachableToolCaller()
 
