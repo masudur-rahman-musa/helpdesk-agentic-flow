@@ -42,8 +42,8 @@ RULES = REPO_ROOT / "dev" / "docs" / "rules.md"
 CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
 README = REPO_ROOT / "README.md"
 
-VERIFY_DEPENDS = ["format", "lint", "typecheck", "test", "test-policy", "web-verify"]
-"""The exact ordered dependency list `verify` must keep."""
+VERIFY_DEPENDS = ["format", "lint", "typecheck", "test", "test-policy", "web-verify", "security"]
+"""The exact ordered list `verify` must keep."""
 
 
 def _pytest_ini() -> dict[str, object]:

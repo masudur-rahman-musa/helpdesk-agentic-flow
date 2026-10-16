@@ -5,7 +5,8 @@ What is pinned: the three app services read `backend/.env.demo` then
 names a key of `backend/.env.example` carries a default, one value per name,
 so `docker compose config` passes with no env file anywhere; `check_root.py`
 refuses a root `.env` even when `.gitignore` hides it from git; `.editorconfig`
-is gone; and the CI config scan names the moved `infra/.trivyignore`.
+is gone; and the config scan in `make security` names the moved
+`infra/.trivyignore`.
 
 An earlier change: `backend/.env.demo` is gitignored and untracked, so it is never in a
 CI checkout and no case here reads it. The CI `tests` job sets the URLs the
@@ -52,6 +53,7 @@ REPO_ROOT = _repo_root()
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / "backend" / ".env.example"
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+MAKEFILE = REPO_ROOT / "Makefile"
 CHECK_ROOT = REPO_ROOT / "dev" / "scripts" / "check_root.py"
 
 APP_SERVICES = ("helpdesk-agent-api", "helpdesk-mcp-server", "helpdesk-scheduler")
@@ -251,17 +253,34 @@ def test_no_editorconfig() -> None:
     assert not (REPO_ROOT / ".editorconfig").exists()
 
 
+def _security_recipe() -> list[str]:
+    """The `make security` recipe commands, backslash continuations joined into one each."""
+    lines = MAKEFILE.read_text(encoding="utf-8").splitlines()
+    header = re.compile(r"^security\s*:(?![:=])")
+    starts = [index for index, line in enumerate(lines) if header.match(line)]
+    assert len(starts) == 1, f"expected 1 Makefile rule for 'security', found {len(starts)}"
+    commands: list[str] = []
+    pending = ""
+    for line in lines[starts[0] + 1 :]:
+        if not line.startswith("\t"):
+            break
+        pending += line.strip()
+        if pending.endswith("\\"):
+            pending = pending[:-1] + " "
+            continue
+        commands.append(pending)
+        pending = ""
+    return commands
+
+
 def test_ci_scan_names_the_moved_ignore_file() -> None:
-    """Catches CI passing the old root `.trivyignore`, or a move that copied or lost the file."""
-    workflow = yaml.safe_load(CI.read_text(encoding="utf-8"))
-    runs = [
-        step["run"]
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
-        if isinstance(step.get("run"), str)
-    ]
-    found = [m for run in runs for m in re.findall(r"--ignorefile\s+(\S+)", run)]
-    assert found, "premise: ci.yml passes --ignorefile at least once"
+    """Catches the scan passing the old root `.trivyignore`, or a move that copied or lost the file.
+
+    An earlier change: the config scan moved from `ci.yml` into `make security`,
+    so the `--ignorefile` paths are read from that target's recipe.
+    """
+    found = [m for run in _security_recipe() for m in re.findall(r"--ignorefile\s+(\S+)", run)]
+    assert found, "premise: make security passes --ignorefile at least once"
     assert set(found) == {"infra/.trivyignore"}, found
     assert (REPO_ROOT / "infra" / ".trivyignore").is_file()
     assert not (REPO_ROOT / ".trivyignore").exists()
