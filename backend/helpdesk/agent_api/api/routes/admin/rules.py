@@ -42,7 +42,7 @@ No lifespan resource is touched: this route reads nothing off `app.state`,
 which is why its tests enter no lifespan and open no socket.
 """
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.schemas.rules import ListSodRulesArgs as ListSodRulesArgs
@@ -59,7 +59,7 @@ LIST_SOD_RULES_TOOL = "list_sod_rules"
 
 
 @router.get(RULES_PATH)
-async def sod_rules_board(authorization: str | None = Header(default=None)) -> JSONResponse:
+async def sod_rules_board(request: Request) -> JSONResponse:
     """Every separation-of-duties rule this tenant has, resolved to names.
 
     Which two roles conflict, in words, and why: readable as a DECISION since
@@ -73,4 +73,4 @@ async def sod_rules_board(authorization: str | None = Header(default=None)) -> J
     200 carrying an empty list — never a 404
     (`::test_a_tenant_with_no_rules_is_a_200_and_an_empty_list`).
     """
-    return await call_tool_route(authorization, LIST_SOD_RULES_TOOL, ListSodRulesArgs())
+    return await call_tool_route(request, LIST_SOD_RULES_TOOL, ListSodRulesArgs())

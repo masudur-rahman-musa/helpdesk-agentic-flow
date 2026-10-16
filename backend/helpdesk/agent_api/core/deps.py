@@ -13,10 +13,10 @@ dependencies; the tool proxy patches `agent_api.services.tool_proxy`.
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from helpdesk.shared.auth.jwt import TokenClaims, TokenVerificationError, verify_token
-from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.errors import ErrorCode
 
 STATUS_FOR_CODE: Mapping[ErrorCode, int] = {
@@ -113,15 +113,24 @@ def unauthenticated() -> JSONResponse:
     return JSONResponse(status_code=401, content={"code": ErrorCode.FORBIDDEN.value})
 
 
-def authenticated(authorization: str | None) -> tuple[str, TokenClaims] | None:
-    """The caller's own bearer and its VERIFIED claims, or None.
+def request_bearer(request: Request) -> str:
+    """The verified caller's own raw bearer, forwarded to the MCP server.
 
-    The token half is what a route forwards; the claims half is
-    what a route may derive an identity from — never a tool argument. Both
-    come back together so no caller can hold one without the other.
+    Put on `request.state` by `RequireAuthMiddleware` after a single verify, so a
+    route never re-reads the header. The middleware turns away every request with
+    no valid token before the route runs, so this is always present on a route
+    the middleware let through.
     """
-    token = bearer(authorization)
-    verified = claims(token, load_settings().jwt_secret)
-    if token is None or verified is None:
-        return None
-    return token, verified
+    token: str = request.state.auth_bearer
+    return token
+
+
+def request_claims(request: Request) -> TokenClaims:
+    """The verified caller's claims, the one thing a route may derive identity from.
+
+    Put on `request.state` by `RequireAuthMiddleware` beside the raw bearer, for
+    the same reason and with the same guarantee: present on every route the
+    middleware let through, never a tool argument.
+    """
+    verified: TokenClaims = request.state.auth_claims
+    return verified

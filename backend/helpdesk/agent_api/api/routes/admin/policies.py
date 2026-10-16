@@ -56,11 +56,11 @@ No lifespan resource is touched: neither route reads anything off `app.state`,
 which is why their tests enter no lifespan and open no socket.
 """
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from helpdesk.agent_api.core.deps import authenticated, typed_refusal, unauthenticated
+from helpdesk.agent_api.core.deps import typed_refusal
 from helpdesk.agent_api.schemas.policies import (
     ListPolicyDocumentsArgs as ListPolicyDocumentsArgs,
 )
@@ -88,7 +88,7 @@ REINGEST_POLICY_DOCUMENT_TOOL = "reingest_policy_document"
 
 
 @router.get(POLICIES_PATH)
-async def policy_documents_board(authorization: str | None = Header(default=None)) -> JSONResponse:
+async def policy_documents_board(request: Request) -> JSONResponse:
     """Every policy document this tenant has, with each ingested version.
 
     Which documents the corpus holds, which versions exist of each, which one
@@ -103,15 +103,11 @@ async def policy_documents_board(authorization: str | None = Header(default=None
     200 carrying an empty list -- never a 404
     (`::test_a_tenant_with_no_corpus_is_a_200_and_an_empty_list`).
     """
-    return await call_tool_route(
-        authorization, LIST_POLICY_DOCUMENTS_TOOL, ListPolicyDocumentsArgs()
-    )
+    return await call_tool_route(request, LIST_POLICY_DOCUMENTS_TOOL, ListPolicyDocumentsArgs())
 
 
 @router.post(REINGEST_PATH)
-async def reingest_policy_document_route(
-    request: Request, authorization: str | None = Header(default=None)
-) -> JSONResponse:
+async def reingest_policy_document_route(request: Request) -> JSONResponse:
     """Re-read one corpus document and make it live.
 
     The write half of the board above, and the only thing standing between an
@@ -121,12 +117,10 @@ async def reingest_policy_document_route(
     the tool's own `NOT_FOUND`, and an unchanged source is a 200 carrying
     `created=false` rather than any kind of refusal.
 
-    The bearer is verified BEFORE the body is read and before any session is
-    opened, so an unauthenticated caller reaches neither
-    (`::test_an_absent_or_malformed_bearer_on_the_reingest_route_is_a_typed_401`,
-    whose caller is scripted with nothing at all). It verifies twice on this
-    path, here and inside `call_tool_route`, which is what a project rule
-    wants of a guard this sharp: neither copy can be deleted on its own.
+    The caller is verified by `RequireAuthMiddleware` before the route
+    runs, so an unauthenticated caller reaches neither the body read nor a
+    session (`test_auth_middleware.py`'s no-bearer case, whose caller is
+    scripted with nothing at all).
 
     The body is read and validated here rather than declared as a FastAPI
     parameter, exactly as `killswitch_routes.set_kill_switch_route` reads its
@@ -139,13 +133,9 @@ async def reingest_policy_document_route(
     board's rows do: a route that reshaped would be a second contract for row
     31b's control to track.
     """
-    verified = authenticated(authorization)
-    if verified is None:
-        return unauthenticated()
-
     try:
         arguments = ReingestPolicyDocumentArgs.model_validate(await request.json())
     except (ValueError, ValidationError):
         return typed_refusal(ErrorCode.VALIDATION)
 
-    return await call_tool_route(authorization, REINGEST_POLICY_DOCUMENT_TOOL, arguments)
+    return await call_tool_route(request, REINGEST_POLICY_DOCUMENT_TOOL, arguments)

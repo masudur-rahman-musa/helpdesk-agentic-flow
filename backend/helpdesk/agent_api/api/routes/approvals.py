@@ -32,11 +32,11 @@ which is why their tests enter no lifespan and open no socket.
 
 import uuid
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.agent.keys import derive_decision_key
-from helpdesk.agent_api.core.deps import authenticated, unauthenticated
+from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.approvals import (
     ApproveBody,
     ApproveRequestArgs,
@@ -61,7 +61,7 @@ as two DIFFERENT keys for one approver and one request by
 
 @router.get("/me/approvals")
 async def my_approvals(
-    authorization: str | None = Header(default=None),
+    request: Request,
     limit: int | None = Query(default=None),
 ) -> JSONResponse:
     """Every pending request waiting on THIS caller, oldest first.
@@ -77,14 +77,14 @@ async def my_approvals(
         if limit is None
         else ListPendingApprovalsArgsWithLimit(limit=limit)
     )
-    return await call_tool_route(authorization, "list_pending_approvals", arguments)
+    return await call_tool_route(request, "list_pending_approvals", arguments)
 
 
 @router.post("/approvals/{request_id}/approve")
 async def approve(
     request_id: uuid.UUID,
+    request: Request,
     body: ApproveBody | None = None,
-    authorization: str | None = Header(default=None),
 ) -> JSONResponse:
     """Record this caller's approval of one seat of one request's chain.
 
@@ -93,17 +93,13 @@ async def approve(
     a perfectly valid key filed against nothing
     (`::test_a_non_uuid_request_id_reaches_no_tool_and_no_key`).
 
-    The claims are read here for the approver the key is derived from, which
-    means the token is verified twice on this path: once here and once inside
-    `call_tool_route`. Two copies of one guard, so neither can be killed on
-    its own — the 401 cases pin the ANSWER, not this
-    branch, and deleting either copy leaves the other answering exactly the
-    same way.
+    The approver the key is derived from is read off the verified claims on
+    `request.state`, which `RequireAuthMiddleware` put there after the
+    one verify every request gets; the browser's own `approver_user_id` never
+    decides it (a project rule,
+    `::test_the_approve_route_answers_the_tools_output_under_the_callers_own_bearer`).
     """
-    verified = authenticated(authorization)
-    if verified is None:
-        return unauthenticated()
-    _token, claims = verified
+    claims = request_claims(request)
 
     arguments = ApproveRequestArgs(
         request_id=request_id,
@@ -112,14 +108,14 @@ async def approve(
             approver_user_id=uuid.UUID(claims.sub), request_id=request_id, verb=APPROVE_VERB
         ),
     )
-    return await call_tool_route(authorization, "approve_request", arguments)
+    return await call_tool_route(request, "approve_request", arguments)
 
 
 @router.post("/approvals/{request_id}/reject")
 async def reject(
     request_id: uuid.UUID,
     body: RejectBody,
-    authorization: str | None = Header(default=None),
+    request: Request,
 ) -> JSONResponse:
     """Refuse one request, with the reason the audit record keeps.
 
@@ -128,13 +124,10 @@ async def reject(
     would replay an approval's stored response for a rejection, which is the
     worst failure this derivation exists to prevent.
 
-    The same two copies of the token guard as `approve` above, for the same
-    reason and with the same consequence for a project rule.
+    The approver is read off the verified claims on `request.state`, the same
+    way `approve` above reads it.
     """
-    verified = authenticated(authorization)
-    if verified is None:
-        return unauthenticated()
-    _token, claims = verified
+    claims = request_claims(request)
 
     arguments = RejectRequestArgs(
         request_id=request_id,
@@ -143,4 +136,4 @@ async def reject(
             approver_user_id=uuid.UUID(claims.sub), request_id=request_id, verb=REJECT_VERB
         ),
     )
-    return await call_tool_route(authorization, "reject_request", arguments)
+    return await call_tool_route(request, "reject_request", arguments)

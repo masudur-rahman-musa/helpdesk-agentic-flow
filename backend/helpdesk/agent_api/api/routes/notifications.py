@@ -55,11 +55,11 @@ which is why their tests enter no lifespan and open no socket.
 
 import uuid
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.agent.keys import derive_notification_read_key
-from helpdesk.agent_api.core.deps import authenticated, unauthenticated
+from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.notifications import (
     ListNotificationsArgs,
     ListNotificationsArgsWithLimit,
@@ -74,7 +74,7 @@ router = APIRouter()
 
 @router.get("/me/notifications")
 async def my_notifications(
-    authorization: str | None = Header(default=None),
+    request: Request,
     unread_only: bool | None = Query(default=None),
     limit: int | None = Query(default=None),
 ) -> JSONResponse:
@@ -102,13 +102,13 @@ async def my_notifications(
         arguments = ListNotificationsArgsWithUnreadOnlyAndLimit(
             unread_only=unread_only, limit=limit
         )
-    return await call_tool_route(authorization, "list_notifications", arguments)
+    return await call_tool_route(request, "list_notifications", arguments)
 
 
 @router.post("/notifications/{notification_id}/read")
 async def mark_read_route(
     notification_id: uuid.UUID,
-    authorization: str | None = Header(default=None),
+    request: Request,
 ) -> JSONResponse:
     """Stamp one of this caller's own notifications read.
 
@@ -125,16 +125,13 @@ async def mark_read_route(
     router's: another person's or another tenant's id crosses back as
     `NOT_FOUND` (23ga decision G) and is dressed by the shared map.
 
-    The claims are read here for the reader the key is derived from, which means
-    the token is verified twice on this path: once here and once inside
-    `call_tool_route`. Two copies of one guard, so neither can be killed on its
-    own — the 401 cases pin the ANSWER, not this branch, and
-    deleting either copy leaves the other answering exactly the same way.
+    The reader the key is derived from is read off the verified claims on
+    `request.state`, which `RequireAuthMiddleware` put there after the
+    one verify every request gets; the browser's own `reader_user_id` never
+    decides it (a project rule,
+    `::test_the_key_is_derived_from_the_tokens_reader_and_never_from_a_query_parameter`).
     """
-    verified = authenticated(authorization)
-    if verified is None:
-        return unauthenticated()
-    _token, claims = verified
+    claims = request_claims(request)
 
     arguments = MarkNotificationReadArgs(
         notification_id=notification_id,
@@ -142,4 +139,4 @@ async def mark_read_route(
             reader_user_id=uuid.UUID(claims.sub), notification_id=notification_id
         ),
     )
-    return await call_tool_route(authorization, "mark_notification_read", arguments)
+    return await call_tool_route(request, "mark_notification_read", arguments)

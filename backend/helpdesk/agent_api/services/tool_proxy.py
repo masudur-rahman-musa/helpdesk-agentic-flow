@@ -10,10 +10,11 @@ route's tests still open no socket.
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from helpdesk.agent_api.core.deps import authenticated, typed_refusal, unauthenticated
+from helpdesk.agent_api.core.deps import request_bearer, request_claims, typed_refusal
 from helpdesk.agent_api.services.mcp_client import McpToolCaller, ToolCaller, TracingToolCaller
 from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.core.config import Settings, load_settings
@@ -44,29 +45,25 @@ def build_tool_caller(settings: Settings, bearer_token: str) -> ToolCaller:
 
 
 async def call_tool_route(
-    authorization: str | None,
+    request: Request,
     tool: str,
     arguments: BaseModel,
     extend: Callable[[TokenClaims], Mapping[str, Any]] | None = None,
 ) -> JSONResponse:
-    """Verify the caller, call one tool under their own bearer, render it.
+    """Call one tool under the caller's own bearer, and render it.
 
     The plumbing every proxied route shares, moved out of `me_routes` by plan
     23c (decision C). `build_tool_caller` is reached through THIS module's
     global, so a test stubbing the seam patches `agent_api.services.tool_proxy`
     and the route opens no socket.
 
-    The token check runs BEFORE the caller is built, so a request with no
-    usable bearer opens no MCP session at all — pinned by the 401 cases in
-    `test_me_routes.py` and, over all three approval routes, by
-    `test_approval_routes.py::test_an_absent_or_malformed_bearer_is_a_typed_401_and_opens_no_session`,
-    each of which scripts a caller with no answers so entering it fails the
-    case outright rather than showing up as a count.
-
-    Absent, malformed, forged and expired all answer the same literal 401 with
-    `FORBIDDEN`: a caller learns they are not authenticated, never which of the
-    four it was. That status is written here rather than read from
-    `STATUS_FOR_CODE`, whose `FORBIDDEN` row is the matrix's 403.
+    The caller is already verified: `RequireAuthMiddleware` turns away
+    every request with no valid token before any route runs, and puts the raw
+    bearer and the verified claims on `request.state`. So this reads them off the
+    request rather than re-verifying the header, and there is no 401 path here
+    anymore — a request with no usable bearer never reaches a route that calls
+    this. Pinned by `test_auth_middleware.py`'s no-bearer, forged and expired
+    cases, each of which asserts the scripted caller was never built.
 
     A tool refusal crosses as its own typed code
     (`test_approval_routes.py::test_a_tool_refusal_answers_its_own_typed_code`);
@@ -77,10 +74,8 @@ async def call_tool_route(
     `extend` adds keys computed from the VERIFIED claims to a
     successful body; a refusal never carries them.
     """
-    verified = authenticated(authorization)
-    if verified is None:
-        return unauthenticated()
-    token, verified_claims = verified
+    token = request_bearer(request)
+    verified_claims = request_claims(request)
 
     try:
         async with build_tool_caller(load_settings(), token) as tools:

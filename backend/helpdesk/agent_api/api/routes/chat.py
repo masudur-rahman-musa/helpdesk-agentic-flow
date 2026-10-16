@@ -37,12 +37,12 @@ by replacing them after startup.
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Header, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from helpdesk.agent_api.agent.graph import run_turn
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.agent_api.core import deps as core_deps
+from helpdesk.agent_api.core.deps import request_bearer, request_claims
 from helpdesk.agent_api.schemas.chat import ChatHistoryResponse, ChatMessage, ChatRequest
 from helpdesk.agent_api.services import tool_proxy
 from helpdesk.agent_api.services.chat import _identity, _rendered, _stream_frames, _typed
@@ -67,33 +67,28 @@ none of those `monkeypatch.setattr(chat_routes, "build_tool_caller", …)`
 sites and every one of them would quietly start dialling a real MCP server.
 """
 
-_bearer = core_deps.bearer
-_claims = core_deps.claims
-
 
 @router.post("/chat")
-async def chat(
-    request: Request, body: ChatRequest, authorization: str | None = Header(default=None)
-) -> JSONResponse:
+async def chat(request: Request, body: ChatRequest) -> JSONResponse:
     """One message in, one stored turn out.
 
     The ORDER is the whole of this function's content, and every step of it is
-    asserted: the token is verified before anything else, the rate limit is
-    counted before the turn is started, and the turn is what writes rows.
-    A limiter checked after the turn would bill a model call and store two
-    rows for a message it then refuses, which is what
+    asserted: the caller is already verified by `RequireAuthMiddleware` (plan
+    64), the rate limit is counted before the turn is started, and the turn is
+    what writes rows. A limiter checked after the turn would bill a model call
+    and store two rows for a message it then refuses, which is what
     `::test_an_unreachable_redis_refuses_the_turn_and_starts_none` catches by
     staging a gateway with nothing and reading the rows back.
 
-    `now` is stamped once and passed as the turn's clock as well as the
-    window's, so the message counted and the message stored are judged against
-    one reading.
+    The bearer and the claims are read off `request.state`, where the middleware
+    put them after the one verify every request gets; this route no longer reads
+    the header. `now` is stamped once and passed as the turn's clock as well as
+    the window's, so the message counted and the message stored are judged
+    against one reading.
     """
     settings = load_settings()
-    token = _bearer(authorization)
-    claims = _claims(token, settings.jwt_secret)
-    if claims is None or token is None:
-        return _typed(ErrorCode.FORBIDDEN)
+    token = request_bearer(request)
+    claims = request_claims(request)
 
     now = datetime.now(UTC)
     try:
@@ -141,9 +136,7 @@ async def chat(
 
 
 @router.post("/chat/stream")
-async def chat_stream(
-    request: Request, body: ChatRequest, authorization: str | None = Header(default=None)
-) -> Response:
+async def chat_stream(request: Request, body: ChatRequest) -> Response:
     """The same message as `/chat`, watched: the design step 9 over SSE.
 
     A second VIEW of one turn, never a second turn (decision G1): `/chat` stays
@@ -157,23 +150,21 @@ async def chat_stream(
     referrer. The web client of row 22 reads a `fetch` body as a stream, which
     costs it nothing.
 
-    **Everything that can refuse, refuses BEFORE the first byte.** The token,
-    the message cap and the rate limit are all decided here, as the same typed
-    bodies and statuses `/chat` answers with — 401 `FORBIDDEN`, 400
-    `VALIDATION`, 429 `POLICY_BLOCKED` — because a refusal after a 200 is a
-    refusal the client has to parse out of a stream. The cap is checked here
-    as well as inside `stream_turn` for that reason alone: it is the same
-    function against the same constant, and the second call cannot disagree
-    with the first.
+    **Everything that can refuse, refuses BEFORE the first byte.** The caller is
+    verified by `RequireAuthMiddleware` before the route runs; the
+    message cap and the rate limit are decided here, as the same typed bodies
+    and statuses `/chat` answers with — 400 `VALIDATION`, 429 `POLICY_BLOCKED` —
+    because a refusal after a 200 is a refusal the client has to parse out of a
+    stream. The cap is checked here as well as inside `stream_turn` for that
+    reason alone: it is the same function against the same constant, and the
+    second call cannot disagree with the first.
 
     Each refusal opens no stream at all, asserted on the content type as well
-    as on the body by `test_chat_stream.py`'s three refusal cases.
+    as on the body by `test_chat_stream.py`'s refusal cases.
     """
     settings = load_settings()
-    token = _bearer(authorization)
-    claims = _claims(token, settings.jwt_secret)
-    if claims is None or token is None:
-        return _typed(ErrorCode.FORBIDDEN)
+    token = request_bearer(request)
+    claims = request_claims(request)
 
     now = datetime.now(UTC)
     try:
@@ -209,9 +200,7 @@ async def chat_stream(
 
 
 @router.get("/chat/messages")
-async def chat_messages(
-    request: Request, authorization: str | None = Header(default=None)
-) -> JSONResponse:
+async def chat_messages(request: Request) -> JSONResponse:
     """This session's messages, oldest first, and this tenant's only.
 
     The session read is the token's `sid` and the read is bound to the token's
@@ -225,10 +214,7 @@ async def chat_messages(
     transcript during a window it has spent would hide the very turns it is
     asking about.
     """
-    settings = load_settings()
-    claims = _claims(_bearer(authorization), settings.jwt_secret)
-    if claims is None:
-        return _typed(ErrorCode.FORBIDDEN)
+    claims = request_claims(request)
     try:
         identity = _identity(claims)
     except ValueError:

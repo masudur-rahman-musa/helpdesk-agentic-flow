@@ -10,11 +10,13 @@ endpoint is gated from the start rather than left open
 until the admin UI lands. The tenant walked is the one in the verified
 token, never a parameter: a caller cannot ask about another tenant's chain. An unverifiable token and a verified token without the right
 principal are different answers on purpose: 401 says "prove who you are",
-403 says "you are known and not permitted". Both carry the typed body, never
-free text. The audit log is not one of the MCP tools in the the design matrix,
-so the verify route names its own principal set rather than calling
-`authorize`; it reuses the enum so an unrecognised principal string cannot
-widen access.
+403 says "you are known and not permitted". The 401 is `RequireAuthMiddleware`'s
+now, which turns away every request with no valid token before this
+route runs, so the route reads the verified claims off `request.state` and only
+decides the 403. Both carry the typed body, never free text. The audit log is
+not one of the MCP tools in the the design matrix, so the verify route names its
+own principal set rather than calling `authorize`; it reuses the enum so an
+unrecognised principal string cannot widen access.
 
 GET /admin/audit/search: the audit log, filtered, over HTTP.
 
@@ -51,17 +53,17 @@ nothing off `app.state`, which is why their tests enter no lifespan and open no
 socket.
 """
 
-from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
+from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.audit import SearchAuditArgs
 from helpdesk.agent_api.services.tool_proxy import call_tool_route
-from helpdesk.shared.auth.jwt import TokenClaims, TokenVerificationError, verify_token
+from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.auth.rbac import Principal
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_session_factory, shared_engine, tenant_session
@@ -80,37 +82,16 @@ _ERROR_BODY = {"code": "INTERNAL"}
 SEARCH_AUDIT_TOOL = "search_audit"
 
 
-def _bearer(authorization: str | None) -> str | None:
-    if authorization is None:
-        return None
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        return None
-    return token
-
-
-def _claims(authorization: str | None, secret: str) -> TokenClaims | None:
-    token = _bearer(authorization)
-    if token is None:
-        return None
-    try:
-        return verify_token(token, secret, datetime.now(UTC))
-    except TokenVerificationError:
-        return None
-
-
 def _is_permitted(claims: TokenClaims) -> bool:
     """Principal strings outside the enum are ignored, never a wildcard."""
     return any(principal in AUDIT_VERIFY_PRINCIPALS for principal in claims.principals)
 
 
 @router.get("/admin/audit/verify")
-async def verify_audit_chain(authorization: str | None = Header(default=None)) -> JSONResponse:
-    settings = load_settings()
-
-    claims = _claims(authorization, settings.jwt_secret)
-    if claims is None:
-        return JSONResponse(status_code=401, content=_REFUSAL_BODY)
+async def verify_audit_chain(request: Request) -> JSONResponse:
+    # The caller is already verified by `RequireAuthMiddleware`; the
+    # claims come off `request.state`, and this route decides only the 403.
+    claims = request_claims(request)
     if not _is_permitted(claims):
         return JSONResponse(status_code=403, content=_REFUSAL_BODY)
 
@@ -119,7 +100,7 @@ async def verify_audit_chain(authorization: str | None = Header(default=None)) -
     # would otherwise return FastAPI's untyped 500 body.
     try:
         tenant_id = UUID(claims.tenant_id)
-        factory = create_session_factory(shared_engine(settings.database_url))
+        factory = create_session_factory(shared_engine(load_settings().database_url))
         async with tenant_session(factory, tenant_id) as session:
             result = await verify_tenant_chain(session, tenant_id)
     # OSError as well as SQLAlchemyError: a refused connection reaches here
@@ -131,7 +112,7 @@ async def verify_audit_chain(authorization: str | None = Header(default=None)) -
 
 @router.get("/admin/audit/search")
 async def search_audit_events(
-    authorization: str | None = Header(default=None),
+    request: Request,
     event_type: str | None = Query(default=None),
     subject_type: str | None = Query(default=None),
     subject_id: str | None = Query(default=None),
@@ -161,4 +142,4 @@ async def search_audit_events(
     arguments = SearchAuditArgs.model_validate(
         {name: value for name, value in asked.items() if value is not None}
     )
-    return await call_tool_route(authorization, SEARCH_AUDIT_TOOL, arguments)
+    return await call_tool_route(request, SEARCH_AUDIT_TOOL, arguments)

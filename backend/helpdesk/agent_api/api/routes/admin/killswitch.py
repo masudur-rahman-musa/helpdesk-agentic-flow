@@ -58,11 +58,11 @@ No lifespan resource is touched: neither route reads anything off `app.state`,
 which is why their tests enter no lifespan and open no socket.
 """
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from helpdesk.agent_api.core.deps import authenticated, typed_refusal, unauthenticated
+from helpdesk.agent_api.core.deps import request_claims, typed_refusal
 from helpdesk.agent_api.schemas.killswitch import (
     ListKillSwitchesArgs,
     SetKillSwitchArgs,
@@ -101,7 +101,7 @@ so a router substituting a constant fails it."""
 
 
 @router.get(KILLSWITCH_PATH)
-async def kill_switch_board(authorization: str | None = Header(default=None)) -> JSONResponse:
+async def kill_switch_board(request: Request) -> JSONResponse:
     """Every registered tool and the state of its two kill switches.
 
     Both layers per row rather than one effective state (24ca decision B), and
@@ -113,13 +113,11 @@ async def kill_switch_board(authorization: str | None = Header(default=None)) ->
     Which board this caller reads is the token's tenant, decided behind the MCP
     boundary.
     """
-    return await call_tool_route(authorization, LIST_KILL_SWITCHES_TOOL, ListKillSwitchesArgs())
+    return await call_tool_route(request, LIST_KILL_SWITCHES_TOOL, ListKillSwitchesArgs())
 
 
 @router.post(KILLSWITCH_PATH)
-async def set_kill_switch_route(
-    request: Request, authorization: str | None = Header(default=None)
-) -> JSONResponse:
+async def set_kill_switch_route(request: Request) -> JSONResponse:
     """Stop one tool, or let it run again, for this tenant or the whole platform.
 
     `enabled` describes the SWITCH and `stopped` in the answer describes the
@@ -128,22 +126,18 @@ async def set_kill_switch_route(
     fact rather than as a docstring's word
     (`::test_the_set_route_answers_the_polarity_the_tool_decided`).
 
-    The claims are read here for the tenant the `"tenant"` scope is
-    substituted with, which means the token is verified twice on this path:
-    once here and once inside `call_tool_route`. Two copies of one guard, so
-    neither can be killed on its own - the 401 cases pin the
-    ANSWER, not either branch, and deleting one copy leaves the other answering
-    exactly the same way.
+    The tenant the `"tenant"` scope is substituted with is read off the
+    verified claims on `request.state`, which `RequireAuthMiddleware`
+    put there after the one verify every request gets; the browser never names a
+    tenant (a project rule,
+    `::test_the_set_route_substitutes_the_tokens_own_tenant_for_the_literal_tenant`).
 
     The body is read and validated before any session is opened, and a refusal
     is the typed `VALIDATION` dressed as a 400 rather than FastAPI's untyped
     422. An unparseable body is the same refusal: a request whose JSON does not
     decode carries no `tool_name` and no `reason` either.
     """
-    verified = authenticated(authorization)
-    if verified is None:
-        return unauthenticated()
-    _token, claims = verified
+    claims = request_claims(request)
 
     try:
         payload = await request.json()
@@ -157,4 +151,4 @@ async def set_kill_switch_route(
         scope=SCOPE_GLOBAL if body.scope == SCOPE_GLOBAL else claims.tenant_id,
         reason=body.reason,
     )
-    return await call_tool_route(authorization, SET_KILL_SWITCH_TOOL, arguments)
+    return await call_tool_route(request, SET_KILL_SWITCH_TOOL, arguments)

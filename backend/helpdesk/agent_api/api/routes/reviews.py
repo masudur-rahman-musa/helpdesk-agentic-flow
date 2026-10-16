@@ -40,11 +40,11 @@ which is why their tests enter no lifespan and open no socket.
 
 import uuid
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.agent.keys import derive_review_decision_key
-from helpdesk.agent_api.core.deps import authenticated, unauthenticated
+from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.reviews import (
     DecideBody,
     DecideReviewItemArgs,
@@ -62,7 +62,7 @@ router = APIRouter()
 
 @router.get("/me/reviews")
 async def my_reviews(
-    authorization: str | None = Header(default=None),
+    request: Request,
     status: str | None = Query(default=None),
     limit: int | None = Query(default=None),
 ) -> JSONResponse:
@@ -82,13 +82,13 @@ async def my_reviews(
         arguments = ListReviewsArgsWithStatus(status=status)
     else:
         arguments = ListReviewsArgsWithStatusAndLimit(status=status, limit=limit)
-    return await call_tool_route(authorization, "list_reviews", arguments)
+    return await call_tool_route(request, "list_reviews", arguments)
 
 
 @router.get("/reviews/{review_id}/items")
 async def review_items(
     review_id: uuid.UUID,
-    authorization: str | None = Header(default=None),
+    request: Request,
     limit: int | None = Query(default=None),
 ) -> JSONResponse:
     """One review's rows, as 23e widened them, for whoever may read that review.
@@ -105,14 +105,14 @@ async def review_items(
         if limit is None
         else ListReviewItemsArgsWithLimit(review_id=review_id, limit=limit)
     )
-    return await call_tool_route(authorization, "list_review_items", arguments)
+    return await call_tool_route(request, "list_review_items", arguments)
 
 
 @router.post("/review-items/{item_id}/decide")
 async def decide(
     item_id: uuid.UUID,
     body: DecideBody,
-    authorization: str | None = Header(default=None),
+    request: Request,
 ) -> JSONResponse:
     """Record this caller's keep or revoke on one row of one review.
 
@@ -120,11 +120,11 @@ async def decide(
     and one more: a `str` id would digest happily into a perfectly valid key
     filed against nothing.
 
-    The claims are read here for the reviewer the key is derived from, which
-    means the token is verified twice on this path: once here and once inside
-    `call_tool_route`. Two copies of one guard, so neither can be killed on its
-    own — the 401 cases pin the ANSWER, not this branch, and
-    deleting either copy leaves the other answering exactly the same way.
+    The reviewer the key is derived from is read off the verified claims on
+    `request.state`, which `RequireAuthMiddleware` put there after the
+    one verify every request gets; the browser's own `reviewer_user_id` never
+    decides it (a project rule,
+    `::test_the_key_is_derived_from_the_tokens_reviewer_and_never_from_the_body`).
 
     The decision word is in the key's material, so a Keep and a Revoke on one
     row are two different keys: a reviewer changing their mind then meets the
@@ -132,10 +132,7 @@ async def decide(
     back as if it had worked
     (`::test_one_reviewer_deciding_one_item_twice_sends_one_key_and_changing_the_word_changes_it`).
     """
-    verified = authenticated(authorization)
-    if verified is None:
-        return unauthenticated()
-    _token, claims = verified
+    claims = request_claims(request)
 
     arguments = DecideReviewItemArgs(
         item_id=item_id,
@@ -144,4 +141,4 @@ async def decide(
             reviewer_user_id=uuid.UUID(claims.sub), item_id=item_id, decision=body.decision
         ),
     )
-    return await call_tool_route(authorization, "decide_review_item", arguments)
+    return await call_tool_route(request, "decide_review_item", arguments)

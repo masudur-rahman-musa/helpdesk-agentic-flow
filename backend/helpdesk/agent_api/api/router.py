@@ -25,6 +25,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from helpdesk.agent_api.agent.checkpointer import build_checkpointer, build_pool, psycopg_dsn
+from helpdesk.agent_api.api.middleware import RequireAuthMiddleware
 from helpdesk.agent_api.api.routes import health as readiness
 from helpdesk.agent_api.api.routes.admin.audit import router as audit_router
 from helpdesk.agent_api.api.routes.admin.killswitch import router as killswitch_router
@@ -183,6 +184,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="agent-api", lifespan=lifespan)
 app.add_middleware(TelemetryContextMiddleware)
+# The auth check sits between telemetry and CORS: added after
+# telemetry and before CORS, it wraps telemetry (outside the bind, so a blocked
+# request binds no context) and is wrapped by CORS (inside it, so a preflight is
+# answered by CORS and a 401 still carries CORS headers). Every request but the
+# four open paths and an OPTIONS preflight is verified here once, so a new route
+# that forgets its own check is still safe. Pinned by `test_auth_middleware.py`.
+app.add_middleware(RequireAuthMiddleware)
 # Locked to the one web origin and never a wildcard. The
 # origin is read from the environment here rather than from `load_settings()`:
 # `app` is built at import time and Starlette freezes the middleware stack
