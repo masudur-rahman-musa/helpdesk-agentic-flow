@@ -203,7 +203,8 @@ async def dispatch(
             args = spec.input_model.model_validate(dict(arguments))
 
             stage = _Stage.BODY
-            result = await _call_tool(spec, settings, identity, args, scope, now)
+            clients = _tool_clients(request, settings)
+            result = await _call_tool(spec, settings, identity, args, scope, now, clients)
             status = _OK_STATUS
         except ToolError as exc:
             status = exc.code.value
@@ -259,6 +260,27 @@ def _authorization(request: Request | None) -> str | None:
     return request.headers.get("authorization")
 
 
+def _tool_clients(request: Request | None, settings: Settings) -> ToolClients:
+    """The app's one copy if a server opened it, else a copy built right here.
+
+    A call under the HTTP server reads the single `ToolClients` the mcp-server
+    lifespan opened on the mounted app's state, so no call builds
+    its own clients. `request.scope.get("app")` rather than `request.app`:
+    the stdio path has no tool body and the tests drive dispatch with a bare
+    request whose scope carries no `"app"`, and `request.app` raises on that;
+    both fall back to `ToolClients(settings)` and keep working. Pinned by
+    `test_mcp_client_lifecycle.py::test_dispatch_hands_the_handler_the_apps_one_copy`
+    and `::test_dispatch_falls_back_when_no_app_carries_a_copy`.
+    """
+    if request is not None:
+        app = request.scope.get("app")
+        if app is not None:
+            clients = getattr(app.state, "tool_clients", None)
+            if isinstance(clients, ToolClients):
+                return clients
+    return ToolClients(settings)
+
+
 async def _check_switch(settings: Settings, identity: Identity, spec: ToolSpec[Any, Any]) -> None:
     """Is this tool on at all, for this tenant (the design)?
 
@@ -275,6 +297,7 @@ async def _call_tool(
     args: BaseModel,
     scope: str | None,
     now: datetime,
+    clients: ToolClients,
 ) -> types.CallToolResult:
     """The tool body and its success event, in one transaction.
 
@@ -285,8 +308,9 @@ async def _call_tool(
     The one `ToolContext` this call hands its handler is built here, over the
     session just bound to the token's tenant: the directory is
     `SimulatedDirectory` over that same session, `now` is the instant the whole
-    call answers for, and the clients wrap the pooled accessors. No
-    tool builds any of this for itself.
+    call answers for, and `clients` is the one copy `dispatch` resolved — the
+    app's if a server opened it, else a per-loop fallback. No tool
+    builds any of this for itself.
     """
     factory = _session_factory(settings)
     async with tenant_session(factory, identity.tenant_id) as session:
@@ -296,7 +320,7 @@ async def _call_tool(
             directory=SimulatedDirectory(session),
             now=now,
             settings=settings,
-            clients=ToolClients(settings),
+            clients=clients,
         )
         if spec.mutating:
             return await _run_mutating_tool(spec, ctx, args, scope)

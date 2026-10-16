@@ -48,7 +48,8 @@ from starlette.requests import Request
 
 from helpdesk.mcp_server.api.routes import health
 from helpdesk.mcp_server.tools import dispatch, registry
-from helpdesk.shared.core.config import mcp_allowed_hosts_from_env
+from helpdesk.mcp_server.tools.context import ToolClients
+from helpdesk.shared.core.config import load_settings, mcp_allowed_hosts_from_env
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.core.observability.logging import configure_logging
 from helpdesk.shared.core.observability.metrics import render as render_metrics
@@ -163,11 +164,24 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        configure_logging()
+        # Open the three tool clients once and hold them on the MOUNTED
+        # transport app's state: dispatch sees that app as `request.app`, so a
+        # call under the server reads this one copy instead of building its own
+        #, the way agent-api holds its clients on `app.state`. The
+        # embedder is not opened here -- it stays lazy, loaded on first use.
+        # Closed at shutdown so no pooled connection leaks for the life of the
+        # process. Pinned by
+        # `test_mcp_client_lifecycle.py::test_the_lifespan_opens_the_three_clients_and_closes_them`.
+        tool_clients = ToolClients.open_clients(load_settings())
+        mcp_app.state.tool_clients = tool_clients
         # The session manager's task group lives for the life of the app;
         # without this the transport answers every request with a 500.
-        configure_logging()
         async with mcp_app.router.lifespan_context(mcp_app):
-            yield
+            try:
+                yield
+            finally:
+                await tool_clients.aclose()
 
     app = FastAPI(title="mcp-server", lifespan=lifespan)
 
