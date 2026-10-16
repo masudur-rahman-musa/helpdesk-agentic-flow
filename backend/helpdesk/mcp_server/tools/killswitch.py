@@ -12,10 +12,10 @@ It has no scope helper: the design gives the row ONE cell, `platform_admin` at
 deleting it changes the answer for the six principals with no cell — pinned
 by `test_mcp_set_kill_switch.py::test_the_six_denied_principals_change_no_switch`.
 
-It reaches Redis through `helpdesk.shared.core.redis`, the same per-loop pooled
-client with the same pinned timeouts the pipeline reads the switch with. It imports the accessor from there directly, not from
-`tools.dispatch`, because `dispatch` imports `registry`, which imports this
-module — so the shared module is the one both can reach without a cycle.
+It reaches Redis through `ctx.clients.redis()`, the same per-loop pooled client
+with the same pinned timeouts the pipeline reads the switch with (an earlier change
+decision F). The context wraps `helpdesk.shared.core.redis`, so this module
+builds no client of its own and still shares the one pool.
 
 `list_kill_switches` is the read half of the row above, and the whole of what
 the design's `/admin/killswitch` page is drawn from: every registered tool, both
@@ -30,16 +30,13 @@ the session to the token's tenant before the handler is called.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core.identity import Identity
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.auth import rbac
-from helpdesk.shared.core.config import load_settings
-from helpdesk.shared.core.redis import get_redis as _redis
 from helpdesk.shared.services.killswitch import (
     GLOBAL,
     GLOBAL_SEGMENT,
@@ -114,9 +111,7 @@ class SetKillSwitchOutput(BaseModel):
     changed_at: datetime
 
 
-async def set_kill_switch(
-    session: AsyncSession, identity: Identity, args: SetKillSwitchInput
-) -> SetKillSwitchOutput:
+async def set_kill_switch(ctx: ToolContext, args: SetKillSwitchInput) -> SetKillSwitchOutput:
     """Stop a tool, or let it run again, for one tenant or the whole platform.
 
     Three checks run here and nowhere else, all before any effect:
@@ -148,28 +143,27 @@ async def set_kill_switch(
     scope: Scope
     if args.scope == GLOBAL_SEGMENT:
         scope = GLOBAL
-    elif args.scope == identity.tenant_id:
-        scope = identity.tenant_id
+    elif args.scope == ctx.identity.tenant_id:
+        scope = ctx.identity.tenant_id
     else:
         raise rbac.RbacDenied("a kill switch may only be scoped globally or to your own tenant")
 
-    now = datetime.now(UTC)
     await change_switch(
-        session,
-        KillSwitch(_redis(load_settings())),
+        ctx.session,
+        KillSwitch(ctx.clients.redis()),
         scope=scope,
         tool=args.tool_name,
         stopped=args.enabled,
         reason=args.reason,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
-        now=now,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
+        now=ctx.now,
     )
     return SetKillSwitchOutput(
         tool_name=args.tool_name,
         stopped=args.enabled,
         scope=GLOBAL_SEGMENT if scope is GLOBAL else str(scope),
-        changed_at=now,
+        changed_at=ctx.now,
     )
 
 
@@ -231,7 +225,7 @@ class ListKillSwitchesOutput(BaseModel):
 
 
 async def list_kill_switches(
-    session: AsyncSession, identity: Identity, args: ListKillSwitchesInput
+    ctx: ToolContext, args: ListKillSwitchesInput
 ) -> ListKillSwitchesOutput:
     """Every registered tool and the state of its two kill switches.
 
@@ -263,12 +257,12 @@ async def list_kill_switches(
     Nothing is written, so the pipeline's generic `tool.succeeded` is the
     whole record a read of the board leaves
     (`::test_one_call_writes_exactly_one_event_naming_the_tool_and_the_caller`).
-    The session is unused: this tool reads Redis and nothing else.
+    The context's session is unused: this tool reads Redis and nothing else.
     """
     from helpdesk.mcp_server.tools.registry import REGISTRY
 
     tools = list(REGISTRY)
-    states = await KillSwitch(_redis(load_settings())).list_states(identity.tenant_id, tools)
+    states = await KillSwitch(ctx.clients.redis()).list_states(ctx.identity.tenant_id, tools)
     return ListKillSwitchesOutput(
         switches=[
             KillSwitchRow(

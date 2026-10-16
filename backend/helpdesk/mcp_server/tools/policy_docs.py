@@ -25,18 +25,15 @@ No function here opens a session or touches the transport: the pipeline binds
 the session to the token's tenant before the handler is called.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core import rag_clients
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.services.rag.documents import read_policy_documents
 from helpdesk.mcp_server.services.rag.pipeline import ingest_one_document
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.mcp_server.tools.policy_search import UnknownTenantError
-from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.crud.tenants import find_tenant_by_id
 
 
@@ -98,7 +95,7 @@ class ListPolicyDocumentsOutput(BaseModel):
 
 
 async def list_policy_documents(
-    session: AsyncSession, identity: Identity, args: ListPolicyDocumentsInput
+    ctx: ToolContext, args: ListPolicyDocumentsInput
 ) -> ListPolicyDocumentsOutput:
     """This tenant's policy documents, their versions, and which one is live.
 
@@ -128,7 +125,7 @@ async def list_policy_documents(
     record a read leaves. The session is the pipeline's, already bound to the
     token's tenant.
     """
-    details = await read_policy_documents(session)
+    details = await read_policy_documents(ctx.session)
     return ListPolicyDocumentsOutput(
         documents=[
             PolicyDocumentRow(
@@ -216,7 +213,7 @@ class ReingestPolicyDocumentOutput(BaseModel):
 
 
 async def reingest_policy_document(
-    session: AsyncSession, identity: Identity, args: ReingestPolicyDocumentInput
+    ctx: ToolContext, args: ReingestPolicyDocumentInput
 ) -> ReingestPolicyDocumentOutput:
     """Re-read one corpus file and make it live, in the caller's transaction.
 
@@ -236,9 +233,9 @@ async def reingest_policy_document(
 
     Synchronous rather than queued (decision B): a queued answer could carry
     no `chunk_count`, which is the one field that says the ingest actually
-    landed. The gateway client and the embedder are read through
-    `rag_clients` by module attribute, so both are pooled for the loop rather
-    than built per call (decision F).
+    landed. The gateway client and the embedder are read off `ctx.clients`,
+    whose accessors keep both pooled for the loop rather than built per call
+    (decision F; the pooling is `rag_clients`', wrapped by the context).
 
     No scope helper and no second permission check: the design gives the row two
     cells, both `Scope.ANY`, so the pipeline's matrix stage IS the whole check
@@ -254,21 +251,20 @@ async def reingest_policy_document(
     and re-runs nothing
     (`::test_a_replayed_call_is_byte_identical_and_ingests_once`).
     """
-    settings = load_settings()
-    tenant = await find_tenant_by_id(session, identity.tenant_id)
+    tenant = await find_tenant_by_id(ctx.session, ctx.identity.tenant_id)
     if tenant is None:
         raise UnknownTenantError("the token's tenant no longer exists")
 
     result = await ingest_one_document(
-        session,
-        rag_clients.qdrant(settings),
-        corpus_root=settings.policy_dir,
+        ctx.session,
+        ctx.clients.qdrant(),
+        corpus_root=ctx.settings.policy_dir,
         tenant_slug=tenant.slug,
         slug=args.slug,
         version=args.version,
-        redactor=rag_clients.redactor(settings),
-        embedder=rag_clients.embedder(),
-        ingested_at=datetime.now(UTC),
+        redactor=ctx.clients.redactor(),
+        embedder=ctx.clients.embedder(),
+        ingested_at=ctx.now,
     )
     document = result.document
     return ReingestPolicyDocumentOutput(

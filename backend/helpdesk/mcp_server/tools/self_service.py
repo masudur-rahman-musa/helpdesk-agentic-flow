@@ -19,7 +19,7 @@ A corrects the claim this docstring used to make).
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Ticket, User
@@ -119,31 +120,29 @@ async def _stamp_user(session: AsyncSession, identity: Identity, **field: dateti
 
 
 async def reset_own_password(
-    session: AsyncSession, identity: Identity, args: ResetOwnPasswordInput
+    ctx: ToolContext, args: ResetOwnPasswordInput
 ) -> ResetOwnPasswordOutput:
     """Simulated password reset: stamp the flag, display the fake token."""
-    when = await _stamp_user(session, identity, password_reset_requested_at=datetime.now(UTC))
+    when = await _stamp_user(ctx.session, ctx.identity, password_reset_requested_at=ctx.now)
     return ResetOwnPasswordOutput(reset_token=RESET_TOKEN_PLACEHOLDER, requested_at=when)
 
 
 async def unlock_own_account(
-    session: AsyncSession, identity: Identity, args: UnlockOwnAccountInput
+    ctx: ToolContext, args: UnlockOwnAccountInput
 ) -> UnlockOwnAccountOutput:
     """Simulated account unlock: stamp the flag on the token's user."""
-    when = await _stamp_user(session, identity, account_unlocked_at=datetime.now(UTC))
+    when = await _stamp_user(ctx.session, ctx.identity, account_unlocked_at=ctx.now)
     return UnlockOwnAccountOutput(unlocked_at=when)
 
 
-async def create_ticket(
-    session: AsyncSession, identity: Identity, args: CreateTicketInput
-) -> CreateTicketOutput:
+async def create_ticket(ctx: ToolContext, args: CreateTicketInput) -> CreateTicketOutput:
     """File a helpdesk ticket for the token's user, status `open`.
 
     The tenant comes from the bound session (`Repository.create` stamps it)
     and the user from the token; neither is an argument.
     """
-    ticket = await Repository(session, Ticket).create(
-        user_id=identity.user_id,
+    ticket = await Repository(ctx.session, Ticket).create(
+        user_id=ctx.identity.user_id,
         kind=args.kind.value,
         title=args.title,
         body=args.body,

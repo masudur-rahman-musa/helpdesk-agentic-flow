@@ -37,18 +37,16 @@ the session to the token's tenant before the handler is called.
 
 import re
 import uuid
-from datetime import UTC, date, datetime
+from datetime import date
 
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import String
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Department, User
-from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.access.lifecycle import SkippedRole
 from helpdesk.shared.services.access.lifecycle import offboard_user as offboard_user_core
 from helpdesk.shared.services.access.lifecycle import onboard_user as onboard_user_core
@@ -148,9 +146,7 @@ class OnboardUserOutput(BaseModel):
     skipped: list[SkippedRoleOutput]
 
 
-async def onboard_user(
-    session: AsyncSession, identity: Identity, args: OnboardUserInput
-) -> OnboardUserOutput:
+async def onboard_user(ctx: ToolContext, args: OnboardUserInput) -> OnboardUserOutput:
     """Hire one person into the token's tenant and apply their department template.
 
     Both ids are resolved through the tenant-bound repository BEFORE any
@@ -175,23 +171,23 @@ async def onboard_user(
     Everything runs in the transaction the pipeline opened, so the person,
     their grants and every event commit or roll back together.
     """
-    if await Repository(session, Department).get(args.department_id) is None:
+    if await Repository(ctx.session, Department).get(args.department_id) is None:
         raise NotFoundError("no such department in this tenant")
-    if await Repository(session, User).get(args.manager_user_id) is None:
+    if await Repository(ctx.session, User).get(args.manager_user_id) is None:
         raise NotFoundError("no such manager in this tenant")
 
     result = await onboard_user_core(
-        session,
-        SimulatedDirectory(session),
+        ctx.session,
+        ctx.directory,
         email=args.email,
         display_name=args.display_name,
         department_id=args.department_id,
         start_date=args.start_date,
         manager_user_id=args.manager_user_id,
-        created_by_user_id=identity.user_id,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
-        now=datetime.now(UTC),
+        created_by_user_id=ctx.identity.user_id,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
+        now=ctx.now,
     )
     return OnboardUserOutput(
         user_id=result.user.id,
@@ -238,9 +234,7 @@ class TransferUserOutput(BaseModel):
     non_standard_role_ids: list[uuid.UUID]
 
 
-async def transfer_user(
-    session: AsyncSession, identity: Identity, args: TransferUserInput
-) -> TransferUserOutput:
+async def transfer_user(ctx: ToolContext, args: TransferUserInput) -> TransferUserOutput:
     """Move one person to another department in the token's tenant, and diff.
 
     The destination is resolved through the tenant-bound repository BEFORE any
@@ -263,19 +257,19 @@ async def transfer_user(
     Everything runs in the transaction the pipeline opened, so the department,
     the revocations, the grants and every event commit or roll back together.
     """
-    if await Repository(session, Department).get(args.new_department_id) is None:
+    if await Repository(ctx.session, Department).get(args.new_department_id) is None:
         raise NotFoundError("no such department in this tenant")
 
     result = await transfer_user_core(
-        session,
-        SimulatedDirectory(session),
+        ctx.session,
+        ctx.directory,
         user_id=args.user_id,
         new_department_id=args.new_department_id,
         effective_date=args.effective_date,
-        transferred_by_user_id=identity.user_id,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
-        now=datetime.now(UTC),
+        transferred_by_user_id=ctx.identity.user_id,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
+        now=ctx.now,
     )
     return TransferUserOutput(
         from_department_id=result.from_department_id,
@@ -321,9 +315,7 @@ class OffboardUserOutput(BaseModel):
     closed_request_ids: list[uuid.UUID]
 
 
-async def offboard_user(
-    session: AsyncSession, identity: Identity, args: OffboardUserInput
-) -> OffboardUserOutput:
+async def offboard_user(ctx: ToolContext, args: OffboardUserInput) -> OffboardUserOutput:
     """Mark one person in the token's tenant a leaver and take back their access.
 
     Nothing is resolved here: the only id is the person, and `lock_user`
@@ -346,14 +338,14 @@ async def offboard_user(
     revocations, the closures and every event commit or roll back together.
     """
     result = await offboard_user_core(
-        session,
-        SimulatedDirectory(session),
+        ctx.session,
+        ctx.directory,
         user_id=args.user_id,
         end_date=args.end_date,
-        offboarded_by_user_id=identity.user_id,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
-        now=datetime.now(UTC),
+        offboarded_by_user_id=ctx.identity.user_id,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
+        now=ctx.now,
     )
     return OffboardUserOutput(
         revoked_role_ids=list(result.revoked_role_ids),

@@ -37,13 +37,13 @@ the session to the token's tenant before the handler is called.
 
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
@@ -56,7 +56,6 @@ from helpdesk.shared.models import (
     System,
 )
 from helpdesk.shared.services.access.approvals import request_in_scope
-from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.access.reviews import (
     ItemAlreadyDecidedError as ItemAlreadyDecidedError,
 )
@@ -305,8 +304,7 @@ class DecideReviewItemOutput(BaseModel):
 
 
 async def _in_scope(
-    session: AsyncSession,
-    identity: Identity,
+    ctx: ToolContext,
     tool: rbac.Tool,
     *,
     department_id: uuid.UUID | None,
@@ -329,10 +327,10 @@ async def _in_scope(
     `test_mcp_reviews.py::test_the_managers_department_comes_from_the_directory_not_the_token`,
     which moves the caller's row and reuses the token minted before the move.
     """
-    caller = await SimulatedDirectory(session).lookup_user(identity.user_id)
+    caller = await ctx.directory.lookup_user(ctx.identity.user_id)
     return request_in_scope(
-        rbac.authorize(identity.claims, tool).scopes,
-        approver_user_id=identity.user_id,
+        rbac.authorize(ctx.identity.claims, tool).scopes,
+        approver_user_id=ctx.identity.user_id,
         approver_department_id=None if caller is None else caller.department_id,
         target_department_id=department_id,
         system_owner_user_id=system_owner_user_id,
@@ -340,7 +338,7 @@ async def _in_scope(
 
 
 async def open_access_review(
-    session: AsyncSession, identity: Identity, args: OpenAccessReviewInput
+    ctx: ToolContext, args: OpenAccessReviewInput
 ) -> OpenAccessReviewOutput:
     """Open a review over one department or one system for one period.
 
@@ -379,11 +377,10 @@ async def open_access_review(
         # a missing or foreign system answers with no owner, so an out-of-scope
         # caller gets the same `FORBIDDEN` either way and the id says nothing
         # about what exists.
-        system = await Repository(session, System).get(args.system_id)
+        system = await Repository(ctx.session, System).get(args.system_id)
         system_owner_user_id = None if system is None else system.owner_user_id
     if not await _in_scope(
-        session,
-        identity,
+        ctx,
         rbac.Tool.OPEN_ACCESS_REVIEW,
         department_id=args.department_id,
         system_owner_user_id=system_owner_user_id,
@@ -391,15 +388,15 @@ async def open_access_review(
         raise rbac.RbacDenied(rbac.Tool.OPEN_ACCESS_REVIEW.value)
 
     result = await open_review(
-        session,
-        SimulatedDirectory(session),
+        ctx.session,
+        ctx.directory,
         department_id=args.department_id,
         system_id=args.system_id,
         period=args.period,
-        opened_by_user_id=identity.user_id,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
-        now=datetime.now(UTC),
+        opened_by_user_id=ctx.identity.user_id,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
+        now=ctx.now,
     )
     return OpenAccessReviewOutput(
         review_id=result.review.id,
@@ -414,7 +411,7 @@ async def open_access_review(
 
 
 async def list_review_items(
-    session: AsyncSession, identity: Identity, args: ListReviewItemsInput
+    ctx: ToolContext, args: ListReviewItemsInput
 ) -> ListReviewItemsOutput:
     """The items of one review this caller may reach, oldest first.
 
@@ -432,19 +429,18 @@ async def list_review_items(
     than copied onto the review when it was opened: ownership moves, and a
     former owner holding an old review id must not keep reading it.
     """
-    review = await find_review(session, args.review_id)
+    review = await find_review(ctx.session, args.review_id)
     if not await _in_scope(
-        session,
-        identity,
+        ctx,
         rbac.Tool.LIST_REVIEW_ITEMS,
         department_id=None if review is None else review.department_id,
-        system_owner_user_id=await _owner_of(session, review),
+        system_owner_user_id=await _owner_of(ctx.session, review),
     ):
         raise rbac.RbacDenied(rbac.Tool.LIST_REVIEW_ITEMS.value)
     if review is None:
         raise NotFoundError("no such access review in this tenant")
 
-    items = await list_items_with_context(session, review.id, limit=args.limit)
+    items = await list_items_with_context(ctx.session, review.id, limit=args.limit)
     return ListReviewItemsOutput(
         review_id=review.id,
         items=[
@@ -466,9 +462,7 @@ async def list_review_items(
     )
 
 
-async def list_reviews(
-    session: AsyncSession, identity: Identity, args: ListReviewsInput
-) -> ListReviewsOutput:
+async def list_reviews(ctx: ToolContext, args: ListReviewsInput) -> ListReviewsOutput:
     """The reviews this caller's the design scope reaches, oldest due first.
 
     The queue the other three review tools never had: each of them
@@ -496,19 +490,19 @@ async def list_reviews(
     show a manager a failure instead. Pinned by
     `::test_a_scope_that_reaches_nothing_answers_an_empty_queue_and_never_not_found`.
     """
-    scopes = rbac.authorize(identity.claims, rbac.Tool.LIST_REVIEWS).scopes
-    caller = await SimulatedDirectory(session).lookup_user(identity.user_id)
+    scopes = rbac.authorize(ctx.identity.claims, rbac.Tool.LIST_REVIEWS).scopes
+    caller = await ctx.directory.lookup_user(ctx.identity.user_id)
     department_id = (
         caller.department_id if rbac.Scope.OWN_DEPARTMENT in scopes and caller is not None else None
     )
     system_ids = (
-        await list_owned_system_ids(session, identity.user_id)
+        await list_owned_system_ids(ctx.session, ctx.identity.user_id)
         if rbac.Scope.OWN_SYSTEMS in scopes
         else frozenset()
     )
 
     rows = await list_reviews_for_scope(
-        session,
+        ctx.session,
         department_id=department_id,
         system_ids=system_ids,
         any_scope=rbac.Scope.ANY in scopes,
@@ -538,7 +532,7 @@ async def list_reviews(
 
 
 async def decide_review_item(
-    session: AsyncSession, identity: Identity, args: DecideReviewItemInput
+    ctx: ToolContext, args: DecideReviewItemInput
 ) -> DecideReviewItemOutput:
     """Record a reviewer's keep-or-revoke on one item, and act on it.
 
@@ -579,28 +573,27 @@ async def decide_review_item(
     the revocation, any completion and `review.item_decided` commit or roll
     back together.
     """
-    item = await find_item(session, args.item_id)
-    review = None if item is None else await find_review(session, item.review_id)
+    item = await find_item(ctx.session, args.item_id)
+    review = None if item is None else await find_review(ctx.session, item.review_id)
     if not await _in_scope(
-        session,
-        identity,
+        ctx,
         rbac.Tool.DECIDE_REVIEW_ITEM,
         department_id=None if review is None else review.department_id,
-        system_owner_user_id=await _owner_of(session, review),
+        system_owner_user_id=await _owner_of(ctx.session, review),
     ):
         raise rbac.RbacDenied(rbac.Tool.DECIDE_REVIEW_ITEM.value)
     if item is None:
         raise NotFoundError("no such access review item in this tenant")
 
     result = await decide_item(
-        session,
-        SimulatedDirectory(session),
+        ctx.session,
+        ctx.directory,
         item=item,
         decision=args.decision,
-        decided_by_user_id=identity.user_id,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
-        now=datetime.now(UTC),
+        decided_by_user_id=ctx.identity.user_id,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
+        now=ctx.now,
     )
     return DecideReviewItemOutput(
         item_id=result.item.id,

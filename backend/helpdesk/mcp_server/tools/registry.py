@@ -17,9 +17,7 @@ from types import MappingProxyType
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools import (
     access,
     approvals,
@@ -34,6 +32,7 @@ from helpdesk.mcp_server.tools import (
     rules,
     self_service,
 )
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.auth import rbac
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
@@ -100,7 +99,7 @@ class ToolSpec[I: BaseModel, O: BaseModel]:
     output_model: type[O]
     event_type: str
     mutating: bool
-    handler: Callable[[AsyncSession, Identity, I], Awaitable[O]]
+    handler: Callable[[ToolContext, I], Awaitable[O]]
 
 
 _SPECS: tuple[ToolSpec[Any, Any], ...] = (

@@ -48,7 +48,7 @@ decided.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -56,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.access.execute import (
     PolicyBlockedAtExecutionError,
     SodConflictAtExecutionError,
@@ -85,7 +86,6 @@ from helpdesk.shared.services.access.approvals import (
     parse_slots,
     request_in_scope,
 )
-from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.audit import AuditEventInput, append_event
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
@@ -246,7 +246,7 @@ class RejectRequestOutput(BaseModel):
 
 
 async def list_pending_approvals(
-    session: AsyncSession, identity: Identity, args: ListPendingApprovalsInput
+    ctx: ToolContext, args: ListPendingApprovalsInput
 ) -> ListPendingApprovalsOutput:
     """The caller's actionable approval queue, oldest first.
 
@@ -260,13 +260,13 @@ async def list_pending_approvals(
     `list_pending_for_approver`, never from the token's `department_id`
     claim; the user id itself still comes only from the token.
     """
-    authorization = rbac.authorize(identity.claims, rbac.Tool.LIST_PENDING_APPROVALS)
+    authorization = rbac.authorize(ctx.identity.claims, rbac.Tool.LIST_PENDING_APPROVALS)
     rows = await list_pending_with_context_for_approver(
-        session,
-        SimulatedDirectory(session),
-        approver_user_id=identity.user_id,
+        ctx.session,
+        ctx.directory,
+        approver_user_id=ctx.identity.user_id,
         scopes=authorization.scopes,
-        principals=rbac.principals_of(identity.claims),
+        principals=rbac.principals_of(ctx.identity.claims),
         limit=args.limit,
     )
     return ListPendingApprovalsOutput(approvals=[_pending(row) for row in rows])
@@ -341,9 +341,7 @@ async def _append(
     )
 
 
-async def _in_scope(
-    session: AsyncSession, identity: Identity, tool: rbac.Tool, request: AccessRequest
-) -> bool:
+async def _in_scope(ctx: ToolContext, tool: rbac.Tool, request: AccessRequest) -> bool:
     """Does the design's scope on this row still reach this request?
 
     The seat and the scope are two obligations, not one. The seat says the
@@ -359,14 +357,13 @@ async def _in_scope(
     token. Pinned by
     `test_mcp_approvals.py::test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department`.
     """
-    directory = SimulatedDirectory(session)
-    approver = await directory.lookup_user(identity.user_id)
-    target = await directory.lookup_user(request.target_user_id)
-    role = await Repository(session, Role).get(request.role_id)
-    system = None if role is None else await Repository(session, System).get(role.system_id)
+    approver = await ctx.directory.lookup_user(ctx.identity.user_id)
+    target = await ctx.directory.lookup_user(request.target_user_id)
+    role = await Repository(ctx.session, Role).get(request.role_id)
+    system = None if role is None else await Repository(ctx.session, System).get(role.system_id)
     return request_in_scope(
-        rbac.authorize(identity.claims, tool).scopes,
-        approver_user_id=identity.user_id,
+        rbac.authorize(ctx.identity.claims, tool).scopes,
+        approver_user_id=ctx.identity.user_id,
         approver_department_id=None if approver is None else approver.department_id,
         target_department_id=None if target is None else target.department_id,
         system_owner_user_id=None if system is None else system.owner_user_id,
@@ -374,7 +371,7 @@ async def _in_scope(
 
 
 async def _claim_seat(
-    session: AsyncSession, identity: Identity, tool: rbac.Tool, request_id: uuid.UUID
+    ctx: ToolContext, tool: rbac.Tool, request_id: uuid.UUID
 ) -> tuple[AccessRequest, tuple[SlotState, ...], int]:
     """Lock the row, refuse anything that is not a decision this caller may take.
 
@@ -406,19 +403,19 @@ async def _claim_seat(
     `test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department`
     do the same for the other three, each admitted by every guard but its own.
     """
-    request = await lock_request(session, request_id)
+    request = await lock_request(ctx.session, request_id)
     if request is None:
         raise NotFoundError("no such access request in this tenant")
     if request.status != RequestStatus.PENDING.value:
         raise RequestNotPendingError(f"the request is {request.status}, not pending")
-    if not await _in_scope(session, identity, tool, request):
+    if not await _in_scope(ctx, tool, request):
         raise NotAnApproverError("this request is outside your approval scope")
 
     slots = parse_slots(request.approvals)
     index = first_fillable_index(
         slots,
-        caller_user_id=identity.user_id,
-        caller_principals=rbac.principals_of(identity.claims),
+        caller_user_id=ctx.identity.user_id,
+        caller_principals=rbac.principals_of(ctx.identity.claims),
         requester_user_id=request.requester_user_id,
         target_user_id=request.target_user_id,
     )
@@ -427,33 +424,29 @@ async def _claim_seat(
     return request, slots, index
 
 
-async def approve_request(
-    session: AsyncSession, identity: Identity, args: ApproveRequestInput
-) -> ApproveRequestOutput:
+async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> ApproveRequestOutput:
     """Record one approval, and execute the grant when it was the last one.
 
     Everything below runs in the one transaction the pipeline opened, so the
     decided chain, the row's status and the grant land together or not at
-    all. `now` is read once and passed on, so the decision timestamp, the
-    fresh classification, `granted_at` and `expires_at` all answer for one
-    instant.
+    all. `now` is the call's one instant (`ctx.now`), so the decision
+    timestamp, the fresh classification, `granted_at` and `expires_at` all
+    answer alike.
     """
-    request, slots, index = await _claim_seat(
-        session, identity, rbac.Tool.APPROVE_REQUEST, args.request_id
-    )
-    now = datetime.now(UTC)
+    request, slots, index = await _claim_seat(ctx, rbac.Tool.APPROVE_REQUEST, args.request_id)
+    now = ctx.now
     decided = decide_slot(
         slots,
         index,
         decision=SlotDecision.APPROVE,
-        decided_by_user_id=identity.user_id,
+        decided_by_user_id=ctx.identity.user_id,
         decided_at=now,
         comment=args.comment,
     )
     complete = chain_is_complete(decided)
     await _append(
-        session,
-        identity,
+        ctx.session,
+        ctx.identity,
         REQUEST_APPROVED_EVENT_TYPE,
         request,
         {"slot": slots[index].slot.value, "chain_complete": complete},
@@ -461,31 +454,29 @@ async def approve_request(
     )
     if not complete:
         await set_request_status(
-            session, request.id, status=RequestStatus.PENDING, approvals=dump_slots(decided)
+            ctx.session, request.id, status=RequestStatus.PENDING, approvals=dump_slots(decided)
         )
         return _approved(request.id, RequestStatus.PENDING, slots[index], False, None, None)
 
     try:
-        grant = await _execute(session, identity, request, now)
+        grant = await _execute(ctx, request)
     except (SodConflictAtExecutionError, PolicyBlockedAtExecutionError) as exc:
         # Decision E: the approval happened, so the row keeps it and moves to
         # `failed` rather than rolling back to `pending`. Returning instead of
         # raising is what lets both the decided chain and the stored
         # idempotency response survive.
         await set_request_status(
-            session, request.id, status=RequestStatus.FAILED, approvals=dump_slots(decided)
+            ctx.session, request.id, status=RequestStatus.FAILED, approvals=dump_slots(decided)
         )
         return _approved(request.id, RequestStatus.FAILED, slots[index], True, None, exc.code)
 
     await set_request_status(
-        session, request.id, status=RequestStatus.APPROVED, approvals=dump_slots(decided)
+        ctx.session, request.id, status=RequestStatus.APPROVED, approvals=dump_slots(decided)
     )
     return _approved(request.id, RequestStatus.APPROVED, slots[index], True, grant, None)
 
 
-async def _execute(
-    session: AsyncSession, identity: Identity, request: AccessRequest, now: datetime
-) -> Grant:
+async def _execute(ctx: ToolContext, request: AccessRequest) -> Grant:
     """An earlier change's `execute_grant`, called with the request's own parameters.
 
     The requester is the person who FILED the request, not the approver: the
@@ -495,17 +486,17 @@ async def _execute(
     grant.
     """
     return await execute_grant(
-        session,
-        SimulatedDirectory(session),
+        ctx.session,
+        ctx.directory,
         request_id=request.id,
         requester_user_id=request.requester_user_id,
         target_user_id=request.target_user_id,
         role_id=request.role_id,
         requested_expiry_days=request.requested_expiry_days,
-        granted_by_user_id=identity.user_id,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
-        now=now,
+        granted_by_user_id=ctx.identity.user_id,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
+        now=ctx.now,
     )
 
 
@@ -528,9 +519,7 @@ def _approved(
     )
 
 
-async def reject_request(
-    session: AsyncSession, identity: Identity, args: RejectRequestInput
-) -> RejectRequestOutput:
+async def reject_request(ctx: ToolContext, args: RejectRequestInput) -> RejectRequestOutput:
     """Refuse the request, keeping who refused it and why.
 
     One rejection ends the chain: the row goes `rejected` even while other
@@ -539,28 +528,26 @@ async def reject_request(
     rejecter filled, so the audit record says who refused and why in the same
     place — no migration, and nothing about the rest of the chain is rewritten.
     """
-    request, slots, index = await _claim_seat(
-        session, identity, rbac.Tool.REJECT_REQUEST, args.request_id
-    )
-    now = datetime.now(UTC)
+    request, slots, index = await _claim_seat(ctx, rbac.Tool.REJECT_REQUEST, args.request_id)
+    now = ctx.now
     decided = decide_slot(
         slots,
         index,
         decision=SlotDecision.REJECT,
-        decided_by_user_id=identity.user_id,
+        decided_by_user_id=ctx.identity.user_id,
         decided_at=now,
         comment=args.reason,
     )
     await _append(
-        session,
-        identity,
+        ctx.session,
+        ctx.identity,
         REQUEST_REJECTED_EVENT_TYPE,
         request,
         {"slot": slots[index].slot.value},
         now,
     )
     await set_request_status(
-        session, request.id, status=RequestStatus.REJECTED, approvals=dump_slots(decided)
+        ctx.session, request.id, status=RequestStatus.REJECTED, approvals=dump_slots(decided)
     )
     return RejectRequestOutput(
         request_id=request.id, status=RequestStatus.REJECTED, slot=slots[index].slot

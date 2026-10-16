@@ -22,14 +22,14 @@ the session to the token's tenant before any of them is called.
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core.identity import Identity
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.auth.rbac import Scope
 from helpdesk.shared.core.errors import NotFoundError
@@ -47,7 +47,6 @@ from helpdesk.shared.models import (
     User,
 )
 from helpdesk.shared.services.access.approvals import request_in_scope
-from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.audit import search_audit_events
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
@@ -84,14 +83,14 @@ class ListMyAccessOutput(BaseModel):
     grants: list[ActiveGrant]
 
 
-async def get_me(session: AsyncSession, identity: Identity, args: GetMeInput) -> GetMeOutput:
+async def get_me(ctx: ToolContext, args: GetMeInput) -> GetMeOutput:
     """The token user's own directory record.
 
     A `sub` naming a user in another tenant reads as not-found, because the
     session is bound to the token's tenant: same answer as a user that does
     not exist, so not-found cannot be used as a cross-tenant oracle.
     """
-    user = await find_user_by_id(session, identity.user_id)
+    user = await find_user_by_id(ctx.session, ctx.identity.user_id)
     if user is None:
         raise NotFoundError("no such user in this tenant")
     return GetMeOutput(
@@ -105,15 +104,14 @@ async def get_me(session: AsyncSession, identity: Identity, args: GetMeInput) ->
     )
 
 
-async def list_my_access(
-    session: AsyncSession, identity: Identity, args: ListMyAccessInput
-) -> ListMyAccessOutput:
+async def list_my_access(ctx: ToolContext, args: ListMyAccessInput) -> ListMyAccessOutput:
     """Every grant the token user holds right now.
 
-    "Right now" is read here rather than passed in, so a caller cannot ask
-    what they held last year (or will hold next year) through this tool.
+    "Right now" is the call's one instant (`ctx.now`, captured in dispatch),
+    so a caller cannot ask what they held last year (or will hold next year)
+    through this tool, and no handler here reads the clock of its own.
     """
-    grants = await list_active_grants_for_user(session, identity.user_id, datetime.now(UTC))
+    grants = await list_active_grants_for_user(ctx.session, ctx.identity.user_id, ctx.now)
     return ListMyAccessOutput(grants=list(grants))
 
 
@@ -381,9 +379,7 @@ def _audit_row(row: AuditEvent) -> AuditEventRow:
     )
 
 
-async def search_audit(
-    session: AsyncSession, identity: Identity, args: SearchAuditInput
-) -> SearchAuditOutput:
+async def search_audit(ctx: ToolContext, args: SearchAuditInput) -> SearchAuditOutput:
     """The caller's own tenant's audit log, newest first, within their scope.
 
     The `authorize` call here is not a second permission gate — the pipeline
@@ -402,9 +398,9 @@ async def search_audit(
     `test_mcp_search_audit.py::test_the_managers_department_comes_from_the_directory_not_the_token`
     pins by minting the token before the move.
     """
-    authorization = rbac.authorize(identity.claims, rbac.Tool.SEARCH_AUDIT)
+    authorization = rbac.authorize(ctx.identity.claims, rbac.Tool.SEARCH_AUDIT)
     page = await search_audit_events(
-        session,
+        ctx.session,
         event_type=args.event_type,
         subject_type=args.subject_type,
         subject_id=args.subject_id,
@@ -417,9 +413,9 @@ async def search_audit(
     if Scope.ANY in authorization.scopes:
         visible: list[AuditEvent] = list(page.events)
     else:
-        caller = await SimulatedDirectory(session).lookup_user(identity.user_id)
+        caller = await ctx.directory.lookup_user(ctx.identity.user_id)
         caller_department_id = None if caller is None else caller.department_id
-        reach = await _resolve_subjects(session, page.events)
+        reach = await _resolve_subjects(ctx.session, page.events)
         visible = []
         for row in page.events:
             subject = _UNRESOLVED
@@ -427,7 +423,7 @@ async def search_audit(
                 subject = reach.get((row.subject_type, row.subject_id), _UNRESOLVED)
             if request_in_scope(
                 authorization.scopes,
-                approver_user_id=identity.user_id,
+                approver_user_id=ctx.identity.user_id,
                 approver_department_id=caller_department_id,
                 target_department_id=subject.department_id,
                 system_owner_user_id=subject.system_owner_user_id,

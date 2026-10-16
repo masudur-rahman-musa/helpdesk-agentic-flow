@@ -30,12 +30,9 @@ the session to the token's tenant before the handler is called.
 """
 
 import uuid
-from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.services.access_requests.rollback import (
     WINDOW_HOURS as WINDOW_HOURS,  # re-exported for the registry
 )
@@ -50,10 +47,10 @@ from helpdesk.mcp_server.services.access_requests.rollback import (
 )
 from helpdesk.mcp_server.tools.access import REASON_MAX_LENGTH
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.models import RequestStatus
 from helpdesk.shared.services.access.approvals import lock_request
-from helpdesk.shared.services.access.directory import SimulatedDirectory
 
 
 class RollbackRequestInput(MutatingToolInput):
@@ -88,12 +85,11 @@ class RollbackRequestOutput(BaseModel):
     revoked_count: int
 
 
-async def rollback_request(
-    session: AsyncSession, identity: Identity, args: RollbackRequestInput
-) -> RollbackRequestOutput:
+async def rollback_request(ctx: ToolContext, args: RollbackRequestInput) -> RollbackRequestOutput:
     """Undo an executed request within the design's 24 hours.
 
-    This handler owns exactly two things: the lookup and the clock. Every
+    This handler owns exactly two things: the lookup and the context's clock.
+    Every
     refusal about the request itself — its status, the 24h window, whether
     anything live is left — is raised by `helpdesk.access.rollback`, beside
     the writes it guards, so a second caller of that exported function cannot
@@ -121,20 +117,19 @@ async def rollback_request(
     runs in the transaction the pipeline opened, so the revoked rows, both
     events per row and the status write commit or roll back together.
     """
-    request = await lock_request(session, args.request_id)
+    request = await lock_request(ctx.session, args.request_id)
     if request is None:
         raise NotFoundError("no such access request in this tenant")
 
-    now = datetime.now(UTC)
     result = await rollback(
-        session,
-        SimulatedDirectory(session),
+        ctx.session,
+        ctx.directory,
         request=request,
         reason=args.reason,
-        rolled_back_by_user_id=identity.user_id,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
-        now=now,
+        rolled_back_by_user_id=ctx.identity.user_id,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
+        now=ctx.now,
     )
     return RollbackRequestOutput(
         request_id=result.request.id,

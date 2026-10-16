@@ -31,7 +31,7 @@ Surface under test (written before it exists):
     ``pipeline._redis(settings)``.
 
 ``mcp_server.tools.registry.ToolSpec`` — a frozen dataclass whose ``handler`` is
-``(AsyncSession, Identity, I) -> Awaitable[O]``. The synthetic specs below are
+``(ToolContext, I) -> Awaitable[O]``. The synthetic specs below are
 built directly rather than registered, so the pipeline's guarantees can be
 tested with a handler that raises, or an input model that can be violated,
 without either leaking into the real tool surface.
@@ -58,12 +58,12 @@ import redis.exceptions
 from pydantic import BaseModel, ValidationError
 from redis.asyncio import Redis
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.requests import Request
 
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools import dispatch as pipeline
 from helpdesk.mcp_server.tools import registry
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.mcp_server.tools.dispatch import dispatch
 from helpdesk.mcp_server.tools.registry import ToolSpec
 from helpdesk.shared.auth import rbac
@@ -116,12 +116,12 @@ class Echo(BaseModel):
     ok: bool
 
 
-async def _ok_handler(session: AsyncSession, identity: Identity, args: Any) -> Echo:
+async def _ok_handler(ctx: ToolContext, args: Any) -> Echo:
     return Echo(ok=True)
 
 
 def _spec(
-    handler: Callable[[AsyncSession, Identity, Any], Awaitable[Echo]],
+    handler: Callable[[ToolContext, Any], Awaitable[Echo]],
     *,
     input_model: type[BaseModel] = NoArgs,
     event_type: str = "tool.succeeded",
@@ -326,8 +326,8 @@ def test_extra_arguments_are_ignored_not_rejected(
 # --- criterion 6: the error-mapping table -------------------------------------
 
 
-def _raiser(exc: BaseException) -> Callable[[AsyncSession, Identity, Any], Awaitable[Echo]]:
-    async def handler(session: AsyncSession, identity: Identity, args: Any) -> Echo:
+def _raiser(exc: BaseException) -> Callable[[ToolContext, Any], Awaitable[Echo]]:
+    async def handler(ctx: ToolContext, args: Any) -> Echo:
         raise exc
 
     return handler
@@ -542,9 +542,9 @@ def test_the_failure_event_survives_the_rolled_back_transaction(
     title = f"fake rollback probe {uuid.uuid4()}"
     tenant = mcp_env.tenant_a.tenant_id
 
-    async def writes_then_raises(session: AsyncSession, identity: Identity, args: Any) -> Echo:
-        await Repository(session, Ticket).create(
-            user_id=identity.user_id,
+    async def writes_then_raises(ctx: ToolContext, args: Any) -> Echo:
+        await Repository(ctx.session, Ticket).create(
+            user_id=ctx.identity.user_id,
             kind="general",
             title=title,
             body="written by a tool that is about to raise",

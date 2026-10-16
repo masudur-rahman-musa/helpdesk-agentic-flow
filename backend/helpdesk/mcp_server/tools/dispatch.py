@@ -59,6 +59,7 @@ from starlette.requests import Request
 from helpdesk.mcp_server.core.identity import Identity, identity_from_header
 from helpdesk.mcp_server.services.idempotency.guard import run_once
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolClients, ToolContext
 from helpdesk.mcp_server.tools.registry import (
     DENIED_EVENT_TYPE,
     DISABLED_EVENT_TYPE,
@@ -84,6 +85,7 @@ from helpdesk.shared.core.redis import (
     close_loop_clients,
     get_redis,
 )
+from helpdesk.shared.services.access.directory import SimulatedDirectory
 from helpdesk.shared.services.audit import AuditEventInput, append_event
 from helpdesk.shared.services.killswitch import KillSwitch
 
@@ -149,11 +151,14 @@ async def dispatch(
     request context, so it is `None` under stdio — where there is no
     `Authorization` header and the call is therefore refused.
     """
+    # One clock read for the whole call: the identity check, the context this
+    # call hands its tool, and the audit stamp all answer for this instant, the
+    # way the scheduler threads `now=` from the edge. No tool body reads the
+    # clock, so a call cannot drift across its own steps.
+    now = datetime.now(UTC)
     try:
         settings = load_settings()
-        identity = identity_from_header(
-            _authorization(request), settings.jwt_secret, datetime.now(UTC)
-        )
+        identity = identity_from_header(_authorization(request), settings.jwt_secret, now)
     except ValidationError:
         # The process is misconfigured (no JWT_SECRET, no DATABASE_URL). No
         # identity, so no tenant and no audit chain; answering with the SDK's
@@ -198,11 +203,11 @@ async def dispatch(
             args = spec.input_model.model_validate(dict(arguments))
 
             stage = _Stage.BODY
-            result = await _call_tool(spec, settings, identity, args, scope)
+            result = await _call_tool(spec, settings, identity, args, scope, now)
             status = _OK_STATUS
         except ToolError as exc:
             status = exc.code.value
-            return await _refuse(settings, identity, spec, stage, exc.code, scope, exc)
+            return await _refuse(settings, identity, spec, stage, exc.code, scope, exc, now)
         except ValidationError as exc:
             # Only the argument parse earns VALIDATION. A tool body that parses
             # something of its own (a provider reply, a stored payload) and finds
@@ -211,12 +216,14 @@ async def dispatch(
             # was wrong and record the same lie in the audit event.
             code = ErrorCode.VALIDATION if stage is _Stage.VALIDATION else ErrorCode.INTERNAL
             status = code.value
-            return await _refuse(settings, identity, spec, stage, code, scope, exc)
+            return await _refuse(settings, identity, spec, stage, code, scope, exc, now)
         except Exception as exc:
             # asyncio.CancelledError is a BaseException in 3.12, so it passes
             # through here untouched; that is the behaviour, not an oversight.
             status = ErrorCode.INTERNAL.value
-            return await _refuse(settings, identity, spec, stage, ErrorCode.INTERNAL, scope, exc)
+            return await _refuse(
+                settings, identity, spec, stage, ErrorCode.INTERNAL, scope, exc, now
+            )
         finally:
             if status is not None:
                 metrics.record_tool_call(
@@ -267,33 +274,47 @@ async def _call_tool(
     identity: Identity,
     args: BaseModel,
     scope: str | None,
+    now: datetime,
 ) -> types.CallToolResult:
     """The tool body and its success event, in one transaction.
 
     The event is appended inside the tool's own transaction on purpose: a
     call that fails after writing must not leave a "succeeded" event behind,
     and a committed action must never exist without its event.
+
+    The one `ToolContext` this call hands its handler is built here, over the
+    session just bound to the token's tenant: the directory is
+    `SimulatedDirectory` over that same session, `now` is the instant the whole
+    call answers for, and the clients wrap the pooled accessors. No
+    tool builds any of this for itself.
     """
     factory = _session_factory(settings)
     async with tenant_session(factory, identity.tenant_id) as session:
+        ctx = ToolContext(
+            session=session,
+            identity=identity,
+            directory=SimulatedDirectory(session),
+            now=now,
+            settings=settings,
+            clients=ToolClients(settings),
+        )
         if spec.mutating:
-            return await _run_mutating_tool(spec, session, identity, args, scope)
+            return await _run_mutating_tool(spec, ctx, args, scope)
         # `spec` is erased to `ToolSpec[Any, Any]` here; the handler's real
         # return type is checked against `output_model` where the spec is
         # declared, so this annotation narrows rather than assumes.
-        output: BaseModel = await spec.handler(session, identity, args)
+        output: BaseModel = await spec.handler(ctx, args)
         # Rendered before the event is appended, not after the transaction
         # closes: an output that cannot be serialised must roll the success
         # event back with it, not leave `tool.succeeded` behind an error.
         result = _success_result(output)
-        await _append(session, identity, spec, spec.event_type, scope, None, None)
+        await _append(session, identity, spec, spec.event_type, scope, None, None, now)
         return result
 
 
 async def _run_mutating_tool(
     spec: ToolSpec[Any, Any],
-    session: AsyncSession,
-    identity: Identity,
+    ctx: ToolContext,
     args: BaseModel,
     scope: str | None,
 ) -> types.CallToolResult:
@@ -315,13 +336,13 @@ async def _run_mutating_tool(
         raise TypeError(f"mutating tool {spec.name} must take a MutatingToolInput")
 
     async def effect() -> Mapping[str, Any]:
-        output: BaseModel = await spec.handler(session, identity, args)
+        output: BaseModel = await spec.handler(ctx, args)
         dumped: dict[str, Any] = output.model_dump(mode="json")
         return dumped
 
     guarded = await run_once(
-        session,
-        identity.tenant_id,
+        ctx.session,
+        ctx.identity.tenant_id,
         args.idempotency_key,
         spec.name,
         args.model_dump(mode="json"),
@@ -330,7 +351,7 @@ async def _run_mutating_tool(
     output = spec.output_model.model_validate(guarded.response)
     result = _success_result(output)
     event_type = REPLAYED_EVENT_TYPE if guarded.replayed else spec.event_type
-    await _append(session, identity, spec, event_type, scope, None, None)
+    await _append(ctx.session, ctx.identity, spec, event_type, scope, None, None, ctx.now)
     return result
 
 
@@ -342,9 +363,12 @@ async def _refuse(
     code: ErrorCode,
     scope: str | None,
     exc: BaseException,
+    now: datetime,
 ) -> types.CallToolResult:
     """Record the failure, then answer with the code alone."""
-    await _record_failure(settings, identity, spec, _event_type_for(stage, code), code, scope, exc)
+    await _record_failure(
+        settings, identity, spec, _event_type_for(stage, code), code, scope, exc, now
+    )
     return error_result(code)
 
 
@@ -381,6 +405,7 @@ async def _record_failure(
     code: ErrorCode,
     scope: str | None,
     exc: BaseException,
+    now: datetime,
 ) -> None:
     """Write the failure event from a fresh session (decision D).
 
@@ -392,7 +417,7 @@ async def _record_failure(
     try:
         factory = _session_factory(settings)
         async with tenant_session(factory, identity.tenant_id) as session:
-            await _append(session, identity, spec, event_type, scope, code, exc)
+            await _append(session, identity, spec, event_type, scope, code, exc, now)
     except Exception:
         logger.exception("could not write the %s audit event for tool %s", event_type, spec.name)
 
@@ -405,6 +430,7 @@ async def _append(
     scope: str | None,
     code: ErrorCode | None,
     exc: BaseException | None,
+    now: datetime,
 ) -> None:
     """One audit event for one call.
 
@@ -421,7 +447,7 @@ async def _append(
         session,
         identity.tenant_id,
         AuditEventInput(
-            occurred_at=datetime.now(UTC),
+            occurred_at=now,
             actor_kind=_ACTOR_KIND,
             actor_ref=str(identity.user_id),
             session_id=identity.session_id,

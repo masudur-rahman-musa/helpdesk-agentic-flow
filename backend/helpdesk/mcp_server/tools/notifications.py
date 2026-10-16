@@ -26,15 +26,14 @@ functions are transport, the way every other tool module here is.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.services.notifications.list import list_for_user
 from helpdesk.mcp_server.services.notifications.mark import mark_read
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolContext
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
 """The read tool's contract: identity arrives on the token, so a spare
@@ -141,7 +140,7 @@ class MarkNotificationReadOutput(BaseModel):
 
 
 async def list_notifications(
-    session: AsyncSession, identity: Identity, args: ListNotificationsInput
+    ctx: ToolContext, args: ListNotificationsInput
 ) -> ListNotificationsOutput:
     """The token user's own notifications, newest first, with their unread total.
 
@@ -159,8 +158,8 @@ async def list_notifications(
     `test_mcp_notifications.py::test_an_empty_bell_answers_an_empty_page_and_zero_rather_than_not_found`.
     """
     page = await list_for_user(
-        session,
-        user_id=identity.user_id,
+        ctx.session,
+        user_id=ctx.identity.user_id,
         unread_only=args.unread_only,
         limit=args.limit,
     )
@@ -183,7 +182,7 @@ async def list_notifications(
 
 
 async def mark_notification_read(
-    session: AsyncSession, identity: Identity, args: MarkNotificationReadInput
+    ctx: ToolContext, args: MarkNotificationReadInput
 ) -> MarkNotificationReadOutput:
     """Stamp one of the token user's own notifications read.
 
@@ -211,10 +210,10 @@ async def mark_notification_read(
     assumption.
     """
     row = await mark_read(
-        session,
-        user_id=identity.user_id,
+        ctx.session,
+        user_id=ctx.identity.user_id,
         notification_id=args.notification_id,
-        now=datetime.now(UTC),
+        now=ctx.now,
     )
     assert row.read_at is not None, "mark_read either stamped this row or found it stamped"
     return MarkNotificationReadOutput(

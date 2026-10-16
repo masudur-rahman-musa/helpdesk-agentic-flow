@@ -34,19 +34,18 @@ The internal dense cosine `should_refuse` reads is NOT on this model and never
 reaches a prompt, pinned as an exact field set by
 `::test_a_page_carries_exactly_the_seven_citation_fields_in_fused_order`.
 
-No session and no client is opened here: the pipeline binds the session to the
-token's tenant, and `rag_clients` owns the two process-level clients.
+No session and no client is opened here: the handler takes both off its
+`ToolContext` — the pipeline binds the session to the token's tenant, and
+`ctx.clients` wraps the process-level accessors so the embedder still loads on
+first use only.
 """
 
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core import rag_clients
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.services.rag import retrieval
-from helpdesk.shared.core.config import load_settings
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.tenants import find_tenant_by_id
 
@@ -128,30 +127,28 @@ class SearchPolicyOutput(BaseModel):
     refused: bool
 
 
-async def search_policy(
-    session: AsyncSession, identity: Identity, args: SearchPolicyInput
-) -> SearchPolicyOutput:
+async def search_policy(ctx: ToolContext, args: SearchPolicyInput) -> SearchPolicyOutput:
     """Search this tenant's policy corpus; refuse when nothing matches well.
 
     The order is fixed and is what the acceptance criteria assert: retrieve
     and fuse (`search_hits`), judge (`should_refuse`), and resolve titles
     (`resolve_citations`) ONLY when the page is worth answering from.
     """
-    tenant = await find_tenant_by_id(session, identity.tenant_id)
+    tenant = await find_tenant_by_id(ctx.session, ctx.identity.tenant_id)
     if tenant is None:
         raise UnknownTenantError("the token's tenant no longer exists")
 
     hits = await retrieval.search_hits(
-        rag_clients.qdrant(load_settings()),
+        ctx.clients.qdrant(),
         tenant_slug=tenant.slug,
         query=args.query,
-        embedder=rag_clients.embedder(),
+        embedder=ctx.clients.embedder(),
         top_k=args.top_k,
     )
     if retrieval.should_refuse(hits):
         return SearchPolicyOutput(citations=[], refused=True)
 
-    citations = await retrieval.resolve_citations(session, hits)
+    citations = await retrieval.resolve_citations(ctx.session, hits)
     return SearchPolicyOutput(
         citations=[
             PolicyCitation(

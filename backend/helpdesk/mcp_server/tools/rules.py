@@ -15,10 +15,9 @@ the session to the token's tenant before the handler is called.
 import uuid
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.services.access_requests.rules import SodRuleRole, read_sod_rules
+from helpdesk.mcp_server.tools.context import ToolContext
 
 
 class ListSodRulesInput(BaseModel):
@@ -76,9 +75,7 @@ class ListSodRulesOutput(BaseModel):
     rules: list[SodRuleRow]
 
 
-async def list_sod_rules(
-    session: AsyncSession, identity: Identity, args: ListSodRulesInput
-) -> ListSodRulesOutput:
+async def list_sod_rules(ctx: ToolContext, args: ListSodRulesInput) -> ListSodRulesOutput:
     """This tenant's separation-of-duties rules, resolved to names.
 
     What the design's `/admin/rules` page is drawn from. The rows have been
@@ -115,7 +112,7 @@ async def list_sod_rules(
             system_name=role.system_name,
         )
 
-    details = await read_sod_rules(session)
+    details = await read_sod_rules(ctx.session)
     return ListSodRulesOutput(
         rules=[
             SodRuleRow(

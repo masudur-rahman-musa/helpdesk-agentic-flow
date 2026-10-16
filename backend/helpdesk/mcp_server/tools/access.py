@@ -38,7 +38,7 @@ binds the session to the token's tenant before any of them is called.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.access.execute import execute_grant
 from helpdesk.shared.access.requests import (
     approval_slots,
@@ -70,7 +71,7 @@ from helpdesk.shared.policy.types import (
     SodConflict,
 )
 from helpdesk.shared.services.access.approvals import request_in_scope
-from helpdesk.shared.services.access.directory import DirectoryProvider, SimulatedDirectory
+from helpdesk.shared.services.access.directory import DirectoryProvider
 from helpdesk.shared.services.access.snapshot import build_request_snapshot
 from helpdesk.shared.services.audit import AuditEventInput, append_event
 
@@ -192,21 +193,22 @@ class ListMyRequestsOutput(BaseModel):
 
 
 async def classify_access_request(
-    session: AsyncSession, identity: Identity, args: ClassifyAccessRequestInput
+    ctx: ToolContext, args: ClassifyAccessRequestInput
 ) -> ClassifyAccessRequestOutput:
     """Classify one hypothetical request. Read-only; the engine decides.
 
-    "Now" is read here, not passed in: tenure, grant liveness and the
-    classification all answer for the moment of the call.
+    "Now" is the call's one instant (`ctx.now`): tenure, grant liveness and the
+    classification all answer for the moment of the call, and no handler reads
+    the clock of its own.
     """
     snapshot = await build_request_snapshot(
-        session,
-        SimulatedDirectory(session),
-        requester_user_id=identity.user_id,
+        ctx.session,
+        ctx.directory,
+        requester_user_id=ctx.identity.user_id,
         target_user_id=args.target_user_id,
         role_id=args.role_id,
         requested_expiry_days=args.requested_expiry_days,
-        now=datetime.now(UTC),
+        now=ctx.now,
     )
     classification = classify(snapshot)
     return ClassifyAccessRequestOutput(
@@ -408,7 +410,7 @@ async def _append(
 
 
 async def create_access_request(
-    session: AsyncSession, identity: Identity, args: CreateAccessRequestInput
+    ctx: ToolContext, args: CreateAccessRequestInput
 ) -> CreateAccessRequestOutput:
     """File one access request, then do what the engine's decision says.
 
@@ -419,14 +421,14 @@ async def create_access_request(
     path the classification is microseconds old, so that fires only on a
     concurrent commit, and there is nothing yet for the user to point at.
     """
-    directory = SimulatedDirectory(session)
-    await _authorize_target(directory, identity, args.target_user_id)
+    directory = ctx.directory
+    await _authorize_target(directory, ctx.identity, args.target_user_id)
 
-    now = datetime.now(UTC)
+    now = ctx.now
     snapshot = await build_request_snapshot(
-        session,
+        ctx.session,
         directory,
-        requester_user_id=identity.user_id,
+        requester_user_id=ctx.identity.user_id,
         target_user_id=args.target_user_id,
         role_id=args.role_id,
         requested_expiry_days=args.requested_expiry_days,
@@ -436,8 +438,8 @@ async def create_access_request(
     status = _STATUS_FOR_DECISION[classification.decision]
 
     request = await persist_access_request(
-        session,
-        requester_user_id=identity.user_id,
+        ctx.session,
+        requester_user_id=ctx.identity.user_id,
         target_user_id=args.target_user_id,
         role_id=args.role_id,
         justification=args.justification,
@@ -446,16 +448,15 @@ async def create_access_request(
         status=status,
         citations=[citation.model_dump(mode="json") for citation in args.citations],
         idempotency_key=args.idempotency_key,
-        session_id=identity.session_id,
+        session_id=ctx.identity.session_id,
     )
 
-    grant = await _run_branch(session, identity, args, classification, request.id, now)
+    grant = await _run_branch(ctx, args, classification, request.id, now)
     return _output(classification, request.id, status, grant)
 
 
 async def _run_branch(
-    session: AsyncSession,
-    identity: Identity,
+    ctx: ToolContext,
     args: CreateAccessRequestInput,
     classification: Classification,
     request_id: uuid.UUID,
@@ -470,8 +471,8 @@ async def _run_branch(
     """
     if classification.decision is Decision.AUTO:
         await _append(
-            session,
-            identity,
+            ctx.session,
+            ctx.identity,
             REQUEST_AUTO_EXECUTED_EVENT_TYPE,
             request_id,
             {
@@ -482,22 +483,22 @@ async def _run_branch(
             now,
         )
         return await execute_grant(
-            session,
-            SimulatedDirectory(session),
+            ctx.session,
+            ctx.directory,
             request_id=request_id,
-            requester_user_id=identity.user_id,
+            requester_user_id=ctx.identity.user_id,
             target_user_id=args.target_user_id,
             role_id=args.role_id,
             requested_expiry_days=args.requested_expiry_days,
-            granted_by_user_id=identity.user_id,
-            actor_ref=str(identity.user_id),
-            session_id=identity.session_id,
+            granted_by_user_id=ctx.identity.user_id,
+            actor_ref=str(ctx.identity.user_id),
+            session_id=ctx.identity.session_id,
             now=now,
         )
     if classification.decision is Decision.APPROVAL:
         await _append(
-            session,
-            identity,
+            ctx.session,
+            ctx.identity,
             REQUEST_QUEUED_EVENT_TYPE,
             request_id,
             {
@@ -560,7 +561,7 @@ class RevokeAccessOutput(BaseModel):
     revoked_count: int
 
 
-async def _grant_in_scope(session: AsyncSession, identity: Identity, grant: Grant) -> bool:
+async def _grant_in_scope(ctx: ToolContext, grant: Grant) -> bool:
     """Does the design's `revoke_access` row reach this grant?
 
     The same `request_in_scope` the approval tools use (decision B), asked with
@@ -582,23 +583,20 @@ async def _grant_in_scope(session: AsyncSession, identity: Identity, grant: Gran
     `::test_an_already_revoked_grant_is_refused_policy_blocked`, whose second
     half sends the SAME not-live state out of scope.
     """
-    directory = SimulatedDirectory(session)
-    caller = await directory.lookup_user(identity.user_id)
-    holder = await directory.lookup_user(grant.user_id)
-    role = await Repository(session, Role).get(grant.role_id)
-    system = None if role is None else await Repository(session, System).get(role.system_id)
+    caller = await ctx.directory.lookup_user(ctx.identity.user_id)
+    holder = await ctx.directory.lookup_user(grant.user_id)
+    role = await Repository(ctx.session, Role).get(grant.role_id)
+    system = None if role is None else await Repository(ctx.session, System).get(role.system_id)
     return request_in_scope(
-        rbac.authorize(identity.claims, rbac.Tool.REVOKE_ACCESS).scopes,
-        approver_user_id=identity.user_id,
+        rbac.authorize(ctx.identity.claims, rbac.Tool.REVOKE_ACCESS).scopes,
+        approver_user_id=ctx.identity.user_id,
         approver_department_id=None if caller is None else caller.department_id,
         target_department_id=None if holder is None else holder.department_id,
         system_owner_user_id=None if system is None else system.owner_user_id,
     )
 
 
-async def revoke_access(
-    session: AsyncSession, identity: Identity, args: RevokeAccessInput
-) -> RevokeAccessOutput:
+async def revoke_access(ctx: ToolContext, args: RevokeAccessInput) -> RevokeAccessOutput:
     """Take away the access this grant represents, and every live twin of it.
 
     Three refusals in this order, each a different the design code and each with
@@ -635,13 +633,13 @@ async def revoke_access(
     transaction the pipeline opened, so the revoked rows and their
     `grant.revoked` events commit or roll back together.
     """
-    grant = await Repository(session, Grant).get(args.grant_id)
+    grant = await Repository(ctx.session, Grant).get(args.grant_id)
     if grant is None:
         raise NotFoundError("no such grant in this tenant")
-    if not await _grant_in_scope(session, identity, grant):
+    if not await _grant_in_scope(ctx, grant):
         raise rbac.RbacDenied(rbac.Tool.REVOKE_ACCESS.value)
 
-    now = datetime.now(UTC)
+    now = ctx.now
     # The named grant is tested for liveness through the same predicate the
     # locked read uses, so a caller pointing at a row that is already gone is
     # told so, rather than silently having a sibling row revoked under an
@@ -650,14 +648,14 @@ async def revoke_access(
         raise GrantNotActiveError(f"grant {grant.id} is not live: it was revoked, or it expired")
 
     revoked = await revoke_role_access(
-        session,
-        SimulatedDirectory(session),
+        ctx.session,
+        ctx.directory,
         user_id=grant.user_id,
         role_id=grant.role_id,
         reason=args.reason,
-        revoked_by_user_id=identity.user_id,
-        actor_ref=str(identity.user_id),
-        session_id=identity.session_id,
+        revoked_by_user_id=ctx.identity.user_id,
+        actor_ref=str(ctx.identity.user_id),
+        session_id=ctx.identity.session_id,
         now=now,
     )
     return RevokeAccessOutput(
@@ -665,9 +663,7 @@ async def revoke_access(
     )
 
 
-async def list_my_requests(
-    session: AsyncSession, identity: Identity, args: ListMyRequestsInput
-) -> ListMyRequestsOutput:
+async def list_my_requests(ctx: ToolContext, args: ListMyRequestsInput) -> ListMyRequestsOutput:
     """The requests the token user has filed, optionally by status.
 
     Requester-scoped off the token, never off an argument: the
@@ -676,8 +672,8 @@ async def list_my_requests(
     `list_requests_with_context_for_requester`.
     """
     rows = await list_requests_with_context_for_requester(
-        session,
-        identity.user_id,
+        ctx.session,
+        ctx.identity.user_id,
         None if args.status is None else args.status.value,
         args.limit,
     )
