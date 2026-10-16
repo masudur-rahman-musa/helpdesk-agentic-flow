@@ -1,10 +1,10 @@
 """The security scanning baseline is configured as planned.
 
 What is pinned: the gitleaks config and its three fake-credential exceptions, the
-CI `security` job and the four scanners it runs, the weekly image scan over the
-three images `docker-compose.yml` pins, Dependabot staying off, the pinning of
-every GitHub Action, the STRIDE table, and the presence of a real root
-`Dockerfile` carrying no placeholder.
+`make security` target and the four scanners it runs, `make verify` running it,
+the CI `security` job calling `make security` and running no scanner of its own, the weekly image scan over the three images `docker-compose.yml` pins,
+Dependabot staying off, the pinning of every GitHub Action, the STRIDE table,
+and the presence of a real root `Dockerfile` carrying no placeholder.
 
 Why the check is static rather than runtime: none of these files is read by the
 application at all. They are read by GitHub Actions and by the
@@ -14,9 +14,13 @@ cannot prove the job that should exist was not deleted.
 
 Every assertion is made against a parsed structure (`tomllib`, `yaml.safe_load`)
 and never against raw text or key order, so reformatting a workflow cannot
-redden a case. The cases are red at HEAD because none of the four config files
-exists yet, `ci.yml` has only a `check` job, and the project notes is still
-the skeleton stub.
+redden a case. The one exception is the root `Makefile`, which has no parser:
+it is read as rules, a target line's prerequisites and the tab-indented recipe
+lines below it, with backslash continuations joined and comment lines dropped.
+The cases were red when written because none of the four config files existed,
+`ci.yml` had only a `check` job, and the project notes was still the
+skeleton stub; an earlier change's cases were red because the Makefile had no `security`
+target and CI still ran each scanner as its own step.
 """
 
 import json
@@ -50,6 +54,7 @@ GITLEAKS_CONFIG = REPO_ROOT / ".gitleaks.toml"
 TRIVYIGNORE = REPO_ROOT / "infra" / ".trivyignore"
 DEPENDABOT = REPO_ROOT / ".github" / "dependabot.yml"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+MAKEFILE = REPO_ROOT / "Makefile"
 IMAGE_SCAN_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "image-scan.yml"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 THREAT_MODEL = REPO_ROOT / "dev" / "ops" / "threat-model.md"
@@ -110,10 +115,27 @@ rather than two). Asserted with the not-at-HEAD property by
 `test_the_baseline_records_only_the_historical_findings`, so a tenth entry has to
 be argued rather than regenerated in."""
 
-SCANNERS: tuple[str, ...] = ("gitleaks", "pip-audit", "pnpm audit", "trivy")
-"""The four scanners the `security` job runs, counted as four by
+SCANNERS: dict[str, re.Pattern[str]] = {
+    "gitleaks": re.compile(r"\bgitleaks\b"),
+    "pip-audit": re.compile(r"\bpip-audit\b"),
+    "pnpm audit": re.compile(r"\bpnpm(?:\s+(?:-C|--dir)\s+\S+)?\s+audit\b"),
+    "trivy": re.compile(r"\btrivy\b"),
+}
+"""The four scanners the `make security` target runs, counted as four by
 `test_the_security_job_runs_the_four_planned_scanners`: secrets over history,
-Python advisories, npm advisories, and container configuration."""
+Python advisories, npm advisories, and container configuration. Each is a
+pattern rather than a literal so `pnpm -C web audit` and `cd web && pnpm audit`
+are the same scanner. The same four are what
+`test_the_security_job_runs_no_scanner_itself` refuses in the CI job."""
+
+MAKE_PWD_MOUNT = re.compile(
+    r'-v\s+"?(?:\$\$PWD|\$\((?:CURDIR|PWD)\)|\$\{(?:CURDIR|PWD)\}):(/\S+?)"?\s'
+)
+"""A docker `-v` mount of the working directory as a Makefile recipe must spell it.
+`$$PWD` (the shell's), `$(CURDIR)` or `$(PWD)` all reach the repo root. A bare
+`$PWD` is refused: make expands it as the variable `P` followed by `WD`, so the
+container would mount a directory called `WD`. Read by
+`test_the_gitleaks_step_passes_a_baseline_path`."""
 
 PINNED_IMAGES: frozenset[str] = frozenset(
     {"postgres:16.6-alpine", "redis:7.4-alpine", "qdrant/qdrant:v1.19.1"}
@@ -211,6 +233,90 @@ def _step_running(job: dict[str, Any], marker: str) -> dict[str, Any]:
     matching = [step for step in _steps(job) if marker in _step_text(step)]
     assert len(matching) == 1, f"expected 1 step naming {marker!r}, found {len(matching)}"
     return matching[0]
+
+
+def _make_rule(target: str) -> tuple[list[str], list[str]]:
+    """One Makefile rule as (prerequisites, recipe commands), asserted to be one rule.
+
+    The target line is `target: prereq ...`, an inline `## help` comment dropped
+    and a `|` order-only marker skipped. The recipe is every following line that
+    starts with a tab, backslash continuations joined into one command. Blank lines
+    and comment lines may sit among recipe lines without ending the recipe, as GNU
+    make allows; a tab-indented comment is dropped too, so the prose explaining a
+    flag (which names `--redact` and every scanner) is never read as a command.
+    """
+    assert MAKEFILE.is_file(), "Makefile does not exist"
+    lines = MAKEFILE.read_text(encoding="utf-8").splitlines()
+    header = re.compile(rf"^{re.escape(target)}\s*:(?![:=])")
+    starts = [index for index, line in enumerate(lines) if header.match(line)]
+    assert len(starts) == 1, f"expected 1 Makefile rule for {target!r}, found {len(starts)}"
+
+    index = starts[0]
+    target_line = lines[index].split(":", 1)[1]
+    while target_line.rstrip().endswith("\\") and index + 1 < len(lines):
+        index += 1
+        target_line = target_line.rstrip()[:-1] + " " + lines[index]
+    head = target_line.split(";", 1)[0].split("#", 1)[0]
+    prerequisites = [word for word in head.split() if word != "|"]
+
+    commands: list[str] = []
+    pending = ""
+    for line in lines[index + 1 :]:
+        if not line.startswith("\t"):
+            if pending == "" and (not line.strip() or line.lstrip().startswith("#")):
+                continue
+            break
+        body = line.strip()
+        if body.startswith("#") and not pending:
+            continue
+        if body.endswith("\\"):
+            pending += body[:-1] + " "
+            continue
+        commands.append(pending + body)
+        pending = ""
+    if pending:
+        commands.append(pending)
+    return prerequisites, commands
+
+
+def _security_commands() -> list[str]:
+    """The recipe commands of `make security`, asserted non-empty."""
+    _, commands = _make_rule("security")
+    assert commands, "the security target has no recipe"
+    return commands
+
+
+def _commands_running(scanner: str) -> list[str]:
+    """Every `make security` command naming `scanner`, asserted to be at least one."""
+    pattern = SCANNERS[scanner]
+    matching = [command for command in _security_commands() if pattern.search(command)]
+    assert matching, f"the security target runs no {scanner}"
+    return matching
+
+
+def _the_command_running(scanner: str) -> str:
+    """The one `make security` command naming `scanner`, asserted to be exactly one."""
+    matching = _commands_running(scanner)
+    assert len(matching) == 1, f"expected 1 command running {scanner}, found {len(matching)}"
+    return matching[0]
+
+
+def _tool_words(command: str) -> list[str]:
+    """The words of one command that could name a tool, the planned scanners removed.
+
+    A flag (`--audit-level`) and a file (`requirements-audit.txt`) are skipped, and
+    an image name is read as its last path part with the tag dropped, so
+    `ghcr.io/google/osv-scanner:v1.9` reads as `osv-scanner`.
+    """
+    for pattern in SCANNERS.values():
+        command = pattern.sub(" ", command)
+    words: list[str] = []
+    for raw in command.split():
+        word = raw.strip("\"'").rsplit("/", 1)[-1].split(":", 1)[0]
+        if not word or word.startswith("-") or "." in word:
+            continue
+        words.append(word.lower())
+    return words
 
 
 def _version_tuple(raw: str, source: str) -> tuple[int, ...]:
@@ -350,21 +456,23 @@ def test_the_pre_commit_ruff_rev_matches_the_dev_dependency() -> None:
 
 
 def test_the_gitleaks_step_passes_a_baseline_path() -> None:
-    """Catches the flag being dropped, which sends the `security` job back to all
-    nine findings that made it red. Every one of them lives only in history, across
-    seven commits, so no rename can reach any of them and without a baseline the job
-    fails forever.
+    """Catches the flag being dropped from the `make security` gitleaks command,
+    which sends the scan back to all nine findings that made it red. Every one of
+    them lives only in history, across seven commits, so no rename can reach any of
+    them and without a baseline the scan fails forever.
 
     Also asserts `--redact` is ABSENT, which is load-bearing rather than cosmetic:
     redaction rewrites `Match` and `Secret` to "REDACTED", and gitleaks compares
     both when deciding whether a finding is baselined, so re-adding the flag makes
-    every entry stop matching and reddens the job again."""
-    run = str(_step_running(_security_job(), "gitleaks").get("run", ""))
+    every entry stop matching and reddens the scan again. And catches the CI
+    `$PWD` mount copied into the Makefile bare, which make expands to `WD`
+    (`MAKE_PWD_MOUNT`). Reads the target since an earlier change moved the command."""
+    run = _the_command_running("gitleaks")
 
-    assert "--baseline-path" in run, f"the gitleaks step passes no --baseline-path: {run!r}"
+    assert "--baseline-path" in run, f"the gitleaks command passes no --baseline-path: {run!r}"
 
     assert "--redact" not in run, (
-        "the gitleaks step passes --redact, which rewrites Match and Secret to "
+        "the gitleaks command passes --redact, which rewrites Match and Secret to "
         f"REDACTED so no baseline entry can match: {run!r}"
     )
 
@@ -372,8 +480,8 @@ def test_the_gitleaks_step_passes_a_baseline_path() -> None:
     assert flag is not None, f"--baseline-path names no file: {run!r}"
 
     named = flag.group(1).strip("\"'\\")
-    mount = re.search(r'-v\s+"?\$PWD:(/\S+?)"?\s', run)
-    assert mount is not None, f"the gitleaks step mounts no $PWD: {run!r}"
+    mount = MAKE_PWD_MOUNT.search(run)
+    assert mount is not None, f"the gitleaks command mounts no working directory: {run!r}"
 
     container_root = mount.group(1).rstrip("/")
     assert named.startswith(f"{container_root}/"), (
@@ -388,8 +496,9 @@ def test_the_gitleaks_hook_and_the_ci_job_pass_the_same_baseline() -> None:
     """Catches the divergence that made the baseline unlandable: gitleaks skips its
     own baseline FILE only when `--baseline-path` names it, so a hook without the
     flag reads the baseline's nine entries as fresh leaks and blocks every commit.
-    The two invocations are the only two in the repo, and they have to agree on
-    which file is the baseline."""
+    The hook and the `make security` command (where an earlier change moved the CI step) are
+    the only two invocations in the repo, and they have to agree on which file is
+    the baseline."""
     config = _load_yaml(PRE_COMMIT_CONFIG)
     repos = config.get("repos")
     assert isinstance(repos, list), ".pre-commit-config.yaml declares no repos list"
@@ -410,13 +519,13 @@ def test_the_gitleaks_hook_and_the_ci_job_pass_the_same_baseline() -> None:
     hook_named = hook_flag[0].split("=", 1)[1].strip("\"'")
     assert (REPO_ROOT / hook_named).is_file(), f"the hook's baseline {hook_named} does not exist"
 
-    run = str(_step_running(_security_job(), "gitleaks").get("run", ""))
-    job_flag = re.search(r"--baseline-path[=\s]+(\S+)", run)
-    assert job_flag is not None, f"the gitleaks step names no baseline: {run!r}"
+    run = _the_command_running("gitleaks")
+    target_flag = re.search(r"--baseline-path[=\s]+(\S+)", run)
+    assert target_flag is not None, f"the gitleaks command names no baseline: {run!r}"
 
-    job_named = job_flag.group(1).strip("\"'\\").rsplit("/", 1)[-1]
-    assert job_named == hook_named.rsplit("/", 1)[-1], (
-        f"the hook baselines {hook_named} while the job baselines {job_named}"
+    target_named = target_flag.group(1).strip("\"'\\").rsplit("/", 1)[-1]
+    assert target_named == hook_named.rsplit("/", 1)[-1], (
+        f"the hook baselines {hook_named} while make security baselines {target_named}"
     )
 
 
@@ -474,24 +583,24 @@ def test_ci_declares_a_security_job_that_needs_no_other_job() -> None:
 
 
 def test_the_security_job_runs_the_four_planned_scanners() -> None:
-    """Catches a scanner quietly dropped from the job, and equally a fifth
-    audit or scan step added without being planned."""
-    job = _security_job()
-    steps = _steps(job)
-    texts = [_step_text(step) for step in steps]
+    """Catches a scanner quietly dropped from the `make security` target, and
+    equally a fifth audit or scan tool (an `npm audit`, an `osv-scanner`) added to
+    it without being planned. Reads the target since an earlier change moved the scans."""
+    commands = _security_commands()
 
-    for scanner in SCANNERS:
-        assert any(scanner in text for text in texts), f"no step runs {scanner}"
-
-    scanner_steps = [text for text in texts if any(name in text for name in SCANNERS)]
-    assert len(scanner_steps) == len(SCANNERS) == 4
+    present = {
+        name for name, pattern in SCANNERS.items() if any(pattern.search(c) for c in commands)
+    }
+    assert present == set(SCANNERS), f"the target runs {sorted(present)}"
+    assert len(present) == 4
 
     unplanned = [
-        text
-        for text in texts
-        if text not in scanner_steps and ("audit" in text.lower() or "scan" in text.lower())
+        word
+        for command in commands
+        for word in _tool_words(command)
+        if "audit" in word or "scan" in word
     ]
-    assert unplanned == []
+    assert unplanned == [], f"the security target runs an unplanned scanner: {unplanned}"
 
 
 def test_gitleaks_reads_the_full_history() -> None:
@@ -509,8 +618,9 @@ def test_gitleaks_reads_the_full_history() -> None:
 
 def test_pip_audit_is_strict_and_carries_no_ignores_today() -> None:
     """Catches a pip-audit that reports without failing, and catches an advisory
-    silently excused by an `--ignore-vuln` flag nobody argued for."""
-    run = str(_step_running(_security_job(), "pip-audit").get("run", ""))
+    silently excused by an `--ignore-vuln` flag nobody argued for. Reads the
+    `make security` command since an earlier change moved it."""
+    run = _the_command_running("pip-audit")
 
     assert "--strict" in run
     assert "--ignore-vuln" not in run
@@ -518,21 +628,58 @@ def test_pip_audit_is_strict_and_carries_no_ignores_today() -> None:
 
 def test_pnpm_audit_gates_at_high() -> None:
     """Catches a gate loosened to critical-only, or left at the default level where
-    a wall of low advisories makes the step meaningless."""
-    run = str(_step_running(_security_job(), "pnpm audit").get("run", ""))
+    a wall of low advisories makes the step meaningless. Reads the `make security`
+    command since an earlier change moved it."""
+    run = _the_command_running("pnpm audit")
 
     assert "--audit-level high" in run
 
 
 def test_the_trivy_config_scan_gates_at_high_and_critical() -> None:
     """Catches a config scan that reports and exits 0, or one that reads only the
-    main compose file and misses the override example."""
-    text = _step_text(_step_running(_security_job(), "trivy"))
+    main compose file and misses the override example. Every trivy command in
+    `make security` must carry both flags, so loosening one of the two scans is
+    caught too. Reads the target since an earlier change moved the scans."""
+    commands = _commands_running("trivy")
 
-    assert "--severity HIGH,CRITICAL" in text
-    assert "--exit-code 1" in text
-    assert "docker-compose.yml" in text
-    assert "docker-compose.override.example.yml" in text
+    for command in commands:
+        assert "--severity HIGH,CRITICAL" in command, command
+        assert "--exit-code 1" in command, command
+
+    scanned = "\n".join(commands)
+    assert "docker-compose.yml" in scanned
+    assert "docker-compose.override.example.yml" in scanned
+
+
+def test_verify_runs_security() -> None:
+    """Catches a `make security` target that exists but that `make verify` never
+    runs, so a leak or an advisory shows up first in CI instead of on the laptop."""
+    prerequisites, _ = _make_rule("verify")
+
+    assert "security" in prerequisites, f"verify runs {prerequisites}"
+
+
+def test_the_security_job_calls_make_security() -> None:
+    """Catches a CI `security` job that never calls `make security` (or calls it
+    twice), so what CI scans and what the laptop scans are two lists."""
+    calls = [
+        step
+        for step in _steps(_security_job())
+        if str(step.get("run", "")).strip() == "make security"
+    ]
+
+    assert len(calls) == 1, f"expected 1 `make security` step, found {len(calls)}"
+
+
+def test_the_security_job_runs_no_scanner_itself() -> None:
+    """Catches a scan step left in the CI `security` job beside `make security`,
+    which is how a scanner runs in CI and not locally."""
+    texts = [_step_text(step) for step in _steps(_security_job())]
+
+    inline = [
+        (name, text) for text in texts for name, pattern in SCANNERS.items() if pattern.search(text)
+    ]
+    assert inline == [], f"the security job runs scanners itself: {inline}"
 
 
 def test_the_trivyignore_file_exists_and_is_empty_of_entries() -> None:

@@ -44,3 +44,6 @@ backend/evals/reports/
 *.tfstate
 *.tfstate.backup
 crash.log
+
+# Written by `make security` for pip-audit.
+backend/requirements-audit.txt

@@ -1,4 +1,4 @@
-.PHONY: help setup run migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify verify eval infra-check e2e load-smoke images app-up app-down
+.PHONY: help setup run migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify eval infra-check e2e load-smoke images app-up app-down
 # Where `dev/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
@@ -59,7 +59,45 @@ format:     ## Auto-format
 web-verify: ## The web gate: types, lint, unit tests, production build
 	pnpm -C web install --frozen-lockfile && pnpm -C web typecheck && pnpm -C web lint \
 	  && pnpm -C web test && pnpm -C web build
-verify: format lint typecheck test test-policy web-verify   ## The full gate, in order
+# The four security scans CI's `security` job runs, moved here so a leak or an
+# advisory shows on the laptop before a push. Needs Docker and the
+# network. Pinned by infra/tests/test_security_config.py.
+#
+# Secrets over the full history. --baseline-path excuses the nine findings that
+# live only in history: the renamed test constants, the web idempotency_key and
+# .env.example's placeholder, each against a commit no rename can reach. A
+# baseline entry is matched on every field including Commit, so a secret in a
+# NEW commit is never covered by it. Pinned by
+# test_the_gitleaks_step_passes_a_baseline_path.
+# --redact is deliberately absent: it rewrites Match and Secret to "REDACTED",
+# and gitleaks compares both against the baseline, so the two flags cannot both
+# be on. Every baselined value is a fake test fixture or a placeholder, so
+# printing them costs nothing; a real secret would be a NEW finding and must be
+# readable to be fixed.
+#
+# Python advisories. --strict fails on an advisory with a fix available, which
+# is the only kind Dependabot can act on. No --ignore-vuln flag exists today; one
+# is added only with a comment carrying the reason and the date.
+# --no-emit-workspace drops the local editable lines, which pip-audit cannot
+# hash and which are this repo's own code anyway.
+#
+# Compose configuration. Both compose files, because the override example is
+# copied verbatim by anyone running the stack locally. infra/.trivyignore is
+# empty at HEAD.
+security:   ## Secret scan, Python and web advisories, compose config scan (needs Docker)
+	docker run --rm -v "$(CURDIR):/repo" zricethezav/gitleaks:v8.24.3 \
+	  detect --source=/repo --config=/repo/.gitleaks.toml --no-banner \
+	  --baseline-path=/repo/.gitleaks-baseline.json
+	cd backend && uv export --frozen --no-emit-project --no-emit-workspace --format requirements-txt \
+	  --output-file requirements-audit.txt && uvx pip-audit --strict -r requirements-audit.txt
+	cd web && pnpm audit --audit-level high
+	docker run --rm -v "$(CURDIR):/work" -w /work aquasec/trivy:0.58.1 \
+	  config --severity HIGH,CRITICAL --exit-code 1 --ignorefile infra/.trivyignore \
+	  docker-compose.yml
+	docker run --rm -v "$(CURDIR):/work" -w /work aquasec/trivy:0.58.1 \
+	  config --severity HIGH,CRITICAL --exit-code 1 --ignorefile infra/.trivyignore \
+	  docker-compose.override.example.yml
+verify: format lint typecheck test test-policy web-verify security   ## The full gate, in order
 e2e:        ## The five SPEC 16 flows in a real browser (manual; needs docker compose up -d)
 	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright pnpm -C web exec playwright install chromium
 	mkdir -p .cache
