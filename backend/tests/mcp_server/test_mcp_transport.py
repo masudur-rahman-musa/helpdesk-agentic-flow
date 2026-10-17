@@ -199,7 +199,7 @@ def test_stdio_entrypoint_starts_and_lists_the_same_tools(
 
 
 def _make_check(result: bool) -> Any:
-    async def _check() -> bool:
+    async def _check(*_: Any) -> bool:
         return result
 
     return _check

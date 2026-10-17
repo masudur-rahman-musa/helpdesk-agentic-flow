@@ -359,7 +359,7 @@ def test_a_reply_event_encodes_to_token_frames_then_a_reply_frame_then_done() ->
     chunking it, drops the trailing `done` frame, or puts the `reply` frame
     before the token frames.
     """
-    reply_data = {
+    reply_data: dict[str, Any] = {
         "reply": COMPOSED_REPLY,
         "outcome": "done",
         "citations": [],

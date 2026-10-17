@@ -27,11 +27,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
-from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools import dispatch as pipeline
+from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.mcp_server.tools.registry import ToolSpec
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.observability.logging import FORBIDDEN_KEYS, REDACTED, JsonFormatter
@@ -105,10 +104,10 @@ def test_a_record_logged_during_a_dispatched_call_carries_its_tenant_and_session
     logger.setLevel(logging.INFO)
     logger.addHandler(handler)
 
-    async def handler_body(session: AsyncSession, identity: Identity, args: Any) -> Echo:
+    async def handler_body(ctx: ToolContext, args: Any) -> Echo:
         logger.info(
             MARKER,
-            extra={"user_id": str(identity.user_id), "email": PROBE_EMAIL},
+            extra={"user_id": str(ctx.identity.user_id), "email": PROBE_EMAIL},
         )
         return Echo(ok=True)
 

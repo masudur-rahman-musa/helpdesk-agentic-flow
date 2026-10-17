@@ -65,18 +65,16 @@ imported by service modules today and build nothing, which
 
 READINESS_ALLOWLIST: frozenset[str] = frozenset(
     {
-        "backend/helpdesk/agent_api/api/routes/health.py",
-        "backend/helpdesk/mcp_server/api/routes/health.py",
-        "backend/helpdesk/scheduler/api/routes/health.py",
+        "backend/helpdesk/shared/core/health.py",
     }
 )
-"""The only three service modules sanctioned to call `conn.execute(text("SELECT 1"))`.
+"""The one service module sanctioned to call `conn.execute(text("SELECT 1"))`.
 
-Sanctioned because nothing tenant-scoped can leak through them: each takes a
+Sanctioned because nothing tenant-scoped can leak through it: each probe takes a
 RAW engine connection (not an `AsyncSession`), runs the constant liveness probe
 `SELECT 1`, reads no table, and interpolates no value. Every other service file
-must be clean, and the allowlist is pinned to exactly these three by
-`test_only_the_readiness_modules_build_or_run_a_statement`, so a fourth module
+must be clean, and the allowlist is pinned to exactly this one by
+`test_only_the_readiness_modules_build_or_run_a_statement`, so a second module
 taking this path is a failure rather than a silent extension."""
 
 SETUP_GRANT_ALLOWLIST: frozenset[str] = frozenset(
@@ -102,23 +100,21 @@ exact set."""
 
 TEXT_ALLOWLIST: frozenset[str] = frozenset(
     {
-        "backend/helpdesk/agent_api/api/routes/health.py",
-        "backend/helpdesk/mcp_server/api/routes/health.py",
-        "backend/helpdesk/scheduler/api/routes/health.py",
+        "backend/helpdesk/shared/core/health.py",
         "backend/helpdesk/shared/crud/audit.py",
         "backend/helpdesk/shared/crud/idempotency.py",
     }
 )
-"""The five modules in the whole tree that may import `sqlalchemy.text`.
+"""The three modules in the whole tree that may import `sqlalchemy.text`.
 
 `helpdesk/core/db.py`'s `do_orm_execute` guard covers ORM SELECT, UPDATE and
 DELETE and does NOT intercept a `text()` statement, so this is the one path by
-which a read can reach Postgres untenanted. The three health probes run `SELECT 1`
+which a read can reach Postgres untenanted. The shared health probes run `SELECT 1`
 on a raw engine connection; `crud/audit.py` and `crud/idempotency.py` hold the
 only two advisory locks in the system (audit chain serialisation and idempotency
 key claim). Asserted as an EXACT set by
 `test_sqlalchemy_text_is_imported_by_exactly_the_allowlisted_modules`,
-the diff that adds a sixth site extends this list."""
+the diff that adds a fourth site extends this list."""
 
 SCANNED_TREES: tuple[str, ...] = ("backend/helpdesk",)
 """The one tree the `text` allowlist is checked over, tests excluded.
@@ -411,16 +407,14 @@ def test_the_store_allowlist_is_empty() -> None:
 
 _EXPECTED_TEXT_ALLOWLIST: frozenset[str] = frozenset(
     {
-        "backend/helpdesk/agent_api/api/routes/health.py",
-        "backend/helpdesk/mcp_server/api/routes/health.py",
-        "backend/helpdesk/scheduler/api/routes/health.py",
+        "backend/helpdesk/shared/core/health.py",
         "backend/helpdesk/shared/crud/audit.py",
         "backend/helpdesk/shared/crud/idempotency.py",
     }
 )
 """The exact set TEXT_ALLOWLIST must equal.
 
-The three health probes keep their entries because they run a SELECT 1 liveness
+The shared health module keeps its entry because its probes run a SELECT 1 liveness
 check through a raw engine connection. The two new entries replace the old
 guard.py and writer.py paths: the only callers of sqlalchemy.text
 outside the health probes are the two crud helpers."""
@@ -428,12 +422,12 @@ outside the health probes are the two crud helpers."""
 
 def test_text_is_imported_by_exactly_the_probes_and_crud() -> None:
     """Catches an implementation that updates the code but forgets to update
-    TEXT_ALLOWLIST, or that updates the list to the wrong paths: the exact five
+    TEXT_ALLOWLIST, or that updates the list to the wrong paths: the exact three
     entries are pinned so that neither the old paths nor any new unlisted path
     can silently remain.
     """
     assert TEXT_ALLOWLIST == _EXPECTED_TEXT_ALLOWLIST, (
-        f"TEXT_ALLOWLIST must be exactly the three health probes plus "
+        f"TEXT_ALLOWLIST must be exactly the shared health module plus "
         f"crud/audit.py and crud/idempotency.py after plan 70.\n"
         f"  extra entries : {sorted(TEXT_ALLOWLIST - _EXPECTED_TEXT_ALLOWLIST)}\n"
         f"  missing entries: {sorted(_EXPECTED_TEXT_ALLOWLIST - TEXT_ALLOWLIST)}"

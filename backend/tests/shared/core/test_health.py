@@ -405,7 +405,7 @@ def test_ping_gateway_returns_false_rather_than_raising_when_its_client_errors()
     base_url = "http://gateway.test:8080/v1"
 
     async def _run() -> bool:
-        return cast(bool, await ping_gateway(_RaisingHttpx(), base_url))
+        return await ping_gateway(_RaisingHttpx(), base_url)
 
     result = asyncio.run(_run())
 

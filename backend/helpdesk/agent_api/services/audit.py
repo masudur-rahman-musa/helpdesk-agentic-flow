@@ -19,13 +19,18 @@ _AUDIT_VERIFY_PRINCIPALS = frozenset(
 )
 
 
+def _is_permitted(claims: TokenClaims) -> bool:
+    """May this caller check the audit chain? Auditors and admins only."""
+    return any(p in _AUDIT_VERIFY_PRINCIPALS for p in claims.principals)
+
+
 async def verify_chain(claims: TokenClaims, database_url: str) -> VerifyResult:
     """Access check, then chain walk.
 
     Any database, network or id parse failure becomes a typed `INTERNAL`, so no
     untyped 500 leaks out.
     """
-    if not any(p in _AUDIT_VERIFY_PRINCIPALS for p in claims.principals):
+    if not _is_permitted(claims):
         exc = ToolError()
         exc.code = ErrorCode.FORBIDDEN
         raise exc

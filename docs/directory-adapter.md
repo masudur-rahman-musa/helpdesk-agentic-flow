@@ -6,7 +6,7 @@ or LDAP means writing one class, not touching the policy engine, the tools, the
 approval flow or the audit chain.
 
 Both the interface and the worked example live in
-`backend/helpdesk/shared/services/access/directory.py`.
+`backend/helpdesk/shared/access/directory.py`.
 
 ## The interface
 

@@ -36,20 +36,16 @@ the gateway or the MCP server.
 
 import asyncio
 import uuid
-from collections.abc import Awaitable, Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
 import pytest
-from pydantic import BaseModel, ValidationError
-from redis.asyncio import Redis
-from sqlalchemy import text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from helpdesk.agent_api.agent.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.api.router import app
 from helpdesk.agent_api.api.routes import chat as chat_routes
@@ -69,10 +65,11 @@ from helpdesk.agent_api.services.ratelimit import (
     check_rate_limit,
 )
 from helpdesk.shared.auth.jwt import issue_token
-from helpdesk.shared.core.config import Settings, load_settings
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.config import Settings
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.models import Base, Department, Role, System, Tenant, User
+from helpdesk.shared.models import Department, Role, System, Tenant, User
+from tests.agent_api.conftest import AgentDb
 
 # --- the one complete map -----------------------------------------------------
 
@@ -267,30 +264,6 @@ GATEWAY_API_KEYS = ",".join(f"{slug}:{key}" for slug, key in CHAT_API_KEYS.items
 
 MESSAGE = "Please give me read access to fake payroll."
 
-TEST_REDIS_DB = 15
-_FALLBACK_TEST_REDIS_DB = 14
-_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
-
-_UNREACHABLE_MSG = (
-    "Postgres is unreachable at the configured DATABASE_URL.\n"
-    "Plan 65a error-map chat cases require the compose stack: run `docker compose up -d` first.\n"
-    "Original error: {error!r}"
-)
-_REDIS_UNREACHABLE_MSG = (
-    "Redis is unreachable at the configured REDIS_URL.\n"
-    "Plan 65a error-map chat cases require the compose stack: run `docker compose up -d` first.\n"
-    "Original error: {error!r}"
-)
-
-
-async def _admin_execute(admin_url: str, sql: str) -> None:
-    engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
-    try:
-        async with engine.connect() as conn:
-            await conn.execute(text(sql))
-    finally:
-        await engine.dispose()
-
 
 @dataclass(frozen=True)
 class SeededTenant:
@@ -364,96 +337,14 @@ async def _seed(factory: async_sessionmaker[AsyncSession], slug: str) -> SeededT
         )
 
 
-def _redis_url_for_db(url: str, index: int) -> str:
-    from urllib.parse import urlsplit, urlunsplit
-
-    parts = urlsplit(url)
-    return urlunsplit((parts.scheme, parts.netloc, f"/{index}", parts.query, parts.fragment))
-
-
-def _redis_db_index(url: str) -> int:
-    from urllib.parse import urlsplit
-
-    path = urlsplit(url).path.lstrip("/")
-    return int(path) if path.isdigit() else 0
-
-
-async def _ping_redis(url: str) -> None:
-    client: Redis = Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
-    try:
-        await client.ping()
-    finally:
-        await client.aclose()
-
-
-def _test_redis_url() -> str:
-    from urllib.parse import urlsplit
-
-    settings = load_settings()
-    host = urlsplit(settings.redis_url).hostname or ""
-    if host not in _LOCAL_HOSTS:
-        pytest.fail(
-            f"REDIS_URL points at {host!r}, not this machine. Point it at the compose stack.",
-            pytrace=False,
-        )
-    configured = _redis_db_index(settings.redis_url)
-    index = TEST_REDIS_DB if configured != TEST_REDIS_DB else _FALLBACK_TEST_REDIS_DB
-    url = _redis_url_for_db(settings.redis_url, index)
-    try:
-        asyncio.run(_ping_redis(url))
-    except Exception as exc:
-        pytest.fail(_REDIS_UNREACHABLE_MSG.format(error=exc), pytrace=False)
-    return url
-
-
 @pytest.fixture(scope="session")
-def chat_db() -> Iterator[ChatEnv]:
-    """One database, its schema, the checkpoint tables and one tenant, once.
+def chat_db(agent_db: AgentDb, redis_base_url: str) -> ChatEnv:
+    """The shared agent database with this suite's one tenant seeded in it.
 
-    A throwaway database rather than the compose one (the checkpointer's reason): the
-    LangGraph checkpoint tables are outside `Base.metadata` on purpose. Nothing
-    per-case is built here; a case's namespace is its own
-    session id.
+    A case's namespace is its own session id.
     """
-    try:
-        settings = load_settings()
-    except ValidationError as exc:
-        pytest.fail(
-            f"DATABASE_URL is not configured (env or .env). Copy .env.example to .env.\n{exc}",
-            pytrace=False,
-        )
-    admin_url = settings.database_url
-    try:
-        asyncio.run(_admin_execute(admin_url, "SELECT 1"))
-    except Exception as exc:
-        pytest.fail(_UNREACHABLE_MSG.format(error=exc), pytrace=False)
-
-    redis_url = _test_redis_url()
-    name = f"helpdesk_errormap_test_{uuid.uuid4().hex[:12]}"
-    asyncio.run(_admin_execute(admin_url, f'CREATE DATABASE "{name}"'))
-    url = make_url(admin_url).set(database=name).render_as_string(hide_password=False)
-
-    async def prepare() -> ChatEnv:
-        engine = create_engine(url)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            factory = create_session_factory(engine)
-            tenant_a = await _seed(factory, TENANT_A)
-        finally:
-            await engine.dispose()
-        return ChatEnv(database_url=url, redis_url=redis_url, tenant_a=tenant_a)
-
-    async def create_checkpoint_tables(dsn: str) -> None:
-        pool = build_pool(dsn)
-        async with pool:
-            await setup_checkpointer(pool)
-
-    env = asyncio.run(prepare())
-    asyncio.run(create_checkpoint_tables(psycopg_dsn(url)))
-    yield env
-    assert name.startswith("helpdesk_errormap_test_")
-    asyncio.run(_admin_execute(admin_url, f'DROP DATABASE "{name}" WITH (FORCE)'))
+    tenant_a = asyncio.run(_seed(agent_db.factory, TENANT_A))
+    return ChatEnv(database_url=agent_db.url, redis_url=redis_base_url, tenant_a=tenant_a)
 
 
 @pytest.fixture

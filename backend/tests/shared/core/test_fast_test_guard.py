@@ -146,14 +146,14 @@ EXEMPT_BUILDERS: frozenset[str] = frozenset(
         "backend/tests/shared/models/test_notification_models.py",
         "backend/tests/shared/models/test_policy_models.py",
         # shared access lifecycle suites still on their own engine (57a deferred).
-        "backend/tests/shared/services/access/test_access_approvals.py",
-        "backend/tests/shared/services/access/test_access_lifecycle.py",
-        "backend/tests/shared/services/access/test_access_offboard.py",
-        "backend/tests/shared/services/access/test_access_reviews.py",
-        "backend/tests/shared/services/access/test_access_snapshot.py",
-        "backend/tests/shared/services/access/test_access_transfer.py",
+        "backend/tests/shared/access/test_access_approvals.py",
+        "backend/tests/shared/access/test_access_lifecycle.py",
+        "backend/tests/shared/access/test_access_offboard.py",
+        "backend/tests/shared/access/test_access_reviews.py",
+        "backend/tests/shared/access/test_access_snapshot.py",
+        "backend/tests/shared/access/test_access_transfer.py",
         # audit role test needs its own restricted-role database connection.
-        "backend/tests/shared/services/audit/test_audit_db_role.py",
+        "backend/tests/shared/audit/test_audit_db_role.py",
         # one of the two Redis-client tests: builds its own Redis.
         "backend/tests/shared/services/killswitch/test_killswitch.py",
         # shared access and audit-chain suites still on their own engine (57a deferred).

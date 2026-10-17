@@ -537,17 +537,16 @@ def test_a_denied_caller_is_refused_before_any_switch_is_read(
     codes are asserted, one positively and one negatively, because an
     `INTERNAL` would otherwise read as a plausible refusal.
     """
-    from helpdesk.mcp_server.tools import killswitch
+    from helpdesk.mcp_server.tools.context import ToolClients
 
-    def _closed(settings: Any) -> Any:
+    def _closed(self: ToolClients) -> Any:
         return Redis.from_url(CLOSED_REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
 
     # `raising=True` (the default) is deliberate: the handler reaches Redis
-    # through the accessor `mcp_server.tools.killswitch` already imports from
-    # `helpdesk.shared.core.redis`, and an implementation that reached
-    # it some other way makes this case fail loudly here rather than pass
-    # while staging nothing.
-    monkeypatch.setattr(killswitch, "_redis", _closed)
+    # through `ctx.clients.redis()`, while the pipeline's own check calls
+    # `get_redis` directly. A handler that reached Redis some other way makes
+    # this case fail loudly here rather than pass while staging nothing.
+    monkeypatch.setattr(ToolClients, "redis", _closed)
 
     result = call_tool(
         bearer(token_for(mcp_env.tenant_a, principals=("auditor",))),

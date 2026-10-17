@@ -47,7 +47,7 @@ from helpdesk.agent_api.agent.graph import TurnDeps
 from helpdesk.agent_api.agent.nodes.load_session import load_session as real_load_session
 from helpdesk.agent_api.agent.state import TurnState
 from helpdesk.agent_api.api.router import app
-from helpdesk.agent_api.api.routes.admin import audit as admin_routes
+from helpdesk.agent_api.services import audit as services_audit
 from helpdesk.agent_api.services.tracing import configure_tracing
 from helpdesk.shared.auth.jwt import TokenClaims, issue_token
 from helpdesk.shared.core.observability.context import bind_context
@@ -129,7 +129,7 @@ def test_a_record_logged_during_a_request_carries_that_call_s_tenant_and_session
         logger.info(MARKER, extra={"user_id": str(user_id), "email": PROBE_EMAIL})
         return False
 
-    monkeypatch.setattr(admin_routes, "_is_permitted", _logging_is_permitted)
+    monkeypatch.setattr(services_audit, "_is_permitted", _logging_is_permitted)
 
     try:
         response = _get("/admin/audit/verify", {"Authorization": f"Bearer {token}"})

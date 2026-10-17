@@ -88,7 +88,7 @@ Seven claims, each linked to the test that fails if it stops being true.
 3. **Mandatory expiry.** Access is granted for a bounded period, capped by the access class, and the cap is applied at grant time rather than promised. Proof: [test_the_grant_expires_exactly_one_class_cap_after_granted_at](backend/tests/shared/test_access_execute.py)
 4. **Segregation of duties blocks, and cites.** A conflicting combination is refused with the identifier of the rule that refused it, not with a generic denial. Proof: [test_classification_accepts_a_sod_conflict_reason_with_an_id](backend/tests/shared/test_policy_decision.py)
 5. **A cited answer or none.** Below the retrieval threshold the system refuses and offers a ticket instead of answering from the model's memory. Proof: [test_a_best_cosine_just_below_the_threshold_refuses](backend/tests/mcp_server/services/rag/test_rag_refusal.py)
-6. **Hash-chained audit.** Each event carries the hash of the one before it, so an edited, deleted or relabelled row breaks verification. Proof: [test_relabelling_a_chain_onto_another_tenant_is_detected](backend/tests/shared/services/audit/test_audit_writer.py)
+6. **Hash-chained audit.** Each event carries the hash of the one before it, so an edited, deleted or relabelled row breaks verification. Proof: [test_relabelling_a_chain_onto_another_tenant_is_detected](backend/tests/shared/audit/test_audit_writer.py)
 7. **Idempotent retry.** A repeated call with the same key returns the first result and runs no second effect, so a timeout is safe to retry. Proof: [test_replay_returns_the_stored_response_without_running_the_effect](backend/tests/mcp_server/services/idempotency/test_idempotency_guard.py)
 
 A guarantee whose link rots fails the suite: the README is parsed by
