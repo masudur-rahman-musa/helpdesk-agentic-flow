@@ -24,12 +24,12 @@ it, and no service builds one.
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.services.rag.chunking import Chunk
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.rag import fetch_chunk_ids_for_document
 from helpdesk.shared.models import PolicyChunk
 
 
@@ -109,10 +109,8 @@ async def replace_chunks(
         raise ChunkPointMismatchError(f"{len(chunks)} chunks were given {len(point_ids)} point ids")
 
     repository = Repository(session, PolicyChunk)
-    existing = await session.execute(
-        select(PolicyChunk.id).where(PolicyChunk.document_id == document_id)
-    )
-    for row_id in existing.scalars().all():
+    existing_ids = await fetch_chunk_ids_for_document(session, document_id)
+    for row_id in existing_ids:
         await repository.delete(row_id)
 
     await write_chunks(session, document_id=document_id, chunks=chunks, point_ids=point_ids)

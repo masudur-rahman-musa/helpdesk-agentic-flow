@@ -1,4 +1,4 @@
-"""Access-request reads that carry a request's context.
+"""Access-request reads: simple and context-enriched.
 
 The widened twin of `helpdesk.access.requests`: the same request rows, with
 the role, system, target and any produced grant named in one statement so a
@@ -13,7 +13,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.models import AccessRequest, Grant, Role, System, User
+from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System, User
 
 
 @dataclass(frozen=True)
@@ -105,3 +105,71 @@ async def list_requests_with_context_for_requester(
         )
         for request, role, system, target, grant in result.all()
     ]
+
+
+async def fetch_requests_for_requester(
+    session: AsyncSession,
+    requester_user_id: uuid.UUID,
+    status: str | None,
+) -> list[AccessRequest]:
+    """The bound tenant's requests filed BY this user, oldest first.
+
+    Filtered by requester, not target: `list_my_requests` answers "what did I
+    ask for", and an on-behalf request belongs to the manager who filed it.
+    `status` is the already-validated `RequestStatus` value or None.  The
+    order is `created_at` then id for a stable tie.  Pinned by
+    `test_mcp_access_read_tools.py::test_list_my_requests_comes_back_oldest_first`.
+    """
+    statement = select(AccessRequest).where(
+        AccessRequest.requester_user_id == requester_user_id
+    )
+    if status is not None:
+        statement = statement.where(AccessRequest.status == status)
+    result = await session.execute(
+        statement.order_by(AccessRequest.created_at, AccessRequest.id)
+    )
+    return list(result.scalars().all())
+
+
+async def fetch_approved_role_ids_for_target(
+    session: AsyncSession, target_user_id: uuid.UUID
+) -> frozenset[uuid.UUID]:
+    """Role ids approved for this user but not yet executed (the design).
+
+    Exactly the rows whose status is `approved`: an executed request shows up
+    as a grant, and every other status never conferred anything.  Pinned by
+    `test_access_execute.py::test_an_approved_role_is_counted_in_the_held_set`.
+    """
+    result = await session.execute(
+        select(AccessRequest).where(
+            AccessRequest.target_user_id == target_user_id,
+            AccessRequest.status == RequestStatus.APPROVED.value,
+        )
+    )
+    return frozenset(request.role_id for request in result.scalars())
+
+
+async def lock_open_requests_for_target(
+    session: AsyncSession, target_user_id: uuid.UUID
+) -> list[AccessRequest]:
+    """The bound tenant's still-open requests TARGETING this user, locked.
+
+    "Open" is `pending` or `approved` and nothing else.
+    `FOR UPDATE` through the ORM so the tenant guard still injects its filter
+    and the rows are held until the caller's transaction ends.  Ordered by
+    `created_at` then id so two runs over the same rows write their closure
+    events in the same order.  Pinned by
+    `test_mcp_offboard_user.py::test_two_callers_racing_the_same_offboard_leave_one_departure`.
+    """
+    result = await session.execute(
+        select(AccessRequest)
+        .where(
+            AccessRequest.target_user_id == target_user_id,
+            AccessRequest.status.in_(
+                (RequestStatus.PENDING.value, RequestStatus.APPROVED.value)
+            ),
+        )
+        .order_by(AccessRequest.created_at, AccessRequest.id)
+        .with_for_update()
+    )
+    return list(result.scalars().all())

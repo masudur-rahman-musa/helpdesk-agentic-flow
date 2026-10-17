@@ -11,12 +11,16 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.access_requests import (
+    fetch_approved_role_ids_for_target,
+    fetch_requests_for_requester,
+    lock_open_requests_for_target as _crud_lock_open_requests,
+)
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from helpdesk.shared.policy.types import Classification, RequiredApprover
 from helpdesk.shared.audit import AuditEventInput, append_event
@@ -151,11 +155,7 @@ async def list_requests_for_requester(
     sees free text. The order (`created_at`, then id for a stable tie) is a
     reading convenience, not a promise callers may rely on.
     """
-    statement = select(AccessRequest).where(AccessRequest.requester_user_id == requester_user_id)
-    if status is not None:
-        statement = statement.where(AccessRequest.status == status.value)
-    result = await session.execute(statement.order_by(AccessRequest.created_at, AccessRequest.id))
-    return result.scalars().all()
+    return await fetch_requests_for_requester(session, requester_user_id, status)
 
 
 async def list_approved_role_ids_for_target(
@@ -168,13 +168,7 @@ async def list_approved_role_ids_for_target(
     The status constant is read off `RequestStatus`, so a renamed member
     fails loudly here rather than silently emptying the set.
     """
-    result = await session.execute(
-        select(AccessRequest).where(
-            AccessRequest.target_user_id == target_user_id,
-            AccessRequest.status == RequestStatus.APPROVED.value,
-        )
-    )
-    return frozenset(request.role_id for request in result.scalars())
+    return await fetch_approved_role_ids_for_target(session, target_user_id)
 
 
 async def lock_open_requests_for_target(
@@ -206,16 +200,7 @@ async def lock_open_requests_for_target(
     Ordered by `created_at` then id, so two runs over the same rows write
     their closure events in the same order.
     """
-    result = await session.execute(
-        select(AccessRequest)
-        .where(
-            AccessRequest.target_user_id == target_user_id,
-            AccessRequest.status.in_((RequestStatus.PENDING.value, RequestStatus.APPROVED.value)),
-        )
-        .order_by(AccessRequest.created_at, AccessRequest.id)
-        .with_for_update()
-    )
-    return result.scalars().all()
+    return await _crud_lock_open_requests(session, target_user_id)
 
 
 async def append_request_rejected(

@@ -20,10 +20,12 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.shared.core.db import bound_tenant_id
+from helpdesk.shared.crud.notifications import (
+    count_unread_notifications,
+    fetch_notification_page,
+)
 from helpdesk.shared.models.notification import Notification
 
 
@@ -86,21 +88,8 @@ async def list_for_user(
     `::test_list_for_user_answers_nothing_at_all_for_another_tenants_user`,
     which asserts the COUNT as well as the row set over a real foreign row.
     """
-    rows = select(Notification).where(Notification.user_id == user_id)
-    if unread_only:
-        rows = rows.where(Notification.read_at.is_(None))
-    page = await session.execute(
-        rows.order_by(Notification.created_at.desc(), Notification.id.desc()).limit(limit)
+    notifications = await fetch_notification_page(
+        session, user_id=user_id, unread_only=unread_only, limit=limit
     )
-
-    unread = await session.execute(
-        select(func.count(Notification.id)).where(
-            Notification.tenant_id == bound_tenant_id(session),
-            Notification.user_id == user_id,
-            Notification.read_at.is_(None),
-        )
-    )
-    return NotificationPage(
-        notifications=list(page.scalars().all()),
-        unread_count=int(unread.scalar_one()),
-    )
+    unread_count = await count_unread_notifications(session, user_id)
+    return NotificationPage(notifications=notifications, unread_count=unread_count)

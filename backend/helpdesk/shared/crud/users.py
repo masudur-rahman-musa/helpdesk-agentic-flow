@@ -1,4 +1,4 @@
-"""Tenant-scoped user reads and the directory locks.
+"""Tenant-scoped user reads, directory locks and the due-user sweep read.
 
 Every read here takes a `tenant_session`, so the session guard injects the
 tenant filter: a matching row in another tenant behaves as not-found, and an
@@ -8,6 +8,7 @@ write over a person and the scope they sit in.
 """
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,3 +94,87 @@ async def lock_system(session: AsyncSession, system_id: uuid.UUID) -> System | N
     """
     result = await session.execute(select(System).where(System.id == system_id).with_for_update())
     return result.scalars().one_or_none()
+
+
+async def lock_due_users(session: AsyncSession, now: datetime) -> list[User]:
+    """The bound tenant's overdue people, locked for this transaction.
+
+    Three conjuncts: `status = 'active'` (so somebody offboarded by hand last
+    month is not swept again), `end_date IS NOT NULL` (so a permanent employee
+    is never due) and the strict boundary itself (`end_date < now.date()`).
+
+    `now.date()` rather than `now`: `end_date` is a DATE, and comparing it to a
+    timestamp would widen the stored day to midnight and skip the person whose
+    last day was yesterday until the day after.
+
+    `FOR UPDATE` through the ORM so the tenant guard still injects its filter and
+    the rows are held to the end of the caller's transaction.  Pinned by
+    `test_access_leavers.py::test_a_user_whose_end_date_was_yesterday_is_swept` and
+    `::test_a_user_whose_end_date_is_today_is_untouched`.
+
+    Ordered by end date then id so two runs over the same rows write their events
+    in the same order.
+    """
+    from helpdesk.shared.policy.types import TargetStatus
+
+    result = await session.execute(
+        select(User)
+        .where(
+            User.status == TargetStatus.ACTIVE.value,
+            User.end_date.is_not(None),
+            User.end_date < now.date(),
+        )
+        .order_by(User.end_date, User.id)
+        .with_for_update()
+    )
+    return list(result.scalars().all())
+
+
+async def fetch_all_departments(session: AsyncSession) -> list[Department]:
+    """Every department of the bound tenant, ordered by name then id.
+
+    The order is alphabetical so two runs over the same tenant agree on the
+    sequence of reviews opened, making the audit log reproducible on a re-run.
+    Used by the quarterly review generator.
+    """
+    result = await session.execute(select(Department).order_by(Department.name, Department.id))
+    return list(result.scalars().all())
+
+
+async def fetch_systems_by_sensitivity(
+    session: AsyncSession, sensitivities: frozenset[str]
+) -> list[System]:
+    """The bound tenant's systems whose sensitivity is in `sensitivities`, ordered.
+
+    The caller passes `GENERATED_SYSTEM_SENSITIVITIES` so the filter lives in
+    the scheduler module and this function stays generic. Ordered by name then
+    id for the same reason as `fetch_all_departments`: reproducible event order.
+    """
+    result = await session.execute(
+        select(System)
+        .where(System.sensitivity.in_(sorted(sensitivities)))
+        .order_by(System.name, System.id)
+    )
+    return list(result.scalars().all())
+
+
+async def fetch_active_it_admins(session: AsyncSession) -> list[User]:
+    """Every active `it_admin` of the bound tenant, ordered by email then id.
+
+    Used by the review escalation path.  `status = 'active'` excludes leavers
+    who still carry the principal on their row.  The principal is matched inside
+    the array with `@>`, so a person holding `["employee", "it_admin"]` is
+    included.  Ordered so two runs over the same tenant agree on the list.
+    """
+    from helpdesk.shared.auth.rbac import Principal
+    from helpdesk.shared.policy.types import TargetStatus
+
+    result = await session.execute(
+        select(User)
+        .where(
+            User.status == TargetStatus.ACTIVE.value,
+            User.principals.contains([Principal.IT_ADMIN.value]),
+        )
+        .order_by(User.email, User.id)
+    )
+    return list(result.scalars().all())

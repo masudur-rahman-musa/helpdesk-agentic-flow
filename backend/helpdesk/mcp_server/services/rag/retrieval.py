@@ -55,7 +55,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from qdrant_client import AsyncQdrantClient, models
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.services.rag.embedding import Embedder
@@ -66,7 +65,7 @@ from helpdesk.mcp_server.services.rag.vectors import (
     collection_name,
 )
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.models import PolicyDocument
+from helpdesk.shared.crud.rag import fetch_document_titles
 from helpdesk.shared.services.policy_docs.naming import check_query, check_top_k
 
 RRF_K = 60
@@ -314,7 +313,7 @@ async def resolve_citations(session: AsyncSession, hits: Sequence[SearchHit]) ->
     could not resolve either — but isolation is the collection name (SPEC
     §12.4), and this read is not what enforces it.
     """
-    titles = await _titles_for(session, {hit.document_id for hit in hits})
+    titles = await fetch_document_titles(session, {hit.document_id for hit in hits})
     citations = []
     for hit in hits:
         title = titles.get(hit.document_id)
@@ -399,26 +398,6 @@ def _hits(points: Iterable[Any], *, dense: bool) -> list[SearchHit]:
         )
     return hits
 
-
-async def _titles_for(session: AsyncSession, document_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
-    """The title of each named document, in ONE statement for the whole page.
-
-    A per-hit read returns exactly the same citations, so the difference is
-    only visible as a statement count; that is what
-    `test_rag_citations.py::test_a_page_over_three_documents_issues_one_title_query`
-    asserts. An empty page issues no statement at all.
-
-    This is a `select` against this package's own table, which is where
-    `store.py` and `chunks.py` put theirs for the same reason: the package
-    that owns a table owns the statements against it, and no service builds
-    one. The session guard adds the tenant filter.
-    """
-    if not document_ids:
-        return {}
-    result = await session.execute(
-        select(PolicyDocument.id, PolicyDocument.title).where(PolicyDocument.id.in_(document_ids))
-    )
-    return {row.id: row.title for row in result}
 
 
 def _replace_scores(hit: SearchHit, *, score: float, dense_score: float | None) -> SearchHit:

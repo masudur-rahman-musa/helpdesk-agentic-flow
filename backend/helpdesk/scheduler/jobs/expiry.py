@@ -38,18 +38,16 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 
-from sqlalchemy import String, cast, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.observability.metrics import record_expiries
 from helpdesk.shared.crud import Repository
-from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS
+from helpdesk.shared.crud.grants import fetch_grants_to_warn, lock_lapsed_grants
 from helpdesk.shared.crud.users import find_user_by_id
-from helpdesk.shared.models import Department, Grant, Notification, Role, User
+from helpdesk.shared.models import Department, Grant, Role, User
 from helpdesk.shared.models.notification import NotificationKind
 from helpdesk.shared.notifications.notify import notify
-from helpdesk.shared.access.lifecycle import LEAVER_STATUS
 from helpdesk.shared.audit import AuditEventInput, append_event
 
 GRANT_EXPIRED_EVENT_TYPE = "grant.expired"
@@ -128,18 +126,7 @@ async def _lock_lapsed_grants(session: AsyncSession, now: datetime) -> Sequence[
     Ordered by expiry then id so two runs over the same rows write their
     events in the same order.
     """
-    result = await session.execute(
-        select(Grant)
-        .where(
-            Grant.status == ACTIVE_GRANT_STATUS,
-            Grant.revoked_at.is_(None),
-            Grant.expires_at.is_not(None),
-            Grant.expires_at <= now,
-        )
-        .order_by(Grant.expires_at, Grant.id)
-        .with_for_update()
-    )
-    return result.scalars().all()
+    return await lock_lapsed_grants(session, now)
 
 
 async def _department_manager(session: AsyncSession, holder: User) -> uuid.UUID | None:
@@ -280,25 +267,7 @@ async def _grants_to_warn(session: AsyncSession, now: datetime) -> Sequence[Gran
     order.
     """
     horizon = now + timedelta(days=EXPIRY_WARNING_HORIZON_DAYS)
-    already_warned = select(Notification.id).where(
-        Notification.kind == NotificationKind.GRANT_EXPIRING.value,
-        Notification.subject_id == cast(Grant.id, String),
-    )
-    result = await session.execute(
-        select(Grant)
-        .join(User, User.id == Grant.user_id)
-        .where(
-            Grant.status == ACTIVE_GRANT_STATUS,
-            Grant.revoked_at.is_(None),
-            Grant.expires_at.is_not(None),
-            Grant.expires_at > now,
-            Grant.expires_at <= horizon,
-            User.status != LEAVER_STATUS,
-            ~exists(already_warned),
-        )
-        .order_by(Grant.expires_at, Grant.id)
-    )
-    return result.scalars().all()
+    return await fetch_grants_to_warn(session, now, horizon)
 
 
 async def warn_expiring_grants(session: AsyncSession, *, now: datetime) -> list[Grant]:

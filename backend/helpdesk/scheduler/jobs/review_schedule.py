@@ -34,16 +34,19 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.access.revoke import SYSTEM_ACTOR_KIND
-from helpdesk.shared.auth.rbac import Principal
 from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import AccessReview, Department, ReviewStatus, System, User
+from helpdesk.shared.crud.reviews import fetch_overdue_reviews, fetch_reviewed_scopes_for_period
+from helpdesk.shared.crud.users import (
+    fetch_active_it_admins,
+    fetch_all_departments,
+    fetch_systems_by_sensitivity,
+)
+from helpdesk.shared.models import AccessReview, Department, System, User
 from helpdesk.shared.models.notification import NotificationKind
 from helpdesk.shared.notifications.notify import notify
-from helpdesk.shared.policy.types import TargetStatus
 from helpdesk.shared.access.directory import DirectoryReader
 from helpdesk.shared.access.reviews import (
     ReviewAlreadyOpenError,
@@ -114,14 +117,6 @@ A different sentence from the reminder, because the two land in different
 people's lists and an `it_admin` reading their bell has to be able to tell a
 review they are being told about from one they own."""
 
-_ACTIVE_USER_STATUS = TargetStatus.ACTIVE.value
-"""Read off `TargetStatus`, like `leavers._ACTIVE_USER_STATUS`, so the status
-this job escalates to and the one an offboard writes cannot drift apart."""
-
-_IT_ADMIN = Principal.IT_ADMIN.value
-"""the design's escalation audience, read off the RBAC principal rather than
-spelled again, so a renamed principal moves both."""
-
 
 def _when(moment: datetime) -> str:
     """The due instant as a person reads it, in UTC. `expiry.py`'s format."""
@@ -136,8 +131,7 @@ async def _departments_to_review(session: AsyncSession) -> Sequence[Department]:
     decided in `generate_reviews` rather than here, so the two scope reads
     apply decision C in one place.
     """
-    result = await session.execute(select(Department).order_by(Department.name, Department.id))
-    return result.scalars().all()
+    return await fetch_all_departments(session)
 
 
 async def _systems_to_review(session: AsyncSession) -> Sequence[System]:
@@ -147,12 +141,7 @@ async def _systems_to_review(session: AsyncSession) -> Sequence[System]:
     than in Python, so a tenant with a thousand low-sensitivity systems does
     not read them all to discard them.
     """
-    result = await session.execute(
-        select(System)
-        .where(System.sensitivity.in_(sorted(GENERATED_SYSTEM_SENSITIVITIES)))
-        .order_by(System.name, System.id)
-    )
-    return result.scalars().all()
+    return await fetch_systems_by_sensitivity(session, GENERATED_SYSTEM_SENSITIVITIES)
 
 
 async def _scopes_already_reviewed(
@@ -173,8 +162,7 @@ async def _scopes_already_reviewed(
     completed review of LAST quarter blocks nothing — `reviews._OPEN_STATUSES`
     carries the same reasoning for the engine's own refusal.
     """
-    result = await session.execute(select(AccessReview).where(AccessReview.period == period))
-    return {(review.department_id, review.system_id) for review in result.scalars().all()}
+    return await fetch_reviewed_scopes_for_period(session, period)
 
 
 async def generate_reviews(
@@ -314,16 +302,7 @@ async def _overdue_reviews(session: AsyncSession, now: datetime) -> Sequence[Acc
     cadence gate IS the dedupe (decision E), and two runners overlapping a day
     cost a duplicate bell entry and nothing else (plan §5).
     """
-    result = await session.execute(
-        select(AccessReview)
-        .where(
-            AccessReview.status == ReviewStatus.OPEN.value,
-            AccessReview.due_at.is_not(None),
-            AccessReview.due_at < now,
-        )
-        .order_by(AccessReview.due_at, AccessReview.id)
-    )
-    return result.scalars().all()
+    return await fetch_overdue_reviews(session, now)
 
 
 async def _active_it_admins(session: AsyncSession) -> Sequence[User]:
@@ -337,15 +316,7 @@ async def _active_it_admins(session: AsyncSession) -> Sequence[User]:
     (`::test_a_review_exactly_fourteen_days_overdue_escalates_to_every_active_it_admin`
     plants exactly that pair).
     """
-    result = await session.execute(
-        select(User)
-        .where(
-            User.status == _ACTIVE_USER_STATUS,
-            User.principals.contains([_IT_ADMIN]),
-        )
-        .order_by(User.email, User.id)
-    )
-    return result.scalars().all()
+    return await fetch_active_it_admins(session)
 
 
 async def _scope_name(session: AsyncSession, review: AccessReview) -> str:

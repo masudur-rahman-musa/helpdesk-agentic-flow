@@ -46,13 +46,16 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import ColumnElement, or_, select, true
+from sqlalchemy import ColumnElement, true
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 
 from helpdesk.shared.auth.rbac import Principal, Scope
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.models import AccessRequest, RequestStatus, Role, System, User
+from helpdesk.shared.crud.approvals import (
+    fetch_pending_with_context,
+    lock_request as _crud_lock_request,
+)
+from helpdesk.shared.models import AccessRequest, System, User
 from helpdesk.shared.policy.types import ApproverSlot
 from helpdesk.shared.access.directory import DirectoryProvider
 
@@ -276,10 +279,7 @@ async def lock_request(session: AsyncSession, request_id: uuid.UUID) -> AccessRe
     (decision F): the second waits, then re-reads a row that is no longer
     `pending`.
     """
-    result = await session.execute(
-        select(AccessRequest).where(AccessRequest.id == request_id).with_for_update()
-    )
-    return result.scalars().one_or_none()
+    return await _crud_lock_request(session, request_id)
 
 
 def request_in_scope(
@@ -448,19 +448,9 @@ async def list_pending_with_context_for_approver(
     if not predicates:
         return []
 
-    requester = aliased(User)
-    result = await session.execute(
-        select(AccessRequest, Role, System, User, requester)
-        .join(User, User.id == AccessRequest.target_user_id)
-        .join(Role, Role.id == AccessRequest.role_id)
-        .join(System, System.id == Role.system_id)
-        .join(requester, requester.id == AccessRequest.requester_user_id)
-        .where(AccessRequest.status == RequestStatus.PENDING.value, or_(*predicates))
-        .order_by(AccessRequest.created_at, AccessRequest.id)
-    )
-
+    rows = await fetch_pending_with_context(session, predicates)
     queue: list[PendingWithContext] = []
-    for request, role, system, target, requester_row in result.all():
+    for request, role, system, target, requester_row in rows:
         if not request_in_scope(
             scopes,
             approver_user_id=approver_user_id,

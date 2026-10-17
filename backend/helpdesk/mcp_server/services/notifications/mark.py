@@ -9,10 +9,10 @@ the tool, so the scheduler or a later route writes through the same branch.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.errors import NotFoundError
+from helpdesk.shared.crud.notifications import fetch_notification_for_user
 from helpdesk.shared.models.notification import Notification
 
 
@@ -51,12 +51,9 @@ async def mark_read(
     `::test_mark_read_refuses_a_colleagues_notification_and_stamps_nothing` and
     `::test_mark_read_refuses_an_unknown_notification_id_with_not_found`.
     """
-    result = await session.execute(
-        select(Notification).where(
-            Notification.id == notification_id, Notification.user_id == user_id
-        )
+    row = await fetch_notification_for_user(
+        session, notification_id=notification_id, user_id=user_id
     )
-    row = result.scalars().one_or_none()
     if row is None:
         raise NotFoundError(f"no notification {notification_id} for this user")
     if row.read_at is not None:

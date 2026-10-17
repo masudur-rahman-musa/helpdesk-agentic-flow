@@ -21,13 +21,16 @@ import uuid
 from datetime import date, datetime
 from typing import Protocol
 
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.directory import (
+    fetch_live_role_ids_for_user,
+    fetch_role_templates_for_department,
+)
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
 from helpdesk.shared.crud.users import find_user_by_id
-from helpdesk.shared.models import Grant, RoleTemplate, User
+from helpdesk.shared.models import Grant, User
 
 
 class DirectoryReader(Protocol):
@@ -151,10 +154,7 @@ class SimulatedDirectory:
         user = await self.lookup_user(user_id)
         if user is None or user.department_id is None:
             return frozenset()
-        result = await self._session.execute(
-            select(RoleTemplate).where(RoleTemplate.department_id == user.department_id)
-        )
-        return frozenset(template.role_id for template in result.scalars())
+        return await fetch_role_templates_for_department(self._session, user.department_id)
 
     async def list_account_role_ids(
         self, user_id: uuid.UUID, now: datetime
@@ -163,15 +163,7 @@ class SimulatedDirectory:
         status `active`, nothing revoked it, and expiry (if any) still ahead —
         `expires_at` names the first instant the grant is gone, so strict `>`.
         """
-        result = await self._session.execute(
-            select(Grant).where(
-                Grant.user_id == user_id,
-                Grant.status == ACTIVE_GRANT_STATUS,
-                Grant.revoked_at.is_(None),
-                or_(Grant.expires_at.is_(None), Grant.expires_at > now),
-            )
-        )
-        return frozenset(grant.role_id for grant in result.scalars())
+        return await fetch_live_role_ids_for_user(self._session, user_id, now)
 
     async def list_department_role_ids(self, department_id: uuid.UUID) -> frozenset[uuid.UUID]:
         """The `role_templates` rows of ONE department, read by department id.
@@ -182,10 +174,7 @@ class SimulatedDirectory:
         caller resolves the department first and refuses an unknown one
         `NOT_FOUND`, so an empty answer here means an empty template.
         """
-        result = await self._session.execute(
-            select(RoleTemplate).where(RoleTemplate.department_id == department_id)
-        )
-        return frozenset(template.role_id for template in result.scalars())
+        return await fetch_role_templates_for_department(self._session, department_id)
 
     async def create_user(
         self,

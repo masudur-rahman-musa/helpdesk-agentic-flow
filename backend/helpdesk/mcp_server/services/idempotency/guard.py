@@ -26,7 +26,6 @@ effect; do not raise the isolation level on this session without revisiting
 the read below.
 """
 
-import hashlib
 import json
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
@@ -34,7 +33,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.services.idempotency.fingerprint import fingerprint
@@ -42,6 +40,7 @@ from helpdesk.shared.core.canonical import canonical_json
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, IdempotencyConflictError, ToolError
 from helpdesk.shared.crud.idempotency import (
+    acquire_idempotency_lock,
     create_idempotency_key,
     delete_expired_idempotency_key,
     find_idempotency_key,
@@ -50,14 +49,6 @@ from helpdesk.shared.models.idempotency import KEY_LENGTH, TOOL_NAME_LENGTH
 
 KEY_TTL = timedelta(days=7)
 """How long a key is honoured (the design). Past it, the key is free again."""
-
-_ADVISORY_LOCK = text("SELECT pg_advisory_xact_lock(:classid, :objid)")
-
-# Namespace for idempotency locks. Only has to be stable; it shares no key
-# space with the audit writer's single-argument locks.
-_LOCK_CLASSID = 0x1DE3
-
-_SIGNED_32_BIT_MASK = (1 << 31) - 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,15 +103,6 @@ def _check_storable_identifiers(key: str, tool_name: str) -> None:
             f"tool name must be 1..{TOOL_NAME_LENGTH} characters, got {len(tool_name)}"
         )
 
-
-def _lock_object_id(tenant_id: uuid.UUID, key: str) -> int:
-    """A stable positive int4 for this (tenant, key).
-
-    Two different keys that collide here only wait for each other; the
-    correctness of a replay comes from the stored row, never from the lock.
-    """
-    digest = hashlib.sha256(tenant_id.bytes + key.encode()).digest()
-    return int.from_bytes(digest[:4], "big") & _SIGNED_32_BIT_MASK
 
 
 def _storable(response: Mapping[str, Any], tool_name: str) -> dict[str, Any]:
@@ -183,9 +165,7 @@ async def run_once(
     _check_storable_identifiers(key, tool_name)
     digest = fingerprint(tool_name, args)
 
-    await session.execute(
-        _ADVISORY_LOCK, {"classid": _LOCK_CLASSID, "objid": _lock_object_id(bound, key)}
-    )
+    await acquire_idempotency_lock(session, bound, key)
     now = datetime.now(UTC)
 
     existing = await find_idempotency_key(session, key, now)

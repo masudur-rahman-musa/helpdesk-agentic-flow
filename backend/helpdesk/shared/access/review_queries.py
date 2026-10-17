@@ -3,21 +3,21 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import ColumnElement, func, or_, select, true
+from sqlalchemy import ColumnElement, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.access.review_types import ReviewItemWithContext, ReviewWithCounts
-from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.review_queries import (
+    fetch_item_counts,
+    fetch_items_with_context,
+    fetch_owned_system_ids,
+    fetch_reviews_page,
+)
 from helpdesk.shared.models import (
     AccessReview,
-    Department,
-    Grant,
     ReviewItem,
     ReviewStatus,
-    Role,
-    System,
-    User,
 )
 
 __all__ = ["find_review", "find_item", "list_owned_system_ids", "list_reviews_for_scope", "list_items_with_context", "list_items"]
@@ -59,8 +59,7 @@ async def list_owned_system_ids(
     user who owns nothing, which `list_reviews_for_scope` then treats as a
     scope reaching no review rather than as a scope reaching every one.
     """
-    result = await session.execute(select(System.id).where(System.owner_user_id == owner_user_id))
-    return frozenset(result.scalars().all())
+    return await fetch_owned_system_ids(session, owner_user_id)
 
 
 async def list_reviews_for_scope(
@@ -115,20 +114,14 @@ async def list_reviews_for_scope(
     if not predicates:
         return []
 
-    statement = (
-        select(AccessReview, Department.name, System.name, User.display_name)
-        .outerjoin(Department, Department.id == AccessReview.department_id)
-        .outerjoin(System, System.id == AccessReview.system_id)
-        .join(User, User.id == AccessReview.reviewer_user_id)
-        .where(or_(*predicates))
-        .order_by(AccessReview.due_at, AccessReview.id)
-        .limit(limit)
+    rows = await fetch_reviews_page(
+        session,
+        predicates,
+        status_value=status.value if status is not None else None,
+        limit=limit,
     )
-    if status is not None:
-        statement = statement.where(AccessReview.status == status.value)
-    rows = (await session.execute(statement)).all()
 
-    counts = await _item_counts(session, [review.id for review, _, _, _ in rows])
+    counts = await fetch_item_counts(session, [review.id for review, _, _, _ in rows])
     return [
         ReviewWithCounts(
             review=review,
@@ -141,33 +134,6 @@ async def list_reviews_for_scope(
         for review, department_name, system_name, reviewer_display_name in rows
     ]
 
-
-async def _item_counts(
-    session: AsyncSession, review_ids: Sequence[uuid.UUID]
-) -> dict[uuid.UUID, tuple[int, int]]:
-    """(items, decided items) per review, for the page's reviews only.
-
-    Absent from the answer means a review with no items at all, which the
-    caller reads as `(0, 0)` — never as a review to hide. An inner join to
-    `review_items` would drop exactly the review that has nothing to show, and
-    that is the review `open_review` writes for a clean scope; pinned by
-    `test_access_reviews.py::test_a_review_with_no_items_reads_zero_and_zero_rather_than_being_absent`.
-    """
-    if not review_ids:
-        return {}
-    result = await session.execute(
-        select(
-            ReviewItem.review_id,
-            func.count(ReviewItem.id),
-            func.count(ReviewItem.decision),
-        )
-        .where(
-            ReviewItem.review_id.in_(review_ids),
-            ReviewItem.tenant_id == bound_tenant_id(session),
-        )
-        .group_by(ReviewItem.review_id)
-    )
-    return {review_id: (total, decided) for review_id, total, decided in result.all()}
 
 
 async def list_items_with_context(
@@ -187,24 +153,7 @@ async def list_items_with_context(
     reviews alike, and a second filter here would be a second place for it to
     drift.
     """
-    result = await session.execute(
-        select(
-            ReviewItem,
-            User.display_name,
-            Role.name,
-            System.name,
-            Role.privilege,
-            Grant.granted_at,
-            Grant.expires_at,
-        )
-        .join(Grant, Grant.id == ReviewItem.grant_id)
-        .join(User, User.id == Grant.user_id)
-        .join(Role, Role.id == Grant.role_id)
-        .join(System, System.id == Role.system_id)
-        .where(ReviewItem.review_id == review_id)
-        .order_by(ReviewItem.created_at, ReviewItem.id)
-        .limit(limit)
-    )
+    rows = await fetch_items_with_context(session, review_id, limit=limit)
     return [
         ReviewItemWithContext(
             item=item,
@@ -223,7 +172,7 @@ async def list_items_with_context(
             privilege,
             granted_at,
             expires_at,
-        ) in result.all()
+        ) in rows
     ]
 
 

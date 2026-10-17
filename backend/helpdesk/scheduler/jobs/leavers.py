@@ -31,12 +31,11 @@ of what was skipped, and the runner retries a tick later.
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.access.revoke import SYSTEM_ACTOR_KIND
+from helpdesk.shared.crud.users import lock_due_users
 from helpdesk.shared.models import User
-from helpdesk.shared.policy.types import TargetStatus
 from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.access.offboarding import offboard_user
 from helpdesk.shared.access.lifecycle import AlreadyLeaverError
@@ -52,10 +51,6 @@ which is the confusion `expire_grants`' own system actor was written to avoid.
 Pinned exactly, on both event types, by
 `test_access_leavers.py::test_every_event_the_sweep_causes_carries_the_system_actor_and_its_ref`
 and `::test_the_leaver_sweep_constants_are_exactly_the_planned_values`."""
-
-_ACTIVE_USER_STATUS = TargetStatus.ACTIVE.value
-"""Read off `TargetStatus`, like `lifecycle.LEAVER_STATUS`, so the status this
-sweep looks for and the one an offboard writes cannot drift apart."""
 
 
 async def _lock_due_users(session: AsyncSession, now: datetime) -> Sequence[User]:
@@ -81,17 +76,7 @@ async def _lock_due_users(session: AsyncSession, now: datetime) -> Sequence[User
     Ordered by end date then id so two runs over the same rows write their
     events in the same order.
     """
-    result = await session.execute(
-        select(User)
-        .where(
-            User.status == _ACTIVE_USER_STATUS,
-            User.end_date.is_not(None),
-            User.end_date < now.date(),
-        )
-        .order_by(User.end_date, User.id)
-        .with_for_update()
-    )
-    return result.scalars().all()
+    return await lock_due_users(session, now)
 
 
 async def sweep_leavers(session: AsyncSession, *, now: datetime) -> list[User]:

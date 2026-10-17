@@ -43,10 +43,13 @@ SERVICE_PACKAGES: tuple[str, ...] = (
     "agent_api",
     "mcp_server",
     "scheduler",
+    "shared",
 )
-"""The three app subpackages under `backend/helpdesk/`.
+"""The app subpackages under `backend/helpdesk/` that must not build raw queries.
 
-Each one must contribute at least one file, which is what
+`shared/` is included since an earlier change moved all raw queries out of it and into
+`shared/crud/`, which is excluded from the scan (see `_service_files`).
+Each package must contribute at least one file, which is what
 `test_the_service_source_set_is_not_empty` asserts; without that, a wrong glob
 would make every rule below pass over nothing."""
 
@@ -89,46 +92,33 @@ request, reads no row, and touches no tenant data; the role name it interpolates
 is the migration's constant, never configuration. It builds no SQLAlchemy
 statement, so it is kept apart from `READINESS_ALLOWLIST`, whose members must."""
 
-STORE_ALLOWLIST: frozenset[str] = frozenset(
-    {
-        # The guard's own idempotency key table, keyed by tenant and key.
-        "backend/helpdesk/mcp_server/services/idempotency/guard.py",
-        # The one reader of `notifications`, filtered to the caller's tenant and user.
-        "backend/helpdesk/mcp_server/services/notifications/list.py",
-        # The one writer of `notifications.read_at`, same tenant and user filter.
-        "backend/helpdesk/mcp_server/services/notifications/mark.py",
-        # The one writer of `policy_chunks` rows during ingest, for one tenant.
-        "backend/helpdesk/mcp_server/services/rag/chunks.py",
-        # The sparse arm's read of one tenant's `policy_chunks`.
-        "backend/helpdesk/mcp_server/services/rag/retrieval.py",
-        # The one writer of `policy_documents` versions, for one tenant.
-        "backend/helpdesk/mcp_server/services/rag/store.py",
-    }
-)
-"""The store modules that build and run their own statements, added 2026-10-15.
+STORE_ALLOWLIST: frozenset[str] = frozenset()
+"""No service module is allowed to build or run its own SQL statements.
 
-The restructure moved them under a service package, so this guard now sees
-them. Each is the one store for its table and runs through the tenant session,
-whose `do_orm_execute` filter still applies. Moving them into the repository
-helpers is a later change; until then each is named here with its reason, and
-`test_only_the_readiness_modules_build_or_run_a_statement` pins the set."""
+All six modules formerly listed here (idempotency guard, notifications list/mark,
+rag chunks/retrieval/store) have been moved to `shared/crud/` helpers, so the
+allowlist is now empty and every service file is expected to be clean.
+`test_only_the_readiness_modules_build_or_run_a_statement` pins this as the
+exact set."""
 
 TEXT_ALLOWLIST: frozenset[str] = frozenset(
     {
-        "backend/helpdesk/mcp_server/services/idempotency/guard.py",
-        "backend/helpdesk/shared/services/audit/writer.py",
         "backend/helpdesk/agent_api/api/routes/health.py",
         "backend/helpdesk/mcp_server/api/routes/health.py",
         "backend/helpdesk/scheduler/api/routes/health.py",
+        "backend/helpdesk/shared/crud/audit.py",
+        "backend/helpdesk/shared/crud/idempotency.py",
     }
 )
 """The five modules in the whole tree that may import `sqlalchemy.text`.
 
 `helpdesk/core/db.py`'s `do_orm_execute` guard covers ORM SELECT, UPDATE and
 DELETE and does NOT intercept a `text()` statement, so this is the one path by
-which a read can reach Postgres untenanted. Today the five are a parameterised
-advisory lock (guard.py, writer.py) and three `SELECT 1` probes. Asserted as an
-EXACT set by `test_sqlalchemy_text_is_imported_by_exactly_the_allowlisted_modules`,
+which a read can reach Postgres untenanted. The three health probes run `SELECT 1`
+on a raw engine connection; `crud/audit.py` and `crud/idempotency.py` hold the
+only two advisory locks in the system (audit chain serialisation and idempotency
+key claim). Asserted as an EXACT set by
+`test_sqlalchemy_text_is_imported_by_exactly_the_allowlisted_modules`,
 per a project rule: the diff that adds a sixth site extends this list."""
 
 SCANNED_TREES: tuple[str, ...] = ("backend/helpdesk",)
@@ -141,14 +131,23 @@ because a migration is not tenant-scoped code. Feeds
 
 
 def _service_files() -> tuple[Path, ...]:
-    """Every `.py` file in the three app subpackages, sorted.
+    """Every `.py` file in the service subpackages, minus `shared/crud/`, sorted.
+
+    `shared/crud/` is the one exempted tree: every file there is a query owner
+    by design and is allowed to call `select`, `text`, etc.  Everything else in
+    `shared/` must be clean after an earlier change, the same rule the three app packages
+    already followed.
 
     The suites live under `backend/tests/`, not under these packages, so no test
     file is reachable from here.
     """
+    crud_dir = REPO_ROOT / "backend" / "helpdesk" / "shared" / "crud"
     collected: list[Path] = []
     for package in SERVICE_PACKAGES:
-        collected.extend(sorted((REPO_ROOT / "backend" / "helpdesk" / package).rglob("*.py")))
+        for path in sorted((REPO_ROOT / "backend" / "helpdesk" / package).rglob("*.py")):
+            if path.is_relative_to(crud_dir):
+                continue
+            collected.append(path)
     return tuple(collected)
 
 
@@ -355,3 +354,89 @@ def test_a_fifth_text_importer_is_caught() -> None:
 
     assert planted[0] in importers
     assert importers != set(TEXT_ALLOWLIST)
+
+
+# ---------------------------------------------------------------------------
+# An earlier change tests: all queries through shared/crud helpers
+# ---------------------------------------------------------------------------
+
+_SHARED_ACCESS_PATH = "backend/helpdesk/shared/access/planted.py"
+_SHARED_CRUD_PATH = "backend/helpdesk/shared/crud/planted.py"
+
+_BUILDER_SOURCE = (
+    "from sqlalchemy import select\n"
+    "from helpdesk.shared.models import AccessRequest\n"
+    "async def load(s):\n"
+    "    return await s.execute(select(AccessRequest))\n"
+)
+"""A raw select call that must be a finding when the scan covers shared/access/."""
+
+
+def test_the_scan_covers_shared_except_crud() -> None:
+    """Catches an implementation that still only scans the three app packages
+    after an earlier change: after the change, SERVICE_FILES (or a replacement) must
+    include at least one file from shared/ outside shared/crud/, and must
+    include no file from shared/crud/.
+
+    The builder walker already catches the call itself; this test proves the
+    scan is widened to reach it by checking what files the module-level
+    collection gathers.
+    """
+    shared_dir = REPO_ROOT / "backend" / "helpdesk" / "shared"
+    crud_dir = shared_dir / "crud"
+
+    shared_non_crud = [
+        p for p in SERVICE_FILES if shared_dir in p.parents and crud_dir not in p.parents
+    ]
+    shared_crud = [p for p in SERVICE_FILES if crud_dir in p.parents]
+
+    assert shared_non_crud, (
+        "SERVICE_FILES contains no file from shared/ outside shared/crud/; "
+        "the scan must be widened to cover shared/ after plan 70"
+    )
+    assert not shared_crud, (
+        f"SERVICE_FILES contains shared/crud/ files {[str(p) for p in shared_crud]}; "
+        "crud/ is exempted from the builder/execute scan"
+    )
+
+
+def test_the_store_allowlist_is_empty() -> None:
+    """Catches an implementation that leaves the old STORE_ALLOWLIST entries in
+    place instead of moving those queries into shared/crud/ helpers: after
+    an earlier change every store module must be clean, so no allowlist entry is needed.
+    """
+    assert frozenset() == STORE_ALLOWLIST, (
+        f"STORE_ALLOWLIST must be empty after plan 70 but still contains: "
+        f"{sorted(STORE_ALLOWLIST)}"
+    )
+
+
+_EXPECTED_TEXT_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "backend/helpdesk/agent_api/api/routes/health.py",
+        "backend/helpdesk/mcp_server/api/routes/health.py",
+        "backend/helpdesk/scheduler/api/routes/health.py",
+        "backend/helpdesk/shared/crud/audit.py",
+        "backend/helpdesk/shared/crud/idempotency.py",
+    }
+)
+"""The exact set TEXT_ALLOWLIST must equal after an earlier change.
+
+The three health probes keep their entries because they run a SELECT 1 liveness
+check through a raw engine connection. The two new entries replace the old
+guard.py and writer.py paths: after an earlier change the only callers of sqlalchemy.text
+outside the health probes are the two crud helpers."""
+
+
+def test_text_is_imported_by_exactly_the_probes_and_crud() -> None:
+    """Catches an implementation that updates the code but forgets to update
+    TEXT_ALLOWLIST, or that updates the list to the wrong paths: the exact five
+    entries are pinned so that neither the old paths nor any new unlisted path
+    can silently remain.
+    """
+    assert TEXT_ALLOWLIST == _EXPECTED_TEXT_ALLOWLIST, (
+        f"TEXT_ALLOWLIST must be exactly the three health probes plus "
+        f"crud/audit.py and crud/idempotency.py after plan 70.\n"
+        f"  extra entries : {sorted(TEXT_ALLOWLIST - _EXPECTED_TEXT_ALLOWLIST)}\n"
+        f"  missing entries: {sorted(_EXPECTED_TEXT_ALLOWLIST - TEXT_ALLOWLIST)}"
+    )

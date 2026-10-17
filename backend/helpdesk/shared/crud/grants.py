@@ -391,6 +391,86 @@ async def lock_live_grants_for_role(
     return result.scalars().all()
 
 
+async def lock_lapsed_grants(session: AsyncSession, now: datetime) -> list[Grant]:
+    """The bound tenant's lapsed grants, locked for this transaction.
+
+    Four conjuncts: `status = 'active'` (so an already-expired row is not swept
+    again every five minutes), `revoked_at IS NULL` (so a revocation is not
+    rewritten as an expiry), `expires_at IS NOT NULL` (so a permanent grant is
+    never touched) and the boundary itself (`expires_at <= now`).
+
+    `FOR UPDATE` through the ORM so the tenant guard still injects its filter
+    and the rows are held to the end of the caller's transaction.  Two runners
+    that overlap therefore expire one grant once — the loser's set comes back
+    empty on the status test.  Pinned by
+    `test_access_expiry.py::test_two_callers_racing_one_overdue_grant_expire_it_once`.
+
+    Ordered by expiry then id so two runs over the same rows write their events
+    in the same order.
+    """
+    result = await session.execute(
+        select(Grant)
+        .where(
+            Grant.status == ACTIVE_GRANT_STATUS,
+            Grant.revoked_at.is_(None),
+            Grant.expires_at.is_not(None),
+            Grant.expires_at <= now,
+        )
+        .order_by(Grant.expires_at, Grant.id)
+        .with_for_update()
+    )
+    return list(result.scalars().all())
+
+
+async def fetch_grants_to_warn(
+    session: AsyncSession, now: datetime, horizon: datetime
+) -> list[Grant]:
+    """The bound tenant's grants inside the warning band that have not been told.
+
+    Six conjuncts and an anti-join to `notifications`: status `active`,
+    `revoked_at IS NULL`, `expires_at IS NOT NULL`, expiry strictly after `now`
+    (so the expiry sweep's row is excluded), expiry at or before `horizon`,
+    and the holder is not a leaver (status `'leaver'`).  The anti-join is the
+    idempotence: a grant stays in the band until warned, so the same row appears
+    on every daily tick for a fortnight.
+
+    `horizon` is computed by the caller (`now + EXPIRY_WARNING_HORIZON_DAYS`):
+    keeping the constant in `scheduler/jobs/expiry.py` avoids a circular import
+    since that module calls this function.
+
+    Matching on kind AND `subject_id` keeps a grant that already has a
+    `grant_expired` notification from being confused with a warned one.
+    Pinned by
+    `test_access_expiry_warnings.py::test_a_grant_expiring_inside_the_horizon_warns_its_holder_once`.
+    """
+    from sqlalchemy import String, cast, exists
+
+    from helpdesk.shared.models.notification import Notification, NotificationKind
+    from helpdesk.shared.policy.types import TargetStatus
+
+    _LEAVER_STATUS = TargetStatus.LEAVER.value
+
+    already_warned = select(Notification.id).where(
+        Notification.kind == NotificationKind.GRANT_EXPIRING.value,
+        Notification.subject_id == cast(Grant.id, String),
+    )
+    result = await session.execute(
+        select(Grant)
+        .join(User, User.id == Grant.user_id)
+        .where(
+            Grant.status == ACTIVE_GRANT_STATUS,
+            Grant.revoked_at.is_(None),
+            Grant.expires_at.is_not(None),
+            Grant.expires_at > now,
+            Grant.expires_at <= horizon,
+            User.status != _LEAVER_STATUS,
+            ~exists(already_warned),
+        )
+        .order_by(Grant.expires_at, Grant.id)
+    )
+    return list(result.scalars().all())
+
+
 async def lock_live_grants_for_request(
     session: AsyncSession, request_id: uuid.UUID, now: datetime
 ) -> Sequence[Grant]:

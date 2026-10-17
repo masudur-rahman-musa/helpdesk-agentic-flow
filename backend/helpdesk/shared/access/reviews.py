@@ -5,7 +5,6 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.access.directory import DirectoryProvider, DirectoryReader
@@ -35,6 +34,11 @@ from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.reviews import (
+    find_first_undecided_item_id,
+    find_open_review_for_scope,
+    reread_review_item,
+)
 from helpdesk.shared.crud.grants import (
     ScopedGrant,
     is_active_grant,
@@ -106,15 +110,14 @@ async def _refuse_if_open(session: AsyncSession, scope: ReviewScope, period: str
     and, on two connections, by
     `test_mcp_reviews.py::test_two_callers_racing_the_same_review_leave_exactly_one`.
     """
-    result = await session.execute(
-        select(AccessReview).where(
-            AccessReview.department_id == scope.department_id,
-            AccessReview.system_id == scope.system_id,
-            AccessReview.period == period,
-            AccessReview.status.in_(_OPEN_STATUSES),
-        )
+    existing = await find_open_review_for_scope(
+        session,
+        department_id=scope.department_id,
+        system_id=scope.system_id,
+        period=period,
+        open_statuses=list(_OPEN_STATUSES),
     )
-    if result.scalars().first() is not None:
+    if existing is not None:
         raise ReviewAlreadyOpenError(
             f"a review of this scope for {period!r} is already open; complete it first"
         )
@@ -490,10 +493,7 @@ async def _reread_under_lock(session: AsyncSession, item: ReviewItem) -> ReviewI
     every single-caller test still passed. Pinned by
     `test_access_reviews.py::test_two_concurrent_deciders_leave_one_decided_item_and_one_refusal`.
     """
-    result = await session.execute(
-        select(ReviewItem).where(ReviewItem.id == item.id).execution_options(populate_existing=True)
-    )
-    return result.scalars().one()
+    return await reread_review_item(session, item)
 
 
 async def _complete_if_finished(
@@ -510,15 +510,11 @@ async def _complete_if_finished(
     Returns the review either way, so the caller reports its status without a
     second read.
     """
-    remaining = await session.execute(
-        select(ReviewItem.id).where(
-            ReviewItem.review_id == review_id, ReviewItem.decision.is_(None)
-        )
-    )
+    undecided_id = await find_first_undecided_item_id(session, review_id)
     review = await Repository(session, AccessReview).get(review_id)
     if review is None:  # pragma: no cover - the item's FK guarantees the row
         raise NotFoundError("no such access review in this tenant")
-    if remaining.scalars().first() is not None:
+    if undecided_id is not None:
         return review, False
     completed = await Repository(session, AccessReview).update(
         review_id, status=ReviewStatus.COMPLETED.value, completed_at=now

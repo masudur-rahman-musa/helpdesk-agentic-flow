@@ -30,12 +30,12 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.rag import fetch_current_documents_except, find_document_by_digest
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyDocument
 from helpdesk.shared.services.policy_docs.naming import (
@@ -119,14 +119,7 @@ async def register_document_version(
     # the tenant filter. Matching on the digest rather than on (slug, version)
     # alone is what lets a re-cut version below be a second row without this
     # read ever seeing two.
-    result = await session.execute(
-        select(PolicyDocument).where(
-            PolicyDocument.slug == slug,
-            PolicyDocument.version == version,
-            PolicyDocument.sha256 == digest,
-        )
-    )
-    unchanged = result.scalars().one_or_none()
+    unchanged = await find_document_by_digest(session, slug=slug, version=version, sha256=digest)
     if unchanged is not None:
         return RegistrationResult(document=unchanged, created=False)
 
@@ -152,14 +145,9 @@ async def register_document_version(
     # of this document loses it — including one from a version directory this
     # run did not touch, which is what stops a partial re-ingest leaving a
     # document with no current copy.
-    superseded = await session.execute(
-        select(PolicyDocument).where(
-            PolicyDocument.slug == slug,
-            PolicyDocument.id != document.id,
-            PolicyDocument.is_current.is_(True),
-        )
-    )
-    for row in superseded.scalars().all():
+    for row in await fetch_current_documents_except(
+        session, slug=slug, new_document_id=document.id
+    ):
         await repository.update(row.id, is_current=False)
 
     return RegistrationResult(document=document, created=True)
