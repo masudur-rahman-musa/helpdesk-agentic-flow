@@ -3,16 +3,18 @@
 Eight metrics live here, in TWO factories, and which factory a metric belongs
 to is itself a decision.
 
-`build_metrics` registers six on every service. Five are the ones a request or
-a tool call can move on its own; the sixth, `helpdesk_expiries_total`, arrived
+`build_metrics` registers eight on every service. The first six are the ones a
+request or a tool call can move on its own; `helpdesk_expiries_total` arrived
 with the scheduler's expiry sweep — an EVENT counter,
 incremented by the job that expires a grant, and so a sibling of the five.
+The final two, `helpdesk_job_runs_total` and `helpdesk_job_failures_total`,
+count how many times each scheduler job ran and failed, labelled by job name.
 
-That counter is DECLARED on every service's registry and MOVED only by the
-scheduler, which is what makes it visible on that service's scrape from the
-first tick (a family with no samples still renders its `# TYPE` line). A
-scrape of agent-api or mcp-server shows it at zero for ever, which is the
-honest reading: those processes expire nothing.
+All eight counters are DECLARED on every service's registry and MOVED only by
+the scheduler, which is what makes them visible on that service's scrape from
+the first tick (a family with no samples still renders its `# TYPE` line). A
+scrape of agent-api or mcp-server shows them at zero for ever, which is the
+honest reading: those processes run no jobs.
 
 `install_sweep_gauges` registers the design's remaining two,
 `helpdesk_grants_active` and `helpdesk_audit_chain_ok`, and ONLY the process
@@ -66,10 +68,10 @@ disable_created_metrics()  # type: ignore[no-untyped-call]
 
 A library default is a decision, so it is made here rather than inherited: the gauge carries the unix time a counter was first
 observed, which nothing in the design asks for and which doubles the series a
-scrape carries. Without this the exposition names more than the six metrics
+scrape carries. Without this the exposition names more than the eight metrics
 `build_metrics` declares, which
-`test_obs_metrics.py::test_build_metrics_still_registers_exactly_the_six_metrics`
-reads as a seventh.
+`test_obs_metrics.py::test_build_metrics_registers_exactly_the_eight_metrics`
+reads as a ninth.
 """
 
 TURNS_TOTAL = "helpdesk_turns_total"
@@ -78,6 +80,20 @@ TOOL_LATENCY_SECONDS = "helpdesk_tool_latency_seconds"
 REFUSALS_TOTAL = "helpdesk_refusals_total"
 SOD_BLOCKS_TOTAL = "helpdesk_sod_blocks_total"
 EXPIRIES_TOTAL = "helpdesk_expiries_total"
+JOB_RUNS_TOTAL = "helpdesk_job_runs_total"
+"""How many times each scheduler job ran, labelled by job name.
+
+Declared on every service so a fresh process names the series before the first
+tick; moved only by the scheduler. A scrape of agent-api or mcp-server shows it
+at zero for ever, which is the honest reading: those processes run no jobs.
+"""
+JOB_FAILURES_TOTAL = "helpdesk_job_failures_total"
+"""How many times each scheduler job failed, labelled by job name.
+
+Same declaration rule as `JOB_RUNS_TOTAL`: declared everywhere, moved only by
+the scheduler. Pinned by
+`test_obs_metrics.py::test_each_new_job_counter_declares_a_job_label`.
+"""
 
 UNKNOWN_TENANT = "unknown"
 """What a tenant label reads when the call is outside a bound context.
@@ -98,8 +114,8 @@ Pinned as the literal by
 
 @dataclass(frozen=True)
 class Metrics:
-    """The six collectors of one registry, held together so a call site
-    cannot pick up five of them from one registry and the sixth from another.
+    """The eight collectors of one registry, held together so a call site
+    cannot pick up seven of them from one registry and the eighth from another.
     """
 
     turns_total: Counter
@@ -108,10 +124,12 @@ class Metrics:
     refusals_total: Counter
     sod_blocks_total: Counter
     expiries_total: Counter
+    job_runs_total: Counter
+    job_failures_total: Counter
 
 
 def build_metrics(registry: CollectorRegistry) -> Metrics:
-    """Register exactly the six metrics on `registry` and return them.
+    """Register exactly the eight metrics on `registry` and return them.
 
     The label sets are the design's, and they are the contract a dashboard
     queries by, so they are pinned member by member by
@@ -150,6 +168,18 @@ def build_metrics(registry: CollectorRegistry) -> Metrics:
         expiries_total=Counter(
             EXPIRIES_TOTAL,
             "Grants the scheduler's sweep marked expired.",
+            registry=registry,
+        ),
+        job_runs_total=Counter(
+            JOB_RUNS_TOTAL,
+            "Scheduler job runs completed, by job name (plan 72, ADR 0029).",
+            labelnames=("job",),
+            registry=registry,
+        ),
+        job_failures_total=Counter(
+            JOB_FAILURES_TOTAL,
+            "Scheduler job runs that raised an exception, by job name (plan 72, ADR 0029).",
+            labelnames=("job",),
             registry=registry,
         ),
     )
@@ -242,6 +272,29 @@ def record_sod_block() -> None:
     raised would count a block whose transaction then rolled back.
     """
     METRICS.sod_blocks_total.inc()
+
+
+def record_job_run(*, job: str) -> None:
+    """One scheduler job run completed for one tenant.
+
+    Called after the job's `run` returns without raising, once per tenant per
+    tick. The label is the job's registry name — a closed set, so no cardinality
+    risk — making the per-job rate visible on a dashboard at a glance. Pinned by
+    `test_scheduler_runner.py::test_the_job_run_counter_rises_once_per_tenant`.
+    """
+    METRICS.job_runs_total.labels(job=job).inc()
+
+
+def record_job_failure(*, job: str) -> None:
+    """One scheduler job run that raised for one tenant.
+
+    Called when `job.run` raises a non-CancelledError exception, after the
+    per-tenant lock key is deleted. `job` is the same label as `record_job_run`,
+    so the failure rate is directly comparable to the run rate on the same
+    dashboard row. Pinned by
+    `test_scheduler_runner.py::test_the_job_failure_counter_rises_once_per_failed_tenant`.
+    """
+    METRICS.job_failures_total.labels(job=job).inc()
 
 
 GRANTS_ACTIVE = "helpdesk_grants_active"
@@ -362,6 +415,8 @@ __all__ = [
     "AUDIT_CHAIN_OK",
     "EXPIRIES_TOTAL",
     "GRANTS_ACTIVE",
+    "JOB_FAILURES_TOTAL",
+    "JOB_RUNS_TOTAL",
     "METRICS",
     "REFUSALS_TOTAL",
     "REGISTRY",
@@ -379,6 +434,8 @@ __all__ = [
     "record_audit_chain_ok",
     "record_expiries",
     "record_grants_active",
+    "record_job_failure",
+    "record_job_run",
     "record_refusal",
     "record_sod_block",
     "record_tool_call",

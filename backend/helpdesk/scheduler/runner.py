@@ -60,6 +60,7 @@ from helpdesk.shared.core.db import (
     tenant_session,
 )
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.observability.metrics import record_job_failure, record_job_run
 from helpdesk.shared.core.redis import close_loop_clients, get_redis
 from helpdesk.shared.crud.tenants import list_tenant_ids
 
@@ -191,8 +192,25 @@ def check_job_name(name: str) -> str:
 
 
 def job_lock_key(name: str) -> str:
-    """The Redis key that is this job's cadence gate."""
+    """The Redis key that is this job's cadence gate (one-argument form, unchanged).
+
+    Kept for the constants tests and for operator queries such as
+    `KEYS helpdesk:joblock:*`. The per-tenant variant is `tenant_lock_key`.
+    """
     return f"{JOB_LOCK_PREFIX}{name}"
+
+
+def tenant_lock_key(name: str, tenant_id: uuid.UUID) -> str:
+    """The Redis key that is THIS TENANT'S cadence gate for one job.
+
+    `helpdesk:joblock:<name>:<tenant_id>` — the job segment is the same as
+    `job_lock_key(name)` with the tenant uuid appended after a colon. An
+    operator can still scan all locks with `KEYS helpdesk:joblock:*`, and can
+    narrow to one job's tenants with `KEYS helpdesk:joblock:<name>:*`. Pinned
+    as a shape by
+    `test_scheduler_runner.py::test_tenant_lock_key_is_the_job_key_then_the_tenant_uuid`.
+    """
+    return f"{JOB_LOCK_PREFIX}{name}:{tenant_id}"
 
 
 JobRun = Callable[[AsyncSession, datetime], Awaitable[None]]
@@ -292,16 +310,17 @@ and
 `test_scheduler_metrics_job.py::test_the_registry_holds_all_eight_jobs_under_eight_distinct_names`."""
 
 
-async def _claim(redis: Redis, job: Job) -> bool:
-    """Take the cadence gate for this window, or find it already taken.
+async def _claim_for_tenant(redis: Redis, job: Job, tenant_id: uuid.UUID) -> bool:
+    """Take THIS TENANT'S cadence gate for this window, or find it already taken.
 
     `SET … NX PX` is ONE operation: an `EXISTS` followed by a `SET` would let
     two runners both read "free" and both run. The value is a token nobody
     reads today — the key's presence is the whole gate — and it is written
-    anyway so an operator can tell which instance opened the window.
+    anyway so an operator can tell which instance opened the window. Pinned
+    by the per-tenant TTL cases in `test_scheduler_runner.py`.
     """
     claimed = await redis.set(
-        job_lock_key(job.name),
+        tenant_lock_key(job.name, tenant_id),
         uuid.uuid4().hex,
         nx=True,
         px=job.cadence_seconds * 1000,
@@ -309,53 +328,63 @@ async def _claim(redis: Redis, job: Job) -> bool:
     return bool(claimed)
 
 
-async def _run_for_every_tenant(
-    factory: async_sessionmaker[AsyncSession], job: Job, now: datetime
-) -> bool:
-    """Run one job once per tenant. True when every tenant succeeded.
-
-    One `tenant_session` — and so one transaction — per tenant, for two
-    reasons that are really one: the jobs read and write tenant-scoped tables,
-    which an unbound session refuses outright, and one tenant's broken data
-    must not roll back or skip another's. A failure is logged and the sweep
-    moves to the next tenant, which is what
-    `::test_one_tenant_raising_leaves_the_other_tenants_work_committed`
-    asserts by counting rows on both sides.
-    """
-    async with factory() as session:
-        tenant_ids = await list_tenant_ids(session)
-
-    healthy = True
-    for tenant_id in tenant_ids:
-        try:
-            async with tenant_session(factory, tenant_id) as session:
-                await job.run(session, now)
-        except Exception:
-            healthy = False
-            logger.exception(
-                "scheduler job failed for one tenant", extra={"job": job.name, "tenant": tenant_id}
-            )
-    return healthy
-
-
 async def tick(factory: async_sessionmaker[AsyncSession], redis: Redis, *, now: datetime) -> None:
     """One pass over the registry: claim what is due, run it, keep the gate.
 
     `REGISTRY` is read here rather than captured, so a test can install its
-    own. A claimed job's key is LEFT in place on success — decision B, the key
-    is the gate — and deleted when the run failed for any tenant, decision C.
-    Nothing raises out of here: this is a lifespan task, and a loop that dies
-    leaves a service that answers every health check and does no work.
+    own. The lock is now per (job, tenant): each tenant claims its own key,
+    runs in its own transaction, and frees only its own key on failure — so
+    one tenant's error never re-runs the others.
+
+    A claimed key is LEFT in place on success — decision B, the key is the
+    gate — and deleted when that tenant's run failed, decision C applied per
+    tenant. A `CancelledError` (loop shutdown) frees the key it was holding
+    and propagates, so the loop task ends cleanly and `/healthz` can detect
+    the death. All other exceptions are logged and do not escape: this is a
+    lifespan task, and an error elsewhere kills the loop and silences every
+    health check.
     """
+    try:
+        async with factory() as session:
+            tenant_ids = await list_tenant_ids(session)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("scheduler could not load tenant list")
+        return
+
     for job in list(REGISTRY.values()):
         try:
             check_job_name(job.name)
-            if not await _claim(redis, job):
-                continue
-            if not await _run_for_every_tenant(factory, job, now):
-                await redis.delete(job_lock_key(job.name))
         except Exception:
             logger.exception("scheduler job could not run", extra={"job": job.name})
+            continue
+
+        for tenant_id in tenant_ids:
+            try:
+                if not await _claim_for_tenant(redis, job, tenant_id):
+                    continue
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("scheduler job could not run", extra={"job": job.name})
+                continue
+
+            try:
+                async with tenant_session(factory, tenant_id) as session:
+                    await job.run(session, now)
+                record_job_run(job=job.name)
+            except asyncio.CancelledError:
+                await redis.delete(tenant_lock_key(job.name, tenant_id))
+                raise
+            except Exception:
+                await redis.delete(tenant_lock_key(job.name, tenant_id))
+                record_job_run(job=job.name)
+                record_job_failure(job=job.name)
+                logger.exception(
+                    "scheduler job failed for one tenant",
+                    extra={"job": job.name, "tenant": tenant_id},
+                )
 
 
 async def run_loop() -> None:
@@ -392,5 +421,6 @@ __all__ = [
     "check_job_name",
     "job_lock_key",
     "run_loop",
+    "tenant_lock_key",
     "tick",
 ]

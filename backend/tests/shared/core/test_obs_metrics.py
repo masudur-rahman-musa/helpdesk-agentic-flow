@@ -64,6 +64,9 @@ SPEC_METRICS: Mapping[str, str] = {
     "helpdesk_sod_blocks_total": "counter",
     # An earlier change decision G: an event counter, moved by the scheduler's sweep.
     "helpdesk_expiries_total": "counter",
+    # An earlier change a design note: per-job run and failure counters.
+    "helpdesk_job_runs_total": "counter",
+    "helpdesk_job_failures_total": "counter",
 }
 
 # the design's label sets, as a literal. The field name is how the test reaches
@@ -75,6 +78,9 @@ LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("refusals_total", "helpdesk_refusals_total", ("tenant", "reason")),
     ("sod_blocks_total", "helpdesk_sod_blocks_total", ()),
     ("expiries_total", "helpdesk_expiries_total", ()),
+    # An earlier change a design note: per-job run and failure counters.
+    ("job_runs_total", "helpdesk_job_runs_total", ("job",)),
+    ("job_failures_total", "helpdesk_job_failures_total", ("job",)),
 )
 
 # the design's two remaining gauges, installed by an earlier change's SEPARATE factory
@@ -129,10 +135,11 @@ def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
     yield registry
 
 
-def test_build_metrics_still_registers_exactly_the_six_metrics() -> None:
-    """Catches a `build_metrics` that registers a seventh metric on the
-    caller's registry, or that misspells one of the design's names, either of
-    which makes the dashboard query for that name return nothing at all.
+def test_build_metrics_registers_exactly_the_eight_metrics() -> None:
+    """Catches a `build_metrics` that registers fewer or more than eight
+    metrics on the caller's registry, or that misspells one of the design's
+    names (including the two new per-job counters from an earlier change a design note),
+    either of which makes the dashboard query for that name return nothing.
 
     The two remaining the design gauges are deliberately NOT here. An earlier change
     decision F installs them through `install_sweep_gauges`, which only the
@@ -144,7 +151,7 @@ def test_build_metrics_still_registers_exactly_the_six_metrics() -> None:
     here; `test_install_sweep_gauges_registers_exactly_the_two_spec_gauges`
     is where they are pinned instead.
 
-    Asserted as an equality over the whole exposition, not as five membership
+    Asserted as an equality over the whole exposition, not as membership
     checks: a set that also contains something else must fail here, which is
     what "exactly" means.
     """
@@ -154,7 +161,7 @@ def test_build_metrics_still_registers_exactly_the_six_metrics() -> None:
 
     assert _type_lines(generate_latest(registry).decode()) == dict(SPEC_METRICS)
 
-    # Six distinct objects: a `Metrics` whose fields alias one counter would
+    # Eight distinct objects: a `Metrics` whose fields alias one counter would
     # satisfy the exposition above and then count every refusal as a turn.
     fields = [getattr(built, field) for field, _name, _labels in LABEL_CASES]
     assert len({id(metric) for metric in fields}) == len(LABEL_CASES)
@@ -326,3 +333,33 @@ def test_installing_the_sweep_gauges_twice_on_one_registry_returns_the_same_pair
 
     assert second is first
     assert _type_lines(generate_latest(registry).decode()) == dict(SWEEP_METRICS)
+
+
+# --- an earlier change: per-job run and failure counters --------------------------------
+
+
+def test_each_new_job_counter_declares_a_job_label() -> None:
+    """Catches a counter registered without its `job` label — a counter with
+    no labels would collapse all jobs into one series, so `rate(
+    helpdesk_job_runs_total[5m])` could not be split by job name and a single
+    failing job would look like total scheduler failure.
+
+    Driven through `.labels(job=...)` rather than read off a private
+    attribute: a counter that accepted the call but used the wrong label name
+    would fail here while a private-attribute check would pass.
+    """
+    registry = CollectorRegistry()
+    built = build_metrics(registry)
+
+    # Both counters must accept .labels(job=...) and reject anything else.
+    for field_name in ("job_runs_total", "job_failures_total"):
+        counter: Any = getattr(built, field_name)
+        counter.labels(job="expire_grants").inc()
+        exposed = f"helpdesk_{field_name}"
+        assert registry.get_sample_value(exposed, {"job": "expire_grants"}) == 1.0, (
+            f"{exposed} must be reachable via .labels(job=...)"
+        )
+        with pytest.raises(ValueError):
+            counter.labels(job="expire_grants", unexpected="x")
+        with pytest.raises(ValueError):
+            counter.labels(tenant="expire_grants")

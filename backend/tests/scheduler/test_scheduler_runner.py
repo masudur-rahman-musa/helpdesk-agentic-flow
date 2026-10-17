@@ -56,6 +56,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
+from prometheus_client import CollectorRegistry
 from pydantic import ValidationError
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -72,10 +73,13 @@ from helpdesk.scheduler.runner import (
     Job,
     check_job_name,
     job_lock_key,
+    tenant_lock_key,
     tick,
 )
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import bound_tenant_id, create_engine, create_session_factory
+from helpdesk.shared.core.observability import metrics as metrics_module
+from helpdesk.shared.core.observability.metrics import build_metrics
 from helpdesk.shared.core.redis import REDIS_TIMEOUT_SECONDS, close_loop_clients, get_redis
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Base, Ticket
@@ -286,6 +290,25 @@ def _delete_key(redis_url: str, key: str) -> None:
     asyncio.run(scenario())
 
 
+def _get_key_ttl(redis_url: str, key: str) -> int | None:
+    """TTL of a specific Redis key; None if the key is gone.
+
+    Redis answers -2 for a missing key and -1 for a key with no expiry.
+    Both are treated as None here: a key with no expiry is a lock that
+    never opens, which is as wrong as one that was deleted.
+    """
+
+    async def scenario() -> int | None:
+        client: Redis = Redis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2)
+        try:
+            raw = int(await client.ttl(key))
+            return None if raw < 0 else raw
+        finally:
+            await client.aclose()
+
+    return asyncio.run(scenario())
+
+
 def _tickets(database_url: str, tenant_id: uuid.UUID) -> int:
     """How many `tickets` rows this tenant holds, read outside the tick."""
 
@@ -400,29 +423,38 @@ def test_the_job_name_pattern_refuses_these(name: str) -> None:
 # --- the cadence gate (criterion 10, decision B) -----------------------------
 
 
-def test_a_due_job_runs_and_leaves_its_lock_key_with_the_cadence_ttl(
+def test_a_due_job_leaves_a_lock_key_per_tenant_with_the_cadence_ttl(
     scheduler_db: tuple[str, list[SeededTenant]],
     scheduler_redis_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Criterion 10 on the REAL registry, so the literal key name and the
-    literal TTL are pinned together.
+    """Criterion 10 on the REAL registry, so the literal per-tenant key names
+    and the literal TTL are pinned together.
 
-    Catches a lock taken with no expiry at all (a job that would then never
-    run again after one tick, for ever), one taken with `EX 300` on a
-    different key than the one an operator would look for, and a lock
-    RELEASED at the end of the run — decision B makes the key itself the
-    cadence gate, so a released key means the job runs again on the next
-    tick, sixty seconds later instead of five minutes.
+    Catches a runner that still takes one lock per job instead of one per
+    (job, tenant): the old single key `helpdesk:joblock:expire_grants`
+    would be present while both per-tenant keys are missing, and an
+    operator watching `KEYS helpdesk:joblock:*` would see one entry instead
+    of two — a runner that cannot tell one tenant's gate from another's.
+    Also catches a lock taken with no expiry (the job would never run
+    again after one tick) and a lock released at the end of the run
+    (decision B makes the key itself the cadence gate, so a released key
+    means the job re-runs on the next tick).
     """
-    database_url, _tenants = scheduler_db
-    key = "helpdesk:joblock:expire_grants"
-    _delete_key(scheduler_redis_url, key)
+    database_url, tenants = scheduler_db
+    for tenant in tenants:
+        _delete_key(
+            scheduler_redis_url,
+            tenant_lock_key("expire_grants", tenant.tenant_id),
+        )
 
-    ttls = _run_tick(database_url, scheduler_redis_url, dict(REGISTRY), monkeypatch=monkeypatch)
+    _run_tick(database_url, scheduler_redis_url, dict(REGISTRY), monkeypatch=monkeypatch)
 
-    assert ttls["expire_grants"] == EXPIRE_GRANTS_CADENCE_SECONDS
-    assert ttls["expire_grants"] == 300
+    for tenant in tenants:
+        key = tenant_lock_key("expire_grants", tenant.tenant_id)
+        ttl = _get_key_ttl(scheduler_redis_url, key)
+        assert ttl == EXPIRE_GRANTS_CADENCE_SECONDS, f"expected TTL 300 for {key}, got {ttl}"
+        assert ttl == 300
 
 
 def test_a_second_tick_in_the_same_window_does_not_run_the_job(
@@ -489,17 +521,17 @@ def test_a_job_that_raises_has_its_key_deleted_and_leaves_the_other_job_running(
     job_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decision C, both halves in one case.
+    """Decision C, both halves in one case, now checked per-tenant key.
 
     The key deletion is what turns a transient Postgres blip into a
-    60-second delay instead of a 300-second one: catches a runner that leaves
-    the key (the failed job waits a full cadence) and one that lets the
-    exception out of the tick (the loop dies, or the second job never runs at
-    all). The healthy job's key is asserted to SURVIVE, so a runner that
-    deletes every key after every run fails here rather than passing as
-    "deletes the failed one".
+    60-second delay instead of a 300-second one: catches a runner that
+    leaves the per-tenant key (the failed tenant waits a full cadence) and
+    one that lets the exception out of the tick (the loop dies, or the
+    second job never runs at all). The healthy job's per-tenant keys are
+    asserted to SURVIVE, so a runner that deletes every key after every run
+    fails here rather than passing as "deletes the failed ones".
     """
-    database_url, _tenants = scheduler_db
+    database_url, tenants = scheduler_db
     raiser = f"{job_name}_raiser"
     seen: list[uuid.UUID] = []
 
@@ -507,9 +539,10 @@ def test_a_job_that_raises_has_its_key_deleted_and_leaves_the_other_job_running(
         raise RuntimeError("the job failed, as this case needs it to")
 
     for name in (raiser, job_name):
-        _delete_key(scheduler_redis_url, job_lock_key(name))
+        for tenant in tenants:
+            _delete_key(scheduler_redis_url, tenant_lock_key(name, tenant.tenant_id))
 
-    ttls = _run_tick(
+    _run_tick(
         database_url,
         scheduler_redis_url,
         {
@@ -519,8 +552,15 @@ def test_a_job_that_raises_has_its_key_deleted_and_leaves_the_other_job_running(
         monkeypatch=monkeypatch,
     )
 
-    assert ttls[raiser] is None, "decision C: a failed job's key is deleted"
-    assert ttls[job_name] == EXPIRE_GRANTS_CADENCE_SECONDS
+    for tenant in tenants:
+        raiser_key = tenant_lock_key(raiser, tenant.tenant_id)
+        assert _get_key_ttl(scheduler_redis_url, raiser_key) is None, (
+            f"decision C: failed job's per-tenant key must be deleted, got TTL for {raiser_key}"
+        )
+        healthy_key = tenant_lock_key(job_name, tenant.tenant_id)
+        assert _get_key_ttl(scheduler_redis_url, healthy_key) == EXPIRE_GRANTS_CADENCE_SECONDS, (
+            f"healthy job's per-tenant key must survive with TTL 300, got None for {healthy_key}"
+        )
     assert seen, "the other job in the registry still ran"
 
 
@@ -602,3 +642,287 @@ def test_the_redis_client_carries_both_timeout_halves(
     assert REDIS_TIMEOUT_SECONDS == 2
     assert kwargs["socket_connect_timeout"] == 2
     assert kwargs["socket_timeout"] == 2
+
+
+# --- per-tenant lock key -------------------------------------------
+
+
+def test_tenant_lock_key_is_the_job_key_then_the_tenant_uuid() -> None:
+    """Catches an implementation that omits the tenant segment, returns the
+    plain job key, or swaps the job and tenant segments — all three produce a
+    key that cannot distinguish one tenant's gate from another's, so the first
+    tenant to claim it blocks every other tenant for the full cadence.
+    """
+    tid = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    expected = f"helpdesk:joblock:expire_grants:{tid}"
+
+    result = tenant_lock_key("expire_grants", tid)
+
+    assert result == expected
+
+
+def test_a_failed_tenant_frees_only_its_own_lock_and_keeps_the_others(
+    scheduler_db: tuple[str, list[SeededTenant]],
+    scheduler_redis_url: str,
+    job_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a runner that on any tenant failure deletes the whole-job key
+    instead of the per-tenant key — the other tenant's gate would then also
+    be freed, so it retries on the next tick even though it succeeded.
+
+    Two tenants: the job raises for tenant A (matched by bound_tenant_id)
+    and succeeds for tenant B. After one tick, tenant A's per-tenant key is
+    gone and tenant B's per-tenant key has the cadence TTL.
+    """
+    database_url, tenants = scheduler_db
+    tenant_a, tenant_b = tenants[0], tenants[1]
+
+    for tenant in tenants:
+        _delete_key(scheduler_redis_url, tenant_lock_key(job_name, tenant.tenant_id))
+
+    async def boom_for_a(session: AsyncSession, now: datetime) -> None:
+        if bound_tenant_id(session) == tenant_a.tenant_id:
+            raise RuntimeError("tenant A's job failed")
+
+    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
+        job_name: Job(name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=boom_for_a)
+    })
+
+    async def scenario() -> None:
+        engine = create_engine(database_url)
+        client: Redis = Redis.from_url(
+            scheduler_redis_url, socket_connect_timeout=2, socket_timeout=2
+        )
+        try:
+            factory = create_session_factory(engine)
+            await tick(factory, client, now=NOW)
+        finally:
+            await client.aclose()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+    key_a = tenant_lock_key(job_name, tenant_a.tenant_id)
+    key_b = tenant_lock_key(job_name, tenant_b.tenant_id)
+    assert _get_key_ttl(scheduler_redis_url, key_a) is None, (
+        "failed tenant's per-tenant key must be deleted"
+    )
+    assert _get_key_ttl(scheduler_redis_url, key_b) == EXPIRE_GRANTS_CADENCE_SECONDS, (
+        "succeeding tenant's per-tenant key must survive with the cadence TTL"
+    )
+
+
+def test_the_next_tick_reruns_only_the_tenant_that_failed(
+    scheduler_db: tuple[str, list[SeededTenant]],
+    scheduler_redis_url: str,
+    job_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a runner that either re-runs both tenants on the second tick
+    (because it freed both keys) or skips tenant A on the second tick
+    (because it left the broken key in place).
+
+    After a first tick where only tenant A fails, a second tick must visit
+    only tenant A — tenant B's key still has its TTL so the second tick
+    skips it.
+    """
+    database_url, tenants = scheduler_db
+    tenant_a, tenant_b = tenants[0], tenants[1]
+
+    for tenant in tenants:
+        _delete_key(scheduler_redis_url, tenant_lock_key(job_name, tenant.tenant_id))
+
+    tick_count: dict[uuid.UUID, int] = {tenant_a.tenant_id: 0, tenant_b.tenant_id: 0}
+
+    async def counting_run(session: AsyncSession, now: datetime) -> None:
+        tid = bound_tenant_id(session)
+        tick_count[tid] = tick_count.get(tid, 0) + 1
+        if tid == tenant_a.tenant_id and tick_count[tid] == 1:
+            raise RuntimeError("tenant A fails on first tick")
+
+    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
+        job_name: Job(
+            name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=counting_run
+        )
+    })
+
+    async def scenario() -> None:
+        engine = create_engine(database_url)
+        client: Redis = Redis.from_url(
+            scheduler_redis_url, socket_connect_timeout=2, socket_timeout=2
+        )
+        try:
+            factory = create_session_factory(engine)
+            await tick(factory, client, now=NOW)
+            await tick(factory, client, now=NOW)
+        finally:
+            await client.aclose()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+    assert tick_count[tenant_a.tenant_id] == 2, (
+        "tenant A must be visited twice: once on first tick (failed), once on second tick"
+    )
+    assert tick_count[tenant_b.tenant_id] == 1, (
+        "tenant B must be visited only once: its key survived the first tick so the second skips it"
+    )
+
+
+def test_a_run_cancelled_midway_frees_its_lock(
+    scheduler_db: tuple[str, list[SeededTenant]],
+    scheduler_redis_url: str,
+    job_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a runner whose finally block is absent or swallows CancelledError
+    before re-raising — the tenant's per-tenant key would remain set, so the
+    scheduler would never retry that tenant until the cadence window expired,
+    and the orchestrator-requested shutdown would appear to hang at the task.
+
+    The job raises CancelledError for its one tenant. The per-tenant key must
+    be deleted AND the CancelledError must propagate out of tick.
+    """
+    database_url, tenants = scheduler_db
+    tenant = tenants[0]
+
+    _delete_key(scheduler_redis_url, tenant_lock_key(job_name, tenant.tenant_id))
+
+    async def cancel_me(session: AsyncSession, now: datetime) -> None:
+        raise asyncio.CancelledError("cancelled mid-run")
+
+    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
+        job_name: Job(
+            name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=cancel_me
+        )
+    })
+
+    async def scenario() -> None:
+        engine = create_engine(database_url)
+        client: Redis = Redis.from_url(
+            scheduler_redis_url, socket_connect_timeout=2, socket_timeout=2
+        )
+        try:
+            factory = create_session_factory(engine)
+            with pytest.raises(asyncio.CancelledError):
+                await tick(factory, client, now=NOW)
+        finally:
+            await client.aclose()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+    key = tenant_lock_key(job_name, tenant.tenant_id)
+    assert _get_key_ttl(scheduler_redis_url, key) is None, (
+        "CancelledError must free the per-tenant key before propagating"
+    )
+
+
+# --- Prometheus counters -------------------------------------------
+
+
+def test_the_job_run_counter_rises_once_per_tenant(
+    scheduler_db: tuple[str, list[SeededTenant]],
+    scheduler_redis_url: str,
+    job_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a runner that increments the run counter once per job instead
+    of once per tenant — two tenants visited would then read 1 instead of 2,
+    making the counter useless for capacity planning by tenant count.
+
+    A fresh Prometheus registry is monkeypatched over the module-level pair
+    so the assertion is an absolute value, not a delta against whatever prior
+    tests incremented.
+    """
+    database_url, tenants = scheduler_db
+
+    fresh_registry = CollectorRegistry()
+    fresh_metrics = build_metrics(fresh_registry)
+    monkeypatch.setattr(metrics_module, "REGISTRY", fresh_registry)
+    monkeypatch.setattr(metrics_module, "METRICS", fresh_metrics)
+
+    for tenant in tenants:
+        _delete_key(scheduler_redis_url, tenant_lock_key(job_name, tenant.tenant_id))
+
+    async def noop(session: AsyncSession, now: datetime) -> None:
+        pass
+
+    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
+        job_name: Job(name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=noop)
+    })
+
+    async def scenario() -> None:
+        engine = create_engine(database_url)
+        client: Redis = Redis.from_url(
+            scheduler_redis_url, socket_connect_timeout=2, socket_timeout=2
+        )
+        try:
+            factory = create_session_factory(engine)
+            await tick(factory, client, now=NOW)
+        finally:
+            await client.aclose()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+    value = fresh_registry.get_sample_value(
+        "helpdesk_job_runs_total", {"job": job_name}
+    )
+    assert value == 2.0, (
+        f"expected helpdesk_job_runs_total{{job={job_name!r}}} == 2.0 (one per tenant), got {value}"
+    )
+
+
+def test_the_job_failure_counter_rises_once_per_failed_tenant(
+    scheduler_db: tuple[str, list[SeededTenant]],
+    scheduler_redis_url: str,
+    job_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a runner that either does not increment job_failures_total at
+    all, increments it once per job instead of per tenant, or increments it
+    even for tenants that succeeded.
+
+    Two tenants: the job raises for tenant A only. After one tick,
+    job_runs_total must be 2 (both tenants attempted) and
+    job_failures_total must be 1 (only tenant A failed).
+    """
+    database_url, tenants = scheduler_db
+    tenant_a = tenants[0]
+
+    fresh_registry = CollectorRegistry()
+    fresh_metrics = build_metrics(fresh_registry)
+    monkeypatch.setattr(metrics_module, "REGISTRY", fresh_registry)
+    monkeypatch.setattr(metrics_module, "METRICS", fresh_metrics)
+
+    for tenant in tenants:
+        _delete_key(scheduler_redis_url, tenant_lock_key(job_name, tenant.tenant_id))
+
+    async def fail_a(session: AsyncSession, now: datetime) -> None:
+        if bound_tenant_id(session) == tenant_a.tenant_id:
+            raise RuntimeError("tenant A fails")
+
+    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
+        job_name: Job(name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=fail_a)
+    })
+
+    async def scenario() -> None:
+        engine = create_engine(database_url)
+        client: Redis = Redis.from_url(
+            scheduler_redis_url, socket_connect_timeout=2, socket_timeout=2
+        )
+        try:
+            factory = create_session_factory(engine)
+            await tick(factory, client, now=NOW)
+        finally:
+            await client.aclose()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+    runs = fresh_registry.get_sample_value("helpdesk_job_runs_total", {"job": job_name})
+    failures = fresh_registry.get_sample_value("helpdesk_job_failures_total", {"job": job_name})
+    assert runs == 2.0, f"expected job_runs_total == 2.0, got {runs}"
+    assert failures == 1.0, f"expected job_failures_total == 1.0, got {failures}"

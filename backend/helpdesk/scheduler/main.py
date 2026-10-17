@@ -41,13 +41,22 @@ absence. Pinned by
 
 
 def create_app() -> FastAPI:
-    """The app: health, readiness, the scrape, and the loop as a lifespan task."""
+    """The app: health, readiness, the scrape, and the loop as a lifespan task.
+
+    The loop task is stored in a one-element list so the `liveness` closure
+    can reach it without a module-level mutable (which a test that calls
+    `create_app()` twice would share). The liveness returns True while the
+    task exists and has not finished; /healthz returns 503 once the task is
+    done, so an orchestrator can restart a container whose loop quietly stopped.
+    """
+    _task_holder: list[asyncio.Task[None]] = []
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         configure_logging()
         # Reached through the module attribute so a test can replace the loop.
-        task = asyncio.create_task(runner.run_loop())
+        task: asyncio.Task[None] = asyncio.create_task(runner.run_loop())
+        _task_holder.append(task)
         try:
             yield
         finally:
@@ -59,8 +68,20 @@ def create_app() -> FastAPI:
             except Exception:
                 logger.exception("the scheduler loop ended with an error")
 
+    def _liveness() -> bool:
+        """True before the lifespan starts or while the task runs; False once it dies.
+
+        The lifespan hasn't started if the holder is empty — the process is
+        coming up, not a dead loop — so the check returns True. Once the task is
+        stored and later finishes or errors, `done()` is True and liveness is
+        False: that is the case the orchestrator needs to restart on.
+        """
+        if not _task_holder:
+            return True
+        return not _task_holder[0].done()
+
     app = FastAPI(title="scheduler", lifespan=lifespan)
-    _health.register_health(app, _build_scheduler_checks)
+    _health.register_health(app, _build_scheduler_checks, liveness=_liveness)
     return app
 
 

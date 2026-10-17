@@ -58,6 +58,7 @@ from helpdesk.scheduler.runner import (
     REGISTRY,
     check_job_name,
     job_lock_key,
+    tenant_lock_key,
 )
 
 # Imported, not redefined: one throwaway database with two
@@ -65,6 +66,7 @@ from helpdesk.scheduler.runner import (
 from tests.scheduler.test_scheduler_runner import (  # noqa: F401
     NOW,
     _delete_key,
+    _get_key_ttl,
     _run_tick,
     scheduler_db,
     scheduler_redis_url,
@@ -196,29 +198,29 @@ def test_a_tick_leaves_both_review_keys_with_a_one_day_ttl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The registration criterion end to end, on the REAL registry against real
-    Postgres and Redis, so the literal key names and the literal TTL are
-    pinned together.
+    Postgres and Redis, so the literal per-tenant key names and the literal
+    TTL are pinned together.
 
     Catches a lock taken with no expiry (the job would never run again after
     one tick, for ever), one taken on a key an operator would not find, and a
     lock RELEASED at the end of the run — 21a decision B makes the key itself
     the cadence gate, so a released key means these jobs run every 60 seconds
-    instead of every 24 hours, re-reading every scope of every tenant and
-    re-reminding every reviewer on each tick. Both keys are asserted PRESENT
-    afterwards, which is also what a job RAISING would fail (21a decision C
-    deletes the key of a job that raised), so this case doubles as the proof
-    that both engines survive one real run over two seeded tenants.
+    instead of every 24 hours. Both per-tenant keys are asserted PRESENT for
+    each job, so a runner that deletes all keys after a run fails here.
     """
-    database_url, _tenants = scheduler_db
-    for key in (REVIEW_GENERATION_KEY, REVIEW_REMINDERS_KEY):
-        _delete_key(scheduler_redis_url, key)
+    database_url, tenants = scheduler_db
+    for job_name in (jobs.REVIEW_GENERATION_JOB_NAME, jobs.REVIEW_REMINDERS_JOB_NAME):
+        for tenant in tenants:
+            _delete_key(scheduler_redis_url, tenant_lock_key(job_name, tenant.tenant_id))
 
-    ttls = _run_tick(database_url, scheduler_redis_url, dict(REGISTRY), monkeypatch=monkeypatch)
+    _run_tick(database_url, scheduler_redis_url, dict(REGISTRY), monkeypatch=monkeypatch)
 
-    assert ttls["review_generation"] == DAILY_CADENCE_SECONDS
-    assert ttls["review_generation"] == 86400
-    assert ttls["review_reminders"] == DAILY_CADENCE_SECONDS
-    assert ttls["review_reminders"] == 86400
+    for job_name in (jobs.REVIEW_GENERATION_JOB_NAME, jobs.REVIEW_REMINDERS_JOB_NAME):
+        for tenant in tenants:
+            key = tenant_lock_key(job_name, tenant.tenant_id)
+            ttl = _get_key_ttl(scheduler_redis_url, key)
+            assert ttl == DAILY_CADENCE_SECONDS, f"expected TTL 86400 for {key}, got {ttl}"
+            assert ttl == 86400
 
 
 # --- the wrappers (plan §2: two lines each, deciding nothing) ----------------

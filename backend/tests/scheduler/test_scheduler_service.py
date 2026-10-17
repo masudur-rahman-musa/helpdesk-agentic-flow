@@ -131,6 +131,66 @@ def test_metrics_renders_and_carries_the_expiry_counter() -> None:
     assert "# TYPE helpdesk_expiries_total counter" in response.text
 
 
+def test_healthz_fails_after_the_loop_task_dies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a `/healthz` that always returns 200 regardless of whether the
+    job loop task is still running — an orchestrator relying on that endpoint
+    to decide whether to restart the container would never restart a scheduler
+    whose loop had quietly stopped, so no job of any tenant would ever run
+    again and nothing would report it.
+
+    The fake loop returns immediately instead of looping; after a brief wait
+    for the task to finish, `/healthz` must answer 503.
+    """
+
+    async def dying_loop() -> None:
+        return  # exits at once; simulates a loop that stopped
+
+    monkeypatch.setattr(runner, "run_loop", dying_loop)
+
+    async def scenario() -> int:
+        app = main.create_app()
+        async with app.router.lifespan_context(app):
+            await asyncio.sleep(0.05)  # let the task finish
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.get("/healthz")
+                return response.status_code
+
+    status = asyncio.run(scenario())
+    assert status == 503
+
+
+def test_healthz_stays_ok_while_the_loop_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a `/healthz` that returns 503 even when the loop task is alive,
+    which would cause the orchestrator to restart a healthy container on every
+    check, killing any in-flight tick mid-run.
+
+    The fake loop blocks on an Event that is never set; inside the lifespan
+    context the task is still running, so `/healthz` must answer 200.
+    """
+
+    async def blocking_loop() -> None:
+        await asyncio.Event().wait()  # blocks until cancelled
+
+    monkeypatch.setattr(runner, "run_loop", blocking_loop)
+
+    async def scenario() -> tuple[int, Any]:
+        app = main.create_app()
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.get("/healthz")
+                return response.status_code, response.json()
+
+    status, body = asyncio.run(scenario())
+    assert status == 200
+    assert body == {"status": "ok"}
+
+
 def test_the_lifespan_starts_the_loop_and_cancels_it_on_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

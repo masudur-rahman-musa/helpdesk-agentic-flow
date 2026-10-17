@@ -138,22 +138,34 @@ def _gateway_health_url(base_url: str) -> str:
 
 _CheckFn = Callable[[], Awaitable[bool]]
 _BuildChecks = Callable[[Any], dict[str, _CheckFn]]
+_LivenessFn = Callable[[], bool]
 
 
-def register_health(app: FastAPI, build_checks: _BuildChecks) -> None:
+def register_health(
+    app: FastAPI,
+    build_checks: _BuildChecks,
+    *,
+    liveness: _LivenessFn | None = None,
+) -> None:
     """Add /healthz, /readyz and /metrics to `app`.
 
     `build_checks(state)` is called at request time and returns a name ->
     zero-arg async callable mapping. All checks run concurrently so /readyz
     waits for the slowest single check, not the sum of them.
 
+    `liveness`, when provided, is called by /healthz: if it returns False the
+    endpoint answers 503 so an orchestrator can restart a container whose loop
+    quietly stopped. Agent-api and mcp-server pass nothing and keep
+    the always-ok behaviour.
+
     Routes are registered with `include_in_schema=False` for /metrics and
     in the default OpenAPI schema for /healthz and /readyz.
     """
-
-    @app.get("/healthz")
-    async def healthz() -> HealthResponse:
-        return HealthResponse(status="ok")
+    @app.get("/healthz", response_model=None)
+    async def healthz() -> JSONResponse:
+        if liveness is not None and not liveness():
+            return JSONResponse(status_code=503, content={"status": "dead"})
+        return JSONResponse(status_code=200, content={"status": "ok"})
 
     @app.get("/readyz", response_model=ReadinessResponse)
     async def readyz(request: Request) -> JSONResponse:

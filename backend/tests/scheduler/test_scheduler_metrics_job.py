@@ -43,7 +43,7 @@ No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,6 +54,7 @@ from helpdesk.scheduler.runner import (
     REGISTRY,
     check_job_name,
     job_lock_key,
+    tenant_lock_key,
 )
 
 # Imported, not redefined: one throwaway database with two
@@ -61,6 +62,7 @@ from helpdesk.scheduler.runner import (
 from tests.scheduler.test_scheduler_runner import (  # noqa: F401
     NOW,
     _delete_key,
+    _get_key_ttl,
     _run_tick,
     scheduler_db,
     scheduler_redis_url,
@@ -244,29 +246,28 @@ def test_a_tick_leaves_the_metrics_key_with_a_three_hundred_second_ttl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The registration criterion end to end, on the REAL registry against real
-    Postgres and Redis, so the literal key name and the literal TTL are pinned
-    together.
+    Postgres and Redis, so the literal per-tenant key names and the literal TTL
+    are pinned together.
 
     Catches a lock taken with no expiry (the job would never run again after
-    one tick, for ever, and both gauges would freeze at the first tick's
-    reading while looking perfectly live on the exposition), one taken on a key
-    an operator would not find, and a lock RELEASED at the end of the run —
-    21a decision B makes the key itself the cadence gate, so a released key
-    means this job re-walks every audit event of every tenant every 60 seconds
-    instead of every 300, which is plan §5's first risk multiplied by five.
-
-    The key is asserted PRESENT afterwards, which is also what a job RAISING
-    would fail (21a decision C deletes the key of a job that raised), so this
-    case doubles as the proof that both real engines survive one run over the
-    two seeded tenants — the only place in this plan's tests where they are
-    driven through the runner rather than called directly.
+    one tick, for ever), one taken on a key an operator would not find, and a
+    lock RELEASED at the end of the run — 21a decision B makes the key itself
+    the cadence gate, so a released key means this job re-walks every audit
+    event every 60 seconds instead of every 300. Per-tenant keys are asserted
+    PRESENT for both tenants, so a runner that deletes all keys after a run
+    fails here.
     """
-    database_url, _tenants = scheduler_db
-    _delete_key(scheduler_redis_url, METRICS_SWEEP_KEY)
+    database_url, tenants = scheduler_db
+    for tenant in tenants:
+        _delete_key(
+            scheduler_redis_url,
+            tenant_lock_key(jobs.METRICS_SWEEP_JOB_NAME, tenant.tenant_id),
+        )
 
-    ttls: dict[str, Any] = _run_tick(
-        database_url, scheduler_redis_url, dict(REGISTRY), monkeypatch=monkeypatch
-    )
+    _run_tick(database_url, scheduler_redis_url, dict(REGISTRY), monkeypatch=monkeypatch)
 
-    assert ttls["metrics_sweep"] == METRICS_SWEEP_CADENCE_SECONDS
-    assert ttls["metrics_sweep"] == 300
+    for tenant in tenants:
+        key = tenant_lock_key(jobs.METRICS_SWEEP_JOB_NAME, tenant.tenant_id)
+        ttl = _get_key_ttl(scheduler_redis_url, key)
+        assert ttl == METRICS_SWEEP_CADENCE_SECONDS, f"expected TTL 300 for {key}, got {ttl}"
+        assert ttl == 300
