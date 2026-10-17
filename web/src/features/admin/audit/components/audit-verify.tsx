@@ -1,11 +1,8 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
-
-import { auditVerifySchema } from "@/features/admin/audit/schema";
+import { type ChainVerdict, useAuditVerify } from "@/features/admin/audit/api";
 import { failureMessage } from "@/features/chat/errors";
-import { API } from "@/lib/api-paths";
-import { WireRefusedError, readWire } from "@/lib/wire-read";
+import { WireRefusedError } from "@/lib/wire-read";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -65,18 +62,6 @@ import { Card } from "@/components/ui/card";
 export const AUDIT_VERIFY_READ_MESSAGE = "The chain could not be checked. Try again in a moment.";
 
 /**
- * An earlier change's answer as an earlier change left it, as this panel holds it: one shape with
- * all four facts, never a second type beside it, so `verdictSentence` cannot be
- * called with half an answer.
- */
-type ChainVerdict = {
-  ok: boolean;
-  brokenAt: number | null;
-  truncatedAt: number | null;
-  anchoredSeq: number | null;
-};
-
-/**
  * The one sentence for one answer.
  *
  * `broken_at` wins where both seqs arrive non-null — a shape `verify_chain`
@@ -124,7 +109,7 @@ function anchorLine(anchoredSeq: number | null): string {
 }
 
 export function AuditVerify() {
-  const verify = useMutation<ChainVerdict | null>({ mutationFn: fetchVerify });
+  const verify = useAuditVerify();
 
   const verdict = verify.isSuccess ? verify.data : null;
   const refusal = verify.isError ? errorMessage(verify.error) : null;
@@ -167,22 +152,4 @@ function errorMessage(error: unknown): string {
     return failureMessage(error.code);
   }
   return AUDIT_VERIFY_READ_MESSAGE;
-}
-
-/**
- * The chain's verdict, or `null` when the browser was sent to `/login` instead.
- *
- * No query string and no body: the route has nothing to ask for.
- */
-async function fetchVerify(): Promise<ChainVerdict | null> {
-  const payload = await readWire(API.auditVerify, auditVerifySchema);
-  if (payload === null) {
-    return null;
-  }
-  return {
-    ok: payload.ok,
-    brokenAt: payload.broken_at,
-    truncatedAt: payload.truncated_at,
-    anchoredSeq: payload.anchored_seq,
-  };
 }

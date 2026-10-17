@@ -1,15 +1,14 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { failureMessage } from "@/features/chat/errors";
-import { type KillSwitchRow, setKillSwitchResultSchema } from "@/features/admin/killswitch/schema";
-import { API } from "@/lib/api-paths";
-// The vocabulary check alone: `readWire` is a GET and cannot express this POST,
-// so the fetch below stays as it is while the design's eight are checked in the
-// one place that holds them.
-import { isTypedCode } from "@/lib/wire-read";
+import {
+  type ToggleAct,
+  ToggleRefusedError,
+  useKillSwitchToggle,
+} from "@/features/admin/killswitch/api";
+import type { KillSwitchRow } from "@/features/admin/killswitch/schema";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -102,27 +101,6 @@ export const KILL_SWITCH_POLICY_BLOCKED_MESSAGE = "That tool is protected and ca
 export const KILL_SWITCH_VALIDATION_MESSAGE =
   "That could not be saved. Shorten the reason and try again.";
 
-/** The proxy path, one route carrying both verbs (24cb decision E). */
-const TOGGLE_PATH = API.killSwitch;
-
-/** The two scope literals the tool takes, and the only two this page sends. */
-type Scope = "global" | "tenant";
-
-/** One control's identity: which layer it acts on and in which direction. */
-interface Act {
-  scope: Scope;
-  enabled: boolean;
-}
-
-/**
- * What a toggle POST resolved to: whether the board should be re-read.
- *
- * `false` is the redirect case and nothing else — the browser is navigating to
- * `/login`, so invalidating a query it is about to leave behind would fire a
- * read under an expired session.
- */
-type ToggleOutcome = boolean;
-
 export function KillSwitchToggle({
   row,
   onChanged,
@@ -134,18 +112,12 @@ export function KillSwitchToggle({
   const [armed, setArmed] = useState(false);
   const [blankReason, setBlankReason] = useState(false);
 
-  const toggle = useMutation({
-    mutationFn: (act: Act) => postToggle(row.tool, act, reason),
-    onSuccess: (changed: ToggleOutcome) => {
-      if (!changed) {
-        return;
-      }
-      // Cleared so the NEXT tool stopped from this screen cannot be filed with
-      // the previous tool's reason, and the arming cleared with it (§1).
-      setReason("");
-      setArmed(false);
-      onChanged();
-    },
+  const toggle = useKillSwitchToggle(row.tool, () => {
+    // Cleared so the NEXT tool stopped from this screen cannot be filed with
+    // the previous tool's reason, and the arming cleared with it (§1).
+    setReason("");
+    setArmed(false);
+    onChanged();
   });
 
   // Read off the row's own `protected` and never off a browser-side copy of
@@ -159,13 +131,13 @@ export function KillSwitchToggle({
    * round trip to be told. Trimmed, because `reason === ""` lets three spaces
    * past and files a switch nobody can explain later.
    */
-  function run(act: Act): boolean {
+  function run(act: ToggleAct): boolean {
     if (reason.trim() === "") {
       setBlankReason(true);
       return false;
     }
     setBlankReason(false);
-    toggle.mutate(act);
+    toggle.mutate({ act, reason });
     return true;
   }
 
@@ -186,7 +158,7 @@ export function KillSwitchToggle({
       return;
     }
     setArmed(false);
-    toggle.mutate({ scope: "global", enabled: true });
+    toggle.mutate({ act: { scope: "global", enabled: true }, reason });
   }
 
   /**
@@ -194,7 +166,7 @@ export function KillSwitchToggle({
    * (§1): an arming that survived an unrelated click would turn the admin's
    * next platform-wide click into a one-press stop for every tenant.
    */
-  function onOther(act: Act): void {
+  function onOther(act: ToggleAct): void {
     setArmed(false);
     run(act);
   }
@@ -293,22 +265,6 @@ function holdsTenant(row: KillSwitchRow): boolean {
   return row.unreadable || row.tenant_state !== null;
 }
 
-/**
- * A toggle the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so
- * no free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
-class ToggleRefusedError extends Error {
-  readonly code: string;
-
-  constructor(code: string) {
-    super("the kill switch change was refused");
-    this.code = code;
-  }
-}
-
 /** The sentence for a refused toggle, or `null` while nothing is refused. */
 function toggleRefusal(error: unknown): string | null {
   if (error === null || error === undefined) {
@@ -324,63 +280,4 @@ function toggleRefusal(error: unknown): string | null {
     return KILL_SWITCH_VALIDATION_MESSAGE;
   }
   return failureMessage(error.code);
-}
-
-/**
- * One change, posted to the proxy for this tool, this layer and this direction.
- *
- * `enabled` describes the SWITCH and `stopped` the TOOL (13c decision B), so a
- * Stop sends `enabled: true` at either scope. Inverting it would release a tool
- * an admin just stopped, silently, with a 200.
- *
- * Answers `false` when the browser is navigating to `/login`, so the caller
- * files nothing and re-reads nothing.
- */
-async function postToggle(tool: string, act: Act, reason: string): Promise<ToggleOutcome> {
-  const response = await fetch(TOGGLE_PATH, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      tool_name: tool,
-      enabled: act.enabled,
-      scope: act.scope,
-      reason,
-    }),
-  });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return false;
-  }
-  if (!response.ok) {
-    // The status is read BEFORE the body: the proxy's own `502
-    // UPSTREAM_UNAVAILABLE` is valid JSON carrying a code outside the design,
-    // and a reader that skipped the status would answer a refusal sentence for
-    // an outage.
-    const body = await readJson(response);
-    const code =
-      typeof body === "object" && body !== null ? (body as { code?: unknown }).code : undefined;
-    if (isTypedCode(code)) {
-      throw new ToggleRefusedError(code);
-    }
-    throw new Error(`the kill switch could not be changed (${response.status})`);
-  }
-
-  // Parsed and its fields UNRENDERED (decision F): the invalidated board is
-  // what an admin reads, and the parse is what turns an answer that is not a
-  // set result into a failure sentence rather than a confident refetch.
-  const parsed = setKillSwitchResultSchema.safeParse(await readJson(response));
-  if (!parsed.success) {
-    throw new Error("the kill switch answer did not match what this page reads");
-  }
-  return true;
-}
-
-/** The body as JSON, or `undefined` when it is not JSON at all. */
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
 }

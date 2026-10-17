@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { failureMessage } from "@/features/chat/errors";
@@ -10,13 +9,12 @@ import {
   reviewStatusLabel,
 } from "@/features/reviews/labels";
 import {
-  type ReviewItem,
-  type ReviewQueueRow,
-  reviewItemsSchema,
-  reviewQueueSchema,
-} from "@/features/reviews/schema";
-import { API, apiPath } from "@/lib/api-paths";
-import { readWire } from "@/lib/wire-read";
+  DecisionRefusedError,
+  useDecideReviewItem,
+  useReviewItems,
+  useReviewQueue,
+} from "@/features/reviews/api";
+import type { ReviewItem, ReviewQueueRow } from "@/features/reviews/schema";
 
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,9 +90,6 @@ const STATUS_CHOICES = [
   { value: "completed", label: "Completed" },
 ] as const;
 
-/** The prefix every queue key shares, so a decision invalidates any filter. */
-const QUEUE_KEY_PREFIX = ["me", "reviews"] as const;
-
 export function ReviewQueue() {
   // `open` on first paint (decision D): a completed review is most of the table
   // after two quarters, and the queue a reviewer opens is the work waiting on
@@ -102,10 +97,7 @@ export function ReviewQueue() {
   const [status, setStatus] = useState<string>("open");
   const [selected, setSelected] = useState<string | null>(null);
 
-  const reviews = useQuery({
-    queryKey: [...QUEUE_KEY_PREFIX, status],
-    queryFn: () => fetchReviews(status),
-  });
+  const reviews = useReviewQueue(status);
 
   return (
     <section aria-label="Reviews" className="flex max-w-3xl flex-col gap-4">
@@ -200,10 +192,7 @@ function ReviewRow({
  * tool would happily file the decision the reviewer meant for the other row.
  */
 function ReviewItems({ reviewId }: { reviewId: string }) {
-  const items = useQuery({
-    queryKey: ["reviews", reviewId, "items"],
-    queryFn: () => fetchItems(reviewId),
-  });
+  const items = useReviewItems(reviewId);
 
   if (items.isError) {
     return (
@@ -280,15 +269,7 @@ function ItemRow({ item, reviewId }: { item: ReviewItem; reviewId: string }) {
  * what the refetch answers.
  */
 function DecideControls({ item, reviewId }: { item: ReviewItem; reviewId: string }) {
-  const queryClient = useQueryClient();
-
-  const decide = useMutation({
-    mutationFn: (decision: "keep" | "revoke") => postDecision(item.item_id, decision),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["reviews", reviewId, "items"] });
-      await queryClient.invalidateQueries({ queryKey: QUEUE_KEY_PREFIX });
-    },
-  });
+  const decide = useDecideReviewItem(item.item_id, reviewId);
 
   const refusal = decisionRefusal(decide.error);
 
@@ -322,22 +303,6 @@ function DecideControls({ item, reviewId }: { item: ReviewItem; reviewId: string
   );
 }
 
-/**
- * A decision the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so
- * no free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
-class DecisionRefusedError extends Error {
-  readonly code: unknown;
-
-  constructor(code: unknown) {
-    super("the decision was refused");
-    this.code = code;
-  }
-}
-
 /** The sentence for a refused decision, or `null` while nothing is refused. */
 function decisionRefusal(error: unknown): string | null {
   if (error === null || error === undefined) {
@@ -345,66 +310,4 @@ function decisionRefusal(error: unknown): string | null {
   }
   const code = error instanceof DecisionRefusedError ? error.code : undefined;
   return code === "VALIDATION" ? REVIEW_VALIDATION_MESSAGE : failureMessage(code);
-}
-
-/**
- * The queue for one filter, or the empty list while the browser follows the
- * proxy's redirect to `/login`. `all` sends no `status` parameter at all rather
- * than a word the tool's enum has no member for.
- *
- * A refused read throws a `WireRefusedError` and this page dresses it with
- * nothing (24ia decision B): the queue's own alert is what a reviewer sees for a
- * typed 403 as well as for a bodyless 500, and the per-code sentences on this
- * surface stay the DECISION's alone. Pinned by
- * `tests/reviews-page.test.tsx::a 403 FORBIDDEN on the queue renders the queue
- * alert, not the code's sentence`.
- */
-async function fetchReviews(status: string): Promise<ReviewQueueRow[]> {
-  const url = status === "all" ? API.myReviews : `${API.myReviews}?status=${status}`;
-  const parsed = await readWire(url, reviewQueueSchema);
-  return parsed === null ? [] : parsed.reviews;
-}
-
-/**
- * The items of one review, or the empty list while the browser follows the
- * proxy's redirect to `/login`. The review id is a path segment and never a
- * query parameter, pinned by `tests/reviews-page.test.tsx::reads
- * /api/reviews/{review_id}/items with an empty query string`.
- *
- * Same dressing as the queue read: the item alert answers a typed 403 and a
- * bodyless 500 alike (`::a 403 FORBIDDEN on the items renders the item alert,
- * not the code's sentence`).
- */
-async function fetchItems(reviewId: string): Promise<ReviewItem[]> {
-  const parsed = await readWire(apiPath(API.reviewItems, { reviewId }), reviewItemsSchema);
-  return parsed === null ? [] : parsed.items;
-}
-
-/**
- * One decision, posted to the proxy for this item.
- *
- * No idempotency key is sent: agent-api derives it from the verified reviewer,
- * the item and the word (23h), so a double-clicked Keep replays the stored
- * response instead of filing a second decision. The only string this page sends
- * is the tool's own enum, chosen from a fixed control.
- */
-async function postDecision(itemId: string, decision: "keep" | "revoke"): Promise<void> {
-  const response = await fetch(apiPath(API.decideReviewItem, { itemId }), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ decision }),
-  });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return;
-  }
-  if (!response.ok) {
-    const refused: unknown = await response.json().catch(() => null);
-    const code =
-      typeof refused === "object" && refused !== null
-        ? (refused as Record<string, unknown>).code
-        : undefined;
-    throw new DecisionRefusedError(code);
-  }
 }

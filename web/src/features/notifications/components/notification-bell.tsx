@@ -1,12 +1,8 @@
 "use client";
 
-import { QueryClientContext, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useContext } from "react";
 
-import { notificationPageSchema } from "@/features/notifications/schema";
-import { API } from "@/lib/api-paths";
-import { readWire } from "@/lib/wire-read";
+import { useUnreadCount } from "@/features/notifications/api";
 
 /**
  * The unread count in the shell's header, and the route into `/notifications`
@@ -41,31 +37,18 @@ import { readWire } from "@/lib/wire-read";
  * page, so it is the likeliest place a stale session is discovered at all.
  */
 export function NotificationBell() {
-  // Deviation from §2, recorded in the plan: `tests/shell.test.tsx` renders
-  // `AppShell` — and so this component, in its "Account" group — with no
-  // `QueryClientProvider` above it, which a bare `useQuery` throws on in every
-  // one of that file's cases. §8 authorises no provider wrapper there and §3
-  // puts `app-shell.tsx` under "will NOT touch", so the absence of a client is
-  // answered HERE, in the only file that can answer it without editing a closed
-  // plan's tests. The branch is unreachable in the app:
-  // `app/layout.tsx` wraps every route in `QueryProvider`, above the shell.
-  const client = useContext(QueryClientContext);
-  if (client === undefined) {
+  // `null` when no `QueryClientProvider` is above, which only
+  // `tests/shell.test.tsx` renders; `useUnreadCount` says why the bell then
+  // renders nothing at all.
+  const unread = useUnreadCount();
+  if (unread === null) {
     return null;
   }
-  return <UnreadBell />;
-}
-
-function UnreadBell() {
-  const unread = useQuery({
-    queryKey: ["notifications", "unread"],
-    queryFn: fetchUnreadCount,
-  });
 
   // `undefined` while the read is in flight AND after it failed, which is the
   // same thing to a reader: the count is unknown, so the bell says nothing
   // about it rather than rendering `0` and claiming nothing is waiting.
-  const count = unread.data;
+  const count = unread.count;
 
   return (
     <Link
@@ -93,27 +76,4 @@ function UnreadBell() {
       ) : null}
     </Link>
   );
-}
-
-/**
- * The tally, from the smallest payload that carries it.
- *
- * `limit=1` because `unread_count` is the whole count and not the length of the
- * list (23ga decision B), so one row is as informative as fifty and the header
- * of every page should not be fetching rows it renders none of. The absent
- * `limit` on the page's own read is what tells the two apart in the tests.
- */
-async function fetchUnreadCount(): Promise<number> {
-  // `readWire` THROWS for every failure, even though the failure renders as
-  // nothing here: a resolved `0` is a claim that nothing is waiting, and the
-  // difference between that and "unknown" is the whole of §1's silent-failure
-  // criterion (`tests/notification-bell.test.tsx::a 403 FORBIDDEN leaves the
-  // count unknown, never 0, and shows no alert`). Its `null` — the browser
-  // already navigating to `/login` — is the one case that resolves, and `0` is
-  // then never rendered either, because a count of zero shows no badge.
-  const parsed = await readWire(
-    `${API.myNotifications}?unread_only=true&limit=1`,
-    notificationPageSchema,
-  );
-  return parsed === null ? 0 : parsed.unread_count;
 }

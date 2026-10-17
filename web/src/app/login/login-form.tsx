@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/field";
-import { API } from "@/lib/api-paths";
+import { logIn } from "@/features/auth/api";
 import { SIGN_IN_FAILED_MESSAGE, loginSchema } from "@/lib/schemas";
 
 /**
@@ -45,21 +45,11 @@ export function LoginForm() {
     }
 
     setPending(true);
-    try {
-      const response = await fetch(API.login, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(parsed.data),
-      });
-      if (!response.ok) {
-        setFailed(true);
-        return;
-      }
-    } catch {
+    const signedIn = await logIn(parsed.data);
+    setPending(false);
+    if (!signedIn) {
       setFailed(true);
       return;
-    } finally {
-      setPending(false);
     }
 
     router.replace("/chat");

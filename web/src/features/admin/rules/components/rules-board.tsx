@@ -1,12 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-
 import { failureMessage } from "@/features/chat/errors";
 import { RULES_READ_MESSAGE, UNRESOLVED_ROLE_TEXT } from "@/features/admin/rules/labels";
-import { type SodRuleRoleBlock, type SodRuleRow, sodRulesBoardSchema } from "@/features/admin/rules/schema";
-import { API } from "@/lib/api-paths";
-import { readWire, WireRefusedError } from "@/lib/wire-read";
+import { useRulesBoard } from "@/features/admin/rules/api";
+import type { SodRuleRoleBlock, SodRuleRow } from "@/features/admin/rules/schema";
+import { WireRefusedError } from "@/lib/wire-read";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import {
@@ -72,21 +70,8 @@ import {
  */
 const COLUMNS = ["Role A", "Role B", "Rationale", "Policy"] as const;
 
-/** The query this board reads. */
-const BOARD_KEY = ["admin", "rules", "board"] as const;
-
-/**
- * What the board answered, or `null` while the browser navigates away.
- *
- * The null is the redirect and nothing else: rendering the empty state for an
- * expired session would tell somebody who is not even signed in that the tenant
- * has no separation of duties at all, and rendering the alert would blame a
- * read that was fine.
- */
-type BoardAnswer = SodRuleRow[] | null;
-
 export function RulesBoard() {
-  const board = useQuery({ queryKey: BOARD_KEY, queryFn: fetchBoard });
+  const board = useRulesBoard();
 
   const refusal = board.isError ? errorMessage(board.error) : null;
   const rows = board.isSuccess ? board.data : null;
@@ -199,13 +184,4 @@ function errorMessage(error: unknown): string {
     return failureMessage(error.code);
   }
   return RULES_READ_MESSAGE;
-}
-
-/**
- * Every rule the tenant has, in the tool's own order, or `null` while the
- * browser follows the proxy's redirect to `/login`.
- */
-async function fetchBoard(): Promise<BoardAnswer> {
-  const parsed = await readWire(API.rules, sodRulesBoardSchema);
-  return parsed === null ? null : parsed.rules;
 }

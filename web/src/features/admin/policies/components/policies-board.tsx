@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 
 import { PoliciesReingest } from "@/features/admin/policies/components/policies-reingest";
@@ -15,13 +14,9 @@ import {
   POLICIES_EMPTY_TEXT,
   POLICIES_READ_MESSAGE,
 } from "@/features/admin/policies/format";
-import {
-  type PolicyDocument,
-  policyDocumentsBoardSchema,
-  type PolicyVersion,
-} from "@/features/admin/policies/schema";
-import { API } from "@/lib/api-paths";
-import { readWire, WireRefusedError } from "@/lib/wire-read";
+import { usePoliciesBoard, useRefreshPoliciesBoard } from "@/features/admin/policies/api";
+import type { PolicyDocument, PolicyVersion } from "@/features/admin/policies/schema";
+import { WireRefusedError } from "@/lib/wire-read";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -97,38 +92,18 @@ import {
  */
 const COLUMNS = ["Version", "Status", "Ingested", "Chunks", "Source", "Digest", "Actions"] as const;
 
-/** The query this board reads. */
-const BOARD_KEY = ["admin", "policies", "board"] as const;
-
-/**
- * What the board answered, or `null` while the browser navigates away.
- *
- * The null is the redirect and nothing else: rendering the empty state for an
- * expired session would tell somebody who is not even signed in that the tenant
- * has ingested no policy at all, and rendering the alert would blame a read
- * that was fine (§5's second risk, a project rule's fourth half).
- */
-type BoardAnswer = PolicyDocument[] | null;
-
 export function PoliciesBoard() {
-  const queryClient = useQueryClient();
-  const board = useQuery({ queryKey: BOARD_KEY, queryFn: fetchBoard });
+  const board = usePoliciesBoard();
 
   /**
    * What a successful re-ingest does, and the only thing the control is told
-   * about the cache (24db decision G): the key is the board's own, so
-   * `policies-reingest.tsx` imports nothing from here and the two modules
-   * cannot form a cycle.
-   *
-   * Invalidation and never an optimistic rewrite — the tool decides what the
-   * rows become, including which version is live, and a row that changed on
-   * click would show an ingest that did not land. Pinned by
-   * `::PoliciesBoard — the re-ingest control it carries::passes
-   * the board's invalidation down rather than exposing its query key`.
+   * about the cache (24db decision G): `policies-reingest.tsx` takes a callback
+   * and imports nothing from here, so the two modules cannot form a cycle.
+   * Pinned by `::PoliciesBoard — the re-ingest control it carries (an earlier change
+   * §6)::passes the board's invalidation down rather than exposing its query
+   * key`.
    */
-  const onChanged = (): void => {
-    void queryClient.invalidateQueries({ queryKey: BOARD_KEY });
-  };
+  const onChanged = useRefreshPoliciesBoard();
 
   const refusal = board.isError ? errorMessage(board.error) : null;
   const documents = board.isSuccess ? board.data : null;
@@ -340,13 +315,4 @@ function errorMessage(error: unknown): string {
     return failureMessage(error.code);
   }
   return POLICIES_READ_MESSAGE;
-}
-
-/**
- * Every document the tenant has ingested, in the tool's own order, or `null`
- * while the browser follows the proxy's redirect to `/login`.
- */
-async function fetchBoard(): Promise<BoardAnswer> {
-  const parsed = await readWire(API.policies, policyDocumentsBoardSchema);
-  return parsed === null ? null : parsed.documents;
 }

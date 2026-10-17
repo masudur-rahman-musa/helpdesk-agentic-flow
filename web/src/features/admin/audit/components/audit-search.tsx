@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { AUDIT_CSV_MIME, csvFilename, toCsv } from "@/features/admin/audit/csv";
@@ -12,10 +11,10 @@ import {
   PAGE_SIZES,
   toInstant,
 } from "@/features/admin/audit/filters";
-import { type AuditEventRow, auditSearchSchema } from "@/features/admin/audit/schema";
+import { type AppliedFilters, useAuditSearch } from "@/features/admin/audit/api";
+import type { AuditEventRow } from "@/features/admin/audit/schema";
 import { failureMessage } from "@/features/chat/errors";
-import { API } from "@/lib/api-paths";
-import { WireRefusedError, readWire } from "@/lib/wire-read";
+import { WireRefusedError } from "@/lib/wire-read";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Label } from "@/components/ui/field";
@@ -124,9 +123,6 @@ const TEXT_FILTERS = [
   { label: "Actor", param: "actor_ref" },
 ] as const;
 
-/** The applied filters, as the wire parameters they already are. */
-type AppliedFilters = Readonly<Record<string, string>>;
-
 /** What the controls hold right now, keyed the same way plus the two dates. */
 type Draft = Record<string, string>;
 
@@ -138,9 +134,6 @@ const EMPTY_DRAFT: Draft = {
   from: "",
   to: "",
 };
-
-/** One page of the log, as this component reads it. */
-type SearchPage = { events: AuditEventRow[]; nextBeforeSeq: number | null };
 
 export function AuditSearch() {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -154,10 +147,7 @@ export function AuditSearch() {
 
   const beforeSeq = stack.length === 0 ? null : (stack[stack.length - 1] ?? null);
 
-  const search = useQuery({
-    queryKey: ["admin", "audit", "search", applied, pageSize, beforeSeq],
-    queryFn: () => fetchSearch(applied, pageSize, beforeSeq),
-  });
+  const search = useAuditSearch(applied, pageSize, beforeSeq);
 
   function commit(): void {
     // The pre-check fires NO read at all, which is the half a sentence alone
@@ -414,34 +404,4 @@ function filtersOf(draft: Draft): AppliedFilters {
     filters.occurred_to = toInstant(draft.to ?? "");
   }
   return filters;
-}
-
-/**
- * One page of the log for the applied filters, the chosen size and the cursor.
- *
- * `before_seq` belongs to paging alone and is never a form field: it is the
- * `next_before_seq` the tool itself handed back, so the page is never asked for
- * a boundary this code invented.
- */
-async function fetchSearch(
-  filters: AppliedFilters,
-  pageSize: number,
-  beforeSeq: number | null,
-): Promise<SearchPage> {
-  const params = new URLSearchParams({ limit: String(pageSize) });
-  for (const [name, value] of Object.entries(filters)) {
-    params.set(name, value);
-  }
-  if (beforeSeq !== null) {
-    params.set("before_seq", String(beforeSeq));
-  }
-
-  const payload = await readWire(`${API.auditSearch}?${params.toString()}`, auditSearchSchema);
-  if (payload === null) {
-    // The redirect answers what this read answers when it finds nothing, so no
-    // third state appears on screen while the browser navigates to `/login`
-    //.
-    return { events: [], nextBeforeSeq: null };
-  }
-  return { events: payload.events, nextBeforeSeq: payload.next_before_seq };
 }

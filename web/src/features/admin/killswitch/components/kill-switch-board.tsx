@@ -1,16 +1,10 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-
 import { failureMessage } from "@/features/chat/errors";
 import { formatSwitchInstant, KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
-import {
-  type KillSwitchRow,
-  killSwitchBoardSchema,
-  type SwitchState,
-} from "@/features/admin/killswitch/schema";
-import { API } from "@/lib/api-paths";
-import { WireRefusedError, readWire } from "@/lib/wire-read";
+import { useKillSwitchBoard, useRefreshKillSwitchBoard } from "@/features/admin/killswitch/api";
+import type { KillSwitchRow, SwitchState } from "@/features/admin/killswitch/schema";
+import { WireRefusedError } from "@/lib/wire-read";
 import { KillSwitchToggle } from "@/features/admin/killswitch/components/kill-switch-toggle";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -82,39 +76,18 @@ import {
  */
 const COLUMNS = ["Tool", "Status", "Platform-wide", "This tenant", "Actions"] as const;
 
-/** The query the board reads, and the one a toggle's success invalidates. */
-const BOARD_KEY = ["admin", "killswitch", "board"] as const;
-
 /** What a layer holding no switch shows, rather than an empty cell. */
 const NO_SWITCH = "No switch";
 
-/**
- * What the board answered, or `null` while the browser navigates away.
- *
- * The null is the redirect case and nothing else: rendering the empty state for
- * an expired session would be a platform reporting itself clean to somebody who
- * is not even signed in, and rendering the alert would blame a read that was
- * fine. Pinned by `::follows the proxy's redirect to /login instead of
- * rendering a board`, which asserts all three absences.
- */
-type BoardAnswer = KillSwitchRow[] | null;
-
 export function KillSwitchBoard() {
-  const queryClient = useQueryClient();
-  const board = useQuery({ queryKey: BOARD_KEY, queryFn: fetchBoard });
+  const board = useKillSwitchBoard();
 
   /**
    * What a successful toggle does, and the only thing it is told about the
-   * cache (24db decision G): the key is the board's own, so the toggle imports
-   * nothing from here and the two modules cannot form a cycle.
-   *
-   * Invalidation and never an optimistic rewrite — the tool decides what the
-   * row becomes, and a row that changed on click would show a stop that did not
-   * land as done.
+   * cache (24db decision G): the toggle takes a callback and imports nothing
+   * from here, so the two modules cannot form a cycle.
    */
-  const onChanged = (): void => {
-    void queryClient.invalidateQueries({ queryKey: BOARD_KEY });
-  };
+  const onChanged = useRefreshKillSwitchBoard();
 
   const refusal = board.isError ? errorMessage(board.error) : null;
   const rows = board.isSuccess ? board.data : null;
@@ -247,13 +220,4 @@ function errorMessage(error: unknown): string {
     return failureMessage(error.code);
   }
   return KILL_SWITCH_READ_MESSAGE;
-}
-
-/**
- * The whole board, in the registry's order, or `null` while the browser follows
- * the proxy's redirect to `/login`.
- */
-async function fetchBoard(): Promise<BoardAnswer> {
-  const payload = await readWire(API.killSwitch, killSwitchBoardSchema);
-  return payload === null ? null : payload.switches;
 }

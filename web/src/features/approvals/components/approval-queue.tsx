@@ -1,10 +1,15 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { type RequestCitation } from "@/features/access/schema";
-import { type PendingApproval, pendingApprovalsSchema } from "@/features/approvals/schema";
+import {
+  DecisionRefusedError,
+  useApprovals,
+  useApproveRequest,
+  useRejectRequest,
+} from "@/features/approvals/api";
+import type { PendingApproval } from "@/features/approvals/schema";
 import { failureMessage } from "@/features/chat/errors";
 import {
   decisionLabel,
@@ -13,9 +18,6 @@ import {
   slotLabel,
   statusLabel,
 } from "@/features/chat/decision-labels";
-import { API, apiPath } from "@/lib/api-paths";
-import { readWire } from "@/lib/wire-read";
-
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -83,10 +85,8 @@ export const DECISION_VALIDATION_MESSAGE =
 /** The sentence the page says when a Reject is attempted with no reason. */
 const BLANK_REASON_MESSAGE = "Give a reason before rejecting this request.";
 
-const QUEUE_KEY = ["me", "approvals"] as const;
-
 export function ApprovalQueue() {
-  const approvals = useQuery({ queryKey: QUEUE_KEY, queryFn: fetchApprovals });
+  const approvals = useApprovals();
 
   return (
     <section aria-label="Approvals" className="flex max-w-3xl flex-col gap-4">
@@ -219,27 +219,12 @@ function CitationRow({ citation }: { citation: RequestCitation }) {
  * vanishing on click would show a decision that did not land as done.
  */
 function DecideControls({ approval }: { approval: PendingApproval }) {
-  const queryClient = useQueryClient();
   const [comment, setComment] = useState("");
   const [reason, setReason] = useState("");
   const [blankReason, setBlankReason] = useState(false);
 
-  const invalidate = async (): Promise<void> => {
-    await queryClient.invalidateQueries({ queryKey: QUEUE_KEY });
-  };
-
-  const approve = useMutation({
-    mutationFn: () =>
-      postDecision(approval.request_id, "approve", {
-        comment: comment.trim() === "" ? null : comment,
-      }),
-    onSuccess: invalidate,
-  });
-
-  const reject = useMutation({
-    mutationFn: () => postDecision(approval.request_id, "reject", { reason }),
-    onSuccess: invalidate,
-  });
+  const approve = useApproveRequest(approval.request_id);
+  const reject = useRejectRequest(approval.request_id);
 
   const pending = approve.isPending || reject.isPending;
   const refusal = decisionRefusal(approve.error) ?? decisionRefusal(reject.error);
@@ -247,7 +232,7 @@ function DecideControls({ approval }: { approval: PendingApproval }) {
 
   function onApprove(): void {
     setBlankReason(false);
-    approve.mutate();
+    approve.mutate(comment.trim() === "" ? null : comment);
   }
 
   function onReject(): void {
@@ -259,7 +244,7 @@ function DecideControls({ approval }: { approval: PendingApproval }) {
       return;
     }
     setBlankReason(false);
-    reject.mutate();
+    reject.mutate(reason);
   }
 
   return (
@@ -307,22 +292,6 @@ function DecideControls({ approval }: { approval: PendingApproval }) {
   );
 }
 
-/**
- * A decision the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so
- * no free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
-class DecisionRefusedError extends Error {
-  readonly code: unknown;
-
-  constructor(code: unknown) {
-    super("the decision was refused");
-    this.code = code;
-  }
-}
-
 /** The sentence for a refused decision, or `null` while nothing is refused. */
 function decisionRefusal(error: unknown): string | null {
   if (error === null || error === undefined) {
@@ -330,55 +299,4 @@ function decisionRefusal(error: unknown): string | null {
   }
   const code = error instanceof DecisionRefusedError ? error.code : undefined;
   return code === "VALIDATION" ? DECISION_VALIDATION_MESSAGE : failureMessage(code);
-}
-
-/**
- * The queue waiting on this approver, or the empty list while the browser
- * follows the proxy's redirect to `/login`.
- *
- * A refused read throws a `WireRefusedError` and this page dresses it with
- * nothing (24ia decision B): the region's own read alert is what an approver
- * sees for a typed 403 as well as for a bodyless 500, and the per-code
- * sentences on this surface stay the DECISION's alone. Pinned by
- * `tests/approvals-page.test.tsx::a 403 FORBIDDEN on the queue renders the read
- * alert, not the code's sentence`.
- */
-async function fetchApprovals(): Promise<PendingApproval[]> {
-  const parsed = await readWire(API.myApprovals, pendingApprovalsSchema);
-  return parsed === null ? [] : parsed.approvals;
-}
-
-/**
- * One decision, posted to the proxy for this request and this verb.
- *
- * No idempotency key is sent: agent-api derives it from the approver, the
- * request and the verb (23c decision B), so a double-clicked Approve replays
- * the stored response instead of filing a second decision.
- */
-async function postDecision(
-  requestId: string,
-  verb: "approve" | "reject",
-  body: Record<string, unknown>,
-): Promise<void> {
-  const response = await fetch(
-    apiPath(verb === "approve" ? API.approveRequest : API.rejectRequest, { requestId }),
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return;
-  }
-  if (!response.ok) {
-    const refused: unknown = await response.json().catch(() => null);
-    const code =
-      typeof refused === "object" && refused !== null
-        ? (refused as Record<string, unknown>).code
-        : undefined;
-    throw new DecisionRefusedError(code);
-  }
 }

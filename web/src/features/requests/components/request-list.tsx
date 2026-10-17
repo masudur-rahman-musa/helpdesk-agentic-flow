@@ -1,8 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-
-import { type MyRequest, type RequestCitation, myRequestsSchema } from "@/features/access/schema";
+import type { MyRequest, RequestCitation } from "@/features/access/schema";
 import {
   decisionLabel,
   reasonSentence,
@@ -10,8 +8,7 @@ import {
   slotLabel,
   statusLabel,
 } from "@/features/chat/decision-labels";
-import { API } from "@/lib/api-paths";
-import { readWire } from "@/lib/wire-read";
+import { useMyRequests } from "@/features/requests/api";
 import { StatusBadge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -46,7 +43,7 @@ import { PageHeader } from "@/components/ui/page-header";
  * a different day in half the world.
  */
 export function RequestList() {
-  const requests = useQuery({ queryKey: ["me", "requests"], queryFn: fetchRequests });
+  const requests = useMyRequests();
 
   return (
     <section aria-label="My requests" className="flex max-w-3xl flex-col gap-4">
@@ -148,19 +145,4 @@ function CitationRow({ citation }: { citation: RequestCitation }) {
       <span className="text-xs text-muted-foreground">{citation.heading_path}</span>
     </li>
   );
-}
-
-/**
- * Every request this user has filed, or the empty list while the browser
- * follows the proxy's redirect to `/login`.
- *
- * A refusal and a failed read both THROW out of `readWire`, and this page
- * dresses neither (24ia decision B): the section's own alert sentence is what a
- * requester reads for a typed 403 and for a bodyless 500 alike, pinned by
- * `tests/requests-page.test.tsx::a 403 FORBIDDEN renders this page's own read
- * sentence, not the code's`.
- */
-async function fetchRequests(): Promise<MyRequest[]> {
-  const parsed = await readWire(API.myRequests, myRequestsSchema);
-  return parsed === null ? [] : parsed.requests;
 }

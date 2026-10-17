@@ -1,9 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { z } from "zod";
 
+import { postChatMessage, useChatHistory } from "@/features/chat/api";
 import { Citations } from "@/features/chat/components/citations";
 import { Composer } from "@/features/chat/components/composer";
 import { Conversation } from "@/features/chat/components/conversation";
@@ -15,7 +14,6 @@ import {
   type DecisionCard as DecisionCardData,
   type StepEvent,
   readCode,
-  readHistory,
   readReply,
   readStep,
   readToken,
@@ -23,9 +21,7 @@ import {
 import { failureMessage } from "@/features/chat/errors";
 import { readAsk } from "@/features/chat/prefill";
 import { chatMessageSchema } from "@/features/chat/schema";
-import { API } from "@/lib/api-paths";
 import { createSseParser } from "@/lib/sse";
-import { readWire } from "@/lib/wire-read";
 
 /**
  * The chat surface: history, the streamed turn, its tool steps, its decision
@@ -69,7 +65,7 @@ import { readWire } from "@/lib/wire-read";
  * region holds exactly one at a time.
  */
 export function ChatPanel() {
-  const history = useQuery({ queryKey: ["chat", "messages"], queryFn: fetchHistory });
+  const history = useChatHistory();
   const [turn, setTurn] = useState<ChatMessage[]>([]);
   const [live, setLive] = useState("");
   const [steps, setSteps] = useState<StepEvent[]>([]);
@@ -118,11 +114,7 @@ export function ChatPanel() {
     setTurn((previous) => [...previous, { role: "user", content: parsed.data.message }]);
 
     try {
-      const response = await fetch(API.chatStream, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(parsed.data),
-      });
+      const response = await postChatMessage(parsed.data);
 
       if (response.redirected) {
         window.location.assign(response.url);
@@ -214,7 +206,10 @@ export function ChatPanel() {
       <Conversation messages={messages} live={live} />
 
       {failure !== null ? (
-        <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           {failureMessage(failure)}
         </p>
       ) : null}
@@ -241,28 +236,4 @@ async function refusalCode(response: Response): Promise<string> {
   } catch {
     return "INTERNAL";
   }
-}
-
-/**
- * The stored transcript, or the empty one while the browser follows the proxy's
- * redirect to `/login`.
- *
- * `z.unknown()` and not a schema (24ia decision A): `readHistory` is what
- * validates this body and still is, so the parameter is only there to let the
- * redirect, the status and the typed code live in one module with the other
- * seven reads. Every non-ok response THROWS out of `readWire` — an empty
- * conversation and an unreadable one are different things, and Query is what
- * decides whether to retry (`tests/chat-page.test.tsx::a 403 FORBIDDEN is a
- * failed read, not an empty transcript, and raises no alert`).
- *
- * `null` is the redirect and, because `z.unknown()` accepts everything, also a
- * body that is literally `null` — the same empty transcript either way, which is
- * what `readHistory(null)` already answered. The one edge `z.unknown()` moves is
- * recorded in the plan's Deviations: a 200 carrying no JSON at all used to
- * reject here and now reads as an empty transcript, because this schema refuses
- * nothing.
- */
-async function fetchHistory(): Promise<ChatMessage[]> {
-  const body = await readWire(API.chatMessages, z.unknown());
-  return body === null ? [] : readHistory(body);
 }

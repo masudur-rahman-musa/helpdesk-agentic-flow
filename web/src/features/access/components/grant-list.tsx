@@ -1,13 +1,11 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
-import { type MyGrant, myAccessSchema } from "@/features/access/schema";
+import { useMyAccess } from "@/features/access/api";
+import type { MyGrant } from "@/features/access/schema";
 import { renewalHref } from "@/features/chat/prefill";
 import { daysUntil } from "@/features/access/expiry";
-import { API } from "@/lib/api-paths";
-import { readWire } from "@/lib/wire-read";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -37,7 +35,7 @@ import { PageHeader } from "@/components/ui/page-header";
  * is the ISO prefix, never a locale format.
  */
 export function GrantList() {
-  const access = useQuery({ queryKey: ["me", "access"], queryFn: fetchGrants });
+  const access = useMyAccess();
 
   return (
     <section aria-label="Active access" className="flex max-w-3xl flex-col gap-4">
@@ -113,19 +111,4 @@ function expiryBadge(expiresAt: string | null): { text: string; tone: BadgeTone 
     return { text, tone: "warning" };
   }
   return { text, tone: "success" };
-}
-
-/**
- * Every grant this user holds, or the empty list while the browser follows the
- * proxy's redirect to `/login`.
- *
- * A refusal and a failed read both THROW out of `readWire`, and this page
- * dresses neither (24ia decision B): the section's own alert sentence is what a
- * holder reads for a typed 403 and for a bodyless 500 alike, pinned by
- * `tests/access-page.test.tsx::a 403 FORBIDDEN renders this page's own read
- * sentence, not the code's`.
- */
-async function fetchGrants(): Promise<MyGrant[]> {
-  const parsed = await readWire(API.myAccess, myAccessSchema);
-  return parsed === null ? [] : parsed.grants;
 }

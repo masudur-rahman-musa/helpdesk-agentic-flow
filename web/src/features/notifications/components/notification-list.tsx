@@ -1,17 +1,11 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { failureMessage } from "@/features/chat/errors";
 import { notificationKindLabel } from "@/features/notifications/labels";
-import {
-  type NotificationPage,
-  type NotificationRow,
-  notificationPageSchema,
-} from "@/features/notifications/schema";
-import { API, apiPath } from "@/lib/api-paths";
-import { readWire } from "@/lib/wire-read";
+import { StampRefusedError, useMarkRead, useNotificationPage } from "@/features/notifications/api";
+import type { NotificationRow } from "@/features/notifications/schema";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,28 +72,12 @@ import { PageHeader } from "@/components/ui/page-header";
 export const NOTIFICATION_VALIDATION_MESSAGE =
   "That notification could not be marked read. Reload the page and try again.";
 
-/**
- * The prefix both notification queries share (decision C), so one stamp moves
- * the list AND the bell's count.
- *
- * The page's key carries its filter, the bell's carries `unread`, and the stamp
- * invalidates this PREFIX rather than either key: invalidating the page's own
- * key alone would leave the bell in the header of every screen counting the row
- * the person just cleared, and only a reload would fix it. Pinned by
- * `tests/notifications-page.test.tsx::refetches both the list and the bell
- * through the notifications prefix`.
- */
-export const NOTIFICATIONS_KEY_PREFIX = ["notifications"] as const;
-
 export function NotificationList() {
   // Off on first paint (§1): a person's first view of the route is everything
   // they have, and the unread view is one click away.
   const [unreadOnly, setUnreadOnly] = useState(false);
 
-  const notifications = useQuery({
-    queryKey: [...NOTIFICATIONS_KEY_PREFIX, "page", unreadOnly],
-    queryFn: () => fetchNotifications(unreadOnly),
-  });
+  const notifications = useNotificationPage(unreadOnly);
 
   const rows = notifications.data?.notifications ?? [];
 
@@ -161,14 +139,7 @@ export function NotificationList() {
  * the refetch another, and only the refetch's is rendered.
  */
 function NotificationItem({ row }: { row: NotificationRow }) {
-  const queryClient = useQueryClient();
-
-  const stamp = useMutation({
-    mutationFn: () => postRead(row.notification_id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY_PREFIX });
-    },
-  });
+  const stamp = useMarkRead(row.notification_id);
 
   const refusal = stampRefusal(stamp.error);
 
@@ -212,22 +183,6 @@ function NotificationItem({ row }: { row: NotificationRow }) {
   );
 }
 
-/**
- * A stamp the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so
- * no free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
-class StampRefusedError extends Error {
-  readonly code: unknown;
-
-  constructor(code: unknown) {
-    super("the read stamp was refused");
-    this.code = code;
-  }
-}
-
 /** The sentence for a refused stamp, or `null` while nothing is refused. */
 function stampRefusal(error: unknown): string | null {
   if (error === null || error === undefined) {
@@ -235,59 +190,4 @@ function stampRefusal(error: unknown): string | null {
   }
   const code = error instanceof StampRefusedError ? error.code : undefined;
   return code === "VALIDATION" ? NOTIFICATION_VALIDATION_MESSAGE : failureMessage(code);
-}
-
-/**
- * One page of notifications, filtered or not.
- *
- * `unread_only` is sent only when the control is ON (decision E): the tool
- * takes a bool, and `unread_only=false` or a bare `unread_only=` is a value it
- * has no reading for. No `limit` rides along — nothing on this surface pages
- * yet, so the tool's own default is what the list shows, and the absent key is
- * also what tells this read apart from the bell's in
- * `tests/notifications-page.test.tsx`.
- */
-async function fetchNotifications(unreadOnly: boolean): Promise<NotificationPage> {
-  const url = unreadOnly ? `${API.myNotifications}?unread_only=true` : API.myNotifications;
-  // The empty page is what the redirect resolves to, exactly as before: no row,
-  // no tally, and nothing said about either while the browser leaves. A refusal
-  // and a failed read both throw out of `readWire` instead, and this page
-  // dresses neither (24ia decision B) — the list's own alert answers a typed 403
-  // and a bodyless 500 alike, and the per-code sentences here stay the STAMP's
-  // (`tests/notifications-page.test.tsx::a 403 FORBIDDEN on the page read
-  // renders the page alert, not the code's sentence`).
-  const parsed = await readWire(url, notificationPageSchema);
-  return parsed === null ? { notifications: [], unread_count: 0 } : parsed;
-}
-
-/**
- * One read stamp, posted to the proxy for this row.
- *
- * No body and no content type (23gb decision B): the id is in the path and
- * there is nothing else for the browser to say. No idempotency key either —
- * agent-api derives it from the verified reader and the notification, so a
- * double-clicked control replays the stored response instead of filing a second
- * event, and a key this page chose could collide across two notifications.
- *
- * The id comes off the PARSED payload and goes through `encodeURIComponent`:
- * `notification_id` is a bare `z.string()` on the wire, so a value carrying a
- * path separator would otherwise reach a different route entirely.
- */
-async function postRead(notificationId: string): Promise<void> {
-  const response = await fetch(apiPath(API.readNotification, { notificationId }), {
-    method: "POST",
-  });
-
-  if (response.redirected) {
-    window.location.assign(response.url);
-    return;
-  }
-  if (!response.ok) {
-    const refused: unknown = await response.json().catch(() => null);
-    const code =
-      typeof refused === "object" && refused !== null
-        ? (refused as Record<string, unknown>).code
-        : undefined;
-    throw new StampRefusedError(code);
-  }
 }

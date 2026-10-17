@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { orderedLabels, useMe } from "@/components/layout/role-header";
+import { orderedLabels } from "@/components/layout/role-header";
+import { useMe } from "@/features/auth/api";
 import { SignOutButton } from "@/components/layout/sign-out-button";
 import { Card } from "@/components/ui/card";
 

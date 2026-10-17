@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { useMe } from "@/components/layout/role-header";
+import { useMe } from "@/features/auth/api";
 import { cn } from "@/lib/utils";
 
 /**
