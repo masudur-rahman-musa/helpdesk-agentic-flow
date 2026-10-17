@@ -91,6 +91,7 @@ from helpdesk.agent_api.agent.nodes.await_approval import PENDING_APPROVAL_REPLY
 from helpdesk.agent_api.agent.postcheck import POSTCHECK_FALLBACK_REPLY
 from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.agent.events import ErrorEvent, ReplyEvent, StepEvent
 from helpdesk.agent_api.api.sse import (
     DONE,
     ERROR,
@@ -100,6 +101,7 @@ from helpdesk.agent_api.api.sse import (
     TOKEN,
     chunk_reply,
     encode_event,
+    encode_turn_event,
 )
 from helpdesk.agent_api.services.mcp_client import RemotePolicyBlockedError, ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
@@ -323,6 +325,56 @@ def test_every_frame_carries_its_data_on_one_line(label: str, payload: dict[str,
     assert len(lines) == 2, f"{label}: the data must be ONE line, got {lines[1:]!r}"
     assert lines[1].startswith("data: "), label
     assert json.loads(lines[1].removeprefix("data: ")) == payload, label
+
+
+# --- the encoder, with no app, no graph and no database -------------
+
+
+def test_a_step_event_encodes_to_one_step_frame() -> None:
+    """Catches an `encode_turn_event` that emits zero frames, more than one
+    frame, or a frame with the wrong event name for a `StepEvent`.
+    """
+    event = StepEvent(node="load_session", round=0, tools=[])
+    frames = parse_frames("".join(encode_turn_event(event)))
+    assert len(frames) == 1
+    assert frames[0].event == STEP
+    assert frames[0].data == {"node": "load_session", "round": 0, "tools": []}
+
+
+def test_an_error_event_encodes_to_one_error_frame_then_done() -> None:
+    """Catches an encoder that omits the trailing `done` frame on error, emits
+    it before the error frame, or uses a key other than `code` for the error
+    code.
+    """
+    event = ErrorEvent(code=ErrorCode.INTERNAL)
+    frames = parse_frames("".join(encode_turn_event(event)))
+    assert len(frames) == 2
+    assert frames[0].event == ERROR
+    assert frames[0].data == {"code": ErrorCode.INTERNAL.value}
+    assert frames[1].event == DONE
+
+
+def test_a_reply_event_encodes_to_token_frames_then_a_reply_frame_then_done() -> None:
+    """Catches an encoder that emits the reply in one token frame instead of
+    chunking it, drops the trailing `done` frame, or puts the `reply` frame
+    before the token frames.
+    """
+    reply_data = {
+        "reply": COMPOSED_REPLY,
+        "outcome": "done",
+        "citations": [],
+        "request_id": None,
+        "decision": None,
+    }
+    event = ReplyEvent(reply=COMPOSED_REPLY, reply_data=reply_data)
+    frames = parse_frames("".join(encode_turn_event(event)))
+
+    token_count = len(chunk_reply(COMPOSED_REPLY))
+    assert token_count == 3, "premise: COMPOSED_REPLY must span three chunks at REPLY_CHUNK_CHARS=64"
+    assert [f.event for f in frames] == [TOKEN] * token_count + [REPLY, DONE]
+    assert _streamed_text(frames) == COMPOSED_REPLY
+    reply_frame = _of(frames, REPLY)[0]
+    assert reply_frame.data == reply_data
 
 
 # --- the throwaway database, its tenant and its checkpoint tables -------------
@@ -710,23 +762,22 @@ def _stream(
             try:
                 async with tenant_session(factory, env.tenant_id) as db:
                     deps = TurnDeps(db=db, model=client, now=lambda: NOW, tools=tools)
-                    chunks = [
-                        chunk
-                        async for chunk in stream_turn(
-                            deps=deps,
-                            tenant_id=env.tenant_id,
-                            user_id=env.user_id,
-                            session_id=session_id,
-                            tenant_slug=TENANT_SLUG,
-                            message=message,
-                            checkpointer=checkpointer,
-                        )
-                    ]
+                    all_frames: list[str] = []
+                    async for event in stream_turn(
+                        deps=deps,
+                        tenant_id=env.tenant_id,
+                        user_id=env.user_id,
+                        session_id=session_id,
+                        tenant_slug=TENANT_SLUG,
+                        message=message,
+                        checkpointer=checkpointer,
+                    ):
+                        all_frames.extend(encode_turn_event(event))
             finally:
                 await client.aclose()
         finally:
             await engine.dispose()
-        return parse_frames("".join(chunks))
+        return parse_frames("".join(all_frames))
 
     return _with_pool(env.dsn, scenario)
 

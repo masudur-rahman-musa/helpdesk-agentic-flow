@@ -12,19 +12,24 @@ service functions the route delegates to.
 
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import datetime
 
 from fastapi import Request
 
 from helpdesk.agent_api.agent.graph import run_turn, stream_turn
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.agent_api.api.sse import DONE, ERROR, encode_event
-from helpdesk.agent_api.core.deps import request_bearer, request_claims
-from helpdesk.agent_api.schemas.chat import ChatHistoryResponse, ChatMessage, ChatResponse, _Identity
+from helpdesk.agent_api.api.sse import DONE, ERROR, encode_event, encode_turn_event
+from helpdesk.agent_api.core.deps import request_claims
+from helpdesk.agent_api.schemas.chat import (
+    ChatHistoryResponse,
+    ChatMessage,
+    ChatResponse,
+    _Identity,
+)
 from helpdesk.agent_api.services.decision_card import decision_card
 from helpdesk.agent_api.services.mcp_client import ToolCaller
-from helpdesk.agent_api.services.ratelimit import RateLimitExceededError, check_rate_limit
+from helpdesk.agent_api.services.ratelimit import check_rate_limit
 from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
@@ -123,7 +128,7 @@ async def _stream_frames(
                 yield encode_event(ERROR, {"code": ErrorCode.INTERNAL.value})
                 yield encode_event(DONE, {})
                 return
-            async for frame in stream_turn(
+            async for event in stream_turn(
                 deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
                 tenant_id=identity.tenant_id,
                 user_id=identity.user_id,
@@ -132,7 +137,8 @@ async def _stream_frames(
                 message=message,
                 checkpointer=request.app.state.checkpointer,
             ):
-                yield frame
+                for frame in encode_turn_event(event):
+                    yield frame
     except ToolError as exc:
         yield encode_event(ERROR, {"code": exc.code.value})
         yield encode_event(DONE, {})
@@ -160,7 +166,7 @@ async def chat_turn(
     try:
         identity = _identity(claims)
     except ValueError:
-        raise _typed_error(ErrorCode.VALIDATION)
+        raise _typed_error(ErrorCode.VALIDATION) from None
 
     await check_rate_limit(
         request.app.state.redis,
@@ -206,7 +212,7 @@ async def chat_stream_response(
     try:
         identity = _identity(claims)
     except ValueError:
-        raise _typed_error(ErrorCode.VALIDATION)
+        raise _typed_error(ErrorCode.VALIDATION) from None
 
     check_message_content(message)
 
@@ -230,7 +236,7 @@ async def chat_history(request: Request) -> ChatHistoryResponse:
     try:
         identity = _identity(claims)
     except ValueError:
-        raise _typed_error(ErrorCode.VALIDATION)
+        raise _typed_error(ErrorCode.VALIDATION) from None
 
     async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
         rows = await list_recent_messages(db, identity.session_id)

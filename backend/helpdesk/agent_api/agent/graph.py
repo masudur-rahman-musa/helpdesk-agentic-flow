@@ -26,6 +26,7 @@ written two rows.
 """
 
 import uuid
+import weakref
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import contextmanager
 from functools import wraps
@@ -38,6 +39,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
 from helpdesk.agent_api.agent.checkpointer import thread_config
+from helpdesk.agent_api.agent.events import ErrorEvent, ReplyEvent, StepEvent, TurnEvent
 from helpdesk.agent_api.agent.nodes.await_approval import await_approval, pending_reply
 from helpdesk.agent_api.agent.nodes.compose_reply import COMPOSITION_PROMPT, compose_reply
 from helpdesk.agent_api.agent.nodes.endings import (
@@ -65,7 +67,6 @@ from helpdesk.agent_api.agent.turn_metrics import (
     record_turn_state,
     trace_attributes,
 )
-from helpdesk.agent_api.api.sse import DONE, ERROR, REPLY, STEP, TOKEN, chunk_reply, encode_event
 from helpdesk.agent_api.services.decision_card import decision_card
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
 from helpdesk.agent_api.services.tracing import (
@@ -85,6 +86,7 @@ __all__ = [
     "GRAPH_RECURSION_LIMIT",
     "Saver",
     "TurnDeps",
+    "TurnEvent",
     "build_graph",
     "resume_graph",
     "run_turn",
@@ -114,6 +116,21 @@ REFUSE_AND_TICKET = "refuse_and_ticket"
 ASK_CLARIFYING = "ask_clarifying"
 ASK_DISAMBIGUATION = "ask_disambiguation"
 FAIL_TURN = "fail_turn"
+
+_CachedGraph = CompiledStateGraph[TurnState, None, TurnState, TurnState]
+
+_NO_SAVER_GRAPH: _CachedGraph | None = None
+"""The compiled graph for the no-checkpointer case, cached at first call."""
+
+_GRAPHS_BY_SAVER: weakref.WeakKeyDictionary[Saver, _CachedGraph] = weakref.WeakKeyDictionary()
+"""Compiled graphs keyed by their checkpointer.
+
+A weak-key dict so the graph is dropped when the saver goes away, rather than
+keeping both alive after the process that created the saver is done with it.
+Savers live for the lifetime of the process that built them (an earlier change decision
+D), so in practice nothing is ever GC'd under normal operation — but the weak
+reference removes a correctness trap for test code that creates short-lived savers.
+"""
 
 GRAPH_RECURSION_LIMIT = 50
 """The graph's own backstop, passed on every invocation (17d decision G).
@@ -436,10 +453,10 @@ def _after_execution(state: TurnState) -> str:
     return PLAN_TOOLS
 
 
-def build_graph(
+def _compile_graph(
     checkpointer: BaseCheckpointSaver[Any] | None = None,
 ) -> CompiledStateGraph[TurnState, None, TurnState, TurnState]:
-    """The nine working nodes, the planning cycle, the pause and the four early stops.
+    """Build a new compiled graph — not cached. Called only by `build_graph`.
 
     The cycle is `plan_tools` → `validate_tool_calls` → `execute_tools` →
     `plan_tools`, which is what the design's steps 6 and 7 describe. Three
@@ -549,6 +566,42 @@ def build_graph(
     graph.add_edge(ASK_DISAMBIGUATION, END)
     graph.add_edge(FAIL_TURN, END)
     return graph.compile(checkpointer=checkpointer)
+
+
+def build_graph(
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+) -> CompiledStateGraph[TurnState, None, TurnState, TurnState]:
+    """The compiled graph, cached by its checkpointer.
+
+    One compiled graph per process per checkpointer: `run_turn`, `stream_turn`,
+    `resume_graph` and `replay` all call this and reuse the same object rather
+    than each compiling their own. The checkpointer is still compiled IN, not
+    switched at runtime — a graph bound to saver A will not write to saver B.
+
+    The no-saver case gets one slot (``_NO_SAVER_GRAPH``), not a slot per
+    process or per test: tests that pass ``None`` share the same compiled graph,
+    which is correct because the no-saver graph carries no state between calls.
+
+    Real savers live in ``_GRAPHS_BY_SAVER``, a ``WeakKeyDictionary`` so the
+    graph is dropped when the saver is GC'd instead of keeping both alive
+    forever. In production the saver lives for the lifetime of the process so
+    nothing is ever dropped; the weak reference is a correctness guard for
+    test code that creates short-lived savers.
+
+    Pinned by
+    ``test_agent_graph_built_once.py::test_one_checkpointer_compiles_the_graph_once``
+    and ``::test_a_different_checkpointer_gets_its_own_graph``.
+    """
+    global _NO_SAVER_GRAPH
+    if checkpointer is None:
+        if _NO_SAVER_GRAPH is None:
+            _NO_SAVER_GRAPH = _compile_graph(None)
+        return _NO_SAVER_GRAPH
+    cached = _GRAPHS_BY_SAVER.get(checkpointer)
+    if cached is None:
+        cached = _compile_graph(checkpointer)
+        _GRAPHS_BY_SAVER[checkpointer] = cached
+    return cached
 
 
 async def run_turn(
@@ -723,20 +776,6 @@ def _reply_data(state: TurnState) -> dict[str, Any]:
     }
 
 
-def _failure_frames(code: ErrorCode) -> tuple[str, str]:
-    """A failure after the first byte: one typed `error` event, then `done`.
-
-    Decision E1. The status line is already 200 by the time anything here can
-    fail, so a refusal has to arrive inside the stream — and an aborted socket
-    (E2) is indistinguishable from a dropped one, which is the single thing a
-    typed vocabulary exists to prevent. No `token` and no `reply` event
-    accompanies it: a templated failure sentence streamed as tokens is prose
-    about a turn nothing decided
-    (`test_turn_stream.py::test_a_gateway_failure_mid_stream_is_one_typed_error_event_then_done`).
-    """
-    return encode_event(ERROR, {"code": code.value}), encode_event(DONE, {})
-
-
 async def stream_turn(
     *,
     deps: TurnDeps,
@@ -746,7 +785,7 @@ async def stream_turn(
     tenant_slug: str,
     message: str,
     checkpointer: Saver | None = None,
-) -> AsyncIterator[str]:
+) -> AsyncIterator[TurnEvent]:
     """The same turn as `run_turn`, watched: encoded SSE frames as it happens.
 
     A second VIEW of one turn and never a second turn (§1). It takes the same
@@ -820,7 +859,11 @@ async def stream_turn(
                             continue
                         latest = value
                         data, seen = _step_data(node, value, seen)
-                        yield encode_event(STEP, data)
+                        yield StepEvent(
+                            node=str(data["node"]),
+                            round=int(data["round"]),
+                            tools=list(data["tools"]),
+                        )
         except ToolError as exc:
             # No state was ever produced, so the turn is counted from the code
             # alone: it happened, and a stream that dies in the handshake is
@@ -828,16 +871,14 @@ async def stream_turn(
             # is no state to describe the trace with either, so it closes
             # carrying only the spans that ran.
             record_turn_code(exc.code)
-            for frame in _failure_frames(exc.code):
-                yield frame
+            yield ErrorEvent(code=exc.code)
             return
 
         if latest is None:
             # A graph that yielded no update at all: nothing composed anything,
             # so there is no reply to stream and no outcome to report.
             record_turn_code(ErrorCode.INTERNAL)
-            for frame in _failure_frames(ErrorCode.INTERNAL):
-                yield frame
+            yield ErrorEvent(code=ErrorCode.INTERNAL)
             return
 
         if paused:
@@ -860,14 +901,10 @@ async def stream_turn(
         set_trace_attributes(trace_attributes(final))
 
         if final.outcome is TurnOutcome.FAILED:
-            for frame in _failure_frames(final.error_code or ErrorCode.INTERNAL):
-                yield frame
+            yield ErrorEvent(code=final.error_code or ErrorCode.INTERNAL)
             return
 
-        for chunk in chunk_reply(final.reply or ""):
-            yield encode_event(TOKEN, {"text": chunk})
-        yield encode_event(REPLY, _reply_data(final))
-        yield encode_event(DONE, {})
+        yield ReplyEvent(reply=final.reply, reply_data=_reply_data(final))
 
 
 async def resume_graph(

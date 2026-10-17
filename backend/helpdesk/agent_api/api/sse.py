@@ -21,6 +21,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from helpdesk.agent_api.agent.events import ReplyEvent, StepEvent, TurnEvent
+
 __all__ = [
     "DONE",
     "ERROR",
@@ -30,6 +32,7 @@ __all__ = [
     "TOKEN",
     "chunk_reply",
     "encode_event",
+    "encode_turn_event",
 ]
 
 STEP = "step"
@@ -85,3 +88,33 @@ def encode_event(event: str, data: Mapping[str, Any]) -> str:
     an encoder that interpolated the text instead would let a reply forge.
     """
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def encode_turn_event(event: TurnEvent) -> tuple[str, ...]:
+    """One turn event as its SSE frames, in order.
+
+    A step event is one frame. A reply event is the reply cut into token
+    frames, then the reply frame, then done. An error event is one error
+    frame then done.
+
+    The reply frames are the same sequence ``stream_turn`` used to yield
+    directly before this plan, so a client that was reading the old frames
+    reads the new ones identically.
+
+    Pinned by
+    ``test_turn_stream.py::test_a_step_event_encodes_to_one_step_frame``,
+    ``::test_an_error_event_encodes_to_one_error_frame_then_done``, and
+    ``::test_a_reply_event_encodes_to_token_frames_then_a_reply_frame_then_done``.
+    """
+    if isinstance(event, StepEvent):
+        data = {"node": event.node, "round": event.round, "tools": event.tools}
+        return (encode_event(STEP, data),)
+    if isinstance(event, ReplyEvent):
+        frames: list[str] = [
+            encode_event(TOKEN, {"text": chunk}) for chunk in chunk_reply(event.reply or "")
+        ]
+        frames.append(encode_event(REPLY, event.reply_data))
+        frames.append(encode_event(DONE, {}))
+        return tuple(frames)
+    # isinstance(event, ErrorEvent)
+    return (encode_event(ERROR, {"code": event.code.value}), encode_event(DONE, {}))
