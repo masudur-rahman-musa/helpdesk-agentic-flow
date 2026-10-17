@@ -53,7 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.models import AuditEvent, Tenant
-from helpdesk.shared.services.audit.search import (
+from helpdesk.shared.audit.search import (
     SCAN_CAP,
     AuditSearchPage,
     InvalidTimeRangeError,

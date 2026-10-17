@@ -64,21 +64,21 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
 from helpdesk.shared.models import Department, Grant, RoleTemplate, User
 from helpdesk.shared.policy.engine import classify
-from helpdesk.shared.services.access import lifecycle as lifecycle_module
-from helpdesk.shared.services.access.directory import SimulatedDirectory
-from helpdesk.shared.services.access.lifecycle import (
+from helpdesk.shared.access import transfers as lifecycle_module
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.lifecycle import (
     TRANSFER_REVOKE_REASON,
     USER_TRANSFERRED_EVENT_TYPE,
     LeaverTransferError,
     SameDepartmentError,
-    transfer_user,
 )
-from helpdesk.shared.services.access.snapshot import build_request_snapshot
+from helpdesk.shared.access.transfers import transfer_user
+from helpdesk.shared.access.snapshot import build_request_snapshot
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py`, `test_access_execute.py`,
 # `test_access_revoke.py` and `test_access_lifecycle.py`.
-from tests.shared.services.access.test_access_snapshot import (
+from tests.shared.access.test_access_snapshot import (
     NOW,
     ROWS,
     access_db_url,  # noqa: F401

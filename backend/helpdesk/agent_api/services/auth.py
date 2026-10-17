@@ -20,7 +20,7 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.crud.users import find_user_by_email
 from helpdesk.shared.models import Tenant, User
-from helpdesk.shared.services.audit.writer import AuditEventInput, append_event
+from helpdesk.shared.audit.writer import AuditEventInput, append_event
 
 # Verified on the miss paths so their timing matches a real password check.
 # Random per process: it only ever has to fail.

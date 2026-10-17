@@ -66,7 +66,7 @@ from helpdesk.agent_api.schemas.audit import SearchAuditArgs
 from helpdesk.agent_api.services import audit as services_audit
 from helpdesk.agent_api.services.tool_proxy import proxy_tool
 from helpdesk.shared.core.config import load_settings
-from helpdesk.shared.services.audit.chain import VerifyResult
+from helpdesk.shared.audit.chain import VerifyResult
 
 router = APIRouter()
 

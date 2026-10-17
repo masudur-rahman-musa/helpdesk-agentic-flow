@@ -14,8 +14,8 @@ from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.auth.rbac import Principal
 from helpdesk.shared.core.db import create_session_factory, shared_engine, tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.services.audit.chain import VerifyResult
-from helpdesk.shared.services.audit.verify import verify_tenant_chain as _verify_tenant_chain
+from helpdesk.shared.audit.chain import VerifyResult
+from helpdesk.shared.audit.reader import verify_tenant_chain as _verify_tenant_chain
 
 verify_tenant_chain = _verify_tenant_chain
 """The chain walk, reached through this module-level name so tests can stub it.

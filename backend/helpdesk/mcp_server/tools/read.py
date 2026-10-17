@@ -46,8 +46,8 @@ from helpdesk.shared.models import (
     System,
     User,
 )
-from helpdesk.shared.services.access.approvals import request_in_scope
-from helpdesk.shared.services.audit import search_audit_events
+from helpdesk.shared.access.approvals import request_in_scope
+from helpdesk.shared.audit import search_audit_events
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
 """Extra arguments are dropped, never refused.

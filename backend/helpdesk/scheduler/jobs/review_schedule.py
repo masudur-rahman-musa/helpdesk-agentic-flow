@@ -44,13 +44,12 @@ from helpdesk.shared.models import AccessReview, Department, ReviewStatus, Syste
 from helpdesk.shared.models.notification import NotificationKind
 from helpdesk.shared.notifications.notify import notify
 from helpdesk.shared.policy.types import TargetStatus
-from helpdesk.shared.services.access.directory import DirectoryReader
-from helpdesk.shared.services.access.reviews import (
+from helpdesk.shared.access.directory import DirectoryReader
+from helpdesk.shared.access.reviews import (
     ReviewAlreadyOpenError,
-    check_period,
     open_review,
-    quarter_period,
 )
+from helpdesk.shared.access.review_types import check_period, quarter_period
 
 logger = logging.getLogger(__name__)
 

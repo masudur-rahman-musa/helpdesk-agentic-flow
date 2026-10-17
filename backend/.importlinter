@@ -22,3 +22,13 @@ forbidden_modules =
     helpdesk.agent_api
     helpdesk.mcp_server
     helpdesk.scheduler
+
+[importlinter:contract:audit-is-one-way]
+name = The audit package is a one-way dependency — access, killswitch, and the scheduler jobs all read it, and none of its own modules reach back into those callers
+type = forbidden
+source_modules =
+    helpdesk.shared.audit
+forbidden_modules =
+    helpdesk.shared.access
+    helpdesk.shared.services.killswitch
+    helpdesk.scheduler.jobs

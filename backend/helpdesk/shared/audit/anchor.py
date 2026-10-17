@@ -24,10 +24,11 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.audit.chain import ChainAnchor
+from helpdesk.shared.audit.reader import latest_chain_anchor, verify_tenant_chain
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models import AuditChainAnchor, AuditEvent
-from helpdesk.shared.services.audit.chain import ChainAnchor
 
 logger = logging.getLogger(__name__)
 
@@ -55,27 +56,6 @@ class AnchorRegressionError(ToolError):
     """
 
     code = ErrorCode.VALIDATION
-
-
-async def latest_chain_anchor(session: AsyncSession, tenant_id: uuid.UUID) -> ChainAnchor | None:
-    """The tenant's current head: the anchor with the HIGHEST `audit_seq`.
-
-    By seq, never by `anchored_at` or by insertion order. The two orderings
-    agree on every row this module writes and disagree on a row planted around
-    it, and the wrong one verifies a truncated log against a head BELOW the
-    truncation, which reads as perfectly intact. Pinned by
-    `test_audit_anchor.py::test_latest_chain_anchor_reads_the_highest_seq_not_the_newest_row`.
-    """
-    result = await session.execute(
-        select(AuditChainAnchor)
-        .where(AuditChainAnchor.tenant_id == tenant_id)
-        .order_by(AuditChainAnchor.audit_seq.desc())
-        .limit(1)
-    )
-    row = result.scalars().first()
-    if row is None:
-        return None
-    return ChainAnchor(audit_seq=row.audit_seq, audit_hash=row.audit_hash)
 
 
 async def write_chain_anchor(
@@ -136,13 +116,6 @@ async def anchor_tenant_chain(session: AsyncSession) -> ChainAnchor | None:
     instant handed in would be a second, disagreeing record of when the head
     was taken.
     """
-    # Imported here rather than at the top, and this is the only place it
-    # happens: `verify.py` imports `latest_chain_anchor` from this module, so
-    # the layering runs verify -> anchor and a top-level import back would be
-    # a cycle. This module is the higher half — it decides whether to write —
-    # and the deferred import is what keeps that direction true.
-    from helpdesk.shared.services.audit.verify import verify_tenant_chain
-
     tenant_id = bound_tenant_id(session)
     verdict = await verify_tenant_chain(session, tenant_id)
     if not verdict.ok:

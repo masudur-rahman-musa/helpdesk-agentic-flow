@@ -53,11 +53,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.models import Base
-from helpdesk.shared.services.audit import AuditEventInput
-from helpdesk.shared.services.audit.verify import verify_tenant_chain
-from helpdesk.shared.services.audit.writer import append_event
+from helpdesk.shared.audit import AuditEventInput
+from helpdesk.shared.audit.reader import verify_tenant_chain
+from helpdesk.shared.audit.writer import append_event
 
-REPO_ROOT = Path(__file__).resolve().parents[5]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 # An earlier change decision C: a fixed constant, never configuration.
 ROLE_NAME = "helpdesk_app"

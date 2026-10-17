@@ -49,7 +49,7 @@ from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from helpdesk.shared.policy.types import ApproverSlot
-from helpdesk.shared.services.access.approvals import (
+from helpdesk.shared.access.approvals import (
     GROUP_SLOTS,
     NotAnApproverError,
     RequestNotPendingError,
@@ -66,11 +66,11 @@ from helpdesk.shared.services.access.approvals import (
     parse_slots,
     request_in_scope,
 )
-from helpdesk.shared.services.access.directory import SimulatedDirectory
+from helpdesk.shared.access.directory import SimulatedDirectory
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py` and `test_access_execute.py`.
-from tests.shared.services.access.test_access_snapshot import (
+from tests.shared.access.test_access_snapshot import (
     NOW,
     OTHER_TENANT_ROWS,
     ROWS,

@@ -71,7 +71,7 @@ from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Ticket
-from helpdesk.shared.services.audit.writer import TenantMismatchError
+from helpdesk.shared.audit.writer import TenantMismatchError
 from helpdesk.shared.services.killswitch import GLOBAL, KillSwitch
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,

@@ -38,10 +38,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.models import AuditEvent, Tenant
-from helpdesk.shared.services.audit import AuditEventInput
-from helpdesk.shared.services.audit.chain import GENESIS_HASH
-from helpdesk.shared.services.audit.verify import verify_tenant_chain
-from helpdesk.shared.services.audit.writer import TenantMismatchError, append_event
+from helpdesk.shared.audit import AuditEventInput
+from helpdesk.shared.audit.chain import GENESIS_HASH
+from helpdesk.shared.audit.reader import verify_tenant_chain
+from helpdesk.shared.audit.writer import TenantMismatchError, append_event
 
 
 def _event(index: int) -> AuditEventInput:

@@ -49,8 +49,8 @@ from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.grants import REVOKED_GRANT_STATUS, lock_live_grants_for_role
 from helpdesk.shared.models import Grant
-from helpdesk.shared.services.access.directory import DirectoryProvider
-from helpdesk.shared.services.audit import AuditEventInput, append_event
+from helpdesk.shared.access.directory import DirectoryProvider
+from helpdesk.shared.audit import AuditEventInput, append_event
 
 GRANT_REVOKED_EVENT_TYPE = "grant.revoked"
 """the design's own name for "access was taken away".

@@ -61,7 +61,7 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from helpdesk.shared.policy.types import ApproverSlot
-from helpdesk.shared.services.access.approvals import SlotDecision
+from helpdesk.shared.access.approvals import SlotDecision
 from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,

@@ -44,8 +44,8 @@ from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.models import PERIOD_LENGTH, AuditEvent
-from helpdesk.shared.services.access import reviews as reviews_domain
-from helpdesk.shared.services.audit.writer import AuditEventInput, append_event
+from helpdesk.shared.access import reviews as reviews_domain
+from helpdesk.shared.audit.writer import AuditEventInput, append_event
 from helpdesk.shared.services.killswitch import (
     GLOBAL,
     GLOBAL_SEGMENT,

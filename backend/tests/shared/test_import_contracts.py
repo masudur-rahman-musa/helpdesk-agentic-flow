@@ -36,7 +36,28 @@ def test_import_contracts_pass() -> None:
     assert IMPORTLINTER.is_file(), f"missing contract file: {IMPORTLINTER}"
     result = _lint_imports()
     assert result.returncode == 0, f"lint-imports failed:\n{result.stdout}\n{result.stderr}"
-    assert "Contracts: 2 kept, 0 broken." in result.stdout
+    assert "Contracts: 3 kept, 0 broken." in result.stdout
+
+
+def test_audit_has_no_deferred_import() -> None:
+    """After an earlier change: anchor.py has no `import` inside a function body (the
+    cycle is removed, not hidden), and the module loads cleanly."""
+    import ast
+    import importlib
+
+    anchor_src = (BACKEND / "helpdesk" / "shared" / "audit" / "anchor.py").read_text()
+    tree = ast.parse(anchor_src)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(node):
+                if isinstance(child, (ast.Import, ast.ImportFrom)):
+                    raise AssertionError(
+                        f"deferred import found in function {node.name!r} "
+                        f"at line {child.lineno} of anchor.py"
+                    )
+    # The module itself must load without error (no cycle).
+    mod = importlib.import_module("helpdesk.shared.audit.anchor")
+    assert mod is not None
 
 
 def test_apps_do_not_import_each_other(tmp_path: Path) -> None:

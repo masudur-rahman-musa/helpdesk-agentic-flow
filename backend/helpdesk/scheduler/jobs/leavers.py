@@ -37,8 +37,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.shared.access.revoke import SYSTEM_ACTOR_KIND
 from helpdesk.shared.models import User
 from helpdesk.shared.policy.types import TargetStatus
-from helpdesk.shared.services.access.directory import SimulatedDirectory
-from helpdesk.shared.services.access.lifecycle import AlreadyLeaverError, offboard_user
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.offboarding import offboard_user
+from helpdesk.shared.access.lifecycle import AlreadyLeaverError
 
 LEAVER_SWEEP_ACTOR_REF = "scheduler:leaver_sweep"
 """What `audit_events.actor_ref` reads for every event this job causes.

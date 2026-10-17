@@ -75,10 +75,10 @@ from helpdesk.shared.audit.retention import (
 )
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.observability.logging import FORBIDDEN_KEYS
-from helpdesk.shared.services.audit import AuditEventInput
-from helpdesk.shared.services.audit.chain import VerifyResult
-from helpdesk.shared.services.audit.verify import verify_tenant_chain
-from helpdesk.shared.services.audit.writer import append_event
+from helpdesk.shared.audit import AuditEventInput
+from helpdesk.shared.audit.chain import VerifyResult
+from helpdesk.shared.audit.reader import verify_tenant_chain
+from helpdesk.shared.audit.writer import append_event
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

@@ -85,8 +85,8 @@ from helpdesk.shared.core.redis import (
     close_loop_clients,
     get_redis,
 )
-from helpdesk.shared.services.access.directory import SimulatedDirectory
-from helpdesk.shared.services.audit import AuditEventInput, append_event
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.services.killswitch import KillSwitch
 
 _redis = get_redis

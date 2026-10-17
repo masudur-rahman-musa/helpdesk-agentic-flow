@@ -54,7 +54,7 @@ from helpdesk.shared.auth.rbac import Principal, Scope
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models import AccessRequest, RequestStatus, Role, System, User
 from helpdesk.shared.policy.types import ApproverSlot
-from helpdesk.shared.services.access.directory import DirectoryProvider
+from helpdesk.shared.access.directory import DirectoryProvider
 
 
 class SlotDecision(StrEnum):

@@ -57,8 +57,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from helpdesk.shared.access import review_schedule as review_schedule_module
-from helpdesk.shared.access.review_schedule import (
+from helpdesk.scheduler.jobs import review_schedule as review_schedule_module
+from helpdesk.scheduler.jobs.review_schedule import (
     _REMINDER_TITLE,
     REVIEW_ESCALATION_DAYS,
     send_review_reminders,

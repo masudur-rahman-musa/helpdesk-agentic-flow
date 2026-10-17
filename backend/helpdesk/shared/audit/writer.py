@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.models import AuditEvent
-from helpdesk.shared.services.audit.chain import GENESIS_HASH, event_hash
+from helpdesk.shared.audit.chain import GENESIS_HASH, event_hash
 
 _ADVISORY_LOCK = text("SELECT pg_advisory_xact_lock(:key)")
 

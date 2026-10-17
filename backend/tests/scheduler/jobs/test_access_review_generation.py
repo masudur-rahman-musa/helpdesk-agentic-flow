@@ -69,8 +69,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from helpdesk.shared.access import review_schedule as review_schedule_module
-from helpdesk.shared.access.review_schedule import (
+from helpdesk.scheduler.jobs import review_schedule as review_schedule_module
+from helpdesk.scheduler.jobs.review_schedule import (
     GENERATED_SYSTEM_SENSITIVITIES,
     REVIEW_DUE_DAYS,
     REVIEW_GENERATION_ACTOR_REF,
@@ -90,15 +90,17 @@ from helpdesk.shared.models import (
     User,
 )
 from helpdesk.shared.models.access import PERIOD_LENGTH as COLUMN_PERIOD_LENGTH
-from helpdesk.shared.services.access import reviews as reviews_module
-from helpdesk.shared.services.access.directory import DirectoryReader, SimulatedDirectory
-from helpdesk.shared.services.access.reviews import (
-    PERIOD_LENGTH,
+from helpdesk.shared.access import reviews as reviews_module
+from helpdesk.shared.access.directory import DirectoryReader, SimulatedDirectory
+from helpdesk.shared.access.reviews import (
     REVIEW_OPENED_EVENT_TYPE,
-    REVIEW_PERIOD_PATTERN,
     OpenReviewResult,
-    check_period,
     open_review,
+)
+from helpdesk.shared.access.review_types import (
+    PERIOD_LENGTH,
+    REVIEW_PERIOD_PATTERN,
+    check_period,
     quarter_period,
 )
 from tests.support.seed import SeededTenant, seed_tenant

@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.services.audit import AuditEventInput, append_event
+from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.services.killswitch.switch import (
     GLOBAL_SEGMENT,
     REASON_MAX_LENGTH,

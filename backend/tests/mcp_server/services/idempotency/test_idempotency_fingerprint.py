@@ -28,7 +28,7 @@ import pytest
 
 from helpdesk.mcp_server.services.idempotency.fingerprint import fingerprint
 from helpdesk.shared.core.canonical import canonical_json
-from helpdesk.shared.services.audit import chain as audit_chain
+from helpdesk.shared.audit import chain as audit_chain
 
 TOOL = "revoke_access"
 SAMPLE_UUID = uuid.UUID("11111111-2222-3333-4444-555555555555")

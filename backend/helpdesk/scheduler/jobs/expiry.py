@@ -49,8 +49,8 @@ from helpdesk.shared.crud.users import find_user_by_id
 from helpdesk.shared.models import Department, Grant, Notification, Role, User
 from helpdesk.shared.models.notification import NotificationKind
 from helpdesk.shared.notifications.notify import notify
-from helpdesk.shared.services.access.lifecycle import LEAVER_STATUS
-from helpdesk.shared.services.audit import AuditEventInput, append_event
+from helpdesk.shared.access.lifecycle import LEAVER_STATUS
+from helpdesk.shared.audit import AuditEventInput, append_event
 
 GRANT_EXPIRED_EVENT_TYPE = "grant.expired"
 """the design's name for "the grant's own date arrived".

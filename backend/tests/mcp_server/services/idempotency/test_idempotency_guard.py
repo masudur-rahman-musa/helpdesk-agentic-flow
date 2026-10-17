@@ -52,8 +52,8 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.idempotency import create_idempotency_key, find_idempotency_key
 from helpdesk.shared.models import IdempotencyKey, Ticket
 from helpdesk.shared.models.idempotency import KEY_LENGTH, TOOL_NAME_LENGTH
-from helpdesk.shared.services.audit import AuditEventInput
-from helpdesk.shared.services.audit.writer import append_event
+from helpdesk.shared.audit import AuditEventInput
+from helpdesk.shared.audit.writer import append_event
 from tests.support.seed import seed_tenant
 
 TOOL = "revoke_access"

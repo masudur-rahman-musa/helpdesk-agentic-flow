@@ -50,7 +50,7 @@ from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.models import RequestStatus
-from helpdesk.shared.services.access.approvals import lock_request
+from helpdesk.shared.access.approvals import lock_request
 
 
 class RollbackRequestInput(MutatingToolInput):

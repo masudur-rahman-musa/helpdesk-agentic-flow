@@ -71,7 +71,7 @@ from helpdesk.shared.core.errors import ErrorCode, NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
 from helpdesk.shared.policy.types import ApproverSlot
-from helpdesk.shared.services.access.approvals import (
+from helpdesk.shared.access.approvals import (
     NotAnApproverError,
     PendingWithContext,
     RequestNotPendingError,
@@ -86,7 +86,7 @@ from helpdesk.shared.services.access.approvals import (
     parse_slots,
     request_in_scope,
 )
-from helpdesk.shared.services.audit import AuditEventInput, append_event
+from helpdesk.shared.audit import AuditEventInput, append_event
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
 """the design's two decision events, appended by these handlers (decision I).

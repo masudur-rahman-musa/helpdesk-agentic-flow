@@ -54,7 +54,7 @@ from prometheus_client import CollectorRegistry
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from helpdesk.shared.access.expiry import GRANT_EXPIRED_EVENT_TYPE, expire_grants
+from helpdesk.scheduler.jobs.expiry import GRANT_EXPIRED_EVENT_TYPE, expire_grants
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.crud import Repository

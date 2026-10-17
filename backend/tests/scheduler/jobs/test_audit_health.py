@@ -55,9 +55,9 @@ from helpdesk.scheduler.jobs.metrics_sweep import refresh_chain_gauge, reset_cha
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.models import Base
-from helpdesk.shared.services.audit import AuditEventInput
-from helpdesk.shared.services.audit.verify import verify_tenant_chain
-from helpdesk.shared.services.audit.writer import append_event
+from helpdesk.shared.audit import AuditEventInput
+from helpdesk.shared.audit.reader import verify_tenant_chain
+from helpdesk.shared.audit.writer import append_event
 from tests.conftest import TempDatabaseFactory
 from tests.support.seed import SeededTenant, seed_tenant
 

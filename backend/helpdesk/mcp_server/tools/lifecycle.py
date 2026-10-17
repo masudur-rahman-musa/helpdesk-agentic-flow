@@ -47,10 +47,10 @@ from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Department, User
-from helpdesk.shared.services.access.lifecycle import SkippedRole
-from helpdesk.shared.services.access.lifecycle import offboard_user as offboard_user_core
-from helpdesk.shared.services.access.lifecycle import onboard_user as onboard_user_core
-from helpdesk.shared.services.access.lifecycle import transfer_user as transfer_user_core
+from helpdesk.shared.access.lifecycle import SkippedRole
+from helpdesk.shared.access.offboarding import offboard_user as offboard_user_core
+from helpdesk.shared.access.onboarding import onboard_user as onboard_user_core
+from helpdesk.shared.access.transfers import transfer_user as transfer_user_core
 
 # Read off the columns, never retyped: the check and the
 # storage are the same number by construction. Both are asserted inclusively

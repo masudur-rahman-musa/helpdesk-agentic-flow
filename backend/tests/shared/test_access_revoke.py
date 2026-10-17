@@ -58,12 +58,12 @@ from helpdesk.shared.crud.grants import (
     lock_live_grants_for_role,
 )
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
-from helpdesk.shared.services.access.directory import SimulatedDirectory
+from helpdesk.shared.access.directory import SimulatedDirectory
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py`, `test_access_execute.py` and
 # `test_access_approvals.py`.
-from tests.shared.services.access.test_access_snapshot import (
+from tests.shared.access.test_access_snapshot import (
     NOW,
     ROWS,
     access_db_url,  # noqa: F401

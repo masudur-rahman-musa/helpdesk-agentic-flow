@@ -50,8 +50,8 @@ from helpdesk.shared.policy.types import (
     SystemCategory,
     TargetStatus,
 )
-from helpdesk.shared.services.access.directory import SimulatedDirectory
-from helpdesk.shared.services.access.snapshot import build_request_snapshot
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.snapshot import build_request_snapshot
 from scripts.seed import CUAN, NORDLICHT, generate_tenant
 from tests.conftest import TempDatabaseFactory
 

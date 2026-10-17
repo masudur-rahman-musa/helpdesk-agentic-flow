@@ -1,0 +1,152 @@
+"""Creating a new user and applying their department's template. See `lifecycle.py` for the shared types this uses."""
+
+import uuid
+from datetime import date, datetime
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from helpdesk.shared.access.directory import DirectoryProvider
+from helpdesk.shared.access.execute import execute_grant
+from helpdesk.shared.access.lifecycle import (
+    JOINER_PRINCIPALS,
+    JOINER_STATUS,
+    OnboardResult,
+    SkippedRole,
+    UNUSABLE_PASSWORD_HASH,
+    USER_ONBOARDED_EVENT_TYPE,
+    _ACTOR_KIND,
+    _SUBJECT_TYPE,
+    _WithDecidedRoles,
+    _decide,
+)
+from helpdesk.shared.audit import AuditEventInput, append_event
+from helpdesk.shared.core.db import bound_tenant_id
+from helpdesk.shared.crud.users import find_user_by_email
+from helpdesk.shared.access.lifecycle import DuplicateEmailError
+from helpdesk.shared.models import User
+
+__all__ = ["onboard_user"]
+
+
+async def onboard_user(
+    session: AsyncSession,
+    directory: DirectoryProvider,
+    *,
+    email: str,
+    display_name: str,
+    department_id: uuid.UUID,
+    start_date: date,
+    manager_user_id: uuid.UUID,
+    created_by_user_id: uuid.UUID,
+    actor_ref: str | None = None,
+    session_id: uuid.UUID | None = None,
+    now: datetime,
+) -> OnboardResult:
+    """Create the person, apply their department's template, record the hire.
+
+    The caller has already resolved `department_id` and `manager_user_id`
+    inside its own tenant and refused either absence `NOT_FOUND`
+    (`mcp_server.tools.lifecycle.onboard_user`); what is left here is the
+    domain decision. `manager_user_id` is carried into the event and nowhere
+    else: the design models management on `departments`, so `users` has no
+    manager column to write it to (decision E).
+
+    `now` is keyword-only and supplied by the caller, so the tenure the engine
+    reads, every classification and every `granted_at` answer for one instant;
+    reading a clock here would let two template roles be classified against
+    two different moments.
+    """
+    if await find_user_by_email(session, email) is not None:
+        raise DuplicateEmailError("a user with that email already exists in this tenant")
+
+    user = await directory.create_user(
+        email=email,
+        display_name=display_name,
+        department_id=department_id,
+        start_date=start_date,
+        principals=JOINER_PRINCIPALS,
+        password_hash=UNUSABLE_PASSWORD_HASH,
+        status=JOINER_STATUS,
+    )
+
+    # Sorted, so the deciding pass and the executing pass walk the template in
+    # the same order. Which half of a conflicting pair loses is then a
+    # property of the data rather than of the order a set happened to iterate.
+    template_role_ids = sorted(await directory.list_department_role_ids(department_id))
+    to_apply, skipped = await _decide(
+        session,
+        directory,
+        user_id=user.id,
+        created_by_user_id=created_by_user_id,
+        template_role_ids=template_role_ids,
+        now=now,
+    )
+
+    await _append_onboarded(
+        session,
+        user=user,
+        email=email,
+        department_id=department_id,
+        manager_user_id=manager_user_id,
+        applied_role_ids=to_apply,
+        skipped=skipped,
+        actor_ref=actor_ref if actor_ref is not None else str(created_by_user_id),
+        session_id=session_id,
+        now=now,
+    )
+
+    applied = [
+        await execute_grant(
+            session,
+            directory,
+            request_id=None,
+            requester_user_id=created_by_user_id,
+            target_user_id=user.id,
+            role_id=role_id,
+            requested_expiry_days=None,
+            granted_by_user_id=created_by_user_id,
+            actor_ref=actor_ref if actor_ref is not None else str(created_by_user_id),
+            session_id=session_id,
+            now=now,
+        )
+        for role_id in to_apply
+    ]
+    return OnboardResult(user=user, applied=tuple(applied), skipped=tuple(skipped))
+
+
+async def _append_onboarded(
+    session: AsyncSession,
+    *,
+    user: User,
+    email: str,
+    department_id: uuid.UUID,
+    manager_user_id: uuid.UUID,
+    applied_role_ids: list[uuid.UUID],
+    skipped: list[SkippedRole],
+    actor_ref: str,
+    session_id: uuid.UUID | None,
+    now: datetime,
+) -> None:
+    """the design's hire record, subject the new user, six keys exactly."""
+    await append_event(
+        session,
+        bound_tenant_id(session),
+        AuditEventInput(
+            occurred_at=now,
+            actor_kind=_ACTOR_KIND,
+            actor_ref=actor_ref,
+            session_id=session_id,
+            trace_id=None,
+            event_type=USER_ONBOARDED_EVENT_TYPE,
+            subject_type=_SUBJECT_TYPE,
+            subject_id=str(user.id),
+            payload={
+                "user_id": str(user.id),
+                "email": email,
+                "department_id": str(department_id),
+                "manager_user_id": str(manager_user_id),
+                "applied_role_ids": [str(role_id) for role_id in applied_role_ids],
+                "skipped_role_ids": [str(record.role_id) for record in skipped],
+            },
+        ),
+    )

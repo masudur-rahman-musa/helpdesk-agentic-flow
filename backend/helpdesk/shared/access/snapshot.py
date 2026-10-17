@@ -37,7 +37,7 @@ from helpdesk.shared.policy.types import (
     TargetSnapshot,
     TargetStatus,
 )
-from helpdesk.shared.services.access.directory import DirectoryReader
+from helpdesk.shared.access.directory import DirectoryReader
 
 
 async def build_request_snapshot(

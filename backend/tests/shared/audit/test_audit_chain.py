@@ -53,7 +53,7 @@ from typing import Any
 
 import pytest
 
-from helpdesk.shared.services.audit.chain import (
+from helpdesk.shared.audit.chain import (
     GENESIS_HASH,
     ChainAnchor,
     VerifyResult,

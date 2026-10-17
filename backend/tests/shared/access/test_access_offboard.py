@@ -66,21 +66,21 @@ from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, User
-from helpdesk.shared.services.access import lifecycle as lifecycle_module
-from helpdesk.shared.services.access.directory import SimulatedDirectory
-from helpdesk.shared.services.access.lifecycle import (
+from helpdesk.shared.access import offboarding as lifecycle_module
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.lifecycle import (
     LEAVER_STATUS,
     OFFBOARD_REVOKE_REASON,
     USER_OFFBOARDED_EVENT_TYPE,
     AlreadyLeaverError,
-    offboard_user,
 )
+from helpdesk.shared.access.offboarding import offboard_user
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py`, `test_access_execute.py`,
 # `test_access_revoke.py`, `test_access_lifecycle.py` and
 # `test_access_transfer.py`.
-from tests.shared.services.access.test_access_snapshot import (
+from tests.shared.access.test_access_snapshot import (
     NOW,
     ROWS,
     access_db_url,  # noqa: F401

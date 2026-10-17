@@ -74,16 +74,16 @@ from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.core.observability.logging import FORBIDDEN_KEYS
 from helpdesk.shared.models import Base
-from helpdesk.shared.services.audit import AuditEventInput
-from helpdesk.shared.services.audit.chain import (
+from helpdesk.shared.audit import AuditEventInput
+from helpdesk.shared.audit.chain import (
     ANCHOR_HASH_PATTERN,
     MIN_ANCHOR_SEQ,
     ChainAnchor,
     InvalidChainAnchorError,
     VerifyResult,
 )
-from helpdesk.shared.services.audit.verify import verify_tenant_chain
-from helpdesk.shared.services.audit.writer import append_event
+from helpdesk.shared.audit.reader import verify_tenant_chain
+from helpdesk.shared.audit.writer import append_event
 from tests.support.seed import TENANT_SCOPED_TABLES
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

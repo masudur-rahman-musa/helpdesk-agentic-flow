@@ -53,8 +53,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from helpdesk.shared.access import expiry as expiry_module
-from helpdesk.shared.access.expiry import (
+from helpdesk.scheduler.jobs import expiry as expiry_module
+from helpdesk.scheduler.jobs.expiry import (
     _WARNING_TITLE,
     EXPIRY_WARNING_HORIZON_DAYS,
     warn_expiring_grants,

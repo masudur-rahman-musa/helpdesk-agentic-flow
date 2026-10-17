@@ -76,11 +76,11 @@ from helpdesk.shared.models import (
     System,
     User,
 )
-from helpdesk.shared.services.access.directory import SimulatedDirectory
+from helpdesk.shared.access.directory import SimulatedDirectory
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py` and its siblings.
-from tests.shared.services.access.test_access_snapshot import (
+from tests.shared.access.test_access_snapshot import (
     NOW,
     ROWS,
     access_db_url,  # noqa: F401

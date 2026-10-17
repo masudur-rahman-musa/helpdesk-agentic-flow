@@ -70,10 +70,10 @@ from helpdesk.shared.policy.types import (
     RiskClass,
     SodConflict,
 )
-from helpdesk.shared.services.access.approvals import request_in_scope
-from helpdesk.shared.services.access.directory import DirectoryProvider
-from helpdesk.shared.services.access.snapshot import build_request_snapshot
-from helpdesk.shared.services.audit import AuditEventInput, append_event
+from helpdesk.shared.access.approvals import request_in_scope
+from helpdesk.shared.access.directory import DirectoryProvider
+from helpdesk.shared.access.snapshot import build_request_snapshot
+from helpdesk.shared.audit import AuditEventInput, append_event
 
 CLASSIFIED_EVENT_TYPE = "request.classified"
 """Classify's own success event: the

@@ -1,11 +1,4 @@
-"""The access modules that stay close to the grant they write.
+"""The access package: executing grants, revoking access, approvals, directory, lifecycle, reviews and snapshots.
 
-`execute.py` is the one place a grant is written, with the design's re-check in
-front of it, and `revoke.py` the one place access is taken away. `expiry.py`
-holds the scheduler's expire and warn jobs, `leavers.py` the daily leaver
-sweep, `review_schedule.py` the review generation and reminders, and
-`requests.py` the access-request reads and writes. The approval, directory,
-lifecycle, reviews and snapshot halves moved to
-`helpdesk.shared.services.access`; these did not, so this package carries no
-re-exports of its own.
+The package is now complete: the approval, directory, lifecycle, reviews and snapshot modules moved here from `helpdesk.shared.services.access`, and the scheduler-only files (expiry, leavers, review_schedule) moved to `helpdesk.scheduler.jobs`.
 """
