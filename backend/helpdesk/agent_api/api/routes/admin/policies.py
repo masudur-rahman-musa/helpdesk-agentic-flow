@@ -56,19 +56,20 @@ No lifespan resource is touched: neither route reads anything off `app.state`,
 which is why their tests enter no lifespan and open no socket.
 """
 
+from collections.abc import Mapping
+from typing import Any
+
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from helpdesk.agent_api.core.deps import typed_refusal
 from helpdesk.agent_api.schemas.policies import (
     ListPolicyDocumentsArgs as ListPolicyDocumentsArgs,
 )
 from helpdesk.agent_api.schemas.policies import (
     ReingestPolicyDocumentArgs as ReingestPolicyDocumentArgs,
 )
-from helpdesk.agent_api.services.tool_proxy import call_tool_route
-from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.agent_api.services.tool_proxy import proxy_tool
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 router = APIRouter()
 
@@ -88,7 +89,7 @@ REINGEST_POLICY_DOCUMENT_TOOL = "reingest_policy_document"
 
 
 @router.get(POLICIES_PATH)
-async def policy_documents_board(request: Request) -> JSONResponse:
+async def policy_documents_board(request: Request) -> Mapping[str, Any]:
     """Every policy document this tenant has, with each ingested version.
 
     Which documents the corpus holds, which versions exist of each, which one
@@ -103,11 +104,11 @@ async def policy_documents_board(request: Request) -> JSONResponse:
     200 carrying an empty list -- never a 404
     (`::test_a_tenant_with_no_corpus_is_a_200_and_an_empty_list`).
     """
-    return await call_tool_route(request, LIST_POLICY_DOCUMENTS_TOOL, ListPolicyDocumentsArgs())
+    return await proxy_tool(request, LIST_POLICY_DOCUMENTS_TOOL, ListPolicyDocumentsArgs())
 
 
 @router.post(REINGEST_PATH)
-async def reingest_policy_document_route(request: Request) -> JSONResponse:
+async def reingest_policy_document_route(request: Request) -> Mapping[str, Any]:
     """Re-read one corpus document and make it live.
 
     The write half of the board above, and the only thing standing between an
@@ -136,6 +137,6 @@ async def reingest_policy_document_route(request: Request) -> JSONResponse:
     try:
         arguments = ReingestPolicyDocumentArgs.model_validate(await request.json())
     except (ValueError, ValidationError):
-        return typed_refusal(ErrorCode.VALIDATION)
+        raise ToolError(ErrorCode.VALIDATION)
 
-    return await call_tool_route(request, REINGEST_POLICY_DOCUMENT_TOOL, arguments)
+    return await proxy_tool(request, REINGEST_POLICY_DOCUMENT_TOOL, arguments)

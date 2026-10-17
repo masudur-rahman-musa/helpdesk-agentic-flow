@@ -3,6 +3,12 @@
 An earlier change merges the two modules that held these — `admin_routes` (verify) and
 `audit_routes` (search) — into one file under `api/routes/admin/`.
 
+An earlier change thins this file to HTTP wiring only. The verify logic
+(RBAC check, chain walk) lives in `agent_api.services.audit`; the search
+proxies through `tool_proxy.proxy_tool`, which raises ToolError on failure
+and returns the tool body on success. The app-level handler in `router.py`
+renders all ToolErrors as HTTP responses.
+
 GET /admin/audit/verify: is this tenant's audit chain intact?
 
 Integrity is only worth reporting to someone entitled to see it, so the
@@ -13,10 +19,7 @@ principal are different answers on purpose: 401 says "prove who you are",
 403 says "you are known and not permitted". The 401 is `RequireAuthMiddleware`'s
 now, which turns away every request with no valid token before this
 route runs, so the route reads the verified claims off `request.state` and only
-decides the 403. Both carry the typed body, never free text. The audit log is
-not one of the MCP tools in the the design matrix, so the verify route names its
-own principal set rather than calling `authorize`; it reuses the enum so an
-unrecognised principal string cannot widen access.
+decides the 403. Both carry the typed body, never free text.
 
 GET /admin/audit/search: the audit log, filtered, over HTTP.
 
@@ -26,13 +29,13 @@ boundary, so RBAC, the kill switch, the per-row scope filter and the audit
 event apply to an auditor's search made from a page exactly as they do to one
 made in a turn (23a decision A). Everything here is a READ, so a project rule has
 nothing to bite on. **Identity comes from the token and from nowhere else**. The caller's own bearer is forwarded verbatim by
-`call_tool_route`, and no route here takes a user or a tenant argument. Pinned
+`proxy_tool`, and no route here takes a user or a tenant argument. Pinned
 by `test_audit_routes.py::test_the_search_route_sends_the_eight_filters_and_no_identity_argument`,
 which asserts the arguments as an exact key set, so a field riding along fails
 the case too.
 
 **The eight filters are the TOOL's to judge, not this router's** (section 5's
-first risk). Every value crosses as the browser sent it and `SearchAuditInput`
+first risk). Every value crosses as the browser sent it and `SearchAuditArgs`
 — whose four string caps are read off the `audit_events` columns themselves —
 is the only validator. A second opinion here would refuse an over-long filter,
 an out-of-range page size or an unparseable date with FastAPI's untyped 422,
@@ -53,61 +56,28 @@ nothing off `app.state`, which is why their tests enter no lifespan and open no
 socket.
 """
 
+from collections.abc import Mapping
 from typing import Any
-from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
-from sqlalchemy.exc import SQLAlchemyError
 
 from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.audit import SearchAuditArgs
-from helpdesk.agent_api.services.tool_proxy import call_tool_route
-from helpdesk.shared.auth.jwt import TokenClaims
-from helpdesk.shared.auth.rbac import Principal
+from helpdesk.agent_api.services import audit as services_audit
+from helpdesk.agent_api.services.tool_proxy import proxy_tool
 from helpdesk.shared.core.config import load_settings
-from helpdesk.shared.core.db import create_session_factory, shared_engine, tenant_session
-from helpdesk.shared.services.audit.verify import verify_tenant_chain
+from helpdesk.shared.services.audit.chain import VerifyResult
 
 router = APIRouter()
-
-# the design: reading the log's integrity is an audit/administration act.
-AUDIT_VERIFY_PRINCIPALS = frozenset(
-    {Principal.AUDITOR.value, Principal.IT_ADMIN.value, Principal.PLATFORM_ADMIN.value}
-)
-
-_REFUSAL_BODY = {"code": "FORBIDDEN"}
-_ERROR_BODY = {"code": "INTERNAL"}
 
 SEARCH_AUDIT_TOOL = "search_audit"
 
 
-def _is_permitted(claims: TokenClaims) -> bool:
-    """Principal strings outside the enum are ignored, never a wildcard."""
-    return any(principal in AUDIT_VERIFY_PRINCIPALS for principal in claims.principals)
-
-
-@router.get("/admin/audit/verify")
-async def verify_audit_chain(request: Request) -> JSONResponse:
-    # The caller is already verified by `RequireAuthMiddleware`; the
-    # claims come off `request.state`, and this route decides only the 403.
+@router.get("/admin/audit/verify", response_model=VerifyResult)
+async def verify_audit_chain(request: Request) -> VerifyResult:
+    """RBAC check then chain walk; raises ToolError rendered by the one edge."""
     claims = request_claims(request)
-    if not _is_permitted(claims):
-        return JSONResponse(status_code=403, content=_REFUSAL_BODY)
-
-    # Every response on this route carries a typed code, including the
-    # failure ones: a malformed tenant claim or an unreachable database
-    # would otherwise return FastAPI's untyped 500 body.
-    try:
-        tenant_id = UUID(claims.tenant_id)
-        factory = create_session_factory(shared_engine(load_settings().database_url))
-        async with tenant_session(factory, tenant_id) as session:
-            result = await verify_tenant_chain(session, tenant_id)
-    # OSError as well as SQLAlchemyError: a refused connection reaches here
-    # unwrapped, and that is exactly the outage this branch exists for.
-    except (ValueError, OSError, SQLAlchemyError):
-        return JSONResponse(status_code=500, content=_ERROR_BODY)
-    return JSONResponse(content=result.model_dump())
+    return await services_audit.verify_chain(claims, load_settings().database_url)
 
 
 @router.get("/admin/audit/search")
@@ -121,7 +91,7 @@ async def search_audit_events(
     occurred_to: str | None = Query(default=None),
     before_seq: int | None = Query(default=None),
     limit: int | None = Query(default=None),
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """This tenant's audit events, newest first, filtered by whatever was asked.
 
     All eight filters are forwarded, and each only when present (decision D):
@@ -142,4 +112,4 @@ async def search_audit_events(
     arguments = SearchAuditArgs.model_validate(
         {name: value for name, value in asked.items() if value is not None}
     )
-    return await call_tool_route(request, SEARCH_AUDIT_TOOL, arguments)
+    return await proxy_tool(request, SEARCH_AUDIT_TOOL, arguments)

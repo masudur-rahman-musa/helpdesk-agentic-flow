@@ -71,7 +71,7 @@ from helpdesk.agent_api.services.ratelimit import (
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import Settings, load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models import Base, Department, Role, System, Tenant, User
 
 # --- the one complete map -----------------------------------------------------
@@ -109,11 +109,11 @@ def test_chat_is_no_longer_its_own_map() -> None:
     POLICY_BLOCKED as 429, so a chat refusal and a proxied refusal answer one
     code two ways. The two `not hasattr` checks fail until both are dropped.
 
-    `_rendered` on a FAILED turn is the chat service's one render of a typed
-    code, so exercising it with a FORBIDDEN proves the render now goes through
-    `deps.typed_refusal`'s map: 403, not chat's old 401. A plain frozen
-    `TurnState` with no node run and no socket, so the only thing that can set
-    the status is which map `_rendered` reads.
+    After an earlier change, `_rendered` on a FAILED turn raises `ToolError` instead of
+    returning a `JSONResponse`. The raised error carries the turn's `error_code`
+    so the app-level handler in `router.py` is the one edge that renders it.
+    A plain frozen `TurnState` with no node run and no socket, so the only thing
+    that can flip the raise vs. return is whether the service refactoring landed.
     """
     assert not hasattr(chat_service, "STATUS_FOR_CODE")
     assert not hasattr(chat_service, "_typed")
@@ -127,11 +127,9 @@ def test_chat_is_no_longer_its_own_map() -> None:
         outcome=TurnOutcome.FAILED,
         error_code=ErrorCode.FORBIDDEN,
     )
-    response = chat_service._rendered(failed)
-
-    assert isinstance(response, httpx.Response) is False  # a JSONResponse, not an httpx one
-    assert response.status_code == 403
-    assert response.body == deps.typed_refusal(ErrorCode.FORBIDDEN).body
+    with pytest.raises(ToolError) as exc_info:
+        chat_service._rendered(failed)
+    assert exc_info.value.code == ErrorCode.FORBIDDEN
 
 
 # --- the proxied-route harness (no socket, like test_me_routes.py) ------------

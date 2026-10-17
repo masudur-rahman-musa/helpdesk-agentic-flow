@@ -43,7 +43,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.agent_api.api.router import app
-from helpdesk.agent_api.api.routes.admin import audit as admin_routes
+from helpdesk.agent_api.services import audit as services_audit
 from helpdesk.shared.audit.anchor import anchor_tenant_chain
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import load_settings
@@ -463,7 +463,7 @@ def test_a_database_failure_still_answers_with_a_typed_code(
     async def boom(*args: object, **kwargs: object) -> None:
         raise OperationalError("SELECT 1", {}, Exception("connection refused"))
 
-    monkeypatch.setattr(admin_routes, "verify_tenant_chain", boom)
+    monkeypatch.setattr(services_audit, "verify_tenant_chain", boom)
 
     response = _get_verify(_auth(_token(tenant_id, ["auditor"])))
 

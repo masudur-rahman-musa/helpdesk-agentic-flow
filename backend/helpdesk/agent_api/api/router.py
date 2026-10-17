@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from redis.asyncio import Redis
@@ -37,12 +37,16 @@ from helpdesk.agent_api.api.routes.chat import router as chat_router
 from helpdesk.agent_api.api.routes.me import router as me_router
 from helpdesk.agent_api.api.routes.notifications import router as notification_router
 from helpdesk.agent_api.api.routes.reviews import router as review_router
+from helpdesk.agent_api.core.deps import STATUS_FOR_CODE
+from helpdesk.agent_api.services.auth import LoginRefusedError
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
+from helpdesk.agent_api.services.ratelimit import RateLimitExceededError
 from helpdesk.agent_api.services.tracing import configure_tracing
 from helpdesk.agent_api.services.tracing import flush as flush_traces
 from helpdesk.shared.auth.jwt import TokenClaims, verify_token
 from helpdesk.shared.core.config import load_settings, web_origin_from_env
 from helpdesk.shared.core.db import create_engine, create_session_factory
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.core.observability.context import bind_context
 from helpdesk.shared.core.observability.logging import configure_logging
 from helpdesk.shared.core.observability.metrics import render as render_metrics
@@ -220,6 +224,44 @@ app.include_router(audit_router)
 app.include_router(killswitch_router)
 app.include_router(rules_router)
 app.include_router(policies_router)
+
+
+# ---------------------------------------------------------------------------
+# One-edge error rendering
+# ---------------------------------------------------------------------------
+# Services raise typed errors; these three handlers are the only place that
+# turns them into HTTP responses. Starlette walks the MRO for the most-specific
+# match, so RateLimitExceededError (a ToolError subclass) lands here first,
+# getting its literal 429 rather than the STATUS_FOR_CODE 409 the ToolError
+# handler would give it. LoginRefusedError is NOT a ToolError, so it needs its
+# own registration.
+# Pinned by `test_api_layering.py::test_one_edge_renders_a_tool_error`,
+# `::test_the_rate_limit_is_rendered_by_the_one_edge`, and
+# `::test_a_forbidden_audit_verify_answers_403`.
+
+
+@app.exception_handler(RateLimitExceededError)
+async def handle_rate_limit(_request: Request, _exc: RateLimitExceededError) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"code": ErrorCode.POLICY_BLOCKED.value},
+    )
+
+
+@app.exception_handler(ToolError)
+async def handle_tool_error(_request: Request, exc: ToolError) -> JSONResponse:
+    return JSONResponse(
+        status_code=STATUS_FOR_CODE[exc.code],
+        content={"code": exc.code.value},
+    )
+
+
+@app.exception_handler(LoginRefusedError)
+async def handle_login_refused(_request: Request, _exc: LoginRefusedError) -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={"code": ErrorCode.FORBIDDEN.value},
+    )
 
 
 class HealthResponse(BaseModel):

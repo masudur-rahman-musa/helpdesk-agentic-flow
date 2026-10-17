@@ -39,9 +39,10 @@ which is why their tests enter no lifespan and open no socket.
 """
 
 import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.agent.keys import derive_review_decision_key
 from helpdesk.agent_api.core.deps import request_claims
@@ -55,7 +56,7 @@ from helpdesk.agent_api.schemas.reviews import (
     ListReviewsArgsWithStatus,
     ListReviewsArgsWithStatusAndLimit,
 )
-from helpdesk.agent_api.services.tool_proxy import call_tool_route
+from helpdesk.agent_api.services.tool_proxy import proxy_tool
 
 router = APIRouter()
 
@@ -65,7 +66,7 @@ async def my_reviews(
     request: Request,
     status: str | None = Query(default=None),
     limit: int | None = Query(default=None),
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """Every access review waiting on THIS caller, newest period first.
 
     The queue's whole filter is "mine", and that "mine" is the token's user:
@@ -82,7 +83,7 @@ async def my_reviews(
         arguments = ListReviewsArgsWithStatus(status=status)
     else:
         arguments = ListReviewsArgsWithStatusAndLimit(status=status, limit=limit)
-    return await call_tool_route(request, "list_reviews", arguments)
+    return await proxy_tool(request, "list_reviews", arguments)
 
 
 @router.get("/reviews/{review_id}/items")
@@ -90,7 +91,7 @@ async def review_items(
     review_id: uuid.UUID,
     request: Request,
     limit: int | None = Query(default=None),
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """One review's rows, as 23e widened them, for whoever may read that review.
 
     `review_id` is a `uuid.UUID` path parameter, so a non-uuid path never
@@ -105,7 +106,7 @@ async def review_items(
         if limit is None
         else ListReviewItemsArgsWithLimit(review_id=review_id, limit=limit)
     )
-    return await call_tool_route(request, "list_review_items", arguments)
+    return await proxy_tool(request, "list_review_items", arguments)
 
 
 @router.post("/review-items/{item_id}/decide")
@@ -113,7 +114,7 @@ async def decide(
     item_id: uuid.UUID,
     body: DecideBody,
     request: Request,
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """Record this caller's keep or revoke on one row of one review.
 
     `item_id` is a `uuid.UUID` path parameter for the reason `review_id` is,
@@ -141,4 +142,4 @@ async def decide(
             reviewer_user_id=uuid.UUID(claims.sub), item_id=item_id, decision=body.decision
         ),
     )
-    return await call_tool_route(request, "decide_review_item", arguments)
+    return await proxy_tool(request, "decide_review_item", arguments)

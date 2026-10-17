@@ -18,79 +18,20 @@ A failing audit write fails the login (decision F): the log is a guarantee,
 not telemetry, and a login that succeeded unaudited would be a hole in it.
 
 Settings are loaded per request (same seam as `agent_api.readiness`) so
-tests can redirect the route through environment variables alone. The lookups
-and the audit emit live in `agent_api.services.auth`.
+tests can redirect the route through environment variables alone. All auth
+logic lives in `agent_api.services.auth`; this file is the HTTP wiring only. Raises `LoginRefusedError` (rendered as 401 by the
+app-level handler in `router.py`) or `ToolError` (rendered via STATUS_FOR_CODE).
 """
 
-import uuid
-from datetime import UTC, datetime
-
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.schemas.auth import LoginRequest, LoginResponse
-from helpdesk.agent_api.services.auth import (
-    _DUMMY_HASH,
-    _ERROR_BODY,
-    _emit,
-    _find_tenant,
-    _find_user,
-    _refuse,
-)
-from helpdesk.shared.auth.jwt import issue_token
-from helpdesk.shared.auth.passwords import verify_password
+from helpdesk.agent_api.services import auth as auth_service
 from helpdesk.shared.core.config import load_settings
 
 router = APIRouter()
 
 
 @router.post("/auth/login", response_model=LoginResponse)
-async def login(body: LoginRequest) -> JSONResponse:
-    settings = load_settings()
-
-    tenant = await _find_tenant(settings.database_url, body.tenant_slug)
-    if tenant is None:
-        verify_password(body.password, _DUMMY_HASH)
-        return _refuse()
-
-    user = await _find_user(settings.database_url, tenant.id, body.email)
-
-    if user is None:
-        verify_password(body.password, _DUMMY_HASH)
-        refused = True
-    else:
-        password_ok = verify_password(body.password, user.password_hash)
-        # Status is read only after the password check has already run, so
-        # the leaver path costs the same as a normal login and its refusal
-        # stays indistinguishable from a wrong password.
-        refused = not password_ok or user.status != "active" or user.department_id is None
-
-    try:
-        await _emit(
-            settings.database_url,
-            tenant.id,
-            "auth.failed" if refused else "auth.login",
-            user,
-        )
-    except Exception:
-        # Broad on purpose for now: nothing may reach the caller as an
-        # untyped error, and with no logging module yet a narrower catch
-        # would turn a programming error into an unhandled 500 instead of
-        # this typed one. Row 20 adds the log line and the narrowing.
-        return JSONResponse(status_code=500, content=_ERROR_BODY)
-
-    if refused or user is None or user.department_id is None:
-        return _refuse()
-
-    token = issue_token(
-        {
-            "sub": str(user.id),
-            "tenant_id": str(user.tenant_id),
-            "department_id": str(user.department_id),
-            "principals": list(user.principals),
-            "sid": str(uuid.uuid4()),  # fresh per login; persisted at the sessions row
-        },
-        settings.jwt_secret,
-        datetime.now(UTC),
-    )
-    return JSONResponse(content=LoginResponse(access_token=token).model_dump())
+async def login(body: LoginRequest) -> LoginResponse:
+    return await auth_service.login(body, load_settings())

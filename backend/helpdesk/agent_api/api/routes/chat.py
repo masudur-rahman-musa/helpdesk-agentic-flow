@@ -1,10 +1,10 @@
 """POST /chat, POST /chat/stream and GET /chat/messages: the agent's front door.
 
-The door and the counter, and nothing else (the design). Every decision a turn
-makes was made by an earlier change; this module verifies who is knocking,
-counts the knock against the design's limit, hands the turn a tenant-bound
-session, and renders what comes back (the render and stream logic live in
-`agent_api.services.chat`).
+The door and nothing else. All logic — identity, rate
+limit, DB access, turn execution — lives in `agent_api.services.chat`.  This
+file builds the tool caller via the `build_tool_caller` seam (kept here so
+route tests can patch it without opening a socket) and delegates everything
+else.
 
 `/chat` and `/chat/stream` are two VIEWS of one turn, never two turns
 (19c decision G1): the same verification, the same limit, the same graph and
@@ -14,62 +14,21 @@ Pinned by `test_chat_stream.py::test_both_routes_store_the_same_rows_for_one_mes
 **Identity comes from the token and from nowhere else**. The
 tenant, the user AND the session are the verified claims' `tenant_id`, `sub`
 and `sid`; the body carries a message and nothing that names a person or a
-conversation (decision A1). A client-chosen session id would be worse than a
-client-chosen user id, because the session id IS the checkpoint thread (ADR
-0012), so it would address another turn's checkpoints. Unknown body keys are
-therefore IGNORED rather than refused: a body naming another user must be
-ACCEPTED and change nothing, which is what
-`test_chat_route.py::test_identity_comes_from_the_token_and_not_from_the_body`
-asserts by reading the rows back.
-
-**Every refusal is a typed body from `helpdesk.errors`** — the same eight codes
-the tools answer with, so a chat client and a tool client do not have to learn
-two vocabularies. That includes the failures a turn reports rather than raises:
-a turn that ended `FAILED` is answered as its own error code and carries NO
-reply, because a templated failure sentence rendered as an ordinary 200 is
-prose about a turn nothing decided
-(`::test_an_unreachable_gateway_answers_a_typed_code_and_no_partial_reply`).
-
-The process-lifetime resources are read off `app.state` per request (decision
-B), never captured at import: a test drives its own gateway and its own Redis
-by replacing them after startup.
+conversation (decision A1).
 """
 
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
-from helpdesk.agent_api.agent.graph import run_turn
-from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.agent_api.core.deps import request_bearer, request_claims, typed_refusal
-from helpdesk.agent_api.schemas.chat import ChatHistoryResponse, ChatMessage, ChatRequest
+from helpdesk.agent_api.core.deps import request_bearer
+from helpdesk.agent_api.schemas.chat import ChatHistoryResponse, ChatRequest, ChatResponse
+from helpdesk.agent_api.services import chat as chat_service
 from helpdesk.agent_api.services import tool_proxy
-from helpdesk.agent_api.services.chat import _identity, _rendered, _stream_frames
-from helpdesk.agent_api.services.ratelimit import RateLimitExceededError, check_rate_limit
 from helpdesk.shared.core.config import load_settings
-from helpdesk.shared.core.db import tenant_session
-from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.crud.messages import list_recent_messages
-from helpdesk.shared.crud.tenants import find_tenant_by_id
-from helpdesk.shared.models.conversation import check_message_content
 
 router = APIRouter()
-
-_TOO_MANY_REQUESTS = 429
-
-
-def _rate_limited() -> JSONResponse:
-    """The rate limit's literal 429, not a lookup in `deps.STATUS_FOR_CODE`.
-
-    `POLICY_BLOCKED` in that map is the proxied conflict's 409 (an earlier change, ADR
-    0025); the only thing on this route that raises it is the window limiter,
-    which is a different fact and keeps its own 429. Pinned by
-    `test_error_map.py::test_the_rate_limit_still_answers_429`.
-    """
-    return JSONResponse(
-        status_code=_TOO_MANY_REQUESTS, content={"code": ErrorCode.POLICY_BLOCKED.value}
-    )
 
 build_tool_caller = tool_proxy.build_tool_caller
 """The turn's MCP caller, `agent_api.deps`' since an earlier change (decision C).
@@ -83,164 +42,47 @@ sites and every one of them would quietly start dialling a real MCP server.
 """
 
 
-@router.post("/chat")
-async def chat(request: Request, body: ChatRequest) -> JSONResponse:
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     """One message in, one stored turn out.
 
-    The ORDER is the whole of this function's content, and every step of it is
-    asserted: the caller is already verified by `RequireAuthMiddleware` (plan
-    64), the rate limit is counted before the turn is started, and the turn is
-    what writes rows. A limiter checked after the turn would bill a model call
-    and store two rows for a message it then refuses, which is what
-    `::test_an_unreachable_redis_refuses_the_turn_and_starts_none` catches by
-    staging a gateway with nothing and reading the rows back.
-
-    The bearer and the claims are read off `request.state`, where the middleware
-    put them after the one verify every request gets; this route no longer reads
-    the header. `now` is stamped once and passed as the turn's clock as well as
-    the window's, so the message counted and the message stored are judged
-    against one reading.
+    Builds the tool caller (keeping the seam on this module) and delegates
+    everything else to `chat_service.chat_turn`. Raises a ToolError (or
+    RateLimitExceededError) which the app-level handler in `router.py` renders.
     """
-    settings = load_settings()
     token = request_bearer(request)
-    claims = request_claims(request)
-
     now = datetime.now(UTC)
-    try:
-        identity = _identity(claims)
-    except ValueError:
-        return typed_refusal(ErrorCode.VALIDATION)
-
-    try:
-        await check_rate_limit(
-            request.app.state.redis,
-            tenant_id=identity.tenant_id,
-            session_id=claims.sid,
-            now=now,
-        )
-    except RateLimitExceededError:
-        return _rate_limited()
-    except ToolError as exc:
-        return typed_refusal(exc.code)
-
-    tools = build_tool_caller(settings, token)
-    try:
-        async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
-            tenant = await find_tenant_by_id(db, identity.tenant_id)
-            if tenant is None:
-                # A verified token for a tenant that no longer exists: nothing
-                # the caller can act on, and not a 404 either — the row they
-                # asked about is their own tenant.
-                return typed_refusal(ErrorCode.INTERNAL)
-            state = await run_turn(
-                deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
-                tenant_id=identity.tenant_id,
-                user_id=identity.user_id,
-                session_id=identity.session_id,
-                tenant_slug=tenant.slug,
-                message=body.message,
-                checkpointer=request.app.state.checkpointer,
-            )
-    except ToolError as exc:
-        # The pre-checks and the MCP handshake raise OUTSIDE every node, so
-        # nothing on the turn path converts them into state: without this an
-        # oversized message and an unreachable MCP server both reach the client
-        # as FastAPI's untyped 500 with a stack trace.
-        return typed_refusal(exc.code)
-    return _rendered(state)
+    tools = build_tool_caller(load_settings(), token)
+    return await chat_service.chat_turn(request, body.message, now, tools)
 
 
 @router.post("/chat/stream")
 async def chat_stream(request: Request, body: ChatRequest) -> Response:
     """The same message as `/chat`, watched: the design step 9 over SSE.
 
-    A second VIEW of one turn, never a second turn (decision G1): `/chat` stays
-    beside this route for the clients that should not have to parse frames — a
-    script, row 26's golden runner — and both drive the same graph, the same
-    pre-checks and the same stored rows.
+    A second VIEW of one turn, never a second turn (decision G1). Pre-checks
+    run inside `chat_service.chat_stream_response` BEFORE this route wraps the
+    result in a `StreamingResponse`, so any refusal (rate limit, message cap)
+    becomes a proper HTTP status rather than a 200 that opens and immediately
+    errors. Pinned by `test_chat_stream.py`'s refusal cases.
 
-    `POST` and not `GET` (decision D1). A browser `EventSource` cannot send an
+    `POST` and not `GET` (decision D1): a browser `EventSource` cannot send an
     `Authorization` header, so a `GET` stream would carry the bearer in a query
-    string and therefore into every access log, every proxy trace and every
-    referrer. The web client of row 22 reads a `fetch` body as a stream, which
-    costs it nothing.
-
-    **Everything that can refuse, refuses BEFORE the first byte.** The caller is
-    verified by `RequireAuthMiddleware` before the route runs; the
-    message cap and the rate limit are decided here, as the same typed bodies
-    and statuses `/chat` answers with — 400 `VALIDATION`, 429 `POLICY_BLOCKED` —
-    because a refusal after a 200 is a refusal the client has to parse out of a
-    stream. The cap is checked here as well as inside `stream_turn` for that
-    reason alone: it is the same function against the same constant, and the
-    second call cannot disagree with the first.
-
-    Each refusal opens no stream at all, asserted on the content type as well
-    as on the body by `test_chat_stream.py`'s refusal cases.
+    string and therefore into access logs.
     """
-    settings = load_settings()
     token = request_bearer(request)
-    claims = request_claims(request)
-
     now = datetime.now(UTC)
-    try:
-        identity = _identity(claims)
-    except ValueError:
-        return typed_refusal(ErrorCode.VALIDATION)
-
-    try:
-        check_message_content(body.message)
-    except ToolError as exc:
-        return typed_refusal(exc.code)
-
-    try:
-        await check_rate_limit(
-            request.app.state.redis,
-            tenant_id=identity.tenant_id,
-            session_id=claims.sid,
-            now=now,
-        )
-    except RateLimitExceededError:
-        return _rate_limited()
-    except ToolError as exc:
-        return typed_refusal(exc.code)
-
-    frames = _stream_frames(
-        request,
-        identity=identity,
-        tools=build_tool_caller(settings, token),
-        message=body.message,
-        now=now,
-    )
+    tools = build_tool_caller(load_settings(), token)
+    frames = await chat_service.chat_stream_response(request, body.message, now, tools)
     return StreamingResponse(frames, media_type="text/event-stream")
 
 
-@router.get("/chat/messages")
-async def chat_messages(request: Request) -> JSONResponse:
+@router.get("/chat/messages", response_model=ChatHistoryResponse)
+async def chat_messages(request: Request) -> ChatHistoryResponse:
     """This session's messages, oldest first, and this tenant's only.
 
-    The session read is the token's `sid` and the read is bound to the token's
-    tenant, so a token whose `sid` names another tenant's conversation reads an
-    empty window rather than somebody else's chat
-    (`::test_the_history_route_cannot_read_another_tenants_session`). The order
-    is `list_recent_messages`'s own — by `ordinal`, never by `created_at`,
-    which is transaction time and identical across one turn's rows.
-
-    No rate limit: the design bounds messages, and refusing a client its own
-    transcript during a window it has spent would hide the very turns it is
-    asking about.
+    Delegates DB access to `chat_service.chat_history`. No rate limit: SPEC
+    §10.3 bounds messages, and refusing a client its own transcript during a
+    window it has spent would hide the very turns it is asking about.
     """
-    claims = request_claims(request)
-    try:
-        identity = _identity(claims)
-    except ValueError:
-        return typed_refusal(ErrorCode.VALIDATION)
-
-    try:
-        async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
-            rows = await list_recent_messages(db, identity.session_id)
-            body = ChatHistoryResponse(
-                messages=[ChatMessage(role=row.role, content=row.content) for row in rows]
-            )
-    except ToolError as exc:
-        return typed_refusal(exc.code)
-    return JSONResponse(content=body.model_dump())
+    return await chat_service.chat_history(request)

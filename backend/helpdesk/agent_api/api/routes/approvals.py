@@ -31,9 +31,10 @@ which is why their tests enter no lifespan and open no socket.
 """
 
 import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.agent.keys import derive_decision_key
 from helpdesk.agent_api.core.deps import request_claims
@@ -45,7 +46,7 @@ from helpdesk.agent_api.schemas.approvals import (
     RejectBody,
     RejectRequestArgs,
 )
-from helpdesk.agent_api.services.tool_proxy import call_tool_route
+from helpdesk.agent_api.services.tool_proxy import proxy_tool
 
 router = APIRouter()
 
@@ -63,7 +64,7 @@ as two DIFFERENT keys for one approver and one request by
 async def my_approvals(
     request: Request,
     limit: int | None = Query(default=None),
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """Every pending request waiting on THIS caller, oldest first.
 
     The queue's whole filter is "waiting for me", and that "me" is the token's
@@ -77,7 +78,7 @@ async def my_approvals(
         if limit is None
         else ListPendingApprovalsArgsWithLimit(limit=limit)
     )
-    return await call_tool_route(request, "list_pending_approvals", arguments)
+    return await proxy_tool(request, "list_pending_approvals", arguments)
 
 
 @router.post("/approvals/{request_id}/approve")
@@ -85,7 +86,7 @@ async def approve(
     request_id: uuid.UUID,
     request: Request,
     body: ApproveBody | None = None,
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """Record this caller's approval of one seat of one request's chain.
 
     `request_id` is a `uuid.UUID` path parameter, so a non-uuid path never
@@ -108,7 +109,7 @@ async def approve(
             approver_user_id=uuid.UUID(claims.sub), request_id=request_id, verb=APPROVE_VERB
         ),
     )
-    return await call_tool_route(request, "approve_request", arguments)
+    return await proxy_tool(request, "approve_request", arguments)
 
 
 @router.post("/approvals/{request_id}/reject")
@@ -116,7 +117,7 @@ async def reject(
     request_id: uuid.UUID,
     body: RejectBody,
     request: Request,
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """Refuse one request, with the reason the audit record keeps.
 
     The key is derived over `REJECT_VERB`, so an Approve and a Reject by one
@@ -136,4 +137,4 @@ async def reject(
             approver_user_id=uuid.UUID(claims.sub), request_id=request_id, verb=REJECT_VERB
         ),
     )
-    return await call_tool_route(request, "reject_request", arguments)
+    return await proxy_tool(request, "reject_request", arguments)

@@ -23,15 +23,17 @@ the shape is decided.
 the tools answer with. The map, the typed body and the call itself are
 `agent_api.deps`' since an earlier change (decision C), and since an earlier change they are the
 ONE map the whole agent-api shares, chat routes included. This
-module reads nothing of the map by name: `call_tool_route` renders every
+module reads nothing of the map by name: `proxy_tool` renders every
 refusal through `deps.typed_refusal`.
 
 No lifespan resource is touched: these two routes read nothing off
 `app.state`, which is why their tests enter no lifespan and open no socket.
 """
 
+from collections.abc import Mapping
+from typing import Any
+
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.schemas.me import (
     GetMeArgs,
@@ -39,7 +41,7 @@ from helpdesk.agent_api.schemas.me import (
     ListMyRequestsArgs,
     ListMyRequestsArgsWithLimit,
 )
-from helpdesk.agent_api.services.tool_proxy import call_tool_route
+from helpdesk.agent_api.services.tool_proxy import proxy_tool
 from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.auth.rbac import tabs_for
 
@@ -51,7 +53,7 @@ async def my_requests(
     request: Request,
     status: str | None = Query(default=None),
     limit: int | None = Query(default=None),
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """Every request this caller has FILED, newest page of `limit` of them.
 
     Filtered by requester rather than by target, which is the tool's own rule:
@@ -66,18 +68,18 @@ async def my_requests(
         if limit is None
         else ListMyRequestsArgsWithLimit(status=status, limit=limit)
     )
-    return await call_tool_route(request, "list_my_requests", arguments)
+    return await proxy_tool(request, "list_my_requests", arguments)
 
 
 @router.get("/me/access")
-async def my_access(request: Request) -> JSONResponse:
+async def my_access(request: Request) -> Mapping[str, Any]:
     """Every grant this caller holds right now.
 
     Uncapped, deliberately: these rows are one person's live
     grants, bounded by reality rather than by a parameter, so there is no page
     size to ask for and no argument to send.
     """
-    return await call_tool_route(request, "list_my_access", ListMyAccessArgs())
+    return await proxy_tool(request, "list_my_access", ListMyAccessArgs())
 
 
 def _tabs(claims: TokenClaims) -> dict[str, list[str]]:
@@ -85,7 +87,7 @@ def _tabs(claims: TokenClaims) -> dict[str, list[str]]:
 
 
 @router.get("/me")
-async def me(request: Request) -> JSONResponse:
+async def me(request: Request) -> Mapping[str, Any]:
     """Who the caller is, and which web tabs their principals may see.
 
     The `get_me` tool's body plus `tabs`, computed from the token's own
@@ -93,4 +95,4 @@ async def me(request: Request) -> JSONResponse:
     the matrix. Cosmetic only: each page's tool still refuses. Pinned by
     `test_me_routes.py::test_the_me_route_answers_name_principals_and_the_tabs_of_the_token`.
     """
-    return await call_tool_route(request, "get_me", GetMeArgs(), extend=_tabs)
+    return await proxy_tool(request, "get_me", GetMeArgs(), extend=_tabs)

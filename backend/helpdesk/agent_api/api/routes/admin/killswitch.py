@@ -58,18 +58,20 @@ No lifespan resource is touched: neither route reads anything off `app.state`,
 which is why their tests enter no lifespan and open no socket.
 """
 
+from collections.abc import Mapping
+from typing import Any
+
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from helpdesk.agent_api.core.deps import request_claims, typed_refusal
+from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.killswitch import (
     ListKillSwitchesArgs,
     SetKillSwitchArgs,
     SetKillSwitchBody,
 )
-from helpdesk.agent_api.services.tool_proxy import call_tool_route
-from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.agent_api.services.tool_proxy import proxy_tool
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 router = APIRouter()
 
@@ -101,7 +103,7 @@ so a router substituting a constant fails it."""
 
 
 @router.get(KILLSWITCH_PATH)
-async def kill_switch_board(request: Request) -> JSONResponse:
+async def kill_switch_board(request: Request) -> Mapping[str, Any]:
     """Every registered tool and the state of its two kill switches.
 
     Both layers per row rather than one effective state (24ca decision B), and
@@ -113,11 +115,11 @@ async def kill_switch_board(request: Request) -> JSONResponse:
     Which board this caller reads is the token's tenant, decided behind the MCP
     boundary.
     """
-    return await call_tool_route(request, LIST_KILL_SWITCHES_TOOL, ListKillSwitchesArgs())
+    return await proxy_tool(request, LIST_KILL_SWITCHES_TOOL, ListKillSwitchesArgs())
 
 
 @router.post(KILLSWITCH_PATH)
-async def set_kill_switch_route(request: Request) -> JSONResponse:
+async def set_kill_switch_route(request: Request) -> Mapping[str, Any]:
     """Stop one tool, or let it run again, for this tenant or the whole platform.
 
     `enabled` describes the SWITCH and `stopped` in the answer describes the
@@ -143,7 +145,7 @@ async def set_kill_switch_route(request: Request) -> JSONResponse:
         payload = await request.json()
         body = SetKillSwitchBody.model_validate(payload)
     except (ValueError, ValidationError):
-        return typed_refusal(ErrorCode.VALIDATION)
+        raise ToolError(ErrorCode.VALIDATION)
 
     arguments = SetKillSwitchArgs(
         tool_name=body.tool_name,
@@ -151,4 +153,4 @@ async def set_kill_switch_route(request: Request) -> JSONResponse:
         scope=SCOPE_GLOBAL if body.scope == SCOPE_GLOBAL else claims.tenant_id,
         reason=body.reason,
     )
-    return await call_tool_route(request, SET_KILL_SWITCH_TOOL, arguments)
+    return await proxy_tool(request, SET_KILL_SWITCH_TOOL, arguments)

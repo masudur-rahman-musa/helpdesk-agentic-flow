@@ -54,9 +54,10 @@ which is why their tests enter no lifespan and open no socket.
 """
 
 import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
 
 from helpdesk.agent_api.agent.keys import derive_notification_read_key
 from helpdesk.agent_api.core.deps import request_claims
@@ -67,7 +68,7 @@ from helpdesk.agent_api.schemas.notifications import (
     ListNotificationsArgsWithUnreadOnlyAndLimit,
     MarkNotificationReadArgs,
 )
-from helpdesk.agent_api.services.tool_proxy import call_tool_route
+from helpdesk.agent_api.services.tool_proxy import proxy_tool
 
 router = APIRouter()
 
@@ -77,7 +78,7 @@ async def my_notifications(
     request: Request,
     unread_only: bool | None = Query(default=None),
     limit: int | None = Query(default=None),
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """THIS caller's own notifications, newest first, with their unread total.
 
     The whole filter is "mine", and that "mine" is the token's user: the tool
@@ -102,14 +103,14 @@ async def my_notifications(
         arguments = ListNotificationsArgsWithUnreadOnlyAndLimit(
             unread_only=unread_only, limit=limit
         )
-    return await call_tool_route(request, "list_notifications", arguments)
+    return await proxy_tool(request, "list_notifications", arguments)
 
 
 @router.post("/notifications/{notification_id}/read")
 async def mark_read_route(
     notification_id: uuid.UUID,
     request: Request,
-) -> JSONResponse:
+) -> Mapping[str, Any]:
     """Stamp one of this caller's own notifications read.
 
     No body at all (decision B): there is nothing for the browser to say beyond
@@ -139,4 +140,4 @@ async def mark_read_route(
             reader_user_id=uuid.UUID(claims.sub), notification_id=notification_id
         ),
     )
-    return await call_tool_route(request, "mark_notification_read", arguments)
+    return await proxy_tool(request, "mark_notification_read", arguments)
