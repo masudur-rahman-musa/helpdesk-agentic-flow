@@ -50,15 +50,15 @@ from sqlalchemy import event, insert, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from helpdesk.shared.core.db import tenant_session
-from helpdesk.shared.core.errors import ErrorCode
-from helpdesk.shared.models import AuditEvent, Tenant
 from helpdesk.shared.audit.search import (
     SCAN_CAP,
     AuditSearchPage,
     InvalidTimeRangeError,
     search_audit_events,
 )
+from helpdesk.shared.core.db import tenant_session
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.models import AuditEvent, Tenant
 
 # The agreed cap, asserted exactly by
 # `test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor`. A literal here rather than a

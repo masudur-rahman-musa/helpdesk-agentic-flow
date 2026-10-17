@@ -10,8 +10,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.audit.chain import ChainAnchor, VerifyResult, verify_chain
-from helpdesk.shared.models import AuditChainAnchor, AuditEvent
 from helpdesk.shared.crud.audit import fetch_events_ordered, fetch_latest_chain_anchor
+from helpdesk.shared.models import AuditEvent
 
 __all__ = ["as_chain_event", "latest_chain_anchor", "verify_tenant_chain"]
 

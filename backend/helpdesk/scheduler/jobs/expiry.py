@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.observability.metrics import record_expiries
 from helpdesk.shared.crud import Repository
@@ -19,7 +20,6 @@ from helpdesk.shared.crud.users import find_user_by_id
 from helpdesk.shared.models import Department, Grant, Role, User
 from helpdesk.shared.models.notification import NotificationKind
 from helpdesk.shared.notifications.notify import notify
-from helpdesk.shared.audit import AuditEventInput, append_event
 
 GRANT_EXPIRED_EVENT_TYPE = "grant.expired"
 """Its own event type, so an auditor can tell access that ran out from access someone ended."""

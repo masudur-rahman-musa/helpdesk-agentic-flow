@@ -17,8 +17,8 @@ from helpdesk.shared.audit.chain import ChainAnchor
 from helpdesk.shared.audit.reader import latest_chain_anchor, verify_tenant_chain
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.models import AuditChainAnchor
 from helpdesk.shared.crud.audit import fetch_head_event
+from helpdesk.shared.models import AuditChainAnchor
 
 logger = logging.getLogger(__name__)
 

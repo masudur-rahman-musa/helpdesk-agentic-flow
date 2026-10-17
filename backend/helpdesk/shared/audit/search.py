@@ -14,8 +14,8 @@ from sqlalchemy import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.models import AuditEvent
 from helpdesk.shared.crud.audit import fetch_audit_events_page
+from helpdesk.shared.models import AuditEvent
 
 SCAN_CAP = 500
 """How many rows one search may read, before the scope filter runs."""

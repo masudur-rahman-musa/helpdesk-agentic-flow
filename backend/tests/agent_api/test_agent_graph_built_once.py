@@ -6,9 +6,10 @@ Three tests, no database, no graph execution, no I/O beyond AST parsing.
 import ast
 from pathlib import Path
 
+from langgraph.checkpoint.memory import InMemorySaver
+
 import helpdesk.agent_api.agent as agent_pkg
 from helpdesk.agent_api.agent.graph import build_graph
-from langgraph.checkpoint.memory import InMemorySaver
 
 
 def test_one_checkpointer_compiles_the_graph_once() -> None:

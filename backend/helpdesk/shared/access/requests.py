@@ -7,17 +7,19 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.access_requests import (
     fetch_approved_role_ids_for_target,
     fetch_requests_for_requester,
+)
+from helpdesk.shared.crud.access_requests import (
     lock_open_requests_for_target as _crud_lock_open_requests,
 )
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from helpdesk.shared.policy.types import Classification, RequiredApprover
-from helpdesk.shared.audit import AuditEventInput, append_event
 
 REQUEST_REJECTED_EVENT_TYPE = "request.rejected"
 """The audit event for "this request ended without being executed".

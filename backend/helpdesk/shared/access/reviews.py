@@ -9,24 +9,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.access.directory import DirectoryProvider, DirectoryReader
 from helpdesk.shared.access.review_types import (
+    _ACTOR_KIND,
+    _ITEM_SUBJECT_TYPE,
+    _OPEN_STATUSES,
+    _SUBJECT_TYPE,
     REVIEW_ITEM_DECIDED_EVENT_TYPE,
     REVIEW_OPENED_EVENT_TYPE,
     REVIEW_REVOKE_REASON,
-    STALE_WINDOW,
     DecideItemResult,
-    InvalidPeriodError,
     ItemAlreadyDecidedError,
     OpenReviewResult,
     ReviewAlreadyOpenError,
     ReviewScope,
     UnassignableReviewError,
-    _ACTOR_KIND,
-    _ITEM_SUBJECT_TYPE,
-    _OPEN_STATUSES,
-    _SUBJECT_TYPE,
     _count,
     _flag_for,
-    _is_stale,
     _latest_expiry_per_role,
 )
 from helpdesk.shared.access.revoke import USER_ACTOR_KIND, resolve_actor_ref, revoke_grant_row
@@ -34,11 +31,6 @@ from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
-from helpdesk.shared.crud.reviews import (
-    find_first_undecided_item_id,
-    find_open_review_for_scope,
-    reread_review_item,
-)
 from helpdesk.shared.crud.grants import (
     ScopedGrant,
     is_active_grant,
@@ -47,23 +39,34 @@ from helpdesk.shared.crud.grants import (
     list_granted_role_ids,
     lock_grant_row,
 )
+from helpdesk.shared.crud.reviews import (
+    find_first_undecided_item_id,
+    find_open_review_for_scope,
+    reread_review_item,
+)
 from helpdesk.shared.crud.users import lock_department, lock_system
 from helpdesk.shared.models import (
     AccessReview,
-    Department,
     Grant,
     ReviewDecision,
     ReviewFlag,
     ReviewItem,
     ReviewStatus,
     SodRule,
-    System,
-    User,
 )
 from helpdesk.shared.policy.sod import held_conflicts
 from helpdesk.shared.policy.types import SodRuleSnapshot
 
-__all__ = ["open_review", "decide_item"]
+__all__ = [
+    "REVIEW_ITEM_DECIDED_EVENT_TYPE",
+    "REVIEW_OPENED_EVENT_TYPE",
+    "REVIEW_REVOKE_REASON",
+    "ItemAlreadyDecidedError",
+    "OpenReviewResult",
+    "ReviewAlreadyOpenError",
+    "decide_item",
+    "open_review",
+]
 
 
 async def _resolve_scope(

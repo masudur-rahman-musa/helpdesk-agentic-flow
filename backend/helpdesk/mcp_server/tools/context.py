@@ -12,10 +12,10 @@ from helpdesk.mcp_server.core import rag_clients
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.services.rag.embedding import Embedder
 from helpdesk.mcp_server.services.rag.redaction_client import RedactionClient
+from helpdesk.shared.access.directory import DirectoryProvider
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.redis import close_loop_clients as close_redis_loop_clients
 from helpdesk.shared.core.redis import get_redis
-from helpdesk.shared.access.directory import DirectoryProvider
 
 
 @dataclass(frozen=True)

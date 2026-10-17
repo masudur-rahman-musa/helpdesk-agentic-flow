@@ -52,12 +52,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from helpdesk.scheduler.jobs import leavers as leavers_module
 from helpdesk.scheduler.jobs.leavers import LEAVER_SWEEP_ACTOR_REF, sweep_leavers
-from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE, revoke_role_access
-from helpdesk.shared.core.db import tenant_session
-from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.crud import Repository
-from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
-from helpdesk.shared.models import Grant, User
 from helpdesk.shared.access import offboarding as lifecycle_module
 from helpdesk.shared.access.directory import DirectoryProvider, SimulatedDirectory
 from helpdesk.shared.access.lifecycle import (
@@ -68,6 +62,12 @@ from helpdesk.shared.access.lifecycle import (
     OffboardResult,
 )
 from helpdesk.shared.access.offboarding import offboard_user
+from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE, revoke_role_access
+from helpdesk.shared.core.db import tenant_session
+from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
+from helpdesk.shared.models import Grant, User
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)

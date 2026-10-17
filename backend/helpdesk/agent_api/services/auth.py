@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime
 
 from helpdesk.agent_api.schemas.auth import LoginRequest, LoginResponse
+from helpdesk.shared.audit.writer import AuditEventInput, append_event
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.auth.passwords import hash_password, verify_password
 from helpdesk.shared.core.config import Settings
@@ -12,7 +13,6 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.crud.users import find_user_by_email
 from helpdesk.shared.models import Tenant, User
-from helpdesk.shared.audit.writer import AuditEventInput, append_event
 
 # Verified on the miss paths so their timing matches a real password check.
 # Random per process: it only ever has to fail.
@@ -91,9 +91,9 @@ async def login(body: LoginRequest, settings: Settings) -> LoginResponse:
             "auth.failed" if refused else "auth.login",
             user,
         )
-    except Exception:
+    except Exception as exc:
         # Broad on purpose: nothing may reach the caller as an untyped error.
-        raise ToolError(ErrorCode.INTERNAL)
+        raise ToolError(ErrorCode.INTERNAL) from exc
 
     if refused or user is None or user.department_id is None:
         raise LoginRefusedError

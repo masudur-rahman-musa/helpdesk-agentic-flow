@@ -21,12 +21,12 @@ from helpdesk.shared.models import (
 )
 
 __all__ = [
-    "find_review",
     "find_item",
+    "find_review",
+    "list_items",
+    "list_items_with_context",
     "list_owned_system_ids",
     "list_reviews_for_scope",
-    "list_items_with_context",
-    "list_items",
 ]
 
 

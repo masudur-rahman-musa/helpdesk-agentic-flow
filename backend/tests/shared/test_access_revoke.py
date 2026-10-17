@@ -42,6 +42,7 @@ from typing import Any
 import pytest
 from sqlalchemy import select, text
 
+from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.access.revoke import (
     GRANT_REVOKED_EVENT_TYPE,
     REVOKED_GRANT_STATUS,
@@ -58,7 +59,6 @@ from helpdesk.shared.crud.grants import (
     lock_live_grants_for_role,
 )
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
-from helpdesk.shared.access.directory import SimulatedDirectory
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py`, `test_access_execute.py` and

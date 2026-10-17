@@ -39,20 +39,20 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import func, select, text
 
+from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.access.execute import (
     GRANT_EXECUTED_EVENT_TYPE,
     PolicyBlockedAtExecutionError,
     SodConflictAtExecutionError,
     execute_grant,
 )
+from helpdesk.shared.access.snapshot import build_request_snapshot
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
 from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.types import Classification, Decision
-from helpdesk.shared.access.directory import SimulatedDirectory
-from helpdesk.shared.access.snapshot import build_request_snapshot
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py`.

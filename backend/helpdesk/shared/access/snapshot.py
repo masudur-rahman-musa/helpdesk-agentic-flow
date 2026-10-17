@@ -12,6 +12,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.access.directory import DirectoryReader
 from helpdesk.shared.access.requests import list_approved_role_ids_for_target
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
@@ -26,7 +27,6 @@ from helpdesk.shared.policy.types import (
     TargetSnapshot,
     TargetStatus,
 )
-from helpdesk.shared.access.directory import DirectoryReader
 
 
 async def build_request_snapshot(

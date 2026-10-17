@@ -52,6 +52,24 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.lifecycle import OFFBOARD_REVOKE_REASON, TRANSFER_REVOKE_REASON
+from helpdesk.shared.access.review_queries import (
+    find_item,
+    list_items,
+    list_items_with_context,
+    list_reviews_for_scope,
+)
+from helpdesk.shared.access.review_types import STALE_WINDOW
+from helpdesk.shared.access.reviews import (
+    REVIEW_ITEM_DECIDED_EVENT_TYPE,
+    REVIEW_OPENED_EVENT_TYPE,
+    REVIEW_REVOKE_REASON,
+    ItemAlreadyDecidedError,
+    ReviewAlreadyOpenError,
+    decide_item,
+    open_review,
+)
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.crud import Repository
@@ -69,24 +87,6 @@ from helpdesk.shared.models import (
     System,
     User,
 )
-from helpdesk.shared.access.directory import SimulatedDirectory
-from helpdesk.shared.access.lifecycle import OFFBOARD_REVOKE_REASON, TRANSFER_REVOKE_REASON
-from helpdesk.shared.access.reviews import (
-    REVIEW_ITEM_DECIDED_EVENT_TYPE,
-    REVIEW_OPENED_EVENT_TYPE,
-    REVIEW_REVOKE_REASON,
-    ItemAlreadyDecidedError,
-    ReviewAlreadyOpenError,
-    decide_item,
-    open_review,
-)
-from helpdesk.shared.access.review_queries import (
-    find_item,
-    list_items,
-    list_items_with_context,
-    list_reviews_for_scope,
-)
-from helpdesk.shared.access.review_types import STALE_WINDOW
 from scripts.seed import CUAN, generate_tenant
 
 # Imported, not redefined: one seeded database for the whole session, shared

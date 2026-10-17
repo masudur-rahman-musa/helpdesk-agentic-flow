@@ -16,10 +16,10 @@ from typing import Any
 from pydantic import AwareDatetime, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.audit.chain import event_hash
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.models import AuditEvent
-from helpdesk.shared.audit.chain import GENESIS_HASH, event_hash
 from helpdesk.shared.crud.audit import acquire_audit_lock, fetch_last_event_hash
+from helpdesk.shared.models import AuditEvent
 
 
 class AuditEventInput(BaseModel):

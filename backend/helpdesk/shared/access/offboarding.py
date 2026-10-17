@@ -7,12 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.access.directory import DirectoryProvider
 from helpdesk.shared.access.lifecycle import (
+    _SUBJECT_TYPE,
     LEAVER_STATUS,
     OFFBOARD_REVOKE_REASON,
     USER_OFFBOARDED_EVENT_TYPE,
     AlreadyLeaverError,
     OffboardResult,
-    _SUBJECT_TYPE,
 )
 from helpdesk.shared.access.requests import (
     append_request_rejected,
@@ -32,7 +32,7 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.users import lock_user
 from helpdesk.shared.models import RequestStatus, User
 
-__all__ = ["offboard_user"]
+__all__ = ["OFFBOARD_REVOKE_REASON", "USER_OFFBOARDED_EVENT_TYPE", "offboard_user"]
 
 
 async def offboard_user(

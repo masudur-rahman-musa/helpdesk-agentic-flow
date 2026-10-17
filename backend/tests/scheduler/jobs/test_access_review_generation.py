@@ -76,6 +76,19 @@ from helpdesk.scheduler.jobs.review_schedule import (
     REVIEW_GENERATION_ACTOR_REF,
     generate_reviews,
 )
+from helpdesk.shared.access import reviews as reviews_module
+from helpdesk.shared.access.directory import DirectoryReader, SimulatedDirectory
+from helpdesk.shared.access.review_types import (
+    PERIOD_LENGTH,
+    REVIEW_PERIOD_PATTERN,
+    check_period,
+    quarter_period,
+)
+from helpdesk.shared.access.reviews import (
+    REVIEW_OPENED_EVENT_TYPE,
+    OpenReviewResult,
+    open_review,
+)
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
 from helpdesk.shared.crud import Repository
@@ -90,19 +103,6 @@ from helpdesk.shared.models import (
     User,
 )
 from helpdesk.shared.models.access import PERIOD_LENGTH as COLUMN_PERIOD_LENGTH
-from helpdesk.shared.access import reviews as reviews_module
-from helpdesk.shared.access.directory import DirectoryReader, SimulatedDirectory
-from helpdesk.shared.access.reviews import (
-    REVIEW_OPENED_EVENT_TYPE,
-    OpenReviewResult,
-    open_review,
-)
-from helpdesk.shared.access.review_types import (
-    PERIOD_LENGTH,
-    REVIEW_PERIOD_PATTERN,
-    check_period,
-    quarter_period,
-)
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)

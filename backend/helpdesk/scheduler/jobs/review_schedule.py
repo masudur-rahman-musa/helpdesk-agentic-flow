@@ -11,6 +11,12 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.access.directory import DirectoryReader
+from helpdesk.shared.access.review_types import check_period, quarter_period
+from helpdesk.shared.access.reviews import (
+    ReviewAlreadyOpenError,
+    open_review,
+)
 from helpdesk.shared.access.revoke import SYSTEM_ACTOR_KIND
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.reviews import fetch_overdue_reviews, fetch_reviewed_scopes_for_period
@@ -22,12 +28,6 @@ from helpdesk.shared.crud.users import (
 from helpdesk.shared.models import AccessReview, Department, System, User
 from helpdesk.shared.models.notification import NotificationKind
 from helpdesk.shared.notifications.notify import notify
-from helpdesk.shared.access.directory import DirectoryReader
-from helpdesk.shared.access.reviews import (
-    ReviewAlreadyOpenError,
-    open_review,
-)
-from helpdesk.shared.access.review_types import check_period, quarter_period
 
 logger = logging.getLogger(__name__)
 

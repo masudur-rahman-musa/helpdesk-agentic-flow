@@ -58,15 +58,8 @@ from typing import Any
 import pytest
 from sqlalchemy import select, text
 
-from helpdesk.shared.access import requests as requests_module
-from helpdesk.shared.access.requests import REQUEST_REJECTED_EVENT_TYPE
-from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.errors import ErrorCode
-from helpdesk.shared.crud import Repository
-from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
-from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, User
 from helpdesk.shared.access import offboarding as lifecycle_module
+from helpdesk.shared.access import requests as requests_module
 from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.access.lifecycle import (
     LEAVER_STATUS,
@@ -75,6 +68,13 @@ from helpdesk.shared.access.lifecycle import (
     AlreadyLeaverError,
 )
 from helpdesk.shared.access.offboarding import offboard_user
+from helpdesk.shared.access.requests import REQUEST_REJECTED_EVENT_TYPE
+from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS, REVOKED_GRANT_STATUS
+from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, User
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py`, `test_access_execute.py`,

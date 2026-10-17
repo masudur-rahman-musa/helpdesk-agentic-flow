@@ -12,16 +12,15 @@ from helpdesk.shared.access.execute import (
     execute_grant,
 )
 from helpdesk.shared.access.lifecycle import (
+    _ACTOR_KIND,
+    _SUBJECT_TYPE,
     TRANSFER_REVOKE_REASON,
     USER_TRANSFERRED_EVENT_TYPE,
     LeaverTransferError,
     SameDepartmentError,
     SkippedRole,
     TransferResult,
-    _ACTOR_KIND,
-    _SUBJECT_TYPE,
 )
-from helpdesk.shared.access.requests import lock_open_requests_for_target
 from helpdesk.shared.access.revoke import revoke_role_access
 from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
@@ -31,7 +30,7 @@ from helpdesk.shared.crud.users import lock_user
 from helpdesk.shared.models import User
 from helpdesk.shared.policy.types import TargetStatus
 
-__all__ = ["transfer_user"]
+__all__ = ["TRANSFER_REVOKE_REASON", "USER_TRANSFERRED_EVENT_TYPE", "transfer_user"]
 
 
 async def transfer_user(

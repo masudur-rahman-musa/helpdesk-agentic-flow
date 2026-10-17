@@ -11,14 +11,14 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.scheduler.jobs.metrics_sweep import refresh_active_grants_gauge, refresh_chain_gauge
 from helpdesk.scheduler.jobs.expiry import expire_grants, warn_expiring_grants
 from helpdesk.scheduler.jobs.leavers import sweep_leavers
+from helpdesk.scheduler.jobs.metrics_sweep import refresh_active_grants_gauge, refresh_chain_gauge
 from helpdesk.scheduler.jobs.review_schedule import generate_reviews, send_review_reminders
+from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.audit.anchor import anchor_tenant_chain
 from helpdesk.shared.audit.retention import purge_chain_anchors
 from helpdesk.shared.core.observability import metrics
-from helpdesk.shared.access.directory import SimulatedDirectory
 
 metrics.SWEEP_GAUGES = metrics.install_sweep_gauges(metrics.REGISTRY)
 """Install the two sweep gauges only in the process that runs the jobs.

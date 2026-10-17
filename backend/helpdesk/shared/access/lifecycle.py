@@ -3,16 +3,16 @@
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.access.directory import DirectoryProvider, DirectoryReader
 from helpdesk.shared.access.execute import (
     PolicyBlockedAtExecutionError,
     SodConflictAtExecutionError,
     reclassify,
 )
-from helpdesk.shared.access.directory import DirectoryProvider, DirectoryReader
 from helpdesk.shared.auth.rbac import Principal
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models import Grant, User
@@ -232,6 +232,8 @@ __all__ = [
     "USER_OFFBOARDED_EVENT_TYPE",
     "USER_ONBOARDED_EVENT_TYPE",
     "USER_TRANSFERRED_EVENT_TYPE",
+    "_ACTOR_KIND",
+    "_SUBJECT_TYPE",
     "AlreadyLeaverError",
     "DuplicateEmailError",
     "LeaverTransferError",
@@ -240,8 +242,6 @@ __all__ = [
     "SameDepartmentError",
     "SkippedRole",
     "TransferResult",
-    "_ACTOR_KIND",
-    "_SUBJECT_TYPE",
     "_WithDecidedRoles",
     "_decide",
 ]

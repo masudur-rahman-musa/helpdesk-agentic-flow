@@ -14,12 +14,12 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.lifecycle import AlreadyLeaverError
+from helpdesk.shared.access.offboarding import offboard_user
 from helpdesk.shared.access.revoke import SYSTEM_ACTOR_KIND
 from helpdesk.shared.crud.users import lock_due_users
 from helpdesk.shared.models import User
-from helpdesk.shared.access.directory import SimulatedDirectory
-from helpdesk.shared.access.offboarding import offboard_user
-from helpdesk.shared.access.lifecycle import AlreadyLeaverError
 
 LEAVER_SWEEP_ACTOR_REF = "scheduler:leaver_sweep"
 """What `audit_events.actor_ref` reads on every event this job causes.

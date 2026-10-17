@@ -42,13 +42,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from helpdesk.shared.access.requests import set_request_status
-from helpdesk.shared.auth.rbac import Principal, Scope
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.core.errors import ErrorCode
-from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import AccessRequest, RequestStatus
-from helpdesk.shared.policy.types import ApproverSlot
 from helpdesk.shared.access.approvals import (
     GROUP_SLOTS,
     NotAnApproverError,
@@ -67,6 +60,13 @@ from helpdesk.shared.access.approvals import (
     request_in_scope,
 )
 from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.requests import set_request_status
+from helpdesk.shared.auth.rbac import Principal, Scope
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.models import AccessRequest, RequestStatus
+from helpdesk.shared.policy.types import ApproverSlot
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py` and `test_access_execute.py`.

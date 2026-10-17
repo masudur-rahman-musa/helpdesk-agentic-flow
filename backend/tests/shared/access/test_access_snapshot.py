@@ -38,6 +38,8 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import select
 
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.access.snapshot import build_request_snapshot
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
@@ -50,8 +52,6 @@ from helpdesk.shared.policy.types import (
     SystemCategory,
     TargetStatus,
 )
-from helpdesk.shared.access.directory import SimulatedDirectory
-from helpdesk.shared.access.snapshot import build_request_snapshot
 from scripts.seed import CUAN, NORDLICHT, generate_tenant
 from tests.conftest import TempDatabaseFactory
 

@@ -61,6 +61,7 @@ from helpdesk.mcp_server.services.access_requests.rollback import (
     rollback_request,
     within_rollback_window,
 )
+from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.access.revoke import GRANT_REVOKED_EVENT_TYPE, GrantNotActiveError
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
@@ -76,7 +77,6 @@ from helpdesk.shared.models import (
     System,
     User,
 )
-from helpdesk.shared.access.directory import SimulatedDirectory
 
 # Imported, not redefined: one seeded database for the whole session, shared
 # with `test_access_snapshot.py` and its siblings.

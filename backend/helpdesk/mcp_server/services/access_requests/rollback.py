@@ -10,14 +10,14 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.access.directory import DirectoryProvider
 from helpdesk.shared.access.requests import set_request_status
 from helpdesk.shared.access.revoke import GrantNotActiveError, revoke_grant_row
+from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.grants import lock_live_grants_for_request
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
-from helpdesk.shared.access.directory import DirectoryProvider
-from helpdesk.shared.audit import AuditEventInput, append_event
 
 WINDOW_HOURS = 24
 """The window in hours, as one number every message is built from."""

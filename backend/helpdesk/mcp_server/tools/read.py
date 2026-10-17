@@ -14,6 +14,8 @@ from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.mcp_server.tools.context import ToolContext
+from helpdesk.shared.access.approvals import request_in_scope
+from helpdesk.shared.audit import search_audit_events
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.auth.rbac import Scope
 from helpdesk.shared.core.errors import NotFoundError
@@ -30,8 +32,6 @@ from helpdesk.shared.models import (
     System,
     User,
 )
-from helpdesk.shared.access.approvals import request_in_scope
-from helpdesk.shared.audit import search_audit_events
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
 

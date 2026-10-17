@@ -48,11 +48,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.models import Base
 from helpdesk.shared.audit import AuditEventInput
 from helpdesk.shared.audit.reader import verify_tenant_chain
 from helpdesk.shared.audit.writer import append_event
+from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.models import Base
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 

@@ -14,13 +14,13 @@ from sqlalchemy import String
 
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
-from helpdesk.shared.core.errors import ErrorCode, NotFoundError
-from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import Department, User
 from helpdesk.shared.access.lifecycle import SkippedRole
 from helpdesk.shared.access.offboarding import offboard_user as offboard_user_core
 from helpdesk.shared.access.onboarding import onboard_user as onboard_user_core
 from helpdesk.shared.access.transfers import transfer_user as transfer_user_core
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.models import Department, User
 
 # Read off the columns, so the input check and the storage never disagree.
 _EMAIL_TYPE = User.__table__.c.email.type

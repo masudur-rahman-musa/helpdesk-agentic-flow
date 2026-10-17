@@ -4,12 +4,12 @@ import uuid
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from helpdesk.shared.audit.chain import VerifyResult
+from helpdesk.shared.audit.reader import verify_tenant_chain as _verify_tenant_chain
 from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.auth.rbac import Principal
 from helpdesk.shared.core.db import create_session_factory, shared_engine, tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.audit.chain import VerifyResult
-from helpdesk.shared.audit.reader import verify_tenant_chain as _verify_tenant_chain
 
 verify_tenant_chain = _verify_tenant_chain
 """A module name so tests can stub the chain walk."""
@@ -36,6 +36,6 @@ async def verify_chain(claims: TokenClaims, database_url: str) -> VerifyResult:
         async with tenant_session(factory, tenant_id) as session:
             result = await verify_tenant_chain(session, tenant_id)
     # OSError as well as SQLAlchemyError: a refused connection arrives unwrapped.
-    except (ValueError, OSError, SQLAlchemyError):
-        raise ToolError(ErrorCode.INTERNAL)
+    except (ValueError, OSError, SQLAlchemyError) as exc:
+        raise ToolError(ErrorCode.INTERNAL) from exc
     return result

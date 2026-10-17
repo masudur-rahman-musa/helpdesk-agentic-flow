@@ -57,11 +57,11 @@ from helpdesk.mcp_server.tools.approvals import (
     REASON_MAX_LENGTH,
     ListPendingApprovalsInput,
 )
+from helpdesk.shared.access.approvals import SlotDecision
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from helpdesk.shared.policy.types import ApproverSlot
-from helpdesk.shared.access.approvals import SlotDecision
 from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,

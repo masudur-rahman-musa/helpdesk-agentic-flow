@@ -8,24 +8,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.shared.access.directory import DirectoryProvider
 from helpdesk.shared.access.execute import execute_grant
 from helpdesk.shared.access.lifecycle import (
-    JOINER_PRINCIPALS,
-    JOINER_STATUS,
-    OnboardResult,
-    SkippedRole,
-    UNUSABLE_PASSWORD_HASH,
-    USER_ONBOARDED_EVENT_TYPE,
     _ACTOR_KIND,
     _SUBJECT_TYPE,
-    _WithDecidedRoles,
+    JOINER_PRINCIPALS,
+    JOINER_STATUS,
+    UNUSABLE_PASSWORD_HASH,
+    USER_ONBOARDED_EVENT_TYPE,
+    DuplicateEmailError,
+    OnboardResult,
+    SkippedRole,
     _decide,
 )
 from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.crud.users import find_user_by_email
-from helpdesk.shared.access.lifecycle import DuplicateEmailError
 from helpdesk.shared.models import User
 
-__all__ = ["onboard_user"]
+__all__ = ["USER_ONBOARDED_EVENT_TYPE", "onboard_user"]
 
 
 async def onboard_user(

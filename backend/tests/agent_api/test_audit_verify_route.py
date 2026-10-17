@@ -44,13 +44,13 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.agent_api.api.router import app
 from helpdesk.agent_api.services import audit as services_audit
+from helpdesk.shared.audit import AuditEventInput
 from helpdesk.shared.audit.anchor import anchor_tenant_chain
+from helpdesk.shared.audit.writer import append_event
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.models import Tenant
-from helpdesk.shared.audit import AuditEventInput
-from helpdesk.shared.audit.writer import append_event
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

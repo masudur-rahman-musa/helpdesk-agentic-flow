@@ -19,14 +19,14 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.access.directory import DirectoryProvider, DirectoryReader
+from helpdesk.shared.access.snapshot import build_request_snapshot
+from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models import Grant
 from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.types import Classification, Decision
-from helpdesk.shared.access.directory import DirectoryProvider, DirectoryReader
-from helpdesk.shared.access.snapshot import build_request_snapshot
-from helpdesk.shared.audit import AuditEventInput, append_event
 
 GRANT_EXECUTED_EVENT_TYPE = "grant.executed"
 """The audit event for "access was actually given"."""
