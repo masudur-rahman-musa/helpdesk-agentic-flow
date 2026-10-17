@@ -23,16 +23,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import AwareDatetime, BaseModel
-from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.models import AuditEvent
 from helpdesk.shared.audit.chain import GENESIS_HASH, event_hash
-
-_ADVISORY_LOCK = text("SELECT pg_advisory_xact_lock(:key)")
-
-_SIGNED_64_BIT_OFFSET = 1 << 63
+from helpdesk.shared.crud.audit import acquire_audit_lock, fetch_last_event_hash
 
 
 class AuditEventInput(BaseModel):
@@ -52,25 +48,6 @@ class AuditEventInput(BaseModel):
     subject_type: str
     subject_id: str | None = None
     payload: dict[str, Any] = {}
-
-
-def _lock_key(tenant_id: uuid.UUID) -> int:
-    """The tenant's low 64 bits as a signed bigint, which is what the lock takes.
-
-    A collision between two tenants would only serialise their appends
-    against each other; it cannot mix or corrupt either chain.
-    """
-    return (tenant_id.int & ((1 << 64) - 1)) - _SIGNED_64_BIT_OFFSET
-
-
-async def _last_hash(session: AsyncSession, tenant_id: uuid.UUID) -> str:
-    result = await session.execute(
-        select(AuditEvent.hash)
-        .where(AuditEvent.tenant_id == tenant_id)
-        .order_by(AuditEvent.seq.desc())
-        .limit(1)
-    )
-    return result.scalar_one_or_none() or GENESIS_HASH
 
 
 class TenantMismatchError(RuntimeError):
@@ -94,8 +71,8 @@ async def append_event(
             f"session is bound to tenant {bound}, refusing to append for {tenant_id}"
         )
 
-    await session.execute(_ADVISORY_LOCK, {"key": _lock_key(bound)})
-    prev_hash = await _last_hash(session, bound)
+    await acquire_audit_lock(session, bound)
+    prev_hash = await fetch_last_event_hash(session, bound)
 
     fields: dict[str, Any] = {
         # The tenant is inside the digest: without it a whole chain could be

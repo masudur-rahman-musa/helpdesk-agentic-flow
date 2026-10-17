@@ -21,13 +21,13 @@ option here (decision B).
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
-from sqlalchemy import ColumnElement, select
+from sqlalchemy import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models import AuditEvent
+from helpdesk.shared.crud.audit import fetch_audit_events_page
 
 SCAN_CAP = 500
 """How many rows ONE search may read, before the scope filter runs.
@@ -130,23 +130,16 @@ async def search_audit_events(
             f"occurred_to {occurred_to.isoformat()}"
         )
 
-    statement: Any = (
-        select(AuditEvent)
-        .where(
-            *_filters(
-                event_type=event_type,
-                subject_type=subject_type,
-                subject_id=subject_id,
-                actor_ref=actor_ref,
-                occurred_from=occurred_from,
-                occurred_to=occurred_to,
-                before_seq=before_seq,
-            )
-        )
-        .order_by(AuditEvent.seq.desc())
-        .limit(SCAN_CAP)
+    clauses = _filters(
+        event_type=event_type,
+        subject_type=subject_type,
+        subject_id=subject_id,
+        actor_ref=actor_ref,
+        occurred_from=occurred_from,
+        occurred_to=occurred_to,
+        before_seq=before_seq,
     )
-    rows = tuple((await session.execute(statement)).scalars().all())
+    rows = await fetch_audit_events_page(session, clauses, SCAN_CAP)
     return AuditSearchPage(
         events=rows,
         lowest_seq=rows[-1].seq if rows else None,

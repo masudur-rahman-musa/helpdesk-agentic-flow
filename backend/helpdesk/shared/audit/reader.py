@@ -4,12 +4,11 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.audit.chain import ChainAnchor, VerifyResult, verify_chain
-from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.models import AuditChainAnchor, AuditEvent
+from helpdesk.shared.crud.audit import fetch_events_ordered, fetch_latest_chain_anchor
 
 __all__ = ["as_chain_event", "latest_chain_anchor", "verify_tenant_chain"]
 
@@ -36,13 +35,7 @@ async def latest_chain_anchor(session: AsyncSession, tenant_id: uuid.UUID) -> Ch
     truncation, which reads as perfectly intact. Pinned by
     `test_audit_anchor.py::test_latest_chain_anchor_reads_the_highest_seq_not_the_newest_row`.
     """
-    result = await session.execute(
-        select(AuditChainAnchor)
-        .where(AuditChainAnchor.tenant_id == tenant_id)
-        .order_by(AuditChainAnchor.audit_seq.desc())
-        .limit(1)
-    )
-    row = result.scalars().first()
+    row = await fetch_latest_chain_anchor(session, tenant_id)
     if row is None:
         return None
     return ChainAnchor(audit_seq=row.audit_seq, audit_hash=row.audit_hash)
@@ -69,7 +62,5 @@ async def verify_tenant_chain(session: AsyncSession, tenant_id: uuid.UUID) -> Ve
     before an earlier change, with `anchored_seq` None to say so.
     """
     anchor = await latest_chain_anchor(session, tenant_id)
-    result = await session.execute(
-        select(AuditEvent).where(AuditEvent.tenant_id == tenant_id).order_by(AuditEvent.seq)
-    )
-    return verify_chain([as_chain_event(row) for row in result.scalars().all()], anchor=anchor)
+    rows = await fetch_events_ordered(session, tenant_id)
+    return verify_chain([as_chain_event(row) for row in rows], anchor=anchor)

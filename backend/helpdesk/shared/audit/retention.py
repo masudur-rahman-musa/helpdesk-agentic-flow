@@ -23,13 +23,11 @@ anchor path was built without.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, cast
 
-from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.models import AuditChainAnchor
+from helpdesk.shared.crud.audit import delete_old_chain_anchors
 
 logger = logging.getLogger(__name__)
 
@@ -85,27 +83,7 @@ async def purge_chain_anchors(session: AsyncSession, now: datetime) -> int:
     backlog is one small statement.
     """
     tenant_id = bound_tenant_id(session)
-    head_seq = (
-        select(func.max(AuditChainAnchor.audit_seq))
-        .where(AuditChainAnchor.tenant_id == tenant_id)
-        .scalar_subquery()
-    )
-    # `AsyncSession.execute` is typed as returning a plain `Result`, which has
-    # no `rowcount`; a DELETE actually returns a `CursorResult`, so the
-    # narrowing is safe. `core/repository.py::_delete_count` does the same for
-    # the repository's own deletes; it is private to that module, and this
-    # package holds its own statements by design.
-    result = cast(
-        "CursorResult[Any]",
-        await session.execute(
-            delete(AuditChainAnchor).where(
-                AuditChainAnchor.tenant_id == tenant_id,
-                AuditChainAnchor.anchored_at < anchor_retention_cutoff(now),
-                AuditChainAnchor.audit_seq < head_seq,
-            )
-        ),
-    )
-    deleted = result.rowcount
+    deleted = await delete_old_chain_anchors(session, tenant_id, anchor_retention_cutoff(now))
     if deleted:
         logger.info(PURGE_LOG_MESSAGE, extra={"tenant_id": str(tenant_id), "deleted": deleted})
     return deleted

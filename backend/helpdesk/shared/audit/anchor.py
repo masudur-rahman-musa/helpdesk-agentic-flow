@@ -21,14 +21,14 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.audit.chain import ChainAnchor
 from helpdesk.shared.audit.reader import latest_chain_anchor, verify_tenant_chain
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.models import AuditChainAnchor, AuditEvent
+from helpdesk.shared.models import AuditChainAnchor
+from helpdesk.shared.crud.audit import fetch_head_event
 
 logger = logging.getLogger(__name__)
 
@@ -120,16 +120,10 @@ async def anchor_tenant_chain(session: AsyncSession) -> ChainAnchor | None:
     verdict = await verify_tenant_chain(session, tenant_id)
     if not verdict.ok:
         return None
-    head = await session.execute(
-        select(AuditEvent.seq, AuditEvent.hash)
-        .where(AuditEvent.tenant_id == tenant_id)
-        .order_by(AuditEvent.seq.desc())
-        .limit(1)
-    )
-    row = head.first()
+    row = await fetch_head_event(session, tenant_id)
     if row is None:
         return None
-    anchor = ChainAnchor(audit_seq=row.seq, audit_hash=row.hash)
+    anchor = ChainAnchor(audit_seq=row[0], audit_hash=row[1])
     if verdict.anchored_seq == anchor.audit_seq:
         return anchor
     await write_chain_anchor(session, tenant_id, anchor)
