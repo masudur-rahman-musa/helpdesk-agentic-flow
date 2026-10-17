@@ -2,10 +2,13 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApprovalQueue, DECISION_VALIDATION_MESSAGE } from "@/features/approvals/components/approval-queue";
+import {
+  ApprovalQueue,
+  DECISION_VALIDATION_MESSAGE,
+} from "@/features/approvals/components/approval-queue";
 import { QueryProvider } from "@/components/layout/query-provider";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
-import { reasonSentence } from "@/features/chat/decision-labels";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
+import { reasonSentence } from "@/lib/decision-labels";
 
 /**
  * An earlier change §6, `approvals-page.test.tsx`: the `/approvals` queue and its two

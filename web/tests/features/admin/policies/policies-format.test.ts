@@ -20,8 +20,8 @@ import {
  *
  * The unit under test is `web/src/features/admin/policies/format.ts`, which §3 says exports
  * `formatDigest(sha256: string): string`, `DIGEST_PREFIX` and the six
- * sentences — the shape `lib/killswitch-format.ts` already carries. The instant
- * is NOT here: `formatSwitchInstant` is imported from `lib/killswitch-format.ts`
+ * sentences — the shape `lib/date-format.ts` already carries. The instant
+ * is NOT here: `formatSwitchInstant` is imported from `lib/date-format.ts`
  * unchanged (decision F) and stays pinned by `tests/killswitch-format.test.ts`,
  * so no case in this file formats a date.
  *

@@ -5,15 +5,13 @@
  *
  * Nothing here talks to the wire. `components/admin/policies-board.tsx` renders
  * through all of them, the way `kill-switch-board.tsx` renders through
- * `lib/killswitch-format.ts` — a pure module with its own test file, so the
+ * `lib/date-format.ts` — a pure module with its own test file, so the
  * digest is pinned without rendering a board.
  *
  * The INSTANT is deliberately absent: a version's `ingested_at` renders through
- * `formatSwitchInstant` in `lib/killswitch-format.ts`, imported unchanged
- * (decision F), which leaves one implementation of that slice in `web/` rather
- * than a second copy of a rule about midnight and local time. The cost is a
- * module whose name is now wrong for two callers; the rename is named as debt
- * in row 31's §3, because mixing it into this diff is `/plans` §7 trigger 3.
+ * the shared switch-instant renderer in `lib/date-format.ts` (decision F),
+ * which leaves one implementation of that slice in `web/` rather than a
+ * second copy of a rule about midnight and local time.
  *
  * Pinned by `tests/policies-format.test.ts`, one exact assertion per value.
  */

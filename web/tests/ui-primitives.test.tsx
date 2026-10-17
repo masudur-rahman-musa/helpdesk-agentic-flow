@@ -1,5 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
+import { Alert } from "@/components/ui/alert";
+import { TextArea } from "@/components/ui/field";
 
 import { StatusBadge, statusTone } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -146,5 +149,89 @@ describe("EmptyState", () => {
     const status = screen.getByRole("status");
     expect(within(status).getByText("No requests yet.")).toBeInTheDocument();
     expect(within(status).getByText("Ask in chat.")).toBeInTheDocument();
+  });
+});
+
+const NEUTRAL_TOKENS = ["rounded-md", "border", "border-border", "px-3", "py-2", "text-sm"];
+const DESTRUCTIVE_TOKENS = [
+  "rounded-md",
+  "border",
+  "border-destructive/30",
+  "bg-destructive/10",
+  "px-3",
+  "py-2",
+  "text-sm",
+  "text-destructive",
+];
+
+function tokens(el: HTMLElement): string[] {
+  return (el.getAttribute("class") ?? "").split(/\s+/);
+}
+
+describe("Alert", () => {
+  it("test_alert_renders_role_and_children", () => {
+    // Catches an Alert that drops role="alert" (screen readers never announce
+    // the error) or swallows its children.
+    render(<Alert>Something failed.</Alert>);
+    expect(screen.getByRole("alert")).toHaveTextContent("Something failed.");
+  });
+
+  it("test_alert_neutral_is_default_tone", () => {
+    // Catches an Alert whose default tone is the red one, or one that ignores
+    // tone and always paints the same box: with no tone it carries the neutral
+    // tokens and none of the red ones.
+    render(<Alert>plain</Alert>);
+    const t = tokens(screen.getByRole("alert"));
+    for (const token of NEUTRAL_TOKENS) {
+      expect(t).toContain(token);
+    }
+    expect(t).not.toContain("bg-destructive/10");
+    expect(t).not.toContain("text-destructive");
+  });
+
+  it("test_alert_destructive_tone", () => {
+    // Catches an Alert that ignores tone="destructive" and stays neutral, or
+    // keeps the neutral border-border beside the red tokens.
+    render(<Alert tone="destructive">red</Alert>);
+    const t = tokens(screen.getByRole("alert"));
+    for (const token of DESTRUCTIVE_TOKENS) {
+      expect(t).toContain(token);
+    }
+    expect(t).not.toContain("border-border");
+  });
+
+  it("test_alert_passes_extra_props_and_class", () => {
+    // Catches an Alert that drops className or other props a site adds
+    // (an id, a data attribute), which would change a site's look or hook.
+    render(
+      <Alert className="mt-4" data-testid="box">
+        x
+      </Alert>,
+    );
+    const el = screen.getByTestId("box");
+    expect(el).toHaveAttribute("role", "alert");
+    expect(tokens(el)).toContain("mt-4");
+  });
+});
+
+describe("TextArea", () => {
+  it("test_textarea_renders_and_forwards_props", () => {
+    // Catches a TextArea that renders an input, or drops rows, aria-label,
+    // value or onChange on the way to the element.
+    const seen: string[] = [];
+    render(
+      <TextArea
+        rows={4}
+        aria-label="Reason"
+        value="abc"
+        onChange={(e) => seen.push(e.target.value)}
+      />,
+    );
+    const box = screen.getByRole("textbox", { name: "Reason" });
+    expect(box.tagName).toBe("TEXTAREA");
+    expect(box).toHaveAttribute("rows", "4");
+    expect(box).toHaveValue("abc");
+    fireEvent.change(box, { target: { value: "abcd" } });
+    expect(seen).toEqual(["abcd"]);
   });
 });

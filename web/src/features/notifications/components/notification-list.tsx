@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import { notificationKindLabel } from "@/features/notifications/labels";
 import { StampRefusedError, useMarkRead, useNotificationPage } from "@/features/notifications/api";
 import type { NotificationRow } from "@/features/notifications/schema";
@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { Alert } from "@/components/ui/alert";
+import { formatIsoDate } from "@/lib/date-format";
 
 /**
  * This person's own notifications, from `GET /api/me/notifications`, with the
@@ -97,9 +99,7 @@ export function NotificationList() {
       </label>
 
       {notifications.isError ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          Your notifications could not be read. Try again in a moment.
-        </p>
+        <Alert>Your notifications could not be read. Try again in a moment.</Alert>
       ) : null}
 
       {notifications.isSuccess && rows.length === 0 ? (
@@ -153,19 +153,15 @@ function NotificationItem({ row }: { row: NotificationRow }) {
       <p className="text-muted-foreground">{row.body}</p>
 
       <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-        <span>{row.created_at.slice(0, 10)}</span>
+        <span>{formatIsoDate(row.created_at)}</span>
         {row.read_at === null ? (
           <Badge tone="info">Unread</Badge>
         ) : (
-          <Badge tone="neutral">Read {row.read_at.slice(0, 10)}</Badge>
+          <Badge tone="neutral">Read {formatIsoDate(row.read_at)}</Badge>
         )}
       </div>
 
-      {refusal !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2">
-          {refusal}
-        </p>
-      ) : null}
+      {refusal !== null ? <Alert>{refusal}</Alert> : null}
 
       {row.read_at === null ? (
         <div>

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PoliciesBoard } from "@/features/admin/policies/components/policies-board";
 import { QueryProvider } from "@/components/layout/query-provider";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import {
   LIVE_VERSION_TEXT,
   NO_CHUNKS_TEXT,

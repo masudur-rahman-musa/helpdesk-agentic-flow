@@ -13,7 +13,7 @@ import {
 } from "@/features/admin/audit/filters";
 import { type AppliedFilters, useAuditSearch } from "@/features/admin/audit/api";
 import type { AuditEventRow } from "@/features/admin/audit/schema";
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import { WireRefusedError } from "@/lib/wire-read";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -27,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Alert } from "@/components/ui/alert";
 
 /**
  * The searchable audit log, from `GET /api/admin/audit/search`.
@@ -235,17 +236,9 @@ export function AuditSearch() {
         <Button type="submit">Search</Button>
       </form>
 
-      {rangeError !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {rangeError}
-        </p>
-      ) : null}
+      {rangeError !== null ? <Alert>{rangeError}</Alert> : null}
 
-      {refusal !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {refusal}
-        </p>
-      ) : null}
+      {refusal !== null ? <Alert>{refusal}</Alert> : null}
 
       {search.isSuccess && events.length === 0 ? (
         <EmptyState title="No events match that search." />

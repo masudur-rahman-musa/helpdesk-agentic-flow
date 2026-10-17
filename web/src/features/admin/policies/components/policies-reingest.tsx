@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import { ReingestRefusedError, usePolicyReingest } from "@/features/admin/policies/api";
 
 /**

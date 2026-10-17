@@ -1,7 +1,8 @@
 "use client";
 
-import { failureMessage } from "@/features/chat/errors";
-import { formatSwitchInstant, KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
+import { failureMessage } from "@/lib/failure-messages";
+import { KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
+import { formatSwitchInstant } from "@/lib/date-format";
 import { useKillSwitchBoard, useRefreshKillSwitchBoard } from "@/features/admin/killswitch/api";
 import type { KillSwitchRow, SwitchState } from "@/features/admin/killswitch/schema";
 import { WireRefusedError } from "@/lib/wire-read";
@@ -17,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Alert } from "@/components/ui/alert";
 
 /**
  * The kill switch board, from `GET /api/admin/killswitch`.
@@ -96,11 +98,7 @@ export function KillSwitchBoard() {
     <section aria-label="Kill switches" className="flex max-w-5xl flex-col gap-4">
       <PageHeader title="Kill switches" />
 
-      {refusal !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {refusal}
-        </p>
-      ) : null}
+      {refusal !== null ? <Alert>{refusal}</Alert> : null}
 
       {rows !== null && rows.length === 0 ? <EmptyState title="No tools are registered." /> : null}
 

@@ -3,8 +3,8 @@
 import { type ReactNode, useState } from "react";
 
 import { PoliciesReingest } from "@/features/admin/policies/components/policies-reingest";
-import { failureMessage } from "@/features/chat/errors";
-import { formatSwitchInstant } from "@/features/admin/killswitch/format";
+import { failureMessage } from "@/lib/failure-messages";
+import { formatSwitchInstant } from "@/lib/date-format";
 import {
   formatDigest,
   LIVE_VERSION_TEXT,
@@ -28,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Alert } from "@/components/ui/alert";
 
 /**
  * The policy corpus board, from `GET /api/admin/policies`.
@@ -112,11 +113,7 @@ export function PoliciesBoard() {
     <section aria-label="Policies" className="flex max-w-5xl flex-col gap-6">
       <PageHeader title="Policy documents" />
 
-      {refusal !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {refusal}
-        </p>
-      ) : null}
+      {refusal !== null ? <Alert>{refusal}</Alert> : null}
 
       {documents !== null && documents.length === 0 ? (
         <EmptyState title={POLICIES_EMPTY_TEXT} />

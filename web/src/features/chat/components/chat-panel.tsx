@@ -18,10 +18,11 @@ import {
   readStep,
   readToken,
 } from "@/features/chat/components/types";
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import { readAsk } from "@/features/chat/prefill";
 import { chatMessageSchema } from "@/features/chat/schema";
 import { createSseParser } from "@/lib/sse";
+import { Alert } from "@/components/ui/alert";
 
 /**
  * The chat surface: history, the streamed turn, its tool steps, its decision
@@ -205,14 +206,7 @@ export function ChatPanel() {
 
       <Conversation messages={messages} live={live} />
 
-      {failure !== null ? (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          {failureMessage(failure)}
-        </p>
-      ) : null}
+      {failure !== null ? <Alert tone="destructive">{failureMessage(failure)}</Alert> : null}
 
       {decision !== null ? <DecisionCard card={decision} /> : null}
       <ToolSteps steps={steps} />

@@ -42,7 +42,7 @@
 
 import type { z } from "zod";
 
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 
 /**
  * A read the wire REFUSED, carrying the typed code and nothing else.

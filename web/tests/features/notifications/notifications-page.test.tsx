@@ -8,7 +8,7 @@ import {
   NotificationList,
 } from "@/features/notifications/components/notification-list";
 import { QueryProvider } from "@/components/layout/query-provider";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { notificationKindLabel } from "@/features/notifications/labels";
 
 /**

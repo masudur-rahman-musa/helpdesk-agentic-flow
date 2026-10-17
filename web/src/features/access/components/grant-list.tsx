@@ -10,6 +10,8 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { Alert } from "@/components/ui/alert";
+import { formatIsoDate } from "@/lib/date-format";
 
 /**
  * What this user holds right now, from `GET /api/me/access`.
@@ -41,11 +43,7 @@ export function GrantList() {
     <section aria-label="Active access" className="flex max-w-3xl flex-col gap-4">
       <PageHeader title="Active access" />
 
-      {access.isError ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          Your access could not be read. Try again in a moment.
-        </p>
-      ) : null}
+      {access.isError ? <Alert>Your access could not be read. Try again in a moment.</Alert> : null}
 
       {access.isSuccess && access.data.length === 0 ? (
         <EmptyState title="You hold no active access." />
@@ -73,7 +71,7 @@ function GrantRow({ grant }: { grant: MyGrant }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-        <span>Granted {grant.granted_at.slice(0, 10)}</span>
+        <span>Granted {formatIsoDate(grant.granted_at)}</span>
         <Badge tone={expiry.tone}>{expiry.text}</Badge>
       </div>
 

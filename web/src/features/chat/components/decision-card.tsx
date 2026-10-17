@@ -7,7 +7,8 @@ import {
   riskLabel,
   slotLabel,
   statusLabel,
-} from "@/features/chat/decision-labels";
+} from "@/lib/decision-labels";
+import { formatIsoDate } from "@/lib/date-format";
 
 /**
  * What the engine decided about this turn's access, in the words a person
@@ -63,7 +64,7 @@ export function DecisionCard({ card }: { card: Card }) {
 
       <p className="mt-2 text-sm">
         Expires in {card.effectiveExpiryDays} days
-        {card.expiresAt !== null ? ` (until ${card.expiresAt.slice(0, 10)})` : ""}
+        {card.expiresAt !== null ? ` (until ${formatIsoDate(card.expiresAt)})` : ""}
       </p>
 
       <ul aria-label="Approvers" className="mt-2 flex flex-col gap-1 text-sm">

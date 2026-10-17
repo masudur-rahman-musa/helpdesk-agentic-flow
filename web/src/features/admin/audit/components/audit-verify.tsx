@@ -1,10 +1,11 @@
 "use client";
 
 import { type ChainVerdict, useAuditVerify } from "@/features/admin/audit/api";
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import { WireRefusedError } from "@/lib/wire-read";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
 
 /**
  * The chain check on `/admin/audit`, from `GET /api/admin/audit/verify` (plan
@@ -124,11 +125,7 @@ export function AuditVerify() {
         </Button>
       </div>
 
-      {refusal !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {refusal}
-        </p>
-      ) : null}
+      {refusal !== null ? <Alert>{refusal}</Alert> : null}
 
       {verdict !== null ? (
         <Card className="flex flex-col gap-1 p-4">

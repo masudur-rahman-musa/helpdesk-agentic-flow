@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/field";
+import { Input, Label } from "@/components/ui/field";
 import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/features/chat/schema";
 
 /**
@@ -61,13 +61,13 @@ export function Composer({
       <Label htmlFor="chat-message" className="sr-only">
         Message
       </Label>
-      <input
+      <Input
         id="chat-message"
         name="message"
         type="text"
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        className="w-full rounded-full border border-border bg-background px-4 py-3 text-sm shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="rounded-full px-4 py-3 shadow-sm"
       />
       <div className="flex items-center justify-between gap-4">
         <span className="text-xs text-muted-foreground">

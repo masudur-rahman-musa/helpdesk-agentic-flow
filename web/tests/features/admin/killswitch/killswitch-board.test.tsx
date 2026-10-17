@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { KillSwitchBoard } from "@/features/admin/killswitch/components/kill-switch-board";
 import { QueryProvider } from "@/components/layout/query-provider";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
 
 /**

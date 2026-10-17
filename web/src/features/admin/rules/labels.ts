@@ -3,7 +3,7 @@
  * decision E).
  *
  * Constants rather than literals buried in JSX, the way
- * `lib/killswitch-format.ts` holds `KILL_SWITCH_READ_MESSAGE`: a string a test
+ * `features/admin/killswitch/format.ts` holds `KILL_SWITCH_READ_MESSAGE`: a string a test
  * has to find by rendering it is a string nobody can reword without reading the
  * component. No test file of its own — this module holds no function and no
  * boundary, so a separate file would assert that a string equals itself — and

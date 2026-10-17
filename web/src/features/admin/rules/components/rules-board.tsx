@@ -1,6 +1,6 @@
 "use client";
 
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import { RULES_READ_MESSAGE, UNRESOLVED_ROLE_TEXT } from "@/features/admin/rules/labels";
 import { useRulesBoard } from "@/features/admin/rules/api";
 import type { SodRuleRoleBlock, SodRuleRow } from "@/features/admin/rules/schema";
@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Alert } from "@/components/ui/alert";
 
 /**
  * The separation of duties board, from `GET /api/admin/rules`.
@@ -80,11 +81,7 @@ export function RulesBoard() {
     <section aria-label="Rules" className="flex max-w-5xl flex-col gap-4">
       <PageHeader title="Separation of duties rules" />
 
-      {refusal !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {refusal}
-        </p>
-      ) : null}
+      {refusal !== null ? <Alert>{refusal}</Alert> : null}
 
       {rows !== null && rows.length === 0 ? (
         <EmptyState title="No separation of duties rules are configured." />

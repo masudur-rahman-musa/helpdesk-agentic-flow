@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/features/chat/schema";
 
 /**
@@ -26,7 +26,7 @@ import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/features/chat/schema";
  *   implementer's wording and pinning invented prose would be a test nobody can
  *   satisfy without reading this file.
  *
- * The map lives in `web/src/features/chat/errors.ts`; it is asserted here rather than in
+ * The map lives in `web/src/lib/failure-messages.ts`; it is asserted here rather than in
  * a fifth file because §6 fixes exactly four files and these are constants of
  * the same "one message, one constant" family as the schema.
  */

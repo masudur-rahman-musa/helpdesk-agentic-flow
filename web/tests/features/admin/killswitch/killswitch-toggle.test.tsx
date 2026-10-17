@@ -10,7 +10,7 @@ import {
   KILL_SWITCH_VALIDATION_MESSAGE,
 } from "@/features/admin/killswitch/components/kill-switch-toggle";
 import { QueryProvider } from "@/components/layout/query-provider";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 
 /**
  * An earlier change §6, `killswitch-toggle.test.tsx`: the per-row kill switch toggle —

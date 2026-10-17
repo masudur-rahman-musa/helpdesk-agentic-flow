@@ -1,4 +1,4 @@
-import { PRINCIPAL_LABELS, principalLabel } from "@/features/chat/decision-labels";
+import { PRINCIPAL_LABELS, principalLabel } from "@/lib/decision-labels";
 
 /** Principals in the enum's order, not the wire's (decision D). */
 export function orderedLabels(principals: string[]): string[] {

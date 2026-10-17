@@ -10,19 +10,22 @@ import {
   useRejectRequest,
 } from "@/features/approvals/api";
 import type { PendingApproval } from "@/features/approvals/schema";
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import {
   decisionLabel,
   reasonSentence,
   riskLabel,
   slotLabel,
   statusLabel,
-} from "@/features/chat/decision-labels";
+} from "@/lib/decision-labels";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { Alert } from "@/components/ui/alert";
+import { TextArea } from "@/components/ui/field";
+import { formatIsoDate } from "@/lib/date-format";
 
 /**
  * The queue waiting on this approver, from `GET /api/me/approvals`, and the two
@@ -93,9 +96,7 @@ export function ApprovalQueue() {
       <PageHeader title="Approvals" />
 
       {approvals.isError ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          The approval queue could not be read. Try again in a moment.
-        </p>
+        <Alert>The approval queue could not be read. Try again in a moment.</Alert>
       ) : null}
 
       {approvals.isSuccess && approvals.data.length === 0 ? (
@@ -124,7 +125,7 @@ function ApprovalRow({ approval }: { approval: PendingApproval }) {
 
       <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
         <span>Asked for by {approval.requester_display_name}</span>
-        <span>Asked {approval.created_at.slice(0, 10)}</span>
+        <span>Asked {formatIsoDate(approval.created_at)}</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -249,25 +250,19 @@ function DecideControls({ approval }: { approval: PendingApproval }) {
 
   return (
     <div className="flex flex-col gap-2">
-      {message !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {message}
-        </p>
-      ) : null}
+      {message !== null ? <Alert>{message}</Alert> : null}
 
-      <textarea
+      <TextArea
         aria-label={`Comment for ${approval.role_name}`}
         rows={2}
         value={comment}
         onChange={(event) => setComment(event.target.value)}
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
-      <textarea
+      <TextArea
         aria-label={`Reason for ${approval.role_name}`}
         rows={2}
         value={reason}
         onChange={(event) => setReason(event.target.value)}
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
       <div className="flex flex-wrap gap-2">

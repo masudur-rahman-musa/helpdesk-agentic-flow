@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { formatSwitchInstant, KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
+import { KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
+import { formatSwitchInstant } from "@/lib/date-format";
 
 /**
  * An earlier change §6, `killswitch-format.test.ts`: the parts of `/admin/killswitch` a
@@ -9,7 +10,8 @@ import { formatSwitchInstant, KILL_SWITCH_READ_MESSAGE } from "@/features/admin/
  * (No basename collision in the tree, a project rule: the neighbours are
  * `killswitch-schema.test.ts` and `killswitch-proxy-routes.test.ts`.)
  *
- * The unit under test is `web/src/features/admin/killswitch/format.ts`, which §3 says exports
+ * The units under test are `formatSwitchInstant` in `web/src/lib/date-format.ts` (moved by an earlier change)
+ * and `KILL_SWITCH_READ_MESSAGE` in `web/src/features/admin/killswitch/format.ts`; §3 says they export
  * `formatSwitchInstant(at: string): string` and `KILL_SWITCH_READ_MESSAGE` —
  * the way `lib/audit-filters.ts` carries 24ba's pure helpers.
  *

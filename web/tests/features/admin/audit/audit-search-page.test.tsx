@@ -9,7 +9,7 @@ import {
 } from "@/features/admin/audit/components/audit-search";
 import { QueryProvider } from "@/components/layout/query-provider";
 import { AUDIT_FILTER_MAX_LENGTHS, PAGE_SIZES } from "@/features/admin/audit/filters";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 
 /**
  * An earlier change §6, `audit-search-page.test.tsx`: the `/admin/audit` filter form,

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import {
   type ToggleAct,
   ToggleRefusedError,
@@ -10,6 +10,8 @@ import {
 } from "@/features/admin/killswitch/api";
 import type { KillSwitchRow } from "@/features/admin/killswitch/schema";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
+import { TextArea } from "@/components/ui/field";
 
 /**
  * What one row of the kill switch board can DO: stop or release the tool, at
@@ -173,18 +175,13 @@ export function KillSwitchToggle({
 
   return (
     <div className="flex flex-col gap-2">
-      {message !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {message}
-        </p>
-      ) : null}
+      {message !== null ? <Alert>{message}</Alert> : null}
 
-      <textarea
+      <TextArea
         aria-label={`Reason for ${row.tool}`}
         rows={2}
         value={reason}
         onChange={(event) => setReason(event.target.value)}
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
       <div className="flex flex-wrap gap-2">

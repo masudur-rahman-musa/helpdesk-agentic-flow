@@ -11,7 +11,7 @@ import {
   REINGEST_VALIDATION_MESSAGE,
 } from "@/features/admin/policies/components/policies-reingest";
 import { QueryProvider } from "@/components/layout/query-provider";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { NOT_LIVE_VERSION_TEXT } from "@/features/admin/policies/format";
 
 /**

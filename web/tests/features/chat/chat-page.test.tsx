@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/features/chat/components/chat-panel";
 import { QueryProvider } from "@/components/layout/query-provider";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { CHAT_PREFILL_PARAM } from "@/features/chat/prefill";
 import { MAX_MESSAGE_CHARS } from "@/features/chat/schema";
-import { reasonSentence } from "@/features/chat/decision-labels";
+import { reasonSentence } from "@/lib/decision-labels";
 
 /**
  * An earlier change §6, `chat-page.test.tsx`: the chat surface against a scripted stream
@@ -45,7 +45,7 @@ import { reasonSentence } from "@/features/chat/decision-labels";
  *   element itself (§1), so a classified-only card is the ABSENCE of that
  *   attribute, not an empty one.
  * - the reason sentences and the four label lookups are
- *   `@/features/chat/decision-labels`'; the sentences are compared by reference here and
+ *   `@/lib/decision-labels`'; the sentences are compared by reference here and
  *   pinned as literals in `tests/decision-labels.test.ts`, the same division
  *   `FAILURE_MESSAGES` already has with `tests/chat-schema.test.ts`.
  *

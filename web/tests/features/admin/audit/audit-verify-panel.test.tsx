@@ -3,9 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AUDIT_VALIDATION_MESSAGE } from "@/features/admin/audit/components/audit-search";
-import { AUDIT_VERIFY_READ_MESSAGE, AuditVerify } from "@/features/admin/audit/components/audit-verify";
+import {
+  AUDIT_VERIFY_READ_MESSAGE,
+  AuditVerify,
+} from "@/features/admin/audit/components/audit-verify";
 import { QueryProvider } from "@/components/layout/query-provider";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 
 /**
  * An earlier change §6, `audit-verify-panel.test.tsx`: the `Chain integrity` region of

@@ -7,12 +7,14 @@ import {
   riskLabel,
   slotLabel,
   statusLabel,
-} from "@/features/chat/decision-labels";
+} from "@/lib/decision-labels";
 import { useMyRequests } from "@/features/requests/api";
 import { StatusBadge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { Alert } from "@/components/ui/alert";
+import { formatIsoDate } from "@/lib/date-format";
 
 /**
  * Everything this user has asked for, newest read of `GET /api/me/requests`
@@ -50,9 +52,7 @@ export function RequestList() {
       <PageHeader title="My requests" />
 
       {requests.isError ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          Your requests could not be read. Try again in a moment.
-        </p>
+        <Alert>Your requests could not be read. Try again in a moment.</Alert>
       ) : null}
 
       {requests.isSuccess && requests.data.length === 0 ? (
@@ -96,7 +96,7 @@ function RequestRow({ request }: { request: MyRequest }) {
           granted (`::shows the grant's expiry only on the request that has a
           grant`). */}
       {expiry !== null ? (
-        <p className="text-muted-foreground">Expires {expiry.slice(0, 10)}</p>
+        <p className="text-muted-foreground">Expires {formatIsoDate(expiry)}</p>
       ) : null}
 
       {request.decision_reasons.length > 0 ? (

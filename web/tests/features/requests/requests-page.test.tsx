@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QueryProvider } from "@/components/layout/query-provider";
 import { RequestList } from "@/features/requests/components/request-list";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
-import { reasonSentence } from "@/features/chat/decision-labels";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
+import { reasonSentence } from "@/lib/decision-labels";
 
 /**
  * An earlier change §6, `requests-page.test.tsx`: the `/requests` list against a stubbed

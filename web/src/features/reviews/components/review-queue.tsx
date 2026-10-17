@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { failureMessage } from "@/features/chat/errors";
+import { failureMessage } from "@/lib/failure-messages";
 import {
   reviewFlagLabel,
   reviewItemDecisionLabel,
@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { Alert } from "@/components/ui/alert";
+import { formatIsoDate } from "@/lib/date-format";
 
 /**
  * The reviews waiting on this reviewer, from `GET /api/me/reviews`, the items
@@ -117,9 +119,7 @@ export function ReviewQueue() {
       </select>
 
       {reviews.isError ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          The review queue could not be read. Try again in a moment.
-        </p>
+        <Alert>The review queue could not be read. Try again in a moment.</Alert>
       ) : null}
 
       {reviews.isSuccess && reviews.data.length === 0 ? (
@@ -165,7 +165,9 @@ function ReviewRow({
       </div>
 
       <div className="flex flex-wrap gap-2 text-muted-foreground">
-        <span>{review.due_at === null ? "no due date" : `Due ${review.due_at.slice(0, 10)}`}</span>
+        <span>
+          {review.due_at === null ? "no due date" : `Due ${formatIsoDate(review.due_at)}`}
+        </span>
         <span>{review.reviewer_display_name}</span>
         <span>
           {review.decided_count} of {review.item_count} decided
@@ -195,11 +197,7 @@ function ReviewItems({ reviewId }: { reviewId: string }) {
   const items = useReviewItems(reviewId);
 
   if (items.isError) {
-    return (
-      <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-        That review&apos;s items could not be read. Try again in a moment.
-      </p>
-    );
+    return <Alert>That review&apos;s items could not be read. Try again in a moment.</Alert>;
   }
 
   if (!items.isSuccess) {
@@ -234,9 +232,9 @@ function ItemRow({ item, reviewId }: { item: ReviewItem; reviewId: string }) {
       </div>
 
       <div className="flex flex-wrap gap-2 text-muted-foreground">
-        <span>Granted {item.granted_at.slice(0, 10)}</span>
+        <span>Granted {formatIsoDate(item.granted_at)}</span>
         <span>
-          {item.expires_at === null ? "no expiry" : `Expires ${item.expires_at.slice(0, 10)}`}
+          {item.expires_at === null ? "no expiry" : `Expires ${formatIsoDate(item.expires_at)}`}
         </span>
       </div>
 
@@ -275,11 +273,7 @@ function DecideControls({ item, reviewId }: { item: ReviewItem; reviewId: string
 
   return (
     <div className="flex flex-col gap-2">
-      {refusal !== null ? (
-        <p role="alert" className="rounded-md border border-border px-3 py-2 text-sm">
-          {refusal}
-        </p>
-      ) : null}
+      {refusal !== null ? <Alert>{refusal}</Alert> : null}
 
       <div className="flex flex-wrap gap-2">
         <Button

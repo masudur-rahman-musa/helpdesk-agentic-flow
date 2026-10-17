@@ -4,8 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QueryProvider } from "@/components/layout/query-provider";
 import { REVIEW_VALIDATION_MESSAGE, ReviewQueue } from "@/features/reviews/components/review-queue";
-import { FAILURE_MESSAGES } from "@/features/chat/errors";
-import { reviewFlagLabel, reviewItemDecisionLabel, reviewStatusLabel } from "@/features/reviews/labels";
+import { FAILURE_MESSAGES } from "@/lib/failure-messages";
+import {
+  reviewFlagLabel,
+  reviewItemDecisionLabel,
+  reviewStatusLabel,
+} from "@/features/reviews/labels";
 
 /**
  * An earlier change §6, `reviews-page.test.tsx`: the `/reviews` queue, the items of the
