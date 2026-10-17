@@ -14,6 +14,7 @@ import {
 } from "@/features/admin/audit/filters";
 import { type AuditEventRow, auditSearchSchema } from "@/features/admin/audit/schema";
 import { failureMessage } from "@/features/chat/errors";
+import { API } from "@/lib/api-paths";
 import { WireRefusedError, readWire } from "@/lib/wire-read";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -435,7 +436,7 @@ async function fetchSearch(
     params.set("before_seq", String(beforeSeq));
   }
 
-  const payload = await readWire(`/api/admin/audit/search?${params.toString()}`, auditSearchSchema);
+  const payload = await readWire(`${API.auditSearch}?${params.toString()}`, auditSearchSchema);
   if (payload === null) {
     // The redirect answers what this read answers when it finds nothing, so no
     // third state appears on screen while the browser navigates to `/login`

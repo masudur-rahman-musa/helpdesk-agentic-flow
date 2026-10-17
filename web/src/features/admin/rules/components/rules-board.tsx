@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { failureMessage } from "@/features/chat/errors";
 import { RULES_READ_MESSAGE, UNRESOLVED_ROLE_TEXT } from "@/features/admin/rules/labels";
 import { type SodRuleRoleBlock, type SodRuleRow, sodRulesBoardSchema } from "@/features/admin/rules/schema";
+import { API } from "@/lib/api-paths";
 import { readWire, WireRefusedError } from "@/lib/wire-read";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -205,6 +206,6 @@ function errorMessage(error: unknown): string {
  * browser follows the proxy's redirect to `/login`.
  */
 async function fetchBoard(): Promise<BoardAnswer> {
-  const parsed = await readWire("/api/admin/rules", sodRulesBoardSchema);
+  const parsed = await readWire(API.rules, sodRulesBoardSchema);
   return parsed === null ? null : parsed.rules;
 }

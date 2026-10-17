@@ -9,6 +9,7 @@ import {
   killSwitchBoardSchema,
   type SwitchState,
 } from "@/features/admin/killswitch/schema";
+import { API } from "@/lib/api-paths";
 import { WireRefusedError, readWire } from "@/lib/wire-read";
 import { KillSwitchToggle } from "@/features/admin/killswitch/components/kill-switch-toggle";
 import { Badge } from "@/components/ui/badge";
@@ -253,6 +254,6 @@ function errorMessage(error: unknown): string {
  * the proxy's redirect to `/login`.
  */
 async function fetchBoard(): Promise<BoardAnswer> {
-  const payload = await readWire("/api/admin/killswitch", killSwitchBoardSchema);
+  const payload = await readWire(API.killSwitch, killSwitchBoardSchema);
   return payload === null ? null : payload.switches;
 }

@@ -4,6 +4,7 @@ import { QueryClientContext, useQuery } from "@tanstack/react-query";
 import { useContext } from "react";
 
 import { PRINCIPAL_LABELS, principalLabel } from "@/features/chat/decision-labels";
+import { API } from "@/lib/api-paths";
 import { meSchema, type Me } from "@/lib/me-schema";
 import { readWire } from "@/lib/wire-read";
 
@@ -31,7 +32,7 @@ function useMeQuery(): Me | undefined {
 }
 
 async function fetchMe(): Promise<Me | null> {
-  return readWire("/api/me", meSchema);
+  return readWire(API.me, meSchema);
 }
 
 /** Principals in the enum's order, not the wire's (decision D). */

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { type MyGrant, myAccessSchema } from "@/features/access/schema";
 import { renewalHref } from "@/features/chat/prefill";
 import { daysUntil } from "@/features/access/expiry";
+import { API } from "@/lib/api-paths";
 import { readWire } from "@/lib/wire-read";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -125,6 +126,6 @@ function expiryBadge(expiresAt: string | null): { text: string; tone: BadgeTone 
  * sentence, not the code's`.
  */
 async function fetchGrants(): Promise<MyGrant[]> {
-  const parsed = await readWire("/api/me/access", myAccessSchema);
+  const parsed = await readWire(API.myAccess, myAccessSchema);
   return parsed === null ? [] : parsed.grants;
 }

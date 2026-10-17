@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 
 import { auditVerifySchema } from "@/features/admin/audit/schema";
 import { failureMessage } from "@/features/chat/errors";
+import { API } from "@/lib/api-paths";
 import { WireRefusedError, readWire } from "@/lib/wire-read";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -174,7 +175,7 @@ function errorMessage(error: unknown): string {
  * No query string and no body: the route has nothing to ask for.
  */
 async function fetchVerify(): Promise<ChainVerdict | null> {
-  const payload = await readWire("/api/admin/audit/verify", auditVerifySchema);
+  const payload = await readWire(API.auditVerify, auditVerifySchema);
   if (payload === null) {
     return null;
   }

@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { failureMessage } from "@/features/chat/errors";
 import { type KillSwitchRow, setKillSwitchResultSchema } from "@/features/admin/killswitch/schema";
+import { API } from "@/lib/api-paths";
 // The vocabulary check alone: `readWire` is a GET and cannot express this POST,
 // so the fetch below stays as it is while the design's eight are checked in the
 // one place that holds them.
@@ -102,7 +103,7 @@ export const KILL_SWITCH_VALIDATION_MESSAGE =
   "That could not be saved. Shorten the reason and try again.";
 
 /** The proxy path, one route carrying both verbs (24cb decision E). */
-const TOGGLE_PATH = "/api/admin/killswitch";
+const TOGGLE_PATH = API.killSwitch;
 
 /** The two scope literals the tool takes, and the only two this page sends. */
 type Scope = "global" | "tenant";

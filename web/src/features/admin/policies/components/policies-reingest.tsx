@@ -5,6 +5,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { failureMessage } from "@/features/chat/errors";
 import { type PolicyReingestResult, policyReingestResultSchema } from "@/features/admin/policies/schema";
+import { API } from "@/lib/api-paths";
 // The vocabulary check alone: `readWire` is a GET and cannot express this POST,
 // so the fetch below stays as it is while the design's eight codes are checked in
 // the one place that holds them, exactly as
@@ -133,7 +134,7 @@ export const REINGEST_UNCHANGED_TEXT =
   "The file on the ingest host has not changed. Nothing was re-ingested.";
 
 /** The proxy path 31a built, its own file mirroring agent-api's (31a decision I). */
-const REINGEST_PATH = "/api/admin/policies/reingest";
+const REINGEST_PATH = API.policyReingest;
 
 /**
  * What one re-ingest resolved to: the tool's parsed answer, or `null` while the

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/field";
+import { API } from "@/lib/api-paths";
 import { SIGN_IN_FAILED_MESSAGE, loginSchema } from "@/lib/schemas";
 
 /**
@@ -45,7 +46,7 @@ export function LoginForm() {
 
     setPending(true);
     try {
-      const response = await fetch("/api/login", {
+      const response = await fetch(API.login, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data),

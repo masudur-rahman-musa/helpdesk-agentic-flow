@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
+import { API } from "@/lib/api-paths";
 
 /**
  * Ends the session by asking the server to expire the cookie. The browser
@@ -20,7 +21,7 @@ export function SignOutButton({ menuItem = false }: { menuItem?: boolean }) {
   async function signOut(): Promise<void> {
     setPending(true);
     try {
-      await fetch("/api/logout", { method: "POST" });
+      await fetch(API.logout, { method: "POST" });
     } finally {
       setPending(false);
     }

@@ -13,6 +13,7 @@ import {
   slotLabel,
   statusLabel,
 } from "@/features/chat/decision-labels";
+import { API, apiPath } from "@/lib/api-paths";
 import { readWire } from "@/lib/wire-read";
 
 import { StatusBadge } from "@/components/ui/badge";
@@ -343,7 +344,7 @@ function decisionRefusal(error: unknown): string | null {
  * alert, not the code's sentence`.
  */
 async function fetchApprovals(): Promise<PendingApproval[]> {
-  const parsed = await readWire("/api/me/approvals", pendingApprovalsSchema);
+  const parsed = await readWire(API.myApprovals, pendingApprovalsSchema);
   return parsed === null ? [] : parsed.approvals;
 }
 
@@ -359,11 +360,14 @@ async function postDecision(
   verb: "approve" | "reject",
   body: Record<string, unknown>,
 ): Promise<void> {
-  const response = await fetch(`/api/approvals/${requestId}/${verb}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const response = await fetch(
+    apiPath(verb === "approve" ? API.approveRequest : API.rejectRequest, { requestId }),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
 
   if (response.redirected) {
     window.location.assign(response.url);

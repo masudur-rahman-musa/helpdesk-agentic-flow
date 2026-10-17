@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useContext } from "react";
 
 import { notificationPageSchema } from "@/features/notifications/schema";
+import { API } from "@/lib/api-paths";
 import { readWire } from "@/lib/wire-read";
 
 /**
@@ -111,7 +112,7 @@ async function fetchUnreadCount(): Promise<number> {
   // already navigating to `/login` — is the one case that resolves, and `0` is
   // then never rendered either, because a count of zero shows no badge.
   const parsed = await readWire(
-    "/api/me/notifications?unread_only=true&limit=1",
+    `${API.myNotifications}?unread_only=true&limit=1`,
     notificationPageSchema,
   );
   return parsed === null ? 0 : parsed.unread_count;

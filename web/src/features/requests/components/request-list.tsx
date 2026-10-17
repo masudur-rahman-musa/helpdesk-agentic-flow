@@ -10,6 +10,7 @@ import {
   slotLabel,
   statusLabel,
 } from "@/features/chat/decision-labels";
+import { API } from "@/lib/api-paths";
 import { readWire } from "@/lib/wire-read";
 import { StatusBadge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -160,6 +161,6 @@ function CitationRow({ citation }: { citation: RequestCitation }) {
  * sentence, not the code's`.
  */
 async function fetchRequests(): Promise<MyRequest[]> {
-  const parsed = await readWire("/api/me/requests", myRequestsSchema);
+  const parsed = await readWire(API.myRequests, myRequestsSchema);
   return parsed === null ? [] : parsed.requests;
 }

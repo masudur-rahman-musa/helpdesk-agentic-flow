@@ -4,13 +4,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { failureMessage } from "@/features/chat/errors";
-import { reviewFlagLabel, reviewItemDecisionLabel, reviewStatusLabel } from "@/features/reviews/labels";
+import {
+  reviewFlagLabel,
+  reviewItemDecisionLabel,
+  reviewStatusLabel,
+} from "@/features/reviews/labels";
 import {
   type ReviewItem,
   type ReviewQueueRow,
   reviewItemsSchema,
   reviewQueueSchema,
 } from "@/features/reviews/schema";
+import { API, apiPath } from "@/lib/api-paths";
 import { readWire } from "@/lib/wire-read";
 
 import { StatusBadge } from "@/components/ui/badge";
@@ -355,7 +360,7 @@ function decisionRefusal(error: unknown): string | null {
  * alert, not the code's sentence`.
  */
 async function fetchReviews(status: string): Promise<ReviewQueueRow[]> {
-  const url = status === "all" ? "/api/me/reviews" : `/api/me/reviews?status=${status}`;
+  const url = status === "all" ? API.myReviews : `${API.myReviews}?status=${status}`;
   const parsed = await readWire(url, reviewQueueSchema);
   return parsed === null ? [] : parsed.reviews;
 }
@@ -371,7 +376,7 @@ async function fetchReviews(status: string): Promise<ReviewQueueRow[]> {
  * not the code's sentence`).
  */
 async function fetchItems(reviewId: string): Promise<ReviewItem[]> {
-  const parsed = await readWire(`/api/reviews/${reviewId}/items`, reviewItemsSchema);
+  const parsed = await readWire(apiPath(API.reviewItems, { reviewId }), reviewItemsSchema);
   return parsed === null ? [] : parsed.items;
 }
 
@@ -384,7 +389,7 @@ async function fetchItems(reviewId: string): Promise<ReviewItem[]> {
  * is the tool's own enum, chosen from a fixed control.
  */
 async function postDecision(itemId: string, decision: "keep" | "revoke"): Promise<void> {
-  const response = await fetch(`/api/review-items/${itemId}/decide`, {
+  const response = await fetch(apiPath(API.decideReviewItem, { itemId }), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ decision }),

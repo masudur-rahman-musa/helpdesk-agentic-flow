@@ -10,6 +10,7 @@ import {
   type NotificationRow,
   notificationPageSchema,
 } from "@/features/notifications/schema";
+import { API, apiPath } from "@/lib/api-paths";
 import { readWire } from "@/lib/wire-read";
 
 import { Badge } from "@/components/ui/badge";
@@ -247,7 +248,7 @@ function stampRefusal(error: unknown): string | null {
  * `tests/notifications-page.test.tsx`.
  */
 async function fetchNotifications(unreadOnly: boolean): Promise<NotificationPage> {
-  const url = unreadOnly ? "/api/me/notifications?unread_only=true" : "/api/me/notifications";
+  const url = unreadOnly ? `${API.myNotifications}?unread_only=true` : API.myNotifications;
   // The empty page is what the redirect resolves to, exactly as before: no row,
   // no tally, and nothing said about either while the browser leaves. A refusal
   // and a failed read both throw out of `readWire` instead, and this page
@@ -273,7 +274,7 @@ async function fetchNotifications(unreadOnly: boolean): Promise<NotificationPage
  * path separator would otherwise reach a different route entirely.
  */
 async function postRead(notificationId: string): Promise<void> {
-  const response = await fetch(`/api/notifications/${encodeURIComponent(notificationId)}/read`, {
+  const response = await fetch(apiPath(API.readNotification, { notificationId }), {
     method: "POST",
   });
 

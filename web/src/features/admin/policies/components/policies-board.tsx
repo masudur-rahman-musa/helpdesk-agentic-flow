@@ -20,6 +20,7 @@ import {
   policyDocumentsBoardSchema,
   type PolicyVersion,
 } from "@/features/admin/policies/schema";
+import { API } from "@/lib/api-paths";
 import { readWire, WireRefusedError } from "@/lib/wire-read";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -346,6 +347,6 @@ function errorMessage(error: unknown): string {
  * while the browser follows the proxy's redirect to `/login`.
  */
 async function fetchBoard(): Promise<BoardAnswer> {
-  const parsed = await readWire("/api/admin/policies", policyDocumentsBoardSchema);
+  const parsed = await readWire(API.policies, policyDocumentsBoardSchema);
   return parsed === null ? null : parsed.documents;
 }

@@ -23,6 +23,7 @@ import {
 import { failureMessage } from "@/features/chat/errors";
 import { readAsk } from "@/features/chat/prefill";
 import { chatMessageSchema } from "@/features/chat/schema";
+import { API } from "@/lib/api-paths";
 import { createSseParser } from "@/lib/sse";
 import { readWire } from "@/lib/wire-read";
 
@@ -117,7 +118,7 @@ export function ChatPanel() {
     setTurn((previous) => [...previous, { role: "user", content: parsed.data.message }]);
 
     try {
-      const response = await fetch("/api/chat/stream", {
+      const response = await fetch(API.chatStream, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data),
@@ -262,6 +263,6 @@ async function refusalCode(response: Response): Promise<string> {
  * nothing.
  */
 async function fetchHistory(): Promise<ChatMessage[]> {
-  const body = await readWire("/api/chat/messages", z.unknown());
+  const body = await readWire(API.chatMessages, z.unknown());
   return body === null ? [] : readHistory(body);
 }
