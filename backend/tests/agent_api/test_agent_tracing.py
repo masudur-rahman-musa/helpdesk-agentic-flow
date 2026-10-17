@@ -1,4 +1,4 @@
-"""An earlier change §6: one trace per chat turn, one span per node, `tool:{name}`.
+"""One trace per chat turn, one span per node, `tool:{name}`.
 
 Written before the wiring exists. Expected implementation surface (the
 implementer must provide exactly this):
@@ -23,8 +23,7 @@ implementer must provide exactly this):
 ``agent_api.mcp_client``
     ``TOOL_SPAN_PREFIX = "tool:"`` and ``class TracingToolCaller`` over an
         inner ``ToolCaller``, opening one span per ``call_tool`` and NONE for
-        ``__aenter__``/``__aexit__``. No tool ARGUMENT reaches a span
-        (decision G).
+        ``__aenter__``/``__aexit__``. No tool ARGUMENT reaches a span.
 ``agent_api.chat_routes.build_tool_caller`` returns
     ``TracingToolCaller(McpToolCaller(...))``.
 
@@ -37,7 +36,7 @@ case here that needs the LangGraph tables. The runner below is this file's own
 only because ``test_agent_turn._run_turn`` is typed to its stub caller, and
 the tool-span case must pass a ``TracingToolCaller`` wrapping it. The trace
 client is always the recording fake from ``packages/helpdesk/tests`` (imported
-with its directory inserted, a project rule), never a real ``Langfuse``.
+with its directory inserted), never a real ``Langfuse``.
 """
 
 import asyncio
@@ -169,7 +168,7 @@ the same state" is exactly what two of the cases below compare.
 """
 
 PERSON_MESSAGE_TEMPLATE = "I need payroll access for {name}, our new joiner"
-"""A message that names a person, which is what a real one does (decision G)."""
+"""A message that names a person, which is what a real one does."""
 
 
 class _Query(BaseModel):
@@ -344,7 +343,7 @@ def test_the_node_model_alias_table_is_exactly_the_three_model_calling_nodes() -
     """Catches a table that hands every node an alias (a span claiming
     `load_session` called `agent-default` is a lie a cost dashboard adds up)
     and one that gives `plan_tools` the default alias — planning is the one
-    node on `agent-strong` (17c decision G), so a copy-pasted row would report
+    node on `agent-strong`, so a copy-pasted row would report
     every planning round against the wrong model."""
     assert _NODE_MODEL_ALIASES == {
         EXTRACT_INTENT: ModelAlias.AGENT_DEFAULT,
@@ -355,7 +354,7 @@ def test_the_node_model_alias_table_is_exactly_the_three_model_calling_nodes() -
 
 def test_the_node_prompt_table_is_exactly_the_three_prompt_loading_nodes() -> None:
     """Catches a table keyed on the wrong prompt for a node: `prompt_version`
-    is the hash a bad turn is tied back to (the design), so a `plan_tools`
+    is the hash a bad turn is tied back to, so a `plan_tools`
     span carrying the extraction prompt's digest points every investigation at
     a file that had nothing to do with the failure."""
     assert _NODE_PROMPTS == {
@@ -369,7 +368,7 @@ def test_the_thirteen_node_names_are_the_keys_the_graph_registers() -> None:
     """Catches a span name that drifts from the node key LangGraph reports —
     a wrapper naming its span `"load-session"` or `"nodes.load_session"` while
     the graph registers `load_session`. The spans of a turn are supposed to BE
-    the node names §1 lists, so a renamed constant breaks the trace and the
+    the node names listed, so a renamed constant breaks the trace and the
     graph in one move while every existing turn test stays green."""
     registered = set(build_graph().nodes)
 
@@ -543,7 +542,7 @@ def test_no_tool_argument_reaches_the_span_that_wraps_the_call(
     traced: FakeTraceClient,
 ) -> None:
     """Catches a tool span that captures its arguments (the SDK's own default
-    input capture, decision G's rejected option). `search_policy`'s argument
+    input capture). `search_policy`'s argument
     is the user's query, which is derived from their message — so an
     argument-capturing span publishes the message under a name that looks
     like metadata rather than content."""
@@ -627,10 +626,10 @@ def test_no_span_of_a_turn_carries_a_person_the_user_id_or_the_message(
     turn_env: TurnEnv,  # noqa: F811
     traced: FakeTraceClient,
 ) -> None:
-    """The §5 risk case. Catches a trace that captures the turn's input — the
-    SDK's default, and the one thing decision G forbids — or an attribute set
-    that carries `user_id` beside the session id. the design permits four
-    fields in telemetry and a person's name is not one of them, so a message
+    """Catches a trace that captures the turn's input — the
+    SDK's default, and the one thing that is forbidden — or an attribute set
+    that carries `user_id` beside the session id. Telemetry permits four
+    fields and a person's name is not one of them, so a message
     naming a colleague ("grant Anna the finance role") must reach no span name
     and no attribute value.
 
@@ -659,7 +658,7 @@ def test_with_tracing_unconfigured_the_turn_is_unchanged_and_no_client_is_opened
     turn_env: TurnEnv,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """§1's unconfigured criterion, both halves. Catches a `run_turn` that
+    """Both halves of the unconfigured case. Catches a `run_turn` that
     depends on the trace for something real — a trace id it then requires, or
     a span whose exit writes state — and a facade that builds an SDK client
     anyway, which an operator with no Langfuse account would discover as an
@@ -702,7 +701,7 @@ def test_with_tracing_unconfigured_the_turn_is_unchanged_and_no_client_is_opened
 def test_a_client_whose_every_method_raises_leaves_the_turn_untouched(
     turn_env: TurnEnv,  # noqa: F811
 ) -> None:
-    """§1's broken-SDK criterion. Catches an implementation that lets the SDK
+    """The broken-SDK case. Catches an implementation that lets the SDK
     fail the turn: the client raises on the FIRST call, so a facade that does
     not swallow takes down `run_turn` before `load_session` ever runs, and a
     Langfuse outage becomes an outage of the product. The state comparison is
@@ -741,8 +740,8 @@ def test_a_paused_turn_closes_its_trace_and_the_resume_opens_its_own(
     days earlier, and the paused turn would never be exported at all. It also
     catches a paused terminal that writes no attributes: `await_approval` is
     the one decision value a reader looks for to ask "what is waiting", and
-    `run_turn`'s paused return is a terminal of that turn exactly as plan
-    20b's counter treats it.
+    `run_turn`'s paused return is a terminal of that turn exactly as the
+    turn counter treats it.
 
     The resume's `decision` is asserted too, because an implementation that
     wrote attributes only in `run_turn` leaves the resumed trace bare while

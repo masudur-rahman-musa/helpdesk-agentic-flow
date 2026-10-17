@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `offboard_user`, through the transport.
+"""`offboard_user`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -14,18 +14,18 @@ Surface under test (written before it exists):
     ``tool.succeeded``: the handler appends ``user.offboarded`` itself,
     naming the USER, so the pipeline's event lands last as the summary.
 
-Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the FIVE principals the design
+Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the FIVE principals the matrix
 gives no cell on this row — including ``it_admin``, which holds a cell on
 `onboard_user` and `transfer_user` and none here — one shared ``NOT_FOUND``
 for a ``user_id`` that is missing OR another tenant's, ``POLICY_BLOCKED`` for
-a target who is already a leaver (decision F), and ``VALIDATION`` for every
+a target who is already a leaver, and ``VALIDATION`` for every
 input the pre-checks refuse, all before any effect.
 
 Audit deltas are asserted as exact ordered event-type lists against a before
 snapshot, never as counts: a missing domain event, a duplicated one, or a
 denial filed as an outage is invisible to a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: every case plants its OWN leaver (a fresh uuid4 address), their
@@ -36,7 +36,7 @@ call. Seeded identities are recomputed from ``scripts.seed.generate_tenant``
 Every raw-SQL fixture below binds `date` and `datetime` OBJECTS, never
 strings: asyncpg binds by type and does not coerce, so a string there kills
 the whole file with a `DataError` that looks exactly like the red a
-tests-first file is supposed to show (the project notes, an earlier change).
+tests-first file is supposed to show.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``
 (the concurrency case drives two, one per thread).
@@ -70,7 +70,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
 
 OFFBOARD = "offboard_user"
 
-# the design's own name for the departure, appended by the handler, the
+# The audit log's own name for the departure, appended by the handler, the
 # closure event, and the pipeline's own events. Literals rather than imports:
 # these strings are the audit contract, and reading them from the module under
 # test would let a rename pass unnoticed.
@@ -85,8 +85,8 @@ FAILED_EVENT = "tool.failed"
 ROWS = generate_tenant(NORDLICHT)
 OTHER_TENANT_ROWS = generate_tenant(CUAN)
 
-# the design's `offboard_user` row: TWO principals may call it, five may not.
-# `it_admin` is on the denied side deliberately — §7 gives it `onboard_user`
+# The matrix's `offboard_user` row: TWO principals may call it, five may not.
+# `it_admin` is on the denied side deliberately — the matrix gives it `onboard_user`
 # and `transfer_user` and no cell here, so a row copied from either of those
 # by habit fails the denial sweep.
 ALLOWED_PRINCIPALS = ("hr", "platform_admin")
@@ -94,7 +94,7 @@ DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "it_admin", "auditor
 
 # The callers. Read only — no case writes to these rows — so they cannot
 # collide with another module's namespace. The principal is always forced on
-# the token, so a case pins the the design cell rather than whatever the seed
+# the token, so a case pins the matrix cell rather than whatever the seed
 # happened to give this user.
 CALLER = ROWS.users_by_department["HR"][10]
 # Two distinct seeded users for the race: two real callers, two tokens, two
@@ -112,7 +112,7 @@ ROLE_TWO = ROWS.role_ids[("grafana", "viewer")]
 OTHER_TENANT_USER = OTHER_TENANT_ROWS.users_by_department["Operations"][6]
 
 # The wire argument really is a JSON string; every fixture value below is a
-# Python object (the project notes, an earlier change).
+# Python object.
 END_DATE = "2026-10-31"
 TENURED_START = date(2019, 3, 7)
 ACTIVE_STATUS = "active"
@@ -366,7 +366,7 @@ def _plant_leaver(database_url: str) -> tuple[uuid.UUID, uuid.UUID]:
     return user_id, request_id
 
 
-# --- the design's allow set and its refusal direction (criterion 10) ---------------
+# --- the matrix's allow set and its refusal direction ---------------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -374,14 +374,14 @@ def test_the_two_permitted_principals_each_offboard_somebody(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """The allow direction every refusal below depends on, one row of the design's
+    """The allow direction every refusal below depends on, one row of the matrix's
     `offboard_user` cell at a time.
 
     Catches a registry entry wired to the wrong matrix member (say
     `TRANSFER_USER`, whose row admits `it_admin` as well): the denial case
     below sends `it_admin` among the five, so a wrong row that ALSO admits
     `hr` and `platform_admin` would pass this half and fail there — and a row
-    narrower than the design fails here. Only running both directions over the
+    narrower than the matrix fails here. Only running both directions over the
     same registered tool pins the cell.
 
     The token carries exactly one principal, so nothing but that principal's
@@ -411,7 +411,7 @@ def test_the_other_five_principals_are_denied_and_offboard_nobody(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """a project rule: the design's matrix row is the ONLY gate on this tool.
+    """The matrix row is the ONLY gate on this tool.
 
     Every argument is valid and the `user_id` resolves in the caller's OWN
     tenant as an `active` person, so neither the `NOT_FOUND` lookup nor the
@@ -421,7 +421,7 @@ def test_the_other_five_principals_are_denied_and_offboard_nobody(
     there is no second, argument-dependent check here whose presence would
     blunt the kill.
 
-    `it_admin` is the row that matters most: the design gives it the other two
+    `it_admin` is the row that matters most: the matrix gives it the other two
     lifecycle tools and none of this one, so an implementation that reused
     `transfer_user`'s matrix member passes every other case in this file and
     fails this one.
@@ -446,13 +446,13 @@ def test_the_other_five_principals_are_denied_and_offboard_nobody(
     assert events_after == [*events_before, DENIED_EVENT]
 
 
-# --- the audit sequence (criterion 4, a project rule) -------------------------
+# --- the audit sequence -------------------------
 
 
 def test_the_audit_sequence_is_revoked_then_rejected_then_offboarded_then_succeeded(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 4 as an exact ordered list, which is the only place the order
+    """The audit order as an exact ordered list, which is the only place the order
     of the three domain events is observable at all.
 
     Catches the registry declaring `user.offboarded` as this tool's event
@@ -462,7 +462,7 @@ def test_the_audit_sequence_is_revoked_then_rejected_then_offboarded_then_succee
     leaver's own event would be missing entirely. Catches a summary event
     written before the revocations and the closures, which would have to name
     lists nothing had computed yet, and one that is not last. Catches a
-    closure that writes no event at all (decision C's rejected alternative),
+    closure that writes no event at all (the rejected alternative),
     which is invisible in a count of grant events.
 
     The subject and the five payload keys are asserted here as well as in the
@@ -502,7 +502,7 @@ def test_the_audit_sequence_is_revoked_then_rejected_then_offboarded_then_succee
     assert payload["closed_request_ids"] == [str(request_id)]
 
 
-# --- the two absences (criterion 7) ---------------------------------------------
+# --- the two absences ---------------------------------------------
 
 
 def test_a_missing_and_another_tenants_user_answer_the_same_not_found(
@@ -537,13 +537,13 @@ def test_a_missing_and_another_tenants_user_answer_the_same_not_found(
     assert _live_role_ids(mcp_env.database_url, OTHER_TENANT_USER.id) == foreign_roles_before
 
 
-# --- the typed refusal through the wire (criterion 6) ---------------------------
+# --- the typed refusal through the wire ---------------------------
 
 
 def test_an_already_leaver_target_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision F at the boundary: catches the "succeed idempotently"
+    """At the boundary: catches the "succeed idempotently"
     alternative, whose only trace is in the audit log.
 
     A second offboard has nothing left to revoke, so the tables end up looking
@@ -571,7 +571,7 @@ def test_an_already_leaver_target_is_refused_policy_blocked(
     ]
 
 
-# --- the input surface (criterion 11) -------------------------------------------
+# --- the input surface -------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -593,7 +593,7 @@ def test_the_input_types_are_refused_before_any_effect(
     accepted: bool,
     expected_code: str,
 ) -> None:
-    """Criterion 11, both directions: catches `user_id` typed as `str` and
+    """Both directions: catches `user_id` typed as `str` and
     `end_date` typed as `str`.
 
     A string `end_date` is written straight into `users.end_date` and into the
@@ -639,8 +639,8 @@ def test_an_unknown_field_is_refused_with_no_state_change(
     offboarding somebody inside another tenant.
 
     Dropping it silently would strip the person in the TOKEN's tenant while
-    the caller reads success as having acted elsewhere — the one mistake hard
-    rule 6 exists to make impossible to make quietly. Catches an input model
+    the caller reads success as having acted elsewhere — the one mistake the identity rule
+    exists to make impossible to make quietly. Catches an input model
     that copied `tools/read.py`'s `extra="ignore"` contract: nothing else in
     this call can refuse it, since the caller is permitted and every other
     argument is valid. The state is re-read in BOTH tenants, so a call that
@@ -665,7 +665,7 @@ def test_an_unknown_field_is_refused_with_no_state_change(
     assert _live_role_ids(mcp_env.database_url, OTHER_TENANT_USER.id) == foreign_roles_before
 
 
-# --- replay (criterion 12) ------------------------------------------------------
+# --- replay ------------------------------------------------------
 
 
 def test_a_replay_returns_the_stored_response_and_revokes_nothing_twice(
@@ -704,7 +704,7 @@ def test_a_replay_returns_the_stored_response_and_revokes_nothing_twice(
     ]
 
 
-# --- the lock (decision D) ------------------------------------------------------
+# --- the lock ------------------------------------------------------
 
 
 def test_two_callers_racing_the_same_offboard_leave_one_departure(
@@ -719,7 +719,7 @@ def test_two_callers_racing_the_same_offboard_leave_one_departure(
     `user.offboarded` events and two `grant.revoked` for one row, which is an
     audit trail saying the same access was taken away twice from a person who
     departed twice. That is the state this asserts against: one success, one
-    `POLICY_BLOCKED` from decision F (the loser now reads the winner's
+    `POLICY_BLOCKED` from the re-check (the loser now reads the winner's
     `leaver`), one departure event, one revocation event.
 
     Both callers are real seeded users carrying the `hr` principal, so both

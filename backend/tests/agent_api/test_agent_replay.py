@@ -1,4 +1,4 @@
-"""An earlier change §6: reading a turn back out of its checkpoints (decision D).
+"""Reading a turn back out of its checkpoints.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -9,15 +9,15 @@ Expected implementation surface (the implementer must provide exactly this):
     ``async def checkpoint_history(*, checkpointer, thread_id) -> tuple[CheckpointEntry, ...]``
         — NEWEST FIRST.
     ``async def state_at(*, checkpointer, thread_id, checkpoint_id) -> TurnState | None``
-    Both READ-ONLY (decision D): no invocation, no node re-run, no row written
+    Both READ-ONLY: no invocation, no node re-run, no row written
     and no gateway call — an unknown thread answers ``()`` and ``None`` rather
     than raising.
 
 Cost and isolation. No new backing service at all: this file drives
 ``test_agent_approval_interrupt.py``'s session-scoped ``approval_env``, so the
 throwaway database, its seeded fake tenant and LangGraph's checkpoint tables
-are the same ones an earlier change built, created once for the whole session (standing
-rule 7). Per-case isolation is a fresh ``session_id`` — the thread id — never a
+are the same ones the checkpointer tests build, created once for the whole session.
+Per-case isolation is a fresh ``session_id`` — the thread id — never a
 new database. Nothing here stages a gateway answer, because a read that
 reached a model would be a re-run.
 """
@@ -32,7 +32,7 @@ from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 
 # Imported, not redefined: the same database, tenant and checkpoint tables as
 # `test_agent_approval_interrupt.py` and `test_agent_approval_resume.py`
-# (a project rule, and the plan's §6 cost paragraph).
+# (built once per session).
 from tests.agent_api.test_agent_approval_interrupt import (
     CREATE_REQUEST,
     ApprovalEnv,
@@ -138,7 +138,7 @@ def test_state_at_returns_one_checkpoint_as_a_turn_state(
     for both, which is exactly the debugging answer that would make a
     divergence invisible.
 
-    It is also the read-only half of decision D: `state_at` returns a state, it
+    It is also the read-only half: `state_at` returns a state, it
     does not re-run the node that produced it — the tool caller and the gateway
     of the paused run are long gone, so a version that re-invoked the graph has
     nothing to invoke with."""

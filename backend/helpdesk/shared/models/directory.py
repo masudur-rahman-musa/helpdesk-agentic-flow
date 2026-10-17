@@ -1,12 +1,8 @@
-"""The nine directory-core tables (the design, an earlier change scope decision A).
+"""The directory tables: tenants, people, systems, roles and grants.
 
-Column types stay plain (String for enum-valued fields); allowed values are
-enforced at the Pydantic boundaries, not by the database. Soft references
-whose target table lands in a later plan row (`grants.request_id`,
-`tickets.session_id`) are plain nullable UUIDs, no FK yet.
-`departments.manager_user_id` is also FK-less: users.department_id already
-points the other way and a circular FK pair isn't worth it for a display
-field.
+Enum-valued columns are plain strings, checked at the Pydantic edges.
+`departments.manager_user_id` has no foreign key, to avoid a loop with
+`users.department_id` for a display-only field.
 """
 
 import uuid
@@ -49,8 +45,7 @@ class User(TenantScoped):
     status: Mapped[str] = mapped_column(String(16))  # active | leaver
     start_date: Mapped[date] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)
-    # the design's simulated self-service "flags": the
-    # reset/unlock tools stamp these; no real directory action happens.
+    # Simulated self-service: the reset and unlock tools only stamp these.
     password_reset_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     account_unlocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -62,11 +57,8 @@ class System(TenantScoped):
     slug: Mapped[str] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(256))
     sensitivity: Mapped[str] = mapped_column(String(16))  # low | medium | high | critical
-    # prod_infra | hris | other (policy SystemCategory, the design). The
-    # server_default means a migrated-but-not-reseeded DB reads `other`,
-    # pinned by `test_access_snapshot.py::
-    # test_a_system_created_without_a_category_reads_other`; the seed
-    # backfills real values on re-run.
+    # prod_infra | hris | other. The default lets an old database read `other`
+    # until the seed fills in real values.
     category: Mapped[str] = mapped_column(String(16), server_default="other")
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
 
@@ -142,5 +134,5 @@ class Ticket(TenantScoped):
     title: Mapped[str] = mapped_column(String(256))
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16))
-    # FK target (sessions) lands in a later plan row.
+    # No foreign key to `sessions` yet.
     session_id: Mapped[uuid.UUID | None] = mapped_column()

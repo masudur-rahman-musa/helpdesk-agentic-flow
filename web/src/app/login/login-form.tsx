@@ -10,19 +10,10 @@ import { logIn } from "@/features/auth/api";
 import { SIGN_IN_FAILED_MESSAGE, loginSchema } from "@/lib/schemas";
 
 /**
- * The three fields, pre-checked by the SAME `loginSchema` the route handler
- * runs, so the form's message and the
- * server's refusal cannot disagree about what is acceptable.
- *
- * One generic message for every failure, whether the pre-check refused the
- * input or agent-api answered 401: naming the field that was wrong tells an
- * attacker which tenant slugs and addresses exist, which is exactly what
- * `/auth/login`'s single typed 401 is built to avoid.
- *
- * The bearer never reaches this component. `POST /api/login` answers
- * `{ ok: true }` and sets an httpOnly cookie, so there is nothing here to put
- * in `localStorage` even by accident (`tests/login-route.test.ts`, "never
- * returns the bearer in the response body").
+ * The sign-in form, checked by the same `loginSchema` the route uses so the two
+ * never disagree. One message for every failure, so it never tells an attacker
+ * which tenant or address exists. The token never reaches this component; it
+ * lives in an httpOnly cookie.
  */
 export function LoginForm() {
   const router = useRouter();

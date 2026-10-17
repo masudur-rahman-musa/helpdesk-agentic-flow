@@ -5,14 +5,13 @@ import { CHAT_PREFILL_PARAM, readAsk, renewalHref } from "@/features/chat/prefil
 import { MAX_MESSAGE_CHARS } from "@/features/chat/schema";
 
 /**
- * An earlier change §6, `chat-prefill.test.ts`: the `/access` renewal link and the
- * parameter `/chat` prefills its composer from, as pure functions (decision C).
+ * `chat-prefill.test.ts`: the `/access` renewal link and the
+ * parameter `/chat` prefills its composer from, as pure functions.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23b's Deviations):
+ * Shapes this file fixes:
  * - `readAsk(search: string): string | null` takes `window.location.search`
  *   verbatim — leading `?` and all — so the panel needs no router context and
- *   no Suspense boundary (§2), and answers `null` for anything
+ *   no Suspense boundary, and answers `null` for anything
  *   `chatMessageSchema` refuses.
  * - `renewalHref(grant: MyGrant): string` takes the PARSED grant row, which is
  *   what `/access` already holds, and answers a root-relative href.
@@ -57,8 +56,8 @@ function searchOf(href: string): string {
 
 describe("CHAT_PREFILL_PARAM", () => {
   it("is exactly ask", () => {
-    // a project rule, on the one name shared by three places: the link
-    // `/access` writes, the reader `/chat` runs and §1's own `/chat?ask=…`.
+    // The exact literal, on the one name shared by three places: the link
+    // `/access` writes, the reader `/chat` runs and the `/chat?ask=…` shape.
     // Catches a rename to `q` or `message` that updates the reader and the
     // writer together and so passes every other case in this file, while every
     // link already in a user's history silently stops prefilling.
@@ -87,7 +86,7 @@ describe("readAsk", () => {
   it.each(REFUSED)("answers null for $name", ({ search }) => {
     // The first two rows catch a reader that answers `""` (or a canned sample
     // question) when the parameter is absent, which would prefill the composer
-    // on every ordinary visit to `/chat`. The empty-ask row is §1's own
+    // on every ordinary visit to `/chat`. The empty-ask row is its own
     // refusal: `chatMessageSchema`'s `min(1)` is what must decide it, not a
     // truthiness check that happens to agree today. The last row catches a
     // reader matching the parameter by `search.includes("ask=")`, which reads
@@ -96,7 +95,7 @@ describe("readAsk", () => {
   });
 
   it("is inclusive at MAX_MESSAGE_CHARS and refuses one character more", () => {
-    // a project rule's boundary, on a client-supplied string that reaches a
+    // The inclusive boundary, on a client-supplied string that reaches a
     // control. Catches a reader with no check at all (the composer then starts
     // holding a message it would itself refuse, so Send answers VALIDATION and
     // the user cannot see why), and catches an off-by-one written as `<` where
@@ -113,7 +112,7 @@ describe("readAsk", () => {
 describe("renewalHref", () => {
   it("points at /chat with the ask parameter", () => {
     // Catches an href built for another route (or a bare `/chat` with no
-    // parameter, which is the alternative decision C turned down): §1 fixes
+    // parameter, which is a rejected alternative): the page fixes
     // `/chat?ask=<sentence>` as the shape, and the prefix is the half of it
     // the round-trip below cannot see.
     expect(renewalHref(grant()).startsWith(`/chat?${CHAT_PREFILL_PARAM}=`)).toBe(true);

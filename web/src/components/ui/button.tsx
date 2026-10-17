@@ -3,16 +3,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * The one button of the app, in four variants and two sizes (an earlier change
- * decision B: `class-variance-authority`, the shadcn idiom, already a
- * dependency). `primary` is the default and keeps the classes the login
- * button had before it moved here from `field.tsx`. Each variant's colour
- * class is pinned by `tests/ui-primitives.test.tsx::gives each button variant
- * its colour class`.
- *
- * No default `type`: a `<button>` inside a form submits it, which is what the
- * login form relies on, so a caller wanting a plain button says
- * `type="button"` itself (`::adds no default type to a button`).
+ * No default `type`: the login form relies on a button submitting it, so a
+ * caller wanting a plain button says `type="button"`.
  */
 export const buttonVariants = cva(
   [

@@ -1,21 +1,12 @@
 """Appending one event to a tenant's chain.
 
-Read-last-hash then insert is a read-modify-write: two concurrent appends
-that both read the same last hash would produce two events sharing a
-`prev_hash`, which is a fork, not a chain. A transaction-scoped advisory
-lock keyed on the tenant serialises appends per tenant
-and is released by Postgres when the caller's transaction ends, whether it
-commits or rolls back.
+Two appends that read the same last hash would fork the chain, so a
+per-tenant advisory lock, held until the caller's transaction ends, puts
+them in line. This only works under READ COMMITTED (the default): under
+REPEATABLE READ the snapshot would predate the lock and appends could fork.
 
-The insert joins the caller's transaction deliberately: a request that fails
-after appending takes its audit event down with it, so there is never a
-committed action without its event or an event without its action.
-
-The lock only serialises correctly because the read that follows it sees
-rows committed after the lock was granted, which is true under READ
-COMMITTED (the engine default). Under REPEATABLE READ the snapshot would
-predate the lock and two appends could still fork; do not set a stricter
-isolation level on this session without revisiting the read below.
+The insert joins the caller's transaction, so an action and its event
+commit or roll back together.
 """
 
 import uuid
@@ -34,9 +25,8 @@ from helpdesk.shared.crud.audit import acquire_audit_lock, fetch_last_event_hash
 class AuditEventInput(BaseModel):
     """One event as its caller describes it.
 
-    Carries no `tenant_id`, `seq`, `prev_hash` or `hash`: the chain fields
-    belong to this module and the tenant comes from the caller's verified
-    identity, never from the event body.
+    No chain fields and no tenant: the tenant comes from the caller's
+    verified identity, never from the event body.
     """
 
     occurred_at: AwareDatetime | None = None
@@ -59,11 +49,9 @@ async def append_event(
 ) -> AuditEvent:
     """Link one event onto `tenant_id`'s chain and flush it; the caller commits.
 
-    The tenant actually written is the session's bound one, and a mismatched
-    argument is refused rather than honoured. The ORM guard
-    cannot catch this: it does not cover INSERTs, so a caller passing a
-    tenant from a tool argument would otherwise splice a genesis-linked row
-    into a different tenant's chain and make that chain read as tampered.
+    A tenant that differs from the session's bound one is refused. The ORM
+    guard does not cover INSERTs, so without this check a wrong tenant would
+    splice a row into another tenant's chain and make it read as tampered.
     """
     bound = bound_tenant_id(session)
     if bound != tenant_id:
@@ -78,9 +66,8 @@ async def append_event(
         # The tenant is inside the digest: without it a whole chain could be
         # relabelled onto an empty tenant and still verify as intact.
         "tenant_id": bound,
-        # Normalised to UTC before hashing so the same instant always
-        # renders one way; Postgres returns it in UTC on the way back, and
-        # an offset difference would read as permanent tampering.
+        # UTC before hashing, so the value read back from Postgres hashes
+        # the same.
         "occurred_at": (event.occurred_at or datetime.now(UTC)).astimezone(UTC),
         "actor_kind": event.actor_kind,
         "actor_ref": event.actor_ref,
@@ -91,8 +78,6 @@ async def append_event(
         "subject_id": event.subject_id,
         "payload": event.payload,
     }
-    # `fields` carries tenant_id, so the stored row and the digest cannot
-    # disagree about which chain this event belongs to.
     row = AuditEvent(prev_hash=prev_hash, hash=event_hash(prev_hash, fields), **fields)
     session.add(row)
     await session.flush()

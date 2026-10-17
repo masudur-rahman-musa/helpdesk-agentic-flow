@@ -12,7 +12,7 @@ import { SESSION_COOKIE_NAME, clearSessionCookie, setSessionCookie } from "@/lib
  * process, no backing service. Every case names the wrong
  * handler it kills.
  *
- * Values the plan left open (a project rule, recorded in 22a's Deviations):
+ * Values the plan left open:
  * the refusal body is `{ message: SIGN_IN_FAILED_MESSAGE }` — one key, named
  * `message` — and both schema refusals (a field failing the pre-check, and an
  * unparseable body) answer 400.
@@ -85,7 +85,7 @@ describe("POST /api/login — agent-api answers 200", () => {
   });
 
   it("serialises the session cookie with HttpOnly, SameSite=Lax and Path=/", async () => {
-    // Kills the plan §5 risk directly: a cookie missing HttpOnly or SameSite
+    // Kills the main risk directly: a cookie missing HttpOnly or SameSite
     // puts the bearer in reach of any script on the page. Asserted on the
     // serialised attribute strings, never on the cookie's value, because a
     // handler that sets the right value with the wrong flags is the defect.
@@ -100,7 +100,7 @@ describe("POST /api/login — agent-api answers 200", () => {
   });
 
   it("never returns the bearer in the response body", async () => {
-    // Kills a handler that also echoes the token to the client (criterion 3's
+    // Kills a handler that also echoes the token to the client (the
     // server half). The raw text is searched, so no key name can hide it:
     // { token }, { data: { access_token } } and a bare string all turn red.
     const response = await loginPost(loginRequest(validBody()));
@@ -130,14 +130,14 @@ describe("POST /api/login — agent-api answers 401", () => {
 
   it("answers the one generic message and nothing field-level", async () => {
     // Kills a handler that hand-types its own refusal text, which drifts from
-    // the form's message; the constant is the single source (§1 401 criterion).
+    // the form's message; the constant is the single source.
     const response = await loginPost(loginRequest(validBody()));
     const body: unknown = await response.json();
     expect(body).toEqual({ message: SIGN_IN_FAILED_MESSAGE });
   });
 
   it("does not forward agent-api's own error body", async () => {
-    // Kills the plan §5 risk: a handler that proxies the upstream body turns one
+    // Kills the main risk: a handler that proxies the upstream body turns one
     // generic refusal into an upstream error code the client can read and branch
     // on. agent-api's 401 body here is {"code":"FORBIDDEN"} and the word must
     // not survive into the response.
@@ -173,7 +173,7 @@ describe("POST /api/login — the schema pre-check runs before any fetch", () =>
   it.each(refused)("never calls fetch for $label", async ({ body }) => {
     // Kills a handler that validates AFTER the upstream call (or not at all):
     // the stub is primed to succeed, so only the call COUNT can tell the two
-    // orders apart. §6 names this the case that fails if the pre-check moves.
+    // orders apart. This is the case that fails if the pre-check moves.
     fetchStub.mockResolvedValue(jsonResponse(200, { access_token: BEARER, token_type: "bearer" }));
     const response = await loginPost(loginRequest(body));
     expect(fetchStub).toHaveBeenCalledTimes(0);

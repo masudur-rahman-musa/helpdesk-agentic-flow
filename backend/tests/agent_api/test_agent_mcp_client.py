@@ -1,4 +1,4 @@
-"""An earlier change §6: the per-turn MCP session, its token and its typed error mapping.
+"""The per-turn MCP session, its token and its typed error mapping.
 
 Surface under test (written before it exists):
 
@@ -15,7 +15,7 @@ Surface under test (written before it exists):
         public ``http_client: httpx2.AsyncClient`` built in ``__init__``.
 
 Driven over a REAL MCP session against the in-process `mcp_server` app
-(decision A: the official SDK's streamable-HTTP client), exactly the shape
+(the official SDK's streamable-HTTP client), exactly the shape
 `mcp_fixtures.py` uses — an httpx2 ASGI transport, so no socket is opened. The
 cheap read tool `get_me` is the vehicle: it reaches Postgres and nothing else,
 so this file's cost is that fixture module's session-scoped database and Redis
@@ -90,7 +90,7 @@ PLANNED_REMOTE_ERRORS: dict[str, str] = {
     "VALIDATION": "RemoteValidationError",
     "INTERNAL": "RemoteInternalError",
 }
-"""the design's eight codes and the class each maps to, as a literal.
+"""The eight codes and the class each maps to, as a literal.
 
 Eight, counted from `helpdesk.errors.ErrorCode`. Written out
 rather than generated from the enum, so a code deleted from BOTH sides at once
@@ -101,7 +101,7 @@ class GetMeArgs(BaseModel):
     """`get_me` takes no arguments: everything it needs is on the token.
 
     Local to this file rather than in the catalogue, because the catalogue
-    holds the tools the AGENT may call and this plan registers only
+    holds the tools the AGENT may call and this file registers only
     `search_policy`. `get_me` is here as the cheapest thing that proves the
     transport."""
 
@@ -161,7 +161,7 @@ def test_the_client_timeouts_are_exactly_the_planned_values() -> None:
 
 
 def test_the_constructed_client_carries_both_halves_of_the_timeout() -> None:
-    """a project rule: the constants existing is not the obligation, the
+    """The constants existing is not the obligation, the
     CONSTRUCTED client carrying them is. Catches an implementation that
     declares both numbers and then passes `timeout=MCP_READ_TIMEOUT_SECONDS`
     as a scalar — the connect half would silently become 30 seconds, so an
@@ -184,7 +184,7 @@ def test_the_bearer_token_is_forwarded_verbatim_on_the_constructed_client() -> N
 
 
 def test_the_transport_failure_message_names_neither_host_nor_path() -> None:
-    """Plan §5's second risk, on the constant itself: catches a message built
+    """On the constant itself: catches a message built
     as an f-string over the configured URL, which would put the internal
     hostname and the endpoint path in front of an end user."""
     assert TRANSPORT_FAILURE_MESSAGE == "the policy service could not be reached"
@@ -226,7 +226,7 @@ def test_each_code_maps_to_the_subclass_that_declares_it(code_value: str, class_
 
 def test_the_eight_named_subclasses_are_exactly_the_mapped_ones() -> None:
     """Catches a ninth remote error class added beside the eight — a second
-    answer for a code the design closes — and a subclass declared but never
+    answer for a code the error list closes — and a subclass declared but never
     reachable through the map, which is a code the client can never raise."""
     named = {
         RemoteForbiddenError,
@@ -249,7 +249,7 @@ def test_the_eight_named_subclasses_are_exactly_the_mapped_ones() -> None:
 def test_the_forwarded_token_reaches_the_server_and_the_call_succeeds(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 1, end to end. Catches a client that opens the session without
+    """End to end. Catches a client that opens the session without
     the `Authorization` header — the server would answer `FORBIDDEN` for a call
     the caller is entitled to make — and one that returns the raw
     `CallToolResult` instead of the structured content the protocol promises.
@@ -275,7 +275,7 @@ def test_the_forwarded_token_reaches_the_server_and_the_call_succeeds(
 def test_the_session_is_closed_after_a_successful_call(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision B's other half: one session PER TURN means it ends with the
+    """One session PER TURN means it ends with the
     turn. Catches an `__aexit__` that closes the MCP session and leaves the
     httpx client open, which leaks a connection pool per turn and shows up as
     exhaustion under load rather than as a failure here."""
@@ -297,7 +297,7 @@ def test_the_session_is_closed_after_a_successful_call(
 def test_the_session_is_closed_when_the_call_raises(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Plan §5's fourth risk. Catches an `__aexit__` that returns early on an
+    """Catches an `__aexit__` that returns early on an
     exception, or a close written after the call rather than in the context
     manager: the failing turn would leak the pool, and a failing turn is
     exactly when a retrying client opens more of them."""
@@ -318,7 +318,7 @@ def test_the_session_is_closed_when_the_call_raises(
 def test_an_errored_result_maps_back_to_the_subclass_its_code_names(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 2's happy half. Catches a client that reads only the content
+    """The happy half. Catches a client that reads only the content
     text and ignores `is_error`, which would return the string `"NOT_FOUND"` to
     a node as if it were an answer, and one that collapses every errored result
     into `INTERNAL`, which would tell the turn a real refusal was an outage.
@@ -346,11 +346,11 @@ def test_an_errored_result_maps_back_to_the_subclass_its_code_names(
     assert str(raised) != TRANSPORT_FAILURE_MESSAGE
 
 
-# --- criterion 2's unhappy half: one opaque INTERNAL ---------------------------
+# --- the unhappy half: one opaque INTERNAL ---------------------------
 
 
 def test_an_unreachable_server_is_one_typed_internal_naming_neither_host_nor_path() -> None:
-    """Plan §5's second risk, on the raised error rather than the constant.
+    """On the raised error rather than the constant.
 
     Catches a client that lets `httpx2.ConnectError` escape — a node would then
     see an untyped exception where every other failure is a `ToolError`, and
@@ -381,7 +381,7 @@ def test_an_unreachable_server_is_one_typed_internal_naming_neither_host_nor_pat
 
 
 def test_a_non_2xx_answer_is_the_same_typed_internal() -> None:
-    """Criterion 2's second shape. Catches a client that only guards the
+    """The second shape. Catches a client that only guards the
     connect step: a reachable server answering 500 (a bad deploy, a proxy in
     the way) raises inside the SDK's handshake instead of at the socket, so an
     implementation wrapping `connect` alone passes the row above and fails
@@ -437,7 +437,7 @@ def test_a_tool_name_the_server_does_not_serve_is_a_typed_error(
 
 @pytest.mark.parametrize("text", ["", "   ", "not_a_code", "NOT_FOUND extra", "internal"])
 def test_an_unparseable_error_text_is_the_opaque_internal(text: str) -> None:
-    """Criterion 2's third shape, on the pure seam.
+    """The third shape, on the pure seam.
 
     Our own server writes exactly one of the eight codes and nothing else
     (`pipeline.error_result`), so this branch is unreachable through a real
@@ -468,7 +468,7 @@ def test_every_code_text_maps_through_the_seam_to_its_own_class(code: ErrorCode)
 
 
 def test_a_success_with_no_structured_content_is_the_opaque_internal() -> None:
-    """Criterion 2's last shape: a result the client cannot parse.
+    """The last shape: a result the client cannot parse.
 
     The real server always attaches structured content to a success
     (`pipeline._success_result`), so the only way to reach this branch is to

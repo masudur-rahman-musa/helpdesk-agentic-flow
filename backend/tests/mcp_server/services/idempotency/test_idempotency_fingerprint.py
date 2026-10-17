@@ -1,4 +1,4 @@
-"""An earlier change section 6: the request fingerprint, written before the implementation.
+"""The request fingerprint, written before the implementation.
 
 Expected implementation surface:
 

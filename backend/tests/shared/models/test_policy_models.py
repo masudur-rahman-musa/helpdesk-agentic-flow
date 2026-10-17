@@ -1,4 +1,4 @@
-"""An earlier change §6: the two the design policy tables and their tenant isolation.
+"""The two policy tables and their tenant isolation.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -12,21 +12,21 @@ Expected implementation surface (the implementer must provide exactly this):
         (`String(SHA256_LENGTH)`), ``ingested_at`` (timezone-aware datetime).
     ``class PolicyChunk(TenantScoped)`` — ``__tablename__ = "policy_chunks"``;
         columns ``document_id`` (FK to ``policy_documents.id``),
-        ``chunk_index`` (int), ``heading_path`` (`ARRAY(Text)`, decision C),
+        ``chunk_index`` (int), ``heading_path`` (`ARRAY(Text)`),
         ``char_start`` / ``char_end`` (int), ``qdrant_point_id``
-        (nullable until 14c writes the point), ``text``.
+        (nullable until ingestion writes the point), ``text``.
 
 The four `String` widths come from ``helpdesk.rag.naming``'s constants, not
 from repeated literals, so a widened check and its column cannot drift apart
-(the an earlier change rule). Pinned by
+Pinned by
 ``test_the_document_column_widths_are_the_naming_constants``.
 
-a project rule: this plan EXTENDS the hand-kept `TENANT_SCOPED_TABLES`
+This change EXTENDS the hand-kept `TENANT_SCOPED_TABLES`
 allowlist that `test_models.py` reads as the schema literal, so
 ``test_both_tables_are_in_the_tenant_scoped_allowlist`` fails until
 `_seed.py` names both tables — that is the obligation, made mechanical.
 
-a project rule: one session-scoped database for the whole run
+One session-scoped database for the whole run
 (`policy_db_url`, shared with `test_rag_store.py`, which imports it rather
 than building a second). Per-test isolation is a namespace: every case
 plants documents under its own uuid-suffixed slug.
@@ -103,7 +103,7 @@ def policy_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             factory = create_session_factory(engine)
-            # An earlier change: `seed_tenant` now suffixes the globally-unique tenant
+            # `seed_tenant` suffixes the globally-unique tenant
             # slug, so the real slugs are read back here rather than assumed to
             # equal the labels, for the by-slug lookup below.
             _SEEDED_SLUGS["a"] = await _seed_with_label(factory, TENANT_A_SLUG)
@@ -130,16 +130,15 @@ def test_both_policy_tables_are_in_the_metadata() -> None:
 
 
 def test_both_tables_are_in_the_tenant_scoped_allowlist() -> None:
-    """Catches the plan §5 risk directly: models added without extending
+    """Catches the risk directly: models added without extending
     `_seed.py::TENANT_SCOPED_TABLES`, which leaves `test_models.py`'s
-    schema-literal sweep red for a later plan to discover (standing rule
-    27)."""
+    schema-literal sweep red for a later plan to discover."""
     assert "policy_documents" in TENANT_SCOPED_TABLES
     assert "policy_chunks" in TENANT_SCOPED_TABLES
 
 
 def test_the_document_columns_are_the_spec_6_columns() -> None:
-    """Catches a `policy_documents` table missing any the design column — most
+    """Catches a `policy_documents` table missing any expected column — most
     of all `is_current`, without which no version is distinguishable, and
     `sha256`, without which re-ingestion cannot be idempotent."""
     columns = Base.metadata.tables["policy_documents"].c
@@ -194,7 +193,7 @@ def test_the_chunk_document_id_is_a_foreign_key_to_policy_documents() -> None:
 
 
 def test_heading_path_is_a_text_array() -> None:
-    """Catches decision C being implemented as a joined string or as `jsonb`
+    """Catches `heading_path` being implemented as a joined string or as `jsonb`
     — both of which need a separator or a decode step the Qdrant payload
     does not, and a separator no heading may contain does not exist."""
     column_type = Base.metadata.tables["policy_chunks"].c.heading_path.type

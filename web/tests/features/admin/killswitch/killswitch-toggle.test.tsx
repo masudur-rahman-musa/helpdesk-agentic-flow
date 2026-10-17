@@ -13,31 +13,29 @@ import { QueryProvider } from "@/components/layout/query-provider";
 import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 
 /**
- * An earlier change §6, `killswitch-toggle.test.tsx`: the per-row kill switch toggle —
+ * `killswitch-toggle.test.tsx`: the per-row kill switch toggle —
  * two controls, a reason, one POST — against a stubbed `fetch`. jsdom, no
- * agent-api, no backing service. (No basename collision in the tree, standing
- * rule 48: the neighbours are `killswitch-board.test.tsx`,
+ * agent-api, no backing service. (The neighbours are `killswitch-board.test.tsx`,
  * `killswitch-format.test.ts`, `killswitch-schema.test.ts` and
  * `killswitch-proxy-routes.test.ts`.)
  *
  * The toggle is NOT rendered standalone: it holds `useMutation` and is a child
  * of `KillSwitchBoard`, so every case here renders `<KillSwitchBoard />` inside
- * `QueryProvider` (§6, a project rule) against a stub that answers the board
+ * `QueryProvider` against a stub that answers the board
  * on `GET /api/admin/killswitch` and the toggle on `POST /api/admin/killswitch`
  * — ONE path, two verbs, which is why every call assertion in this file
  * discriminates on the method rather than on the URL.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24db's Deviations):
+ * Shapes this file fixes:
  * - the component is `KillSwitchToggle` from
  *   `web/src/features/admin/killswitch/components/kill-switch-toggle.tsx`, taking
- *   `{ row: KillSwitchRow; onChanged: () => void }` (decision G). No case
+ *   `{ row: KillSwitchRow; onChanged: () => void }`. No case
  *   imports it: the board is the only renderer, so the component's name is
  *   pinned by nothing here and the four SENTENCES are what this file imports.
  * - the four override / failure constants are exported from that same module as
  *   `KILL_SWITCH_TOGGLE_MESSAGE`, `KILL_SWITCH_REASON_REQUIRED_MESSAGE`,
  *   `KILL_SWITCH_POLICY_BLOCKED_MESSAGE` and `KILL_SWITCH_VALIDATION_MESSAGE`,
- *   the `DECISION_VALIDATION_MESSAGE` precedent (23d), so this file imports
+ *   the `DECISION_VALIDATION_MESSAGE` precedent, so this file imports
  *   them rather than repeating three of the four.
  * - a POST is read off the stub's call list as `[input, init]`, with
  *   `JSON.parse(init.body)` asserted as a WHOLE object (`toEqual`), so a fifth
@@ -51,8 +49,8 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
  * - an expired session at the POST is `response.redirected` with `url` on the
  *   INSTANCE and `location` stubbed through `vi.stubGlobal`.
  *
- * Every board fixture parses under `web/src/features/admin/killswitch/schema.ts` as 24cb built
- * it, and every toggle success answers `setKillSwitchResultSchema`'s four
+ * Every board fixture parses under `web/src/features/admin/killswitch/schema.ts`,
+ * and every toggle success answers `setKillSwitchResultSchema`'s four
  * fields. Both parsers are pinned by `tests/killswitch-schema.test.ts` and only
  * CONSUMED here. Obviously fake actors and reasons throughout.
  */
@@ -61,7 +59,7 @@ const ORIGIN = "http://localhost:3000";
 const BOARD_PATH = "/api/admin/killswitch";
 const LOGIN_URL = "http://localhost:3000/login";
 
-/** The tool's own cap (13c), applied at the route. The page adds no second. */
+/** The tool's own cap, applied at the route. The page adds no second. */
 const REASON_MAX_LENGTH = 500;
 
 const TOOL = "request_access";
@@ -70,7 +68,7 @@ const OTHER_TOOL = "grant_access";
 /** The reason every case that expects a call types into the row's field. */
 const REASON = "Obviously fake reason.";
 
-/** The four columns 24da fixed, plus this plan's fifth. */
+/** The four board columns, plus the fifth for the controls. */
 const TOOL_CELL = 0;
 const ACTIONS_CELL = 4;
 
@@ -86,7 +84,7 @@ const TENANT_STATE: Record<string, unknown> = {
   at: "2026-09-11T17:30:45+00:00",
 };
 
-/** The four control names §1 fixes, per tool. */
+/** The four control names, per tool. */
 function stopGlobal(tool: string): string {
   return `Stop platform-wide for ${tool}`;
 }
@@ -121,7 +119,7 @@ function row(overrides: Record<string, unknown>): Record<string, unknown> {
 /**
  * Neither layer set, so both controls read `Stop`. `stopped` is deliberately
  * TRUE while both layers are null: a toggle deriving its verbs from `stopped`
- * renders `Release` here, which is the merge §1's third criterion forbids.
+ * renders `Release` here, which is the merge the board must not make.
  */
 const ROW_NEITHER = row({ tool: TOOL, stopped: true });
 
@@ -329,17 +327,17 @@ afterEach(() => {
 
 describe("KillSwitchToggle — what a row offers", () => {
   it("puts exactly two controls and one reason field in the fifth cell", async () => {
-    // §1's first criterion, counted inside the row and inside the new cell.
+    // Counted inside the row and inside the new cell.
     // Kills a toggle that renders all FOUR verbs per row — a Stop and a Release
     // side by side on one layer, where an admin clicking the wrong one releases
     // a tool the platform meant to hold down — and kills one that renders a
-    // single Stop/Release pair for a merged state, which is decision B's whole
+    // single Stop/Release pair for a merged state, which is the whole
     // point (there would then be no way to say which scope a click meant). The
     // field count kills a shared reason box hoisted to the board, where one
     // admin's typed reason would be filed against whichever tool they clicked
     // next. Scoped to the ACTIONS cell as well as to the row, so a control
-    // smuggled into a layer cell (decision A's rejected option, which makes
-    // 24da's positional assertions read "No switch Stop platform-wide") is red
+    // smuggled into a layer cell (a rejected design, which makes
+    // the positional assertions read "No switch Stop platform-wide") is red
     // here rather than in the neighbouring file.
     boardAnswer = () => board([ROW_NEITHER]);
     renderBoard();
@@ -391,15 +389,15 @@ describe("KillSwitchToggle — what a row offers", () => {
   it.each(VERBS)(
     "derives each verb from its own layer with $name",
     async ({ entry, present, absent }) => {
-      // §1's third criterion, parametrised over all four layer combinations, and
+      // Parametrised over all four layer combinations, and
       // arranged so ONLY the per-layer derivation passes every row. Each fixture
       // carries a `stopped` that CONTRADICTS the layer it would be mistaken for:
-      // row 1 is stopped with a null tenant layer, so a toggle reading `stopped`
+      // the first row is stopped with a null tenant layer, so a toggle reading `stopped`
       // offers `Release for this tenant` for a tenant switch that holds nothing,
       // and the admin's click clears nothing while the platform keeps the tool
-      // down; row 2 is not stopped with a tenant layer present, so the same
+      // down; the second row is not stopped with a tenant layer present, so the same
       // toggle offers `Stop for this tenant` on a layer already held and the row
-      // never changes. Rows 3 and 4 pin the two unambiguous ends, so a toggle
+      // never changes. The third and fourth rows pin the two unambiguous ends, so a toggle
       // that renders one fixed pair of verbs regardless is red too. The ABSENCE
       // of the opposite name is asserted in the same row because the presence
       // assertion alone is green for a toggle rendering all four verbs — which
@@ -418,7 +416,7 @@ describe("KillSwitchToggle — what a row offers", () => {
   );
 
   it("renders Release on both layers for an unreadable row", async () => {
-    // §1's ninth criterion and decision D. The fixture is what 24ca decision D
+    // The fixture is what the tool
     // actually produces — both stored states null, `stopped` true, `unreadable`
     // true — so the NORMAL derivation would read "no switch on either layer"
     // and offer two Stops. That is the wrong offer in the one situation an
@@ -459,7 +457,7 @@ describe("KillSwitchToggle — what a row offers", () => {
   it.each(PROTECTION)(
     "renders both controls disabled=$enabled for $name",
     async ({ entry, enabled }) => {
-      // §1's eighth criterion, both directions, one case each because the
+      // Both directions, one case each because the
       // disabled half alone is green for a page that disables every control it
       // renders. Read off the ROW's own `protected` and never off a browser-side
       // copy of `PROTECTED_TOOLS` — a second copy of a security-relevant list is
@@ -518,14 +516,14 @@ describe("KillSwitchToggle — the body each control posts", () => {
   ];
 
   it.each(BODIES)("$name posts its exact four-key body", async ({ entry, clicks, body }) => {
-    // §1's fourth, fifth and sixth criteria at once, and §5's first two risks.
+    // Several checks at once.
     // The body is asserted as a WHOLE object, so a fifth key is red: a page
-    // sending `tenant_id` would be a project rule written into the browser (the
-    // router substitutes the token's own, 24cb decision C) and `SetKillSwitchBody`
+    // sending `tenant_id` would trust the caller's tenant in the browser (the
+    // router substitutes the token's own) and `SetKillSwitchBody`
     // forbids extras, so it arrives as a 400 an admin reads as a broken page; a
-    // page sending an idempotency key would be inventing one 13c decision C
+    // page sending an idempotency key would be inventing one that
     // says nothing derives. All four rows together are the polarity kill:
-    // `enabled` describes the SWITCH and `stopped` the TOOL (13c decision B),
+    // `enabled` describes the SWITCH and `stopped` the TOOL,
     // so a page that inverted it would RELEASE a tool an admin just stopped,
     // silently, with a 200 — and one row alone cannot see that, because a
     // constant `enabled: true` passes the two Stops. The two `scope` literals
@@ -550,7 +548,7 @@ describe("KillSwitchToggle — the body each control posts", () => {
   });
 
   it("sends a 500 character reason whole, with no maxLength on the field", async () => {
-    // §1's input-validation criterion and 23c decision E's precedent. Kills a
+    // Input validation, following the earlier precedent. Kills a
     // reason box carrying `maxLength={500}` or any lower bound of its own: the
     // browser would hand the tool a silently truncated reason, and the stored
     // switch — the only record of why a tool was stopped for everybody — would
@@ -582,7 +580,7 @@ describe("KillSwitchToggle — the body each control posts", () => {
 
 describe("KillSwitchToggle — the misclick guard on the platform-wide stop", () => {
   it("posts nothing on the first click and renames the control to confirm", async () => {
-    // §1's seventh criterion and decision C, the arming half. This is the only
+    // The arming half. This is the only
     // click in the product that stops a tool for EVERY tenant, and the kill is
     // the absent call: a toggle with no arming posts on this click, and the
     // assertion that the call list is empty is what catches it — the renamed
@@ -604,7 +602,7 @@ describe("KillSwitchToggle — the misclick guard on the platform-wide stop", ()
   });
 
   it("posts exactly once on the second click", async () => {
-    // Decision C's other half. Kills a guard that arms and never fires — an
+    // The other half of the guard. Kills a guard that arms and never fires — an
     // admin who needs to stop a tool platform-wide during an incident would
     // click twice and nothing would happen — and kills one that posts on BOTH
     // clicks, which is the shape an implementer produces by renaming the label
@@ -626,7 +624,7 @@ describe("KillSwitchToggle — the misclick guard on the platform-wide stop", ()
   });
 
   it("clears the arming when another control in the same row is clicked", async () => {
-    // §1's seventh criterion, last sentence. Kills a toggle whose armed flag
+    // Last sentence. Kills a toggle whose armed flag
     // survives an unrelated click: the admin arms the platform-wide stop,
     // changes their mind, stops the tool for their own tenant instead, and the
     // NEXT click on the platform-wide control — which still reads `Confirm` —
@@ -659,7 +657,7 @@ describe("KillSwitchToggle — the misclick guard on the platform-wide stop", ()
     ];
 
   it.each(UNARMED)("$name posts on its FIRST click", async ({ entry, control }) => {
-    // §1's eighth criterion: the arming applies to the platform-wide STOP
+    // The arming applies to the platform-wide STOP
     // alone. Kills a guard written over the whole row rather than over one
     // control — making an admin click twice to bring a platform back up is a
     // cost paid during an incident, when the release is the act everyone is
@@ -685,7 +683,7 @@ describe("KillSwitchToggle — the misclick guard on the platform-wide stop", ()
 
 describe("KillSwitchToggle — what a successful toggle does to the board", () => {
   it("re-reads the board, rewrites nothing before the answer and clears the reason", async () => {
-    // §1's tenth criterion and decision G, all three halves. The second read is
+    // All three halves. The second read is
     // held open, so the moment AFTER the toggle succeeded and BEFORE the
     // refetch answered is observable: a page flipping the row optimistically
     // shows a stop as landed that the tool may not have applied — on the one
@@ -734,7 +732,7 @@ describe("KillSwitchToggle — what a successful toggle does to the board", () =
   });
 
   it("disables only the acting row's controls while its toggle is in flight", async () => {
-    // §1's eleventh criterion and §2's reason for one component instance per
+    // One component instance per
     // row. Kills a board holding ONE in-flight flag for every row: an admin
     // stopping one tool during an incident would find every other tool's
     // controls greyed out, including the releases they need next. Kills a page
@@ -781,7 +779,7 @@ describe("KillSwitchToggle — a reason the page refuses for itself", () => {
   ];
 
   it.each(BLANK)("$name makes no call at all and says so in the row", async ({ reason }) => {
-    // §1's first unhappy path: a floor the page owns, and never a second cap.
+    // A floor the page owns, and never a second cap.
     // Kills a toggle that posts whatever is in the box — the tool would answer
     // `VALIDATION`, the admin would read an error for something the page knew
     // before it asked, and a round trip through the proxy would be spent on it.
@@ -843,15 +841,15 @@ describe("KillSwitchToggle — a refused toggle", () => {
   it.each(REFUSALS)(
     "$name renders its sentence in the acting row and leaves the board alone",
     async ({ status, code, sentence, shared }) => {
-      // §1's second unhappy path and decision E, one case per pinned code.
+      // One case per pinned code.
       // Kills a page rendering the CODE at the admin ("POLICY_BLOCKED" means
       // nothing to the person reading it), and kills one answering every
       // refusal with `KILL_SWITCH_TOGGLE_MESSAGE` — a principal who is not a
       // `platform_admin` would be told to "try again in a moment" for something
       // no retry fixes. The FORBIDDEN sentence is READ from `FAILURE_MESSAGES`,
-      // so a page inventing its own wording is red without widening 22b's
+      // so a page inventing its own wording is red without widening the shared
       // pinned map; the other two rows assert the override AND the absence of
-      // the shared string, which is the whole of decision E — the shared
+      // the shared string, which is the whole point — the shared
       // `POLICY_BLOCKED` sentence is about chat rate limiting ("Too many
       // messages just now.") and would tell an admin to wait for a refusal that
       // is a permanent property of a protected tool, and the shared
@@ -900,17 +898,17 @@ describe("KillSwitchToggle — a refused toggle", () => {
   ];
 
   it.each(BROKEN)("$name renders the toggle message and re-reads nothing", async ({ answer }) => {
-    // §1's third unhappy path and decision F, from three directions, all
+    // From three directions, all
     // killing one implementation: a toggle that treats any answer it did not
     // understand as a success and invalidates the board. The admin would then
     // be shown a freshly re-read board as evidence that a stop landed, on the
-    // strength of a reply that never said so. Row 1 kills an unguarded
+    // strength of a reply that never said so. The first row kills an unguarded
     // `response.json()`, where the parse error escapes as an unhandled
-    // rejection instead of a sentence. Row 2 is a set result missing `stopped`
+    // rejection instead of a sentence. The second row is a set result missing `stopped`
     // alone, so it kills a page that CASTS the body instead of running
-    // `safeParse` — which is exactly why 24cb wrote the schema. Row 3 is the
-    // decision E / a project rule discriminator: `UPSTREAM_UNAVAILABLE` is
-    // not one of the design's eight codes, so it is a failed toggle and not a
+    // `safeParse` — which is exactly why the schema exists. The third row is the
+    // refusal-versus-failure discriminator: `UPSTREAM_UNAVAILABLE` is
+    // not one of the eight typed error codes, so it is a failed toggle and not a
     // typed refusal, and a page answering `failureMessage(code)` here shows
     // "Something went wrong. Nothing was changed." — red against this constant.
     boardAnswer = () => board([ROW_NEITHER]);
@@ -930,7 +928,7 @@ describe("KillSwitchToggle — a refused toggle", () => {
 
 describe("KillSwitchToggle — an expired session at the toggle", () => {
   it("follows the proxy's redirect to /login, with no alert and no re-read", async () => {
-    // §1's fourth unhappy path, and the half a fetcher fixed only at the read
+    // And the half a fetcher fixed only at the read
     // misses: a board sits open on a screen for minutes, so a session expiring
     // BETWEEN the paint and the click is the common case. The read here
     // SUCCEEDS, so only the POST path can make the assignment happen and no
@@ -960,7 +958,7 @@ describe("KillSwitchToggle — an expired session at the toggle", () => {
 
 describe("KillSwitchToggle — the four sentences this surface owns", () => {
   it("pins the failure and the reason-required sentences exactly", async () => {
-    // a project rule on two of the strings this plan introduces. The cases
+    // The exact literals for two of the new strings. The cases
     // above read the CONSTANTS, so they stay green for whatever value the
     // module chooses; only these literals fix them. Kills an implementation
     // that exports the names and fills them with a reworded variant, and the
@@ -975,7 +973,7 @@ describe("KillSwitchToggle — the four sentences this surface owns", () => {
   });
 
   it("pins the two override sentences exactly and apart from the shared map", async () => {
-    // Decision E's two values, verbatim (§4). Kills an implementation that
+    // The two override values, verbatim. Kills an implementation that
     // exports the two names but assigns them `FAILURE_MESSAGES.POLICY_BLOCKED`
     // and `FAILURE_MESSAGES.VALIDATION` — the parametrised refusal rows would
     // then pass their positive assertion and only their `not.toContain` half
@@ -995,9 +993,9 @@ describe("KillSwitchToggle — the four sentences this surface owns", () => {
 
 describe("KillSwitchToggle — the vocabulary check decision A swaps out (plan 24ib §6)", () => {
   it("renders the shared TOOL_DISABLED sentence for a typed refusal", async () => {
-    // An earlier change decision A, the half that must stay TRUE when this file's
+    // The half that must stay TRUE when this file's
     // private `isTypedCode` becomes `lib/wire-read.ts`'s import: a code that IS
-    // one of the design's eight still reaches `ToggleRefusedError` and still
+    // one of the eight typed error codes still reaches `ToggleRefusedError` and still
     // renders that code's shared sentence. `TOOL_DISABLED` is the row no
     // existing case covers — the three pinned ones are `FORBIDDEN` and the two
     // overrides — so this kills a predicate narrowed to the codes the other
@@ -1023,7 +1021,7 @@ describe("KillSwitchToggle — the vocabulary check decision A swaps out (plan 2
   });
 
   it("treats the map's fallback KEY as no code at all", async () => {
-    // Decision A's other half, and the one assertion that separates the real
+    // The other half, and the one assertion that separates the real
     // predicate from the lazy one. `default` is `FAILURE_MESSAGES`' fallback
     // KEY and never a wire value, so `code in FAILURE_MESSAGES` alone answers
     // TRUE for it: the existing `UPSTREAM_UNAVAILABLE` row cannot see that,

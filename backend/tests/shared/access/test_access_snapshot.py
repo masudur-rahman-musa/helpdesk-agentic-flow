@@ -1,27 +1,27 @@
-"""An earlier change, section 6: `build_request_snapshot` over one seeded database.
+"""`build_request_snapshot` over one seeded database.
 
 Surface under test (written before it exists):
 
 ``helpdesk.access.directory``
-    ``DirectoryProvider`` — the read half of the directory port (an earlier change
-    decision A): ``lookup_user(user_id)``, ``list_membership_role_ids(user_id)``
+    ``DirectoryProvider`` — the read half of the directory port (the
+    request flow): ``lookup_user(user_id)``, ``list_membership_role_ids(user_id)``
     (role ids of the user's department template; empty frozenset for a user
     with no department) and ``list_account_role_ids(user_id, now)`` (role ids
     of the user's active, unrevoked, unexpired grants).
-    ``SimulatedDirectory(session)`` — its only v1 implementation (the design),
+    ``SimulatedDirectory(session)`` — its only v1 implementation,
     over a tenant-scoped session.
 
 ``helpdesk.access.snapshot``
     ``async def build_request_snapshot(session, directory, *,
     requester_user_id, target_user_id, role_id, requested_expiry_days=None,
-    now) -> RequestSnapshot`` — an earlier change's snapshot filled from repository
+    now) -> RequestSnapshot`` — the snapshot filled from repository
     reads. ``now`` is aware and keyword-only; ``tenure_days`` counts days
     from ``users.start_date`` to ``now``'s date, clamped at 0. Unknown role,
     unknown target and a cross-tenant target (via the tenant guard) all raise
     ``helpdesk.errors.NotFoundError``. ``policy_refs`` stays the empty
-    default until row 15 wires citations.
+    default until citations are wired in.
 
-a project rule: one throwaway database, created and seeded once for this
+One throwaway database, created and seeded once for this
 module (argon2 makes seeding the slow part); per-test isolation is distinct
 seeded users and unique justification strings, never a reseed. Expectations
 are derived from ``scripts.seed``'s deterministic generator
@@ -209,8 +209,8 @@ def test_an_in_template_role_fills_the_whole_snapshot(access_db_url: str) -> Non
     """Catches a builder that mis-joins any of the snapshot's sources: wrong
     template membership, a manager or owner read off the wrong row, role
     facts (privilege, sensitivity, expiry) not taken from the requested role,
-    a dropped `requested_expiry_days`, or a `policy_refs` filled before row
-    15 wires citations (decision B)."""
+    a dropped `requested_expiry_days`, or a `policy_refs` filled before citations
+    are wired in."""
     snapshot = _build(
         access_db_url,
         requester_user_id=REQUESTER.id,
@@ -305,7 +305,7 @@ def test_active_grant_role_ids_exclude_the_seeded_stale_grant(access_db_url: str
 def test_approved_pending_role_ids_hold_approved_requests_only(access_db_url: str) -> None:
     """Catches a pending set built from the wrong statuses: a request row
     with status `approved` must appear, a `pending` one for the same target
-    must not (the design counts only approved-not-yet-executed state)."""
+    must not (the spec counts only approved-not-yet-executed state)."""
     marker = uuid.uuid4().hex
     _insert_request(
         access_db_url,
@@ -382,7 +382,7 @@ def test_the_system_category_maps_through_from_the_seeded_column(
     expected_category: SystemCategory,
 ) -> None:
     """Catches a builder that defaults every system to OTHER (a migrated but
-    unread category column, an earlier change risk 2) or maps the string onto the
+    unread category column) or maps the string onto the
     wrong enum member: the seeded `prod-k8s` must come out PROD_INFRA and
     `hris` must come out HRIS."""
     snapshot = _build(

@@ -1,25 +1,25 @@
-"""An earlier change, sections 1 and 6: the two access read tools, through the transport.
+"""The two access read tools, through the transport.
 
 Surface under test (written before it exists):
 
 ``mcp_server.tools.access``
     ``classify_access_request(target_user_id, role_id, requested_expiry_days?)``
-    — builds an earlier change's snapshot, runs `policy.engine.classify`, returns the
+    — builds the snapshot, runs `policy.engine.classify`, returns the
     full `Classification` (risk_class, decision, reasons, required_approvers,
     effective_expiry_days, sod_conflicts with rule ids and `policy_ref`,
     policy_refs). Pure over DB state: no `access_requests` row is written and
-    exactly one audit event, ``request.classified`` (decision D), lands per
-    call. `requested_expiry_days` is typed gt=0 le=3650 (decision C). The
+    exactly one audit event, ``request.classified``, lands per
+    call. `requested_expiry_days` is typed gt=0 le=3650. The
     requester is the TOKEN's user; extra arguments are ignored like the other
     read tools.
-    ``list_my_requests(status?)`` — the token user's own requests only (hard
-    rule 6), event type ``tool.succeeded``. The status filter is exact
+    ``list_my_requests(status?)`` — the token user's own requests only,
+    event type ``tool.succeeded``. The status filter is exact
     `RequestStatus` membership; anything else is VALIDATION.
 
 Both wire names are sent as strings on purpose: an unregistered name fails at
 the registry, which is the right failure for a not-yet-implemented tool.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: unique justification strings, distinct seeded users, and
@@ -61,10 +61,10 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
 CLASSIFY = "classify_access_request"
 LIST_MY_REQUESTS = "list_my_requests"
 
-# Decision D: classify's own audit event, never the generic success one.
+# Classify's own audit event, never the generic success one.
 CLASSIFIED_EVENT = "request.classified"
 
-# Decision C's inclusive cap on `requested_expiry_days`.
+# The inclusive cap on `requested_expiry_days`.
 EXPIRY_DAYS_MAX = 3650
 
 # The deterministic seed rows for the tenant the classify cases run in.
@@ -76,7 +76,7 @@ OTHER_TENANT_ROWS = generate_tenant(CUAN)
 CLEAN_USER = ROWS.users_by_department["Production"][2]
 # The seeded planted-conflict user: Finance index 3 holds `payments.approver`
 # on top of the Finance template, so requesting `vendor-master.editor`
-# completes the seeded SoD pair (SoD-STD §2.2).
+# completes the seeded SoD pair.
 CONFLICT_USER = ROWS.users_by_department["Finance"][3]
 CONFLICT_REQUEST_ROLE = ROWS.role_ids[("vendor-master", "editor")]
 CONFLICT_HELD_ROLE = ROWS.role_ids[("payments", "approver")]
@@ -231,8 +231,8 @@ def test_classify_in_template_low_role_is_auto_with_one_event_and_no_row(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
     """Catches a handler that persists an `access_requests` row (classify is
-    read-only), writes any event other than exactly one `request.classified`
-    (decision D), or feeds the engine a snapshot with the wrong template
+    read-only), writes any event other than exactly one `request.classified`,
+    or feeds the engine a snapshot with the wrong template
     membership — the reasons would read NOT_IN_TEMPLATE and the decision
     would not be `auto`."""
     caller = _seeded(CLEAN_USER)
@@ -262,8 +262,8 @@ def test_classify_sod_conflict_is_blocked_citing_the_seeded_rule(
 ) -> None:
     """Catches a classify path that loses the SoD evidence on the way out:
     a conflict without the seeded rule's id, without its `policy_ref`, or
-    without the `SOD_CONFLICT:{rule_id}` reason is a block nobody can audit
-    (the design). Also catches a conflict path that files a row or logs a
+    without the `SOD_CONFLICT:{rule_id}` reason is a block nobody can audit.
+    Also catches a conflict path that files a row or logs a
     second event."""
     held = {ROWS.role_ids[grant.role] for grant in ROWS.grants if grant.user_id == CONFLICT_USER.id}
     assert CONFLICT_HELD_ROLE in held, "fixture premise: the planted conflict grant exists"
@@ -339,10 +339,9 @@ def test_the_requested_expiry_boundary_is_inclusive_at_3650(
     days: int,
     accepted: bool,
 ) -> None:
-    """Catches decision C's cap missing, off by one, or exclusive where it
+    """Catches the expiry cap missing, off by one, or exclusive where it
     must be inclusive: 3650 lands in the int4 column fine and must pass,
-    3651 and 0 must be refused VALIDATION before any effect (standing
-    rules 1 and 2)."""
+    3651 and 0 must be refused VALIDATION before any effect."""
     caller = _seeded(CLEAN_USER)
     requests_before = _request_row_count(mcp_env.database_url, caller.tenant_id)
 
@@ -416,8 +415,8 @@ def test_list_my_requests_returns_only_the_token_users_rows(
     """Catches an implementation that filters by an argument instead of the
     token, or not at all (every tenant row would come back).
 
-    The caller and the other requester are in the SAME tenant (standing
-    rule 9), so an implementation that honoured the `user_id` argument in
+    The caller and the other requester are in the SAME tenant, so an
+    implementation that honoured the `user_id` argument in
     the second call — or leaked tenant-wide rows in the first — returns the
     colleague's row rather than being saved by the tenant guard.
     """
@@ -482,7 +481,7 @@ def test_the_status_filter_returns_exactly_that_status(
     status: RequestStatus,
 ) -> None:
     """Catches a status filter that is ignored (the decoy row with another
-    status would come back) or inverted, for every the design status value."""
+    status would come back) or inverted, for every status value."""
     caller = mcp_env.probe
     decoy_status = (
         RequestStatus.APPROVED if status is RequestStatus.PENDING else RequestStatus.PENDING
@@ -528,8 +527,8 @@ def test_a_status_outside_the_enum_is_refused_validation(
     status: str,
 ) -> None:
     """Catches a status check weaker than exact enum membership: a stripped
-    compare or a prefix match admits the whitespace rows (a project rule's
-    shape), and free text must never reach the query."""
+    compare or a prefix match admits the whitespace rows,
+    and free text must never reach the query."""
     result = call_tool(bearer(token_for(mcp_env.probe)), LIST_MY_REQUESTS, {"status": status})
 
     assert error_code(result) == "VALIDATION"
@@ -545,14 +544,14 @@ def test_a_user_with_no_requests_gets_an_empty_list(
     assert payload["requests"] == []
 
 
-# --- an earlier change: the widened row, its grant join and its limit -------------------
+# --- the widened row, its grant join and its limit -------------------
 #
 # Surface under test (written before it exists; every case below is red on one
 # of these names until step 1 lands):
 #
 # ``mcp_server.tools.access``
 #     ``REQUESTS_LIMIT_MIN = 1``, ``REQUESTS_LIMIT_DEFAULT = 50``,
-#     ``REQUESTS_LIMIT_MAX = 200`` — 23a §1's three constants, the trio
+#     ``REQUESTS_LIMIT_MAX = 200`` — the three constants, the trio
 #     ``tools/read.py`` already carries for ``search_audit``.
 #     ``ListMyRequestsInput.limit`` — ``ge=REQUESTS_LIMIT_MIN``,
 #     ``le=REQUESTS_LIMIT_MAX``, defaulting to ``REQUESTS_LIMIT_DEFAULT``.
@@ -562,10 +561,9 @@ def test_a_user_with_no_requests_gets_an_empty_list(
 #     ``approvals``, ``grant_id`` and ``expires_at``: NINETEEN, asserted as an
 #     exact set.
 #
-# Shapes this file fixes that the plan left open (a project rule and 55;
-# these belong in 23a's Deviations):
+# Shapes this file fixes that the plan left open:
 # - ``approvals`` renders each stored ``SlotState`` as an OBJECT carrying at
-#   least ``slot`` and ``user_id``; decision D is slot-only, so no display name
+#   least ``slot`` and ``user_id``; the tool is slot-only, so no display name
 #   is resolved. The case below reads those two keys and nothing else, because
 #   whether ``SlotState``'s four decision fields are dumped as explicit nulls
 #   is the implementer's call and pinning invented keys would be a test only
@@ -579,7 +577,7 @@ def test_a_user_with_no_requests_gets_an_empty_list(
 # ``mcp_env`` schema, planted rows carrying a per-case ``uuid4`` prefix in
 # their justification, and no new fixture of any kind.
 
-# The nineteen fields of §1, written out rather than derived: a set built by
+# The nineteen fields, written out rather than derived: a set built by
 # comprehension over the model would agree with any implementation.
 EXPECTED_SUMMARY_FIELDS = frozenset(
     {
@@ -735,7 +733,7 @@ def _row_for(payload: dict[str, Any], justification: str) -> dict[str, Any]:
 def test_the_widened_row_carries_exactly_the_nineteen_planned_fields(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Catches a widening that drops one of §1's ten new fields AND one that
+    """Catches a widening that drops one of the ten new fields AND one that
     carries a spare (a `requester_user_id`, the raw `approver_user_ids`, a
     `system_id`): the key set is asserted as an exact set, so both directions
     fail. Per-field assertions — which every case above uses — cannot see the
@@ -779,7 +777,7 @@ def test_the_names_come_from_the_directory_and_not_from_the_request_row(
 
     The stored chain, reasons and citations are read back here too: they are
     columns rather than lookups, so dropping them is the other half of
-    "rendered by slot" (decision D).
+    "rendered by slot".
     """
     caller = mcp_env.tenant_a
     target = mcp_env.probe
@@ -827,7 +825,7 @@ def test_the_grant_join_is_null_when_pending_and_carries_the_grant_when_executed
     """Catches `grant_id`/`expires_at` that are always null (no join at all),
     and catches `expires_at` computed from `requested_expiry_days` instead of
     read off the grant: the planted request asks for 7 days and the planted
-    grant expires in 2099, which decision E is precisely about — the requested
+    grant expires in 2099, which the expiry cap is precisely about — the requested
     days are not the expiry once the engine capped them.
 
     The pending half is the other kill: an INNER join drops the ungranted
@@ -884,7 +882,7 @@ def test_the_grant_join_is_null_when_pending_and_carries_the_grant_when_executed
 def test_several_requests_come_back_once_each_despite_the_grant_join(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Catches a join that multiplies rows (§5's second risk): three requests
+    """Catches a join that multiplies rows: three requests
     are planted for one caller, one of them granted, and the answer must carry
     three rows with exactly one `grant_id` filled.
 
@@ -934,7 +932,7 @@ def test_the_request_limit_constants_are_exactly_their_planned_values() -> None:
     """Catches a widened `limit` (an unbounded response over a table that only
     grows), a drifted default (every caller who omits `limit` silently gets a
     different page), and a lower bound of 0 (an empty page a client would read
-    as "you have filed nothing"). a project rule wants the values, not a
+    as "you have filed nothing"). The test wants the values, not a
     band."""
     assert access.REQUESTS_LIMIT_MIN == EXPECTED_REQUESTS_LIMIT_MIN == 1
     assert access.REQUESTS_LIMIT_DEFAULT == EXPECTED_REQUESTS_LIMIT_DEFAULT == 50
@@ -944,7 +942,7 @@ def test_the_request_limit_constants_are_exactly_their_planned_values() -> None:
 def test_the_default_request_limit_is_read_off_the_input_model() -> None:
     """Catches the constant and the model disagreeing: a `Field(default=100)`
     beside a `REQUESTS_LIMIT_DEFAULT` of 50 leaves the case above green while
-    every caller who omits `limit` receives a different page size than §1
+    every caller who omits `limit` receives a different page size than the tool
     promises. Both fields stay optional, so the model constructs with no
     arguments at all — which is what pins that an unfiltered, unpaged call is
     still legal."""
@@ -969,7 +967,7 @@ def test_the_request_limit_boundary_is_inclusive_at_1_and_200(
     limit: int,
     accepted: bool,
 ) -> None:
-    """§1's `limit`, both sides of both ends.
+    """The `limit`, both sides of both ends.
 
     A one-sided assertion cannot tell an inclusive bound from an exclusive
     one: `gt=1` accepts 200 and refuses 1, `lt=200` accepts 1 and refuses 200,

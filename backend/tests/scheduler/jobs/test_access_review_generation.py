@@ -1,4 +1,4 @@
-"""An earlier change §6: `quarter_period`, `check_period` and `generate_reviews`.
+"""`quarter_period`, `check_period` and `generate_reviews`.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -13,12 +13,12 @@ must provide exactly this):
     ``YYYY-Qn``.
     ``def check_period(value: str) -> str`` — the accepted period, or a
     ``ToolError`` whose ``code`` is ``ErrorCode.VALIDATION``. The error CLASS
-    is deliberately not named here: the plan fixes the code, not the class, so
+    is deliberately not named here: the design fixes the code, not the class, so
     every refusal below is asserted as `ToolError` plus its code, the shape
     `test_access_leavers.py` already uses.
     ``open_review`` gains ``opened_by_user_id: uuid.UUID | None`` and
     ``actor_kind: str = USER_ACTOR_KIND``, both resolved through the existing
-    ``revoke.resolve_actor_ref`` (decision D).
+    ``revoke.resolve_actor_ref``.
 
 ``helpdesk.access.review_schedule`` (new, re-exported from
 ``helpdesk.access``)
@@ -28,11 +28,11 @@ must provide exactly this):
     ``async def generate_reviews(session, directory, *, now)`` — one review
     per department and per high/critical system of the BOUND tenant, for
     ``quarter_period(now)``, ``due_at = now + 14 days``, opened with the
-    system actor. A scope with no owner is skipped (decision C), a scope with
+    system actor. A scope with no owner is skipped, a scope with
     an OPEN review for that period is skipped (`ReviewAlreadyOpenError` is
-    caught, decision A) and every other failure raises to the runner.
+    caught) and every other failure raises to the runner.
 
-a project rule: the session factory is the shared one from `conftest.py` --
+The session factory is the shared one from `conftest.py` --
 one engine for the whole run, schema created once. Per-test isolation is a
 namespace, not a rebuild: this job
 sweeps a whole tenant, so every case seeds a tenant of its OWN with
@@ -44,14 +44,14 @@ What `seed_tenant` plants matters to every count below, and is read off
 seeded tenant generates NOTHING at all. Each case turns on exactly the
 scope(s) it is about, which is what keeps "no review" assertions exact.
 
-Decision A's idempotence needs a scope whose review stays OPEN: a scope with
-no active grants opens a review already `completed` (12c decision F), and
+The idempotence needs a scope whose review stays OPEN: a scope with
+no active grants opens a review already `completed`, and
 `_refuse_if_open` blocks on `open` only. Every case that runs the generator
 twice therefore plants a live grant in each scope — see
 `test_a_second_run_over_the_same_tenant_opens_no_second_review`, whose
 docstring says so.
 
-a project rule: `test_access_reviews.py` (12c's engine),
+`test_access_reviews.py` (the review engine),
 `test_access_review_generation.py` and `test_access_review_reminders.py` are
 three distinct basenames, and none collides with anything in the tree.
 
@@ -106,7 +106,7 @@ from helpdesk.shared.access.review_types import (
 from tests.support.seed import SeededTenant, seed_tenant
 
 NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
-"""The one instant every generation answers for, and plan §1's own example:
+"""The one instant every generation answers for, and the contract's own example:
 `2026-09-09` is in `2026-Q3`. Passed in, never read from a clock."""
 
 EXPECTED_PERIOD = "2026-Q3"
@@ -115,7 +115,7 @@ so a case asserting the stored `period` cannot agree with a broken
 `quarter_period` by using it."""
 
 DUE_AT = NOW + timedelta(days=14)
-"""Decision B's horizon, as a literal. Asserted equal to
+"""The horizon, as a literal. Asserted equal to
 `now + timedelta(days=REVIEW_DUE_DAYS)` by the constants case, so a horizon
 moved in the module fails there before it can quietly move every case here."""
 
@@ -139,9 +139,9 @@ EXPECTED_PAYLOAD_KEYS = {
     "item_count",
     "flag_counts",
 }
-"""Decision K's seven keys, read off `reviews.py::_append_opened` rather than
+"""The seven keys, read off `reviews.py::_append_opened` rather than
 remembered: `review.opened` is the only event `open_review`
-composes, and this plan may not change what it carries."""
+composes, and this change may not change what it carries."""
 
 TENURED_START = date(2019, 3, 7)
 
@@ -286,8 +286,8 @@ def _plant_live_grant_in_system(
 ) -> uuid.UUID:
     """One role in that system and one live grant on it.
 
-    A system scope with no active grant opens a review already `completed`
-    (12c decision F), which `_refuse_if_open` does not block — so a case about
+    A system scope with no active grant opens a review already `completed`,
+    which `_refuse_if_open` does not block — so a case about
     idempotence has to give the scope something to review.
     """
     suffix = uuid.uuid4().hex[:12]
@@ -373,7 +373,7 @@ def _open_review_as_the_tool_does(
     """`open_review` called exactly the way `mcp_server/tools/reviews.py` calls it.
 
     An opener id, no `actor_kind` and no `actor_ref`: the shape every existing
-    caller uses, which decision D's default has to leave unchanged.
+    caller uses, which the default has to leave unchanged.
     """
 
     async def scenario() -> None:
@@ -448,7 +448,7 @@ def _events(shared_engine: AsyncEngine, tenant_id: uuid.UUID, event_type: str) -
     return asyncio.run(scenario())
 
 
-# --- the period itself (criteria 1 and 2) -------------------------------------
+# --- the period itself -------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -463,7 +463,7 @@ def _events(shared_engine: AsyncEngine, tenant_id: uuid.UUID, event_type: str) -
     ],
 )
 def test_quarter_period_answers_the_calendar_quarter(instant: datetime, expected: str) -> None:
-    """Criterion 1, one row per quarter and one for the year.
+    """One row per quarter and one for the year.
 
     Catches the two arithmetics that read plausibly and are wrong: `month // 3`
     (which answers `Q0` in January and `Q1` for April, so every quarter is
@@ -479,7 +479,7 @@ def test_quarter_period_answers_the_calendar_quarter(instant: datetime, expected
 
 
 def test_the_last_microsecond_of_a_quarter_and_the_first_of_the_next_differ() -> None:
-    """Criterion 1's boundary, both halves, exact.
+    """The boundary, both halves, exact.
 
     Catches a quarter derived with any rounding at all — `now.date()` widened
     to a month, a `>=` on the wrong side of the month boundary, or a period
@@ -523,7 +523,7 @@ def test_check_period_accepts_a_well_formed_quarter() -> None:
     ],
 )
 def test_check_period_refuses_these(value: str) -> None:
-    """Criterion 2's rejection table, a project rule's three trailing rows
+    """The rejection table, with the three trailing rows
     included.
 
     The three trailing rows are the ones that carry the kill: `re.match` and a
@@ -537,7 +537,7 @@ def test_check_period_refuses_these(value: str) -> None:
 
     The error CODE is asserted, not just "an exception": a `re` error or an
     `AttributeError` would also stop the write while telling the caller
-    nothing it can act on, and the design is the contract across this boundary.
+    nothing it can act on, and the error contract is the contract across this boundary.
     """
     with pytest.raises(ToolError) as excinfo:
         check_period(value)
@@ -547,7 +547,7 @@ def test_check_period_refuses_these(value: str) -> None:
 
 
 def test_check_period_refuses_a_period_longer_than_the_column() -> None:
-    """Criterion 2's length half, on the pattern-free path.
+    """The length half, on the pattern-free path.
 
     The PATTERN is the narrower gate: it fixes all seven characters, so no
     17-character string can ever satisfy it and an "accepted at exactly 16"
@@ -574,22 +574,22 @@ def test_check_period_refuses_a_period_longer_than_the_column() -> None:
     assert PERIOD_LENGTH == COLUMN_PERIOD_LENGTH
 
 
-# --- what gets generated (criteria 3 and 4) -----------------------------------
+# --- what gets generated -----------------------------------
 
 
 def test_a_department_and_a_critical_system_are_each_generated_for(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 3, as two exact rows.
+    """As two exact rows.
 
     Catches four wrong implementations. One that generates for departments
     only — the cheap half — which leaves every high-risk SYSTEM unreviewed
     while the job reports success. One that files the reviews under a period
     of its own (a date, a month, an empty string), which makes the next run's
     already-open check miss and the review queue unreadable. One that leaves
-    `due_at` null, which decision B exists to prevent: a null-due review can
+    `due_at` null, which the due date exists to prevent: a null-due review can
     never be overdue, so `send_review_reminders` would have nothing to read
-    and the design's reminder would be dead code. And one that puts the CALLER
+    and the product spec's reminder would be dead code. And one that puts the CALLER
     in `reviewer_user_id` — there is no caller here, so the reviewer is
     asserted to be each scope's own owner.
 
@@ -642,7 +642,7 @@ def test_a_system_of_this_sensitivity_is_never_generated_for(
     session_factory: async_sessionmaker[AsyncSession],
     sensitivity: str,
 ) -> None:
-    """Criterion 4, one case per excluded value, so a widened filter fails
+    """One case per excluded value, so a widened filter fails
     exactly one of them.
 
     Catches `sensitivity != "low"` (which admits `medium`) and a filter that
@@ -666,16 +666,16 @@ def test_a_system_of_this_sensitivity_is_never_generated_for(
     assert _reviews(session_factory, tenant.tenant_id) == []
 
 
-# --- the already-open skip and idempotence (criterion 5, decision A) ----------
+# --- the already-open skip and idempotence ----------
 
 
 def test_a_scope_with_an_open_review_is_skipped_and_the_other_scope_still_opens(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 5's first half: the refusal is caught PER SCOPE.
+    """The first half: the refusal is caught PER SCOPE.
 
     Catches a generator that lets `ReviewAlreadyOpenError` out. The whole
-    tenant is generated in ONE transaction (plan §5), so one department that
+    tenant is generated in ONE transaction, so one department that
     was reviewed by hand this morning would roll back every OTHER scope of
     that tenant and keep doing so on every tick until somebody noticed — a
     quarter with no reviews and a daily exception nobody reads. It also
@@ -704,7 +704,7 @@ def test_a_scope_with_an_open_review_is_skipped_and_the_other_scope_still_opens(
 def test_a_second_run_over_the_same_tenant_opens_no_second_review(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 5's second half, and the whole reason decision A registers a
+    """The second half, and the whole reason the job registers a
     QUARTERLY job on a DAILY cadence.
 
     Catches a generator with no already-open handling at all: the same scopes
@@ -713,10 +713,10 @@ def test_a_second_run_over_the_same_tenant_opens_no_second_review(
     being readable. Two runs, one review per scope.
 
     Both scopes are planted with a LIVE grant on purpose: a scope with no
-    active grants opens a review already `completed` (12c decision F), and
+    active grants opens a review already `completed`, and
     `_refuse_if_open` blocks on `open` only — so an empty scope would
     duplicate here no matter how the skip is written, and the case would be
-    asserting the engine's gap rather than this plan's rule.
+    asserting the engine's gap rather than this change's rule.
     """
     tenant = _tenant(session_factory)
     manager_id = _plant_user(session_factory, tenant)
@@ -735,13 +735,13 @@ def test_a_second_run_over_the_same_tenant_opens_no_second_review(
     assert {row.status for row in rows} == {ReviewStatus.OPEN.value}
 
 
-# --- the ownerless scopes (criterion 6, decision C) ---------------------------
+# --- the ownerless scopes ---------------------------
 
 
 def test_a_department_with_no_manager_is_skipped_and_writes_no_review(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision C for the department half, isolated.
+    """The department half of the unhappy path, isolated.
 
     Catches the rejected alternative — falling back to an `it_admin`, or to
     "the caller" the way `open_review` does when a scope names nobody — which
@@ -768,7 +768,7 @@ def test_a_department_with_no_manager_is_skipped_and_writes_no_review(
 def test_a_system_with_no_owner_is_skipped_and_writes_no_review(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision C for the system half, which has its own read and its own way
+    """The system half of the unhappy path, which has its own read and its own way
     of being got wrong.
 
     Catches a skip applied to `departments.manager_user_id` only: an unowned
@@ -793,7 +793,7 @@ def test_another_tenants_scopes_are_never_generated_for(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 7. Catches a generator that builds its own statement over
+    """Catches a generator that builds its own statement over
     `departments` and `systems` instead of going through the tenant-bound
     session.
 
@@ -817,27 +817,27 @@ def test_another_tenants_scopes_are_never_generated_for(
     assert _events(shared_engine, neighbour.tenant_id, REVIEW_OPENED_EVENT_TYPE) == []
 
 
-# --- the actor on the audit event (criteria 8 to 10, decision D) --------------
+# --- the actor on the audit event  --------------
 
 
 def test_every_review_opened_event_the_generator_causes_carries_the_system_actor(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 8, over the whole union of events this run composes.
+    """Over the whole union of events this run composes.
 
     `review.opened` is the ONLY event `open_review` composes — read off
     `reviews.py::_append_opened` rather than remembered —
     and the generator opens one per scope, so every event of the run is
     asserted, not just the first.
 
-    Catches decision D's rejected alternative: leaving `actor_kind` at `user`
+    Catches the rejected alternative: leaving `actor_kind` at `user`
     and putting something system-shaped in `actor_ref`, which files a
     quarterly automatic sweep in the audit log as a person's decision. An
     auditor separating "the machine opened this" from "a manager opened this"
     reads `actor_kind`, and a query for the system's own work would return
     every human review as well. The subject and the seven payload keys are
-    asserted UNCHANGED: this plan threads a new actor
+    asserted UNCHANGED: this change threads a new actor
     through an existing event and may not quietly reshape what it carries.
     """
     tenant = _tenant(session_factory)
@@ -868,12 +868,12 @@ def test_open_review_with_an_opener_id_and_no_actor_kind_still_writes_the_user_a
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 9, the default decision D turns on, called exactly the way
+    """The default the system actor turns on, called exactly the way
     `mcp_server/tools/reviews.py` calls it: an opener id, no `actor_kind`, no
     `actor_ref`.
 
-    Catches the widening done with the default flipped — the risk plan §5
-    names. `open_review` is 12c's most-covered engine and no existing case
+    Catches the widening done with the default flipped — the risk the design
+    names. `open_review` is the most-covered engine and no existing case
     reads `actor_kind` on its event, so a `SYSTEM_ACTOR_KIND` default would
     leave the whole suite green while every manager-opened review in the audit
     log was relabelled as something the machine decided. `actor_ref` is
@@ -901,7 +901,7 @@ def test_open_review_with_neither_an_opener_id_nor_an_actor_ref_is_refused(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 10, and the price of widening the opener to `uuid.UUID | None`.
+    """And the price of widening the opener to `uuid.UUID | None`.
 
     Catches the widening done WITHOUT `resolve_actor_ref`'s check: `str(None)`
     renders the literal `"None"` into `actor_ref`, and a review would then be
@@ -932,25 +932,25 @@ def test_open_review_with_neither_an_opener_id_nor_an_actor_ref_is_refused(
     assert _events(shared_engine, tenant.tenant_id, REVIEW_OPENED_EVENT_TYPE) == []
 
 
-# --- the unhappy path (criterion 12, 21a decision C) --------------------------
+# --- the unhappy path  --------------------------
 
 
 def test_a_failure_other_than_already_open_propagates_out_of_generate_reviews(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Criterion 12: only `ReviewAlreadyOpenError` is caught, and everything
+    """Only `ReviewAlreadyOpenError` is caught, and everything
     else belongs to the runner.
 
     Catches a blanket `except Exception: continue` around the per-scope call.
     The runner deletes the job's lock key when a job raises and retries on the
-    next tick (21a decision C); a generator that swallowed a failure would
+    next tick; a generator that swallowed a failure would
     report a clean run, leave the key in place for a whole day, and the
     quarter would silently be short a review with nothing in any log to say
     which scope it was.
 
     The scope read SUCCEEDS and the failure is raised from `open_review`
-    itself — the shape criterion 12 names — through a proxy installed on both
+    itself — the shape the design names — through a proxy installed on both
     modules that could hold the name, the same technique
     `test_access_leavers.py::_sweep_with_a_concurrent_departure` uses. The
     error is a `NotFoundError`, which is a `ToolError` and therefore exactly
@@ -993,11 +993,11 @@ def test_a_failure_other_than_already_open_propagates_out_of_generate_reviews(
 
 
 def test_the_review_generation_constants_are_exactly_the_planned_values() -> None:
-    """a project rule on everything this half of the plan introduces.
+    """The constants this half introduces, pinned as literals.
 
     Catches a due horizon quietly moved: every case above is written against
     14 days, so a module constant of 7 or 30 would leave them green while the
-    service promised reviewers a different fortnight from the one §1 fixes —
+    service promised reviewers a different fortnight from the one the contract fixes —
     and the reminder job's overdue band is measured from exactly this value.
     Catches the sensitivity set widened to include `medium` (which would put
     every low-risk system in front of a reviewer every quarter) or narrowed to

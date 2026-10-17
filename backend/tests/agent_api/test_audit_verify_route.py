@@ -1,9 +1,9 @@
-"""An earlier change section 6: GET /admin/audit/verify on agent-api.
+"""GET /admin/audit/verify on agent-api.
 
 Expected implementation surface (`agent_api.admin_routes`, mounted on
 `agent_api.main.app`):
 
-    GET /admin/audit/verify   Authorization: Bearer <plan-05 JWT>
+    GET /admin/audit/verify   Authorization: Bearer <JWT>
       200 -> {"ok": true,  "broken_at": null,
               "truncated_at": null, "anchored_seq": null}   intact chain
       200 -> {"ok": false, "broken_at": <seq>,
@@ -11,11 +11,11 @@ Expected implementation surface (`agent_api.admin_routes`, mounted on
       200 -> {"ok": false, "broken_at": null,
               "truncated_at": <seq>, "anchored_seq": <seq>} tail truncated
       403 -> {"code": "FORBIDDEN"}   token valid, principal outside
-             {auditor, it_admin, platform_admin} (the design, an earlier change decision D)
+             {auditor, it_admin, platform_admin} (the audit-read roles)
       401 -> {"code": "FORBIDDEN"}   missing, malformed, wrongly signed or
-             expired token — the same typed body an earlier change uses for refusals
+             expired token — the same typed body used for refusals
 
-The tenant comes from the JWT only (a project rule, decision D): the endpoint
+The tenant comes from the JWT only: the endpoint
 takes no tenant argument and a caller never sees another tenant's chain.
 
 Fixtures live in this module rather than a conftest, for the same reason
@@ -220,7 +220,7 @@ def _tamper(database_url: str, tenant_id: uuid.UUID, seq: int) -> None:
 def _anchor(database_url: str, tenant_id: uuid.UUID) -> int:
     """Anchor the tenant's verified head and return the seq that was stored.
 
-    An earlier change: this is what the scheduler's `chain_anchor` job does, called
+    this is what the scheduler's `chain_anchor` job does, called
     directly so the route case does not need a running scheduler.
     """
 
@@ -373,7 +373,7 @@ def test_verify_covers_the_callers_tenant_only(audit_env: str) -> None:
 
 
 def test_a_truncated_chain_is_reported_as_truncated_not_as_broken(audit_env: str) -> None:
-    """An earlier change: the route carries the new verdict through unchanged.
+    """The route carries the new verdict through unchanged.
 
     Catches a route that keeps its own response model, or picks two fields out
     of the verdict: `admin_routes` returns `result.model_dump()`, so the two
@@ -457,7 +457,7 @@ def _bad_token_cases(tenant_id: uuid.UUID) -> list[tuple[str, dict[str, str]]]:
 def test_a_database_failure_still_answers_with_a_typed_code(
     audit_env: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No response on this route may be an untyped 500 (the design)."""
+    """No response on this route may be an untyped 500."""
     tenant_id = _seed_tenant_with_events(audit_env, "verify-db-down", 1)
 
     async def boom(*args: object, **kwargs: object) -> None:

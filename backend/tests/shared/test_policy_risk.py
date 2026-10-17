@@ -1,19 +1,19 @@
-"""Risk class table, the design.
+"""Risk class table.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``helpdesk.policy.engine.classify(snapshot: RequestSnapshot) -> Classification``
 also re-exported as ``helpdesk.policy.classify``.
 
-Every §9.2 row is an independent predicate and the highest matching severity
-wins (plan decision A), so the overlap rows are pinned explicitly here: an
+Every table row is an independent predicate and the highest matching severity
+wins, so the overlap rows are pinned explicitly here: an
 in-template ``admin`` role on a low-sensitivity system is ``privileged``, an
 in-template ``read`` role on a ``critical`` system is ``critical``.
 
 The tenure bump is applied last and only lifts ``low``; a new joiner whose
 class is already ``elevated`` or higher gets no ``NEW_JOINER`` reason.
 
-Reason order (the design, canonical): IN_TEMPLATE | NOT_IN_TEMPLATE,
+Reason order: IN_TEMPLATE | NOT_IN_TEMPLATE,
 SENSITIVITY_HIGH, CRITICAL_SYSTEM, PRIVILEGE_ADMIN, NEW_JOINER,
 SELF_ADMIN_ESCALATED, EXPIRY_CAPPED, TARGET_LEAVER, SOD_CONFLICT:{rule_id}.
 """
@@ -26,7 +26,7 @@ from tests.support.policy import make_role, make_snapshot, make_target
 
 # id, in_template, sensitivity, privilege, tenure_days, expected class, expected reasons
 RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[str, ...]]] = [
-    # --- §9.2 row 1: in template, sensitivity low/medium -> low
+    # --- in template, sensitivity low/medium -> low
     (
         "in_template-low-read",
         True,
@@ -45,7 +45,7 @@ RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[s
         RiskClass.LOW,
         ("IN_TEMPLATE",),
     ),
-    # --- §9.2 row 2: in template, high, read -> low
+    # --- in template, high, read -> low
     (
         "in_template-high-read",
         True,
@@ -55,7 +55,7 @@ RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[s
         RiskClass.LOW,
         ("IN_TEMPLATE", "SENSITIVITY_HIGH"),
     ),
-    # --- §9.2 row 3: in template, high, write -> elevated
+    # --- in template, high, write -> elevated
     (
         "in_template-high-write",
         True,
@@ -65,7 +65,7 @@ RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[s
         RiskClass.ELEVATED,
         ("IN_TEMPLATE", "SENSITIVITY_HIGH"),
     ),
-    # --- §9.2 row 4: not in template, sensitivity low/medium -> elevated
+    # --- not in template, sensitivity low/medium -> elevated
     (
         "not_in_template-low-read",
         False,
@@ -84,7 +84,7 @@ RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[s
         RiskClass.ELEVATED,
         ("NOT_IN_TEMPLATE",),
     ),
-    # --- §9.2 row 5: not in template, high -> privileged
+    # --- not in template, high -> privileged
     (
         "not_in_template-high-read",
         False,
@@ -94,7 +94,7 @@ RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[s
         RiskClass.PRIVILEGED,
         ("NOT_IN_TEMPLATE", "SENSITIVITY_HIGH"),
     ),
-    # --- §9.2 row 6: privilege admin -> at least privileged (overlap cases)
+    # --- privilege admin -> at least privileged (overlap cases)
     (
         "overlap-in_template-low-admin",
         True,
@@ -113,7 +113,7 @@ RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[s
         RiskClass.PRIVILEGED,
         ("NOT_IN_TEMPLATE", "SENSITIVITY_HIGH", "PRIVILEGE_ADMIN"),
     ),
-    # --- §9.2 row 7: critical system -> critical (overlap cases)
+    # --- critical system -> critical (overlap cases)
     (
         "overlap-in_template-critical-read",
         True,
@@ -132,7 +132,7 @@ RISK_ROWS: list[tuple[str, bool, Sensitivity, Privilege, int, RiskClass, tuple[s
         RiskClass.CRITICAL,
         ("NOT_IN_TEMPLATE", "CRITICAL_SYSTEM", "PRIVILEGE_ADMIN"),
     ),
-    # --- §9.2 row 8: tenure < 30 lifts low to elevated
+    # --- tenure < 30 lifts low to elevated
     (
         "new_joiner-day-0",
         True,
@@ -250,7 +250,7 @@ def test_risk_class_table(
 def test_admin_privilege_is_never_below_privileged(
     in_template: bool, sensitivity: Sensitivity
 ) -> None:
-    """§9.2 'any role with privilege = admin' holds across the whole table."""
+    """'Any role with privilege = admin' holds across the whole table."""
     snapshot = make_snapshot(
         role=make_role(privilege=Privilege.ADMIN, sensitivity=sensitivity),
         role_in_department_template=in_template,
@@ -265,7 +265,7 @@ def test_admin_privilege_is_never_below_privileged(
 @pytest.mark.parametrize("in_template", [True, False])
 @pytest.mark.parametrize("privilege", [Privilege.READ, Privilege.WRITE, Privilege.ADMIN])
 def test_critical_sensitivity_is_always_critical(in_template: bool, privilege: Privilege) -> None:
-    """§9.2 'any role on a critical system' beats every other row."""
+    """'Any role on a critical system' beats every other row."""
     snapshot = make_snapshot(
         role=make_role(privilege=privilege, sensitivity=Sensitivity.CRITICAL),
         role_in_department_template=in_template,

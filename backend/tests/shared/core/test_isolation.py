@@ -1,4 +1,4 @@
-"""An earlier change acceptance: hard tenant isolation at the session layer.
+"""Hard tenant isolation at the session layer.
 
 Two tenants seeded inline. A session bound to tenant B must not be able to
 read, update, or delete tenant A's rows through any ORM statement - not just
@@ -7,7 +7,7 @@ NO tenant bound must raise ``helpdesk.core.db.UnboundTenantQueryError``
 immediately (guard error, never a silent full-table read). The guard applies
 only to tenant-scoped models: querying ``Tenant`` unbound stays legal.
 
-An earlier change: the session factory is the shared one from ``conftest.py`` (one
+The session factory is the shared one from ``conftest.py`` (one
 engine, schema built once); isolation is a fresh tenant per case via
 ``seed_tenant``, never a per-test schema rebuild.
 """
@@ -123,7 +123,7 @@ def test_unbound_query_on_tenant_scoped_model_raises(
 ) -> None:
     """No tenant bound -> guard error, not a silent full-table read.
 
-    Covers the plan's risk note: a bare ``session.execute(select(...))`` on a
+    Covers this risk: a bare ``session.execute(select(...))`` on a
     plain (unbound) session must also hit the guard, both for full-entity and
     single-column selects.
     """

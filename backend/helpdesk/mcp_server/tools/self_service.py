@@ -1,21 +1,8 @@
-"""The three helpdesk mutating tools an earlier change registers (the design).
+"""The self-service tools: password reset, account unlock, and new ticket.
 
-All three write on behalf of the token's user and nobody else.
-Their inputs inherit `MutatingToolInput` from `tools/base.py`, which is
-where the extra-fields contract and the idempotency key are documented; it
-moved out of this module in an earlier change so a second tool module need not import
-this one.
-
-The reset and unlock are simulated (the design): each stamps a timestamp
-column on the token's own `users` row and no real
-credential or directory action exists anywhere. The reset's "one-time token"
-is a constant placeholder that announces itself as fake.
-
-Handlers never see the transport or the token: the pipeline binds the
-session and resolves identity before anything here executes. None of these
-three handlers reads its idempotency key — they have nowhere to store one —
-but that is a fact about them, not a rule about handlers (an earlier change decision
-A corrects the claim this docstring used to make).
+All three act only for the token's user. Reset and unlock are simulated:
+each stamps a time on the user's own row, and no real credential or
+directory change happens anywhere.
 """
 
 import uuid
@@ -34,30 +21,21 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Ticket, User
 
 RESET_EVENT_TYPE = "user.password_reset"
-"""Declared success event for `reset_own_password` (per-action, an earlier change
-decision C; the design is a minimum list, not a closed one)."""
+"""Success event for `reset_own_password`."""
 
 UNLOCK_EVENT_TYPE = "user.account_unlocked"
 """Declared success event for `unlock_own_account`."""
 
 TICKET_EVENT_TYPE = "ticket.created"
-"""Declared success event for `create_ticket` — the design's own name."""
+"""Success event for `create_ticket`."""
 
 RESET_TOKEN_PLACEHOLDER = "FAKE-RESET-TOKEN-0000-simulated-nothing-was-issued"
-"""What `reset_own_password` displays instead of a credential.
-
-Obviously fake by construction (the design "simulated reset"): pinned by
-`test_reset_own_password_flags_the_token_user_and_returns_a_fake_placeholder`,
-which fails on any placeholder that stops announcing itself as fake."""
+"""Shown instead of a credential. Plainly fake, since the reset is simulated."""
 
 BODY_MAX_LENGTH = 10_000
-"""Cap on `create_ticket.body`. The column is unbounded
-`Text`, so this Pydantic bound is the only backstop; the
-inclusive boundary is pinned by
-`test_mcp_helpdesk_tools.py::test_the_body_boundary_is_inclusive_at_10000`."""
+"""Cap on a ticket body. The column has no limit, so this check is the only one."""
 
-# Read off the column, never retyped: the check and the
-# storage are the same number by construction.
+# Read off the column, so the input check and the storage never disagree.
 _TITLE_TYPE = Ticket.__table__.c.title.type
 assert isinstance(_TITLE_TYPE, String), _TITLE_TYPE
 assert _TITLE_TYPE.length is not None, "tickets.title must be a sized column"
@@ -67,12 +45,7 @@ _OPEN_STATUS = "open"
 
 
 class TicketKind(StrEnum):
-    """The four the design ticket kinds, matched by exact enum membership.
-
-    A StrEnum admits exactly its own values: `"general\\n"`, `"general "` and
-    friends are refused (a project rule's shape without a regex), pinned by
-    `test_a_kind_outside_the_enum_is_refused_with_no_row`.
-    """
+    """The four ticket kinds. As an enum, it refuses anything not exactly one of them."""
 
     PASSWORD_RESET = "password_reset"
     UNLOCK = "unlock"

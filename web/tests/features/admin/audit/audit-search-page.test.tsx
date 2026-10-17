@@ -12,21 +12,19 @@ import { AUDIT_FILTER_MAX_LENGTHS, PAGE_SIZES } from "@/features/admin/audit/fil
 import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 
 /**
- * An earlier change §6, `audit-search-page.test.tsx`: the `/admin/audit` filter form,
+ * `audit-search-page.test.tsx`: the `/admin/audit` filter form,
  * the results table, the payload disclosure and the cursor stack, against a
- * stubbed `fetch`. jsdom, no agent-api, no backing service. (No basename
- * collision in the tree, a project rule: the neighbours are
+ * stubbed `fetch`. jsdom, no agent-api, no backing service. (The neighbours are
  * `audit-proxy-routes.test.ts` and `audit-schema.test.ts`.)
  *
  * The unit under test is `AuditSearch` from
  * `web/src/features/admin/audit/components/audit-search.tsx`, taking NO props and doing its own
- * read through TanStack Query (§2, 23d decision A), so
+ * read through TanStack Query, so
  * `app/admin/audit/page.tsx` stays a thin `AppShell` wrapper no case here
  * renders. Everything on this surface is a READ: no case posts anything,
  * because nothing here may.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24ba's Deviations):
+ * Shapes this file fixes:
  * - the per-row disclosure is a `<details>`, found as `role="group"` named
  *   `Payload for event {seq}`. `details` maps to `group` in `aria-query`, and
  *   `group` takes its name from the AUTHOR and not from its contents in
@@ -42,22 +40,22 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
  *   `toBe` rather than `toHaveTextContent`, because a cell rendering the WHOLE
  *   64-character hash contains the 12-character prefix as a substring and
  *   would satisfy a containment assertion.
- * - which alert a failed read gets: a body carrying one of the design's eight
- *   codes is a TYPED REFUSAL and renders that code's sentence (§1's second
- *   unhappy path); everything else — a payload the parser refuses, a
+ * - which alert a failed read gets: a body carrying one of the eight typed error
+ *   codes is a TYPED REFUSAL and renders that code's sentence;
+ *   everything else — a payload the parser refuses, a
  *   non-JSON body, or a `code` outside that vocabulary such as the proxy's own
  *   `UPSTREAM_UNAVAILABLE` — is a FAILED SEARCH and renders the generic
- *   sentence. §1 fixes both sentences and leaves the discrimination open, and
- *   only one reading makes the two criteria satisfiable together.
- * - `Page size` is a NATIVE select (§6): `role="combobox"` named `Page size`
- *   with `role="option"` children, 23f's deviation. The option VALUES are never
+ *   sentence. Both sentences are fixed but the way to tell them apart is not, and
+ *   only one reading lets the two cases hold together.
+ * - `Page size` is a NATIVE select: `role="combobox"` named `Page size`
+ *   with `role="option"` children, the deviation. The option VALUES are never
  *   asserted; what an option MEANS is the `limit` it sends, which is asserted
  *   on the request.
  * - dates are typed with `fireEvent.change`, the way `approvals-page.test.tsx`
  *   sets a long value: `user.type` into an `input[type="date"]` commits
  *   character by character and the intermediate values are not dates.
  *
- * Every fixture parses under `web/src/features/admin/audit/schema.ts` as 24a built it: the
+ * Every fixture parses under `web/src/features/admin/audit/schema.ts`: the
  * nine `AuditEventRow` fields inside `{ events: [...], next_before_seq }`, with
  * `actor_ref`, `subject_id` and `next_before_seq` the three nullable ones.
  */
@@ -79,8 +77,8 @@ const SEQ_TWO = 901;
 const SEQ_THREE = 880;
 
 /**
- * A nested payload with keys no other case uses (§5's sixth risk, 13b decision
- * E): a page reading named keys would render blanks for it, and one reshaping
+ * A nested payload with keys no other case uses (a risk of its own): a page reading named keys
+ * would render blanks for it, and one reshaping
  * it would not round-trip through `JSON.stringify(payload, null, 2)`.
  */
 const PAYLOAD_ONE: Record<string, unknown> = {
@@ -284,9 +282,9 @@ afterEach(() => {
 
 describe("AuditSearch — the first paint", () => {
   it("reads the search proxy with limit=50 and nothing else", async () => {
-    // §1's first criterion as an EXACT query string, which is the only form
+    // An EXACT query string, which is the only form
     // that pins it. Kills a page sending every empty control along
-    // (`event_type=&subject_type=&...`): the route (24a) forwards each one and
+    // (`event_type=&subject_type=&...`): the route forwards each one and
     // `event_type=` is a filter nothing matches, so the auditor's first sight
     // of the log is an empty table. It also kills a page opening on some other
     // `limit`, and one carrying `before_seq` on the first paint, which would
@@ -301,7 +299,7 @@ describe("AuditSearch — the first paint", () => {
   });
 
   it("names the region Audit log", async () => {
-    // a project rule's own subject, and the container every count in this
+    // The container every count in this
     // file is scoped to. Kills a page whose results are not inside a named
     // region: a screen-reader user then meets a table with no announced
     // context, and every `within(region)` query here would be picking things
@@ -321,13 +319,13 @@ describe("AuditSearch — the filter form", () => {
   ] as const;
 
   it.each(TEXT_FILTERS)("$control sends $param and no other parameter", async (filter) => {
-    // §1's second criterion, one case per control, with the whole parameter set
+    // One case per control, with the whole parameter set
     // asserted rather than the one parameter. Kills a control wired to the
     // wrong parameter — `Actor` sending `subject_id` returns rows about a
     // person rather than rows they caused, and both look like a working filter
     // — and kills a form that submits its EMPTY siblings alongside, which is
     // the fault that makes every filtered search return nothing. The `Search`
-    // click is what pins "the applied filters, never the keystrokes" (§2): a
+    // click is what pins "the applied filters, never the keystrokes": a
     // page reading on every keypress would have made more than two calls by
     // now. Arithmetic: search reads = 2, the first paint's
     // and this commit's.
@@ -352,7 +350,7 @@ describe("AuditSearch — the filter form", () => {
   ] as const;
 
   it.each(CAPS)("caps $control at the $field column's length", async ({ control, field }) => {
-    // Decision F and §1's third criterion, on the surface that produces the
+    // The surface that produces the
     // string. Kills a form with no `maxLength` at all, where
     // a pasted 300-character subject id costs a round trip and comes back a
     // 400 with nothing pointing at which field was too long. The expectation is
@@ -366,7 +364,7 @@ describe("AuditSearch — the filter form", () => {
   });
 
   it("sends From as midnight and To as the last second of its day", async () => {
-    // §1's fourth criterion and decision C, as the two exact composed strings.
+    // As the two exact composed strings.
     // Kills a form posting the control's raw `2026-09-12`, which reaches a
     // `timestamptz` column as an instant whose meaning depends on the server's
     // zone, and kills a `To` composed at midnight, which excludes every event
@@ -393,7 +391,7 @@ describe("AuditSearch — the filter form", () => {
   });
 
   it("refuses an inverted range in the browser and fires no read for it", async () => {
-    // §5's fifth risk, and the reason §1 asserts the alert AND the absent call:
+    // The reason to assert the alert AND the absent call:
     // the sentence alone is green for a page that shows the message and sends
     // the search anyway, which is the shape a validation-after-submit handler
     // produces. Kills that, and kills a page with no pre-check at all, where
@@ -416,7 +414,7 @@ describe("AuditSearch — the filter form", () => {
   });
 
   it("pins the inverted-range sentence exactly", async () => {
-    // a project rule on one of the two strings this plan introduces. The case
+    // The exact literal for one of the two new strings. The case
     // above READS the constant, so it stays green for whatever the module
     // exports; only this literal fixes the words the auditor sees. Kills an
     // implementation that exports the symbol and fills it with the shared
@@ -426,11 +424,11 @@ describe("AuditSearch — the filter form", () => {
   });
 
   it("offers exactly the three page sizes under the name Page size", async () => {
-    // Decision G as the control itself, its labels read from `PAGE_SIZES` so
+    // The control itself, its labels read from `PAGE_SIZES` so
     // the numbers are pinned once. Kills a select offering a size outside the
     // tool's `1`-`200` bound (the route refuses it and the auditor sees a
     // refusal for a choice the page offered), and kills a page with no such
-    // control at all, which decision G rejects because 24bb exports what this
+    // control at all, which is rejected because the export uses what this
     // page holds and a 50-row CSV is a thin export. Scoped to the combobox, so
     // no other option-shaped thing on the page can satisfy it.
     renderSearch();
@@ -445,7 +443,7 @@ describe("AuditSearch — the filter form", () => {
 
   it("choosing 200 refetches the log with limit=200", async () => {
     // Two things at once. That a SECOND read happens at all is what pins the
-    // page size being part of the query key (§6): a key ignoring it answers the
+    // page size being part of the query key: a key ignoring it answers the
     // cached 50-row page and the auditor's choice does nothing for thirty
     // seconds, with no request to see. And the exact parameter set pins WHICH
     // read — a select wired to the label rather than the value would send
@@ -467,14 +465,14 @@ describe("AuditSearch — the filter form", () => {
 
 describe("AuditSearch — the results table", () => {
   it("renders one row per event, newest first, with every column", async () => {
-    // §1's sixth criterion, one assertion per field. Kills a table rendering
+    // One assertion per field. Kills a table rendering
     // only `events[0]`, and kills a page that re-sorts what the tool ordered —
-    // 13b returns newest first and an auditor reading a log bottom-up loses the
+    // The tool returns newest first and an auditor reading a log bottom-up loses the
     // one ordering the page exists to show. The 19-character assertion kills a
     // row printing the raw `2026-09-12T08:15:30.123456Z` (six digits of
     // microseconds in a column an auditor scans) and, because `.123456` is
     // asserted ABSENT, it cannot be satisfied by rendering the whole value. The
-    // raw `event_type` is decision B: a hand-kept label map would be stale the
+    // raw `event_type` is shown on purpose: a hand-kept label map would be stale the
     // day a row adds an event type, and the literal is what the auditor pastes
     // back into the filter.
     renderSearch();
@@ -500,7 +498,7 @@ describe("AuditSearch — the results table", () => {
   });
 
   it("renders the hash as a 12-character prefix carrying the whole hash as its title", async () => {
-    // §1's sixth criterion at its two exact numbers. Kills a
+    // The two exact numbers. Kills a
     // row printing the full 64 characters, which pushes every other column off
     // the screen, and kills a truncated cell with NO title, where the one value
     // an auditor needs to compare against a chain verification is unreachable.
@@ -515,7 +513,7 @@ describe("AuditSearch — the results table", () => {
   });
 
   it("reads no actor and no subject id for the two null fields", async () => {
-    // The null half of §1's sixth criterion, on the one row that carries both.
+    // The null half of the row cells, on the one row that carries both.
     // Kills a page interpolating the nulls — `null` or an empty cell where a
     // SYSTEM event's actor belongs — which is the shape every scheduler-written
     // event has, so the auditor cannot tell "no actor" from "the page failed to
@@ -530,9 +528,9 @@ describe("AuditSearch — the results table", () => {
   });
 
   it("holds each event's payload pretty-printed in a collapsed named disclosure", async () => {
-    // §1's seventh criterion and §5's sixth risk. Kills a row rendering NAMED
-    // payload keys: `payload` is an arbitrary object by design (13b decision
-    // E), so this nested fixture — whose keys no other case uses — would come
+    // Kills a row rendering NAMED
+    // payload keys: `payload` is an arbitrary object by design, so this nested fixture — whose
+    // keys no other case uses — would come
     // out blank, and every event type but the one the implementer had in mind
     // would lose its detail. It also kills a disclosure rendered OPEN, which
     // would put a dozen lines of JSON between every two rows of a table an
@@ -565,7 +563,7 @@ describe("AuditSearch — paging through the log", () => {
   ] as const;
 
   it.each(CURSOR_PAGES)("offers Older on $name with a cursor", async ({ events }) => {
-    // §5's second risk, which is the one that loses evidence silently: 13b's
+    // This one loses evidence silently: the tool's
     // scope filter runs AFTER the read and `SCAN_CAP` is 500 rows per call, so
     // a narrow caller's page can be short or EMPTY while matching events sit
     // further back, and `next_before_seq` is the only way to reach them. The
@@ -579,8 +577,8 @@ describe("AuditSearch — paging through the log", () => {
   });
 
   it("choosing Older reads the next page from that cursor", async () => {
-    // §1's eighth criterion. That a second read happens at all pins the cursor
-    // being in the query key (§6: `["admin", "audit", "search", filters,
+    // That a second read happens at all pins the cursor
+    // being in the query key (`["admin", "audit", "search", filters,
     // beforeSeq]`); a key without it answers the cached first page and the
     // button does nothing. The exact parameter set pins the VALUE: a page
     // sending its own last row's `seq` minus one, or an offset, would skip or
@@ -604,7 +602,7 @@ describe("AuditSearch — paging through the log", () => {
   });
 
   it("offers no Newer on the first page and offers it after one Older", async () => {
-    // Decision D's stack, from the side a one-way pager passes every other case
+    // The cursor stack, from the side a one-way pager passes every other case
     // with. Kills a `Newer` rendered always: on the first page it can only
     // re-read what is already on screen, or pop an empty stack and throw. And
     // it kills a pager with no `Newer` at all, where stepping back one page
@@ -623,12 +621,12 @@ describe("AuditSearch — paging through the log", () => {
   });
 
   it("choosing Newer pops the stack back to the first page", async () => {
-    // The other half of §1's eighth criterion. Kills a `Newer` that PUSHES
+    // The other half of paging. Kills a `Newer` that PUSHES
     // another cursor instead of popping — the auditor would walk further down
     // the log while the control says they are going up — and kills one that
     // rebuilds the stack wrongly, leaving `Newer` on screen at the top. Every
     // call made after the click is asserted to be the FIRST page's url, so the
-    // case holds whether the step back is a cache hit (which decision D says it
+    // case holds whether the step back is a cache hit (which it
     // should be, the key being the same) or a refetch; the rendered rows are
     // what say which page is actually shown.
     stageTwoPages();
@@ -655,7 +653,7 @@ describe("AuditSearch — paging through the log", () => {
   });
 
   it("committing a filter after paging clears the cursor stack", async () => {
-    // §5's third risk, and the fault it ships: a cursor from one filter paging
+    // And the fault it ships: a cursor from one filter paging
     // another's results shows rows that match neither, with a `seq` boundary
     // taken from a search the auditor has already left. Kills a page that keeps
     // the stack across a commit — the read would carry BOTH the new
@@ -684,7 +682,7 @@ describe("AuditSearch — paging through the log", () => {
   });
 
   it("clears the cursor stack when the page size changes too", async () => {
-    // a project rule's shape on §1's own sentence: "changing any filter OR
+    // The spec sentence "changing any filter OR
     // the page size clears the stack". Kills a page that clears on a filter
     // commit only — the fix applied at one of the two call sites — where
     // choosing 200 rows would re-read from the OLD cursor and silently hide
@@ -713,7 +711,7 @@ describe("AuditSearch — paging through the log", () => {
 
 describe("AuditSearch — nothing to show, and reads that fail", () => {
   it("renders the named empty state with no table and no alert", async () => {
-    // §1's ninth criterion, the successful half. Kills a page rendering an
+    // The successful half. Kills a page rendering an
     // empty table under its heading, where "no events match" looks exactly like
     // a read that broke. The absent alert is the mutual exclusion: a page
     // showing both says two contradictory things about one answer, and an
@@ -759,7 +757,7 @@ describe("AuditSearch — nothing to show, and reads that fail", () => {
       // status, a 502 envelope being valid JSON; the third kills one calling
       // `response.json()` unguarded, where the thrown parse error escapes as an
       // unhandled rejection instead of a sentence. `UPSTREAM_UNAVAILABLE` is
-      // not one of the design's eight codes, so it is a failed search and not a
+      // not one of the eight typed error codes, so it is a failed search and not a
       // typed refusal.
       searchAnswer = row.answer;
       renderSearch();
@@ -788,14 +786,14 @@ describe("AuditSearch — a refused search", () => {
   it.each(REFUSALS)(
     "$name renders its own sentence and not the generic read alert",
     async (refusal) => {
-      // §1's tenth criterion and decision H. Kills a page rendering the CODE at
+      // Kills a page rendering the CODE at
       // the auditor ("TOOL_DISABLED" means nothing to the person reading it),
       // and kills one answering every failure with the generic sentence — a
       // caller holding no audit principal would be told to "try again in a
       // moment" for something no amount of retrying fixes, and a tripped kill
       // switch would read as an outage. The two shared sentences are READ from
       // `FAILURE_MESSAGES`, so a page inventing its own wording is red without
-      // widening 22b's pinned map. The VALIDATION row is the override: it
+      // widening the pinned map. The VALIDATION row is the override: it
       // asserts the local sentence AND the absence of the shared one, so
       // reusing the map — "That message could not be sent.", which is about a
       // chat message and says nothing true about a search — is red in both
@@ -815,7 +813,7 @@ describe("AuditSearch — a refused search", () => {
   );
 
   it("pins the VALIDATION override sentence exactly", async () => {
-    // a project rule on the second string this plan introduces. The row above
+    // The exact literal for the second new string. The row above
     // READS the constant, so it stays green for any value the module chooses;
     // only this literal fixes it. Kills an implementation that exports the
     // symbol and fills it with the shared map's sentence, or with a reworded
@@ -830,8 +828,8 @@ describe("AuditSearch — a refused search", () => {
 
 describe("AuditSearch — an expired session", () => {
   it("follows the proxy's redirect to /login instead of rendering the log", async () => {
-    // §1's last unhappy path, and the reason it is `response.redirected` and
-    // never a status (22b decision E, a project rule): the browser has
+    // And the reason it is `response.redirected` and
+    // never a status: the browser has
     // ALREADY followed the proxy's redirect, so what arrives is a 200 carrying
     // the login page. Kills a fetcher checking `response.ok` or
     // `response.status === 401` — both see a successful response, the parser
@@ -852,7 +850,7 @@ describe("AuditSearch — an expired session", () => {
 
 describe("AuditSearch — the call the migration must not reshape (plan 24ib §6)", () => {
   it("asks for the filtered, paged read as one exact path and query string", async () => {
-    // An earlier change §6's first case, on the one read no case pins as a STRING:
+    // The first case, on the one read no case pins as a STRING:
     // `::reads the search proxy with limit=50 and nothing else` fixes the
     // default read, and the paging cases assert `paramsOf` — an unordered SET
     // that is satisfied by any composition order and, on a read carrying only
@@ -862,7 +860,7 @@ describe("AuditSearch — the call the migration must not reshape (plan 24ib §6
     // page under an `Older` that says it moved on, and the applied filter left
     // behind pages the unfiltered log while the form still shows the filter the
     // auditor typed. Both are silent — rows appear either way — and the whole
-    // claim of this plan is that this string does not change.
+    // claim here is that this string does not change.
     // Arithmetic: search reads = 3, the paint's, the
     // commit's and this `Older`'s.
     stageTwoPages();
@@ -889,7 +887,7 @@ describe("AuditSearch — the call the migration must not reshape (plan 24ib §6
 
 describe("AuditSearch — two failed reads the existing rows do not cover (plan 24ib §6)", () => {
   it("renders the read alert for a 500 carrying no body at all", async () => {
-    // An earlier change §5's second risk, which the existing `a 500 carrying no JSON at
+    // A risk the existing `a 500 carrying no JSON at
     // all` row does not reach: that row hands back an HTML BODY, so a reader
     // that calls `response.json()` on it still has bytes to fail on. This one
     // is `new Response(null, ...)` — no body at all — which is the shape
@@ -910,7 +908,7 @@ describe("AuditSearch — two failed reads the existing rows do not cover (plan 
   }, 10_000);
 
   it("renders the read alert for a 200 whose body is not JSON at all", async () => {
-    // An earlier change decision E, asserted rather than argued. Today the ok path
+    // Asserted rather than argued. Today the ok path
     // calls `response.json()` unguarded and the `SyntaxError` falls through
     // `errorMessage`'s default arm; through `readWire` the same response is
     // `undefined`, `auditSearchSchema` refuses it, and the SAME sentence is

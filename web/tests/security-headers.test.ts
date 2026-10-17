@@ -3,17 +3,17 @@ import { describe, expect, it } from "vitest";
 import nextConfig from "../next.config";
 
 /**
- * An earlier change §6, `security-headers.test.ts`: the six response headers the web app
+ * `security-headers.test.ts`: the six response headers the web app
  * must answer on every route, plus the two config flags that were already true
- * and must stay true. (No basename collision in the tree, a project rule.)
+ * and must stay true. (No basename collision in the tree.)
  *
  * The unit under test is `web/next.config.ts`'s `headers()`, read as
- * CONFIGURATION rather than off a rendered page: §5 records that a policy which
+ * CONFIGURATION rather than off a rendered page: a policy which
  * breaks a real script still goes green here, and `make e2e` is what catches
  * that. What this file does catch is every way the configuration can be wrong.
  *
- * Every expectation is a literal, character for character (a project rule and
- * 39). Rebuilding the CSP here from the same parts the implementation uses
+ * Every expectation is a literal, character for character. Rebuilding the CSP here from the same
+ * parts the implementation uses
  * would pass for whatever policy it assembled, including one with
  * `default-src *`.
  */
@@ -66,7 +66,7 @@ describe("web security headers", () => {
   });
 
   it("answers the six planned security headers with exactly the planned values", async () => {
-    // Kills every weakened value the plan's §1 fixes, one by one: a CSP with
+    // Kills every weakened value, one by one: a CSP with
     // default-src * or without frame-ancestors, X-Frame-Options SAMEORIGIN
     // instead of DENY, a Referrer-Policy of unsafe-url, a Permissions-Policy
     // that grants camera=(self), an HSTS max-age of 0 or one without

@@ -1,25 +1,13 @@
-"""The hash chain itself. Pure: no I/O, no clock, no models, no services.
+"""The hash chain itself. Pure: no I/O, no clock, no models.
 
-Every audit event stores the hash of its predecessor, so altering one row
-invalidates every row after it and verification can name the first row that
-does not recompute (the design).
+Each event stores the hash of the one before it, so changing a row breaks
+every row after it. `seq` is set by the database after the hash is made, so
+it is not hashed; it only orders the walk, and gaps from rolled-back inserts
+are normal.
 
-`seq` is assigned by the database at insert time, after the hash has been
-computed, so it is deliberately excluded from the hashed fields (an earlier change
-decision B). It orders the verify walk and nothing else: gaps left by
-rolled-back inserts are normal and do not break a chain.
-
-The walk ALONE cannot see two things, and both are why `verify_chain` takes
-an anchor. Removing events from the END leaves a shorter chain
-that still recomputes perfectly, and a log re-chained wholesale from genesis
-recomputes too — an attacker who edits a row and relinks every event after it
-leaves nothing for a walk to catch. What catches both is a head remembered
-outside the walk: an anchor of (last seq, last hash), written only after a
-verify that already agreed with the anchor before it, which
-`audit.anchor.anchor_tenant_chain` is. With no anchor passed, this module
-still makes no claim about either failure, which is what
-`test_audit_chain.py::test_truncating_the_tail_is_not_detected_by_the_walk_alone`
-records.
+The walk alone cannot see a log cut short at the end, or one re-chained from
+the start. Both are caught by an anchor: the last (seq, hash) remembered
+after a good check.
 """
 
 import hashlib
@@ -52,43 +40,24 @@ _UNHASHED_KEYS = frozenset({"seq", "prev_hash", "hash"})
 ANCHOR_HASH_PATTERN = r"[0-9a-f]{64}"
 """What an anchored hash may be: exactly what `event_hash` emits.
 
-The narrower of the two gates the value passes — the column is `String(64)`,
-which admits 64 of anything — so the inclusive boundary is written against
-this one, by
-`test_audit_anchor.py::test_an_anchor_hash_of_exactly_sixty_four_lowercase_hex_characters_is_accepted`
-and `::test_an_anchor_hash_outside_the_pattern_is_refused_with_the_typed_error`.
-Uppercase is excluded because `event_hash` never emits it: an uppercase
-anchor could never equal a stored hash, so every later verify would read the
-log as rewritten."""
+Uppercase is refused: it could never equal a stored hash, so every later
+check would read the log as rewritten."""
 
 MIN_ANCHOR_SEQ = 1
-"""The lowest `audit_seq` an anchor may name: the first value the identity
-hands out. A floor of 0 would let a tenant with no events be anchored at a
-row that can never exist, and that tenant would then read as truncated for
-ever. Pinned by
-`test_audit_anchor.py::test_an_anchor_seq_below_one_is_refused_with_the_typed_error`."""
+"""The lowest `audit_seq` an anchor may name. Anchoring at 0 would point at a
+row that can never exist, and the tenant would read as cut short for ever."""
 
 _ANCHOR_HASH_RE = re.compile(ANCHOR_HASH_PATTERN)
 
 
 class InvalidChainAnchorError(ToolError):
-    """An anchor whose seq or hash could not have come from a real chain.
-
-    `VALIDATION`, the the design code for an input that has to be fixed rather
-    than retried. Raised before any INSERT is built; pinned
-    by the boundary and rejection cases in `test_audit_anchor.py`.
-    """
+    """An anchor whose seq or hash could not have come from a real chain."""
 
     code = ErrorCode.VALIDATION
 
 
 class ChainAnchor(BaseModel):
-    """A tenant's chain head as it was last verified: one seq, one hash.
-
-    Data, not a row: the pure verdict below takes it as an argument, which is
-    what keeps this module free of I/O while still answering the two
-    questions the walk cannot.
-    """
+    """A tenant's chain head as last checked. Plain data, so this module stays free of I/O."""
 
     audit_seq: int
     audit_hash: str
@@ -105,10 +74,8 @@ class ChainAnchor(BaseModel):
     @field_validator("audit_hash")
     @classmethod
     def _check_hash(cls, value: str) -> str:
-        # `re.fullmatch`, never `re.match` or a Pydantic `pattern=` (standing
-        # rule 4): both anchor at the start only, so a 64-character digest
-        # with a newline glued on would be accepted, and no operator reading
-        # a shipped log line could tell it from the real one.
+        # `fullmatch`: `re.match` or a Pydantic `pattern=` would accept a
+        # digest with a newline glued on.
         if _ANCHOR_HASH_RE.fullmatch(value) is None:
             raise InvalidChainAnchorError(
                 f"an anchored hash must match {ANCHOR_HASH_PATTERN}: {value!r}"
@@ -119,11 +86,8 @@ class ChainAnchor(BaseModel):
 class VerifyResult(BaseModel):
     """Outcome of walking one tenant's chain, against its anchor where there is one.
 
-    Exactly one of `broken_at` and `truncated_at` is ever set, and they are
-    two different facts: a row was rewritten HERE, versus everything after
-    here is gone. Reporting the second through the first would name the last
-    GOOD event as broken, which sends an auditor to the wrong row (an earlier change
-    decision E).
+    At most one of `broken_at` (a row changed) and `truncated_at` (the rest
+    is gone) is set.
     """
 
     ok: bool
@@ -132,11 +96,7 @@ class VerifyResult(BaseModel):
     truncated_at: int | None = None
     """The anchored `seq` no surviving event carries, else None."""
     anchored_seq: int | None = None
-    """The `seq` this verdict was checked against, None when never anchored.
-
-    "Verified against a head" and "never anchored" are different facts, and
-    without this field a reader cannot tell them apart; pinned by
-    `test_audit_chain.py::test_an_empty_list_with_no_anchor_is_ok_and_never_anchored`."""
+    """The `seq` this verdict was checked against, None when never anchored."""
 
 
 def event_hash(prev_hash: str, event_fields: Mapping[str, object]) -> str:
@@ -154,19 +114,10 @@ def verify_chain(
 ) -> VerifyResult:
     """Recompute every link in `seq` order, then hold the result to the anchor.
 
-    A missing row shows up as the break at its successor, whose `prev_hash`
-    then points at a hash no surviving row carries.
-
-    The walk runs FIRST and its verdict wins: a chain that is both edited and
-    shortened answers `broken_at`, because the earlier and more specific fact
-    is the one an auditor needs. Pinned by
-    `test_audit_chain.py::test_a_broken_link_wins_over_a_truncated_tail`.
-
-    With no anchor the answer is exactly what it was before an earlier change, which
-    is what lets every caller that never learned about anchors keep calling.
-    With one, two further failures become visible: the anchored seq no longer
-    present (truncation), and present under a different hash (a log re-chained
-    from genesis).
+    A missing row shows up as a break at the row after it. The walk's
+    verdict wins over the anchor's, since an edited row is the more exact
+    fact. An anchor adds two checks: its seq is gone (cut short), or it is
+    there with a different hash (re-chained).
     """
     anchored_seq = anchor.audit_seq if anchor is not None else None
     expected_prev = GENESIS_HASH

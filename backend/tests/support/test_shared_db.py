@@ -1,7 +1,7 @@
-"""An earlier change acceptance: one shared engine and a fresh tenant per test.
+"""Acceptance: one shared engine and a fresh tenant per test.
 
 These tests pin the three NEW session fixtures (not built yet, so this file
-is red until an earlier change adds them to ``backend/tests/conftest.py``):
+is red until they are added to ``backend/tests/conftest.py``):
 
 ``shared_engine`` (session-scoped)
     The ONE ``AsyncEngine`` for the whole run; schema built once from

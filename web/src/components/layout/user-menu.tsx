@@ -8,20 +8,9 @@ import { SignOutButton } from "@/components/layout/sign-out-button";
 import { Card } from "@/components/ui/card";
 
 /**
- * The signed-in person's name and account type as one button that opens a
- * panel holding Sign out. A disclosure, not a `role="menu"`: one
- * action needs no roving focus (decision B).
- *
- * Until `/api/me` answers, after it failed and with no provider above, there
- * is no trigger and the plain Sign out button shows, so signing out never
- * depends on that read (decision C; `tests/user-menu.test.tsx::shows a plain
- * Sign out and no trigger while the read is pending`).
- *
- * Closes on Escape (focus returns to the trigger), a `pointerdown` outside the
- * group, a second click on the trigger and focus leaving the group (decision D;
- * `::closes on Escape and returns focus to the trigger`, `::closes on a
- * pointerdown outside the group`, `::closes on a second click on the trigger`,
- * `::closes when focus leaves the group`).
+ * Name and role as a button that opens Sign out. A disclosure, not a menu: one
+ * action needs no roving focus. Until `/api/me` answers, a plain Sign out shows,
+ * so signing out never waits on that read.
  */
 export function UserMenu() {
   const me = useMe();

@@ -1,11 +1,4 @@
-"""The one Redis accessor the apps share, and the timeouts it is pinned to.
-
-The mcp-server reads the kill switch before every tool call and
-`set_kill_switch`'s handler writes one; the scheduler takes the cadence-gate
-lock on every tick. All of them want the same per-loop pooled client, so the
-accessor lives here in `shared.core` and each app imports it rather than
-keeping its own copy.
-"""
+"""The one Redis client the apps share, per event loop."""
 
 import asyncio
 from weakref import WeakKeyDictionary
@@ -15,29 +8,14 @@ from redis.asyncio import Redis
 from helpdesk.shared.core.config import Settings
 
 REDIS_TIMEOUT_SECONDS = 2
-"""Connect and read timeout for the pooled client, both halves on both apps.
-
-Without it a blackholed Redis (packets dropped rather than refused) hangs
-every tool call forever inside `KillSwitch.check` instead of the `INTERNAL`
-the fail-closed design promises, and holds the scheduler's single loop so no
-job of any tenant ever runs again. A connect timeout alone is not enough: a
-completed handshake followed by a fenced server hangs the read. Pinned exactly
-by `test_mcp_pipeline.py::test_the_redis_client_carries_the_pinned_timeouts`
-and, on the constructed client, by
-`test_scheduler_runner.py::test_the_redis_client_carries_both_timeout_halves`."""
+"""Connect and read timeout. Without both, a silent Redis hangs every tool call
+and the scheduler's loop, instead of failing closed."""
 
 _SHARED_REDIS: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, Redis]] = WeakKeyDictionary()
 
 
 def get_redis(settings: Settings) -> Redis:
-    """A process-shared Redis client for the running event loop.
-
-    Keyed by (event loop, URL) for the same reason `helpdesk.core.db`'s
-    `shared_engine` is: a pooled connection belongs to the loop that opened
-    it. Under a server this is one client per process; under a test that
-    drives each call through its own `asyncio.run`, it is one per loop.
-    Entries drop with their loop.
-    """
+    """A shared client per (event loop, URL): a pooled connection belongs to its loop."""
     loop = asyncio.get_running_loop()
     clients = _SHARED_REDIS.setdefault(loop, {})
     client = clients.get(settings.redis_url)
@@ -52,10 +30,7 @@ def get_redis(settings: Settings) -> Redis:
 
 
 async def close_loop_clients() -> None:
-    """Close and forget the running loop's pooled Redis clients.
-
-    A pool belonging to a dead loop is a connection nothing will ever close.
-    """
+    """Close the running loop's clients; nothing else would once the loop dies."""
     loop = asyncio.get_running_loop()
     for client in _SHARED_REDIS.pop(loop, {}).values():
         await client.aclose()

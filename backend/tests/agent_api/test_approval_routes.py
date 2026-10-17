@@ -1,15 +1,15 @@
-"""An earlier change §6: the approval queue and the two decisions, over HTTP.
+"""The approval queue and the two decisions, over HTTP.
 
 Surface under test (written before it exists; every case below is red on one
 of these names until steps 2, 3 and 4 land):
 
-``agent_api.deps`` (widened by step 2, decision C)
+``agent_api.deps`` (widened to hold the shared map)
     ``STATUS_FOR_CODE: Mapping[ErrorCode, int]``, ``typed_refusal(code) ->
     JSONResponse`` and ``call_tool_route(authorization, tool, arguments) ->
     JSONResponse``, moved out of ``me_routes`` so 23e, 23f and 24 share one
     typed-refusal map. ``call_tool_route`` reaches ``build_tool_caller``
     through THIS module's global, which is why every case here patches
-    ``deps.build_tool_caller`` and why §8 moves the one line in
+    ``deps.build_tool_caller`` and why the one line in
     ``test_me_routes.py``.
 
 ``agent_api.graph.keys`` (step 3)
@@ -24,8 +24,7 @@ of these names until steps 2, 3 and 4 land):
     ``POST /approvals/{request_id}/reject`` (required ``reason``), registered
     in ``main.py``.
 
-Shapes this file fixes that the plan left open (a project rule and 55;
-these belong in 23c's Deviations):
+Shapes this file fixes that were left open:
 - the two VERBS in the key material are the path segments, ``"approve"`` and
   ``"reject"``. Both the route cases and the pure key cases below read the
   same two constants of this module, so whatever the implementation spells
@@ -33,14 +32,14 @@ these belong in 23c's Deviations):
   compared against ONE value; the implementer owes these two strings.
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``, agent-api's own
   shape, and the bearer refusal is a literal ``401`` rather than a row of
-  ``STATUS_FOR_CODE`` (whose ``FORBIDDEN`` is the matrix's 403) — 23a's
+  ``STATUS_FOR_CODE`` (whose ``FORBIDDEN`` is the matrix's 403) — the same
   reasoning, unchanged by the move into ``deps``.
-- a non-uuid ``request_id`` is FastAPI's own ``422``: §1 says the path
+- a non-uuid ``request_id`` is FastAPI's own ``422``: the path
   parameter is a ``uuid.UUID``, so the refusal is the framework's and no
   second validator is written for it. What the case actually pins is that no
   tool, no key and no query is reached.
 - the decision bodies are JSON objects (``{"comment": …}`` / ``{"reason":
-  …}``), and the comment/reason bounds stay the TOOL's (decision E), so the
+  …}``), and the comment/reason bounds stay the TOOL's, so the
   boundary cases here drive a caller that applies the tool's own
   ``COMMENT_MAX_LENGTH`` / ``REASON_MAX_LENGTH`` and answers the typed
   ``VALIDATION`` the way the real MCP server does. The route's job — the only
@@ -98,8 +97,8 @@ REJECT_VERB = "reject"
 SEPARATOR = "\x1f"
 
 # The tool's bounds (`mcp_server.tools.approvals`), written out because
-# agent-api cannot import the mcp-server package. a project rule wants the
-# values; decision E says these two are the only validator, so the route must
+# agent-api cannot import the mcp-server package. The values are
+# written out; these two are the only validator, so the route must
 # neither repeat them more narrowly nor refuse what they accept.
 COMMENT_MAX_LENGTH = 2000
 REASON_MAX_LENGTH = 2000
@@ -184,8 +183,8 @@ REJECT_PAYLOAD: Mapping[str, Any] = {
 class ScriptedToolCaller:
     """A `ToolCaller` answering one scripted payload per call, in order.
 
-    The same stub shape `test_me_routes.py` and `test_chat_route.py` use (plan
-    17b's seam): a call past the last scripted answer fails the test outright,
+    The same stub shape `test_me_routes.py` and `test_chat_route.py` use (the
+    tool-caller seam): a call past the last scripted answer fails the test outright,
     which is how "the route opened no session at all" is asserted as a hard
     stop rather than as a count read afterwards.
     """
@@ -274,7 +273,7 @@ def _stub_resume(monkeypatch: pytest.MonkeyPatch) -> None:
 class BoundCheckingToolCaller:
     """The MCP server's own input validation, standing in for the wire.
 
-    Decision E: the tool's `COMMENT_MAX_LENGTH` and `REASON_MAX_LENGTH` are
+    the tool's `COMMENT_MAX_LENGTH` and `REASON_MAX_LENGTH` are
     the only validator, so an over-long comment or an empty reason crosses
     back as a typed `VALIDATION` rather than being refused in agent-api. This
     caller answers exactly that, and records in `decisions` only the calls it
@@ -375,7 +374,7 @@ def _request(
 ) -> tuple[httpx.Response, CallerSpy]:
     """One call against the app, with the tool caller replaced at the seam.
 
-    The seam is `deps.build_tool_caller` (decision C moved `_call` there), and
+    The seam is `deps.build_tool_caller` (the shared module owns `_call`), and
     the lifespan is NOT entered: these three routes read nothing off
     `app.state`, so entering it would buy a psycopg pool, a Redis client and a
     gateway client that no case here uses.
@@ -409,15 +408,15 @@ def test_the_queue_route_answers_the_tools_output_unchanged(
     approvals_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a route that reshapes, filters or renames the tool's structured
-    output on the way out (§1: "returns the tool's structured output
+    output on the way out ("returns the tool's structured output
     unchanged"), and one that calls a different tool.
 
-    The bearer half is a project rule and decision A: the token the caller
+    The bearer half is the tenant and identity rule: the token the caller
     presented is forwarded VERBATIM, so RBAC, the kill switch and the audit
     event all apply to this read. A route that minted its own service token,
     or reused a configured one, fails on the identity assertion alone; a route
     that passed the approver's id as an ARGUMENT fails on the key-set
-    assertion, which is what a project rule forbids on a queue whose whole
+    assertion, which is what that rule forbids on a queue whose whole
     filter is "waiting for me".
     """
     caller = ScriptedToolCaller(QUEUE_PAYLOAD)
@@ -443,7 +442,7 @@ def test_the_queue_route_sends_no_limit_when_none_is_asked_for(
     approvals_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a route that repeats the tool's `LIMIT_DEFAULT` as a number of
-    its own (a second place for 50 to drift from, a project rule) and one
+    its own (a second place for 50 to drift from) and one
     that sends `limit: null` to a tool whose bound is 1..200 inclusive and
     would answer VALIDATION for it — the page would then show an empty queue
     for a caller with rows waiting.
@@ -466,7 +465,7 @@ def test_the_queue_route_sends_no_limit_when_none_is_asked_for(
 def test_the_approve_route_answers_the_tools_output_under_the_callers_own_bearer(
     approvals_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The mutation half of a project rule and 6 at once.
+    """The mutation half of the no-LLM-mutation and identity rules at once.
 
     Catches a route that reshapes the decision's output, one that calls the
     wrong tool, one that forwards anything but the caller's own bearer, and —
@@ -540,7 +539,7 @@ def test_the_reject_route_answers_the_tools_output_under_the_callers_own_bearer(
 def test_two_approvals_of_one_request_with_different_comments_send_one_key(
     approvals_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Decision B, the whole reason the key is derived rather than sent.
+    """The whole reason the key is derived rather than sent.
 
     Catches a key that includes the comment in its material, and a key minted
     fresh per call (`uuid4`): a double-clicked Approve would then arrive under
@@ -683,11 +682,11 @@ def test_an_expired_bearer_is_a_typed_401_and_opens_no_session(
 
 
 def test_the_shared_status_map_answers_a_matrix_refusal_403_and_a_kill_switch_503() -> None:
-    """a project rule on the map decision C moves into `deps`.
+    """The shared map in `deps`.
 
     Catches the map reading FORBIDDEN as 401 (the shape the chat routes carried
-    before an earlier change folded both maps into one): on these routes a FORBIDDEN can
-    only come from the RBAC matrix, and §1 says a matrix refusal is a 403.
+    before the two maps were folded into one): on these routes a FORBIDDEN can
+    only come from the RBAC matrix, and a matrix refusal is a 403.
     `TOOL_DISABLED` is pinned beside it because a tripped kill switch is "this
     decision is unavailable right now" and not a permission answer, and the
     `INTERNAL` row dresses an unreachable server as a 500 the caller cannot act
@@ -782,7 +781,7 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
 def test_a_non_uuid_request_id_reaches_no_tool_and_no_key(
     approvals_env: None, monkeypatch: pytest.MonkeyPatch, verb: str
 ) -> None:
-    """§1's second input-validation criterion. Catches a `request_id` declared
+    """Catches a `request_id` declared
     as a `str` and passed straight through: it would reach the tool as a
     string the MCP input model refuses, but it would FIRST reach
     `derive_decision_key`, which would happily digest `"../../etc"` into a
@@ -810,13 +809,13 @@ def test_a_non_uuid_request_id_reaches_no_tool_and_no_key(
     assert spy.bearer_tokens == []
 
 
-# --- the comment and reason bounds (decision E) -------------------------------
+# --- the comment and reason bounds -------------------------------
 
 
 def test_a_comment_of_exactly_the_tools_maximum_is_accepted(
     approvals_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The INCLUSIVE end of §1's bound, and the case decision E exists for.
+    """The INCLUSIVE end of the bound.
 
     Catches a route that re-declares the cap on a body model of its own: a
     `max_length=2000` written as `<` , a `constr(max_length=1999)`, or any
@@ -847,7 +846,7 @@ def test_a_comment_one_character_over_the_maximum_is_a_typed_400_with_no_decisio
 ) -> None:
     """The other end of the same bound. Catches a route that answers the
     tool's typed `VALIDATION` as an untyped 500 or as FastAPI's 422 — the page
-    has one sentence per the design code and nothing to say for either — and a
+    has one sentence per code and nothing to say for either — and a
     route that swallows the refusal and answers 200, which would tell an
     approver their decision was filed when nothing was.
     """
@@ -917,7 +916,7 @@ def test_a_reason_of_exactly_the_tools_maximum_is_accepted(
     assert caller.decisions[0]["reason"] == reason
 
 
-# --- the derived key, pure (decision B) ---------------------------------------
+# --- the derived key, pure ---------------------------------------
 
 
 def test_the_same_approver_request_and_verb_derive_the_same_key_every_time() -> None:
@@ -947,7 +946,7 @@ def test_the_same_approver_request_and_verb_derive_the_same_key_every_time() -> 
 def test_changing_any_one_of_the_three_values_changes_the_key(
     approver: uuid.UUID, request_id: uuid.UUID, verb: str
 ) -> None:
-    """§5's last risk, one value at a time. Each row is the failure the value
+    """One value at a time. Each row is the failure the value
     prevents: without the approver two approvers deciding one request share a
     key and the second replays the first's answer; without the request id one
     approver's second decision replays their first, on a DIFFERENT request;
@@ -968,7 +967,7 @@ def test_the_key_is_the_uuid5_of_the_three_values_under_the_modules_namespace() 
     namespace or joined with a different separator: it would be stable, unique
     and completely different from the key `graph/keys.py` documents, so every
     other case in this file passes while the module has two derivations under
-    two namespaces (decision B's whole reason for putting this function in
+    two namespaces (the reason this function lives in
     that module).
 
     The separator is asserted by construction: a join on `\\x1f` is the only
@@ -986,11 +985,11 @@ def test_the_key_is_the_uuid5_of_the_three_values_under_the_modules_namespace() 
 
 
 def test_the_derived_key_fits_the_column_it_is_stored_in() -> None:
-    """§1's length half: the key is length-checked by `check_idempotency_key`
+    """The length half: the key is length-checked by `check_idempotency_key`
     before it reaches the wire. Catches a derivation that returns the MATERIAL
     rather than a uuid over it — a string that grows with the verb and would
     abort the store AFTER the decision had run, as a database error instead of
-    the code the design names.
+    the typed code.
     """
     key = derive_decision_key(approver_user_id=APPROVER_ID, request_id=REQUEST_ID, verb=REJECT_VERB)
 

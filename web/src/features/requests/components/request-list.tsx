@@ -17,32 +17,10 @@ import { Alert } from "@/components/ui/alert";
 import { formatIsoDate } from "@/lib/date-format";
 
 /**
- * Everything this user has asked for, newest read of `GET /api/me/requests`
- *.
- *
- * A client component doing its own read through TanStack Query (decision A),
- * with the read itself in `lib/wire-read.ts`: the redirect, the
- * status, the typed code and the parse live there once, and this file maps that
- * module's `null` — the browser already following the proxy's redirect to
- * `/login` (22b decision E) — to the empty list. Pinned by
- * `tests/requests-page.test.tsx`'s `an expired session` case.
- *
- * A failed read THROWS rather than answering an empty list. The two are
- * different things to the person reading the page — "you have filed nothing"
- * over a broken proxy is the one sentence here somebody might act on — so the
- * empty state and the alert are mutually exclusive by construction, asserted
- * from both sides by `::renders the named empty state and no list` and the two
- * `a read that fails` rows.
- *
- * Accessible names: the region is `My requests`, the rows are the list
- * `Requests`, and inside a row the three nested lists are `Reasons`,
- * `Approvers` and `Sources` — a row holding three lists is otherwise not
- * countable, which is why each carries its own name.
- *
- * Every enum value is rendered through `decision-labels.ts`: `approval`,
- * `elevated` and `pending` are the engine's vocabulary, not a person's. Dates
- * are the ISO prefix, never `toLocaleDateString`, which answers "12/1/2026" —
- * a different day in half the world.
+ * Everything this user has asked for. A redirect to `/login` shows as an empty
+ * list, but a failed read shows an alert, never "you have filed nothing", since
+ * that is a sentence someone might act on. Enum values go through the label
+ * helpers, because `elevated` and `pending` are engine words.
  */
 export function RequestList() {
   const requests = useMyRequests();
@@ -132,10 +110,8 @@ function RequestRow({ request }: { request: MyRequest }) {
 }
 
 /**
- * One stored citation: the title, the version it was decided against, and the
- * heading it came from. The version is load-bearing — two versions of one
- * policy read identically without it (`::renders each citation as its own
- * source, naming the document and its version`).
+ * One stored citation. The version matters: two versions of one policy look the
+ * same without it.
  */
 function CitationRow({ citation }: { citation: RequestCitation }) {
   return (

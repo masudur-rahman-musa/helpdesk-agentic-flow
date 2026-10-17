@@ -20,8 +20,7 @@ depends_on: str | Sequence[str] | None = None
 
 # Append-only enforcement lives in the database, not the application, so a
 # stray UPDATE from any connection is refused rather than trusted to be
-# well-behaved (the design, an earlier change decision C). Role-level grants harden
-# this further at deployment.
+# well-behaved. Role-level grants tighten this further at deployment.
 _APPEND_ONLY_FUNCTION = """
 CREATE OR REPLACE FUNCTION audit_events_append_only() RETURNS trigger AS $$
 BEGIN

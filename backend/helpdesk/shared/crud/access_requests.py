@@ -1,9 +1,4 @@
-"""Access-request reads: simple and context-enriched.
-
-The widened twin of `helpdesk.access.requests`: the same request rows, with
-the role, system, target and any produced grant named in one statement so a
-page of requests stays one round trip.
-"""
+"""Access-request reads, plain and with names joined in so a page is one round trip."""
 
 import uuid
 from collections.abc import Sequence
@@ -18,20 +13,7 @@ from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, Sy
 
 @dataclass(frozen=True)
 class RequestWithContext:
-    """One `access_requests` row with everything a reader needs named.
-
-    A frozen dataclass around the ORM row rather than a Pydantic model
-    duplicating its nine columns: the wire shape is
-    `mcp_server.tools.access.AccessRequestSummary`, which the design owns, and
-    a second nineteen-field model here would be two contracts to keep in step.
-    What this carries beside the row is exactly what the JOIN answered and the
-    row cannot: the role's and system's names, the target's display name, and
-    the grant the request produced.
-
-    `grant_id` and `expires_at` are `None` for a request nothing granted
-    (the join is a LEFT one), pinned by
-    `test_mcp_access_read_tools.py::test_the_grant_join_is_null_when_pending_and_carries_the_grant_when_executed`.
-    """
+    """One request row plus the names the join found. Grant fields are None if not granted."""
 
     request: AccessRequest
     role_slug: str
@@ -49,35 +31,11 @@ async def list_requests_with_context_for_requester(
     status: str | None,
     limit: int,
 ) -> Sequence[RequestWithContext]:
-    """The bound tenant's requests filed BY this user, named and with their grant.
+    """Requests filed by this user, with names and any grant, oldest first.
 
-    The widened twin of `helpdesk.access.list_requests_for_requester`, and
-    filtered the same way — by REQUESTER, so an on-behalf request belongs to
-    the manager who filed it. `status` arrives as the already-validated
-    `RequestStatus` value, so the query never sees free text.
-
-    Four joins in ONE statement, so a page of N requests stays one round trip
-    rather than N directory reads: the role, the role's system and the target
-    user are inner joins (every request row names all three), and the grant is
-    a LEFT join on `grants.request_id` because most requests have none. The
-    LEFT half survives the tenant guard because `with_loader_criteria` appends
-    its filter to the join's ON clause rather than to the WHERE, so an
-    ungranted request is not silently dropped.
-
-    Whole entities are selected, not columns, for the same reason
-    `list_active_grants_for_user` does it: the guard in `helpdesk.core.db`
-    injects its filter per mapped entity, so all five tables are scoped by the
-    session rather than by this `where`.
-
-    One row per request, never multiplied by the join: a request can have at
-    most one grant pointing back at it, pinned by
-    `test_mcp_access_read_tools.py::test_several_requests_come_back_once_each_despite_the_grant_join`.
-
-    `limit` is a bound the CALLER validated (`REQUESTS_LIMIT_MIN`/`MAX`), and
-    it truncates the OLDEST-first order below, so a caller holding more than
-    `limit` requests sees their earliest ones. Stated rather than assumed:
-    the order is `created_at` then id, the same stable pair the narrow twin
-    uses.
+    Filtered by requester, so an on-behalf request belongs to the manager.
+    Whole rows are selected so the tenant guard scopes all five tables. The
+    grant join is a LEFT join, so ungranted requests are kept.
     """
     statement = (
         select(AccessRequest, Role, System, User, Grant)
@@ -112,34 +70,18 @@ async def fetch_requests_for_requester(
     requester_user_id: uuid.UUID,
     status: str | None,
 ) -> list[AccessRequest]:
-    """The bound tenant's requests filed BY this user, oldest first.
-
-    Filtered by requester, not target: `list_my_requests` answers "what did I
-    ask for", and an on-behalf request belongs to the manager who filed it.
-    `status` is the already-validated `RequestStatus` value or None.  The
-    order is `created_at` then id for a stable tie.  Pinned by
-    `test_mcp_access_read_tools.py::test_list_my_requests_comes_back_oldest_first`.
-    """
-    statement = select(AccessRequest).where(
-        AccessRequest.requester_user_id == requester_user_id
-    )
+    """Requests filed by this user, oldest first."""
+    statement = select(AccessRequest).where(AccessRequest.requester_user_id == requester_user_id)
     if status is not None:
         statement = statement.where(AccessRequest.status == status)
-    result = await session.execute(
-        statement.order_by(AccessRequest.created_at, AccessRequest.id)
-    )
+    result = await session.execute(statement.order_by(AccessRequest.created_at, AccessRequest.id))
     return list(result.scalars().all())
 
 
 async def fetch_approved_role_ids_for_target(
     session: AsyncSession, target_user_id: uuid.UUID
 ) -> frozenset[uuid.UUID]:
-    """Role ids approved for this user but not yet executed (the design).
-
-    Exactly the rows whose status is `approved`: an executed request shows up
-    as a grant, and every other status never conferred anything.  Pinned by
-    `test_access_execute.py::test_an_approved_role_is_counted_in_the_held_set`.
-    """
+    """Role ids approved for this user but not yet granted; a granted one shows as a grant."""
     result = await session.execute(
         select(AccessRequest).where(
             AccessRequest.target_user_id == target_user_id,
@@ -152,22 +94,15 @@ async def fetch_approved_role_ids_for_target(
 async def lock_open_requests_for_target(
     session: AsyncSession, target_user_id: uuid.UUID
 ) -> list[AccessRequest]:
-    """The bound tenant's still-open requests TARGETING this user, locked.
+    """Pending or approved requests for this user, locked until the transaction ends.
 
-    "Open" is `pending` or `approved` and nothing else.
-    `FOR UPDATE` through the ORM so the tenant guard still injects its filter
-    and the rows are held until the caller's transaction ends.  Ordered by
-    `created_at` then id so two runs over the same rows write their closure
-    events in the same order.  Pinned by
-    `test_mcp_offboard_user.py::test_two_callers_racing_the_same_offboard_leave_one_departure`.
+    A fixed order, so two runs write their closing events in the same order.
     """
     result = await session.execute(
         select(AccessRequest)
         .where(
             AccessRequest.target_user_id == target_user_id,
-            AccessRequest.status.in_(
-                (RequestStatus.PENDING.value, RequestStatus.APPROVED.value)
-            ),
+            AccessRequest.status.in_((RequestStatus.PENDING.value, RequestStatus.APPROVED.value)),
         )
         .order_by(AccessRequest.created_at, AccessRequest.id)
         .with_for_update()

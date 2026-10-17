@@ -1,7 +1,7 @@
 """Tests for agent-api health endpoints.
 
-An earlier change moved the readiness checks from per-app modules into `shared.core.health`
-as `ping_*` functions. The check-faking seam is now those functions: tests
+The readiness checks live in `shared.core.health` as `ping_*` functions. The
+check-faking seam is those functions: tests
 patch `health.ping_*` rather than `readiness.check_*`, and the router's
 `_build_agent_api_checks` function calls them through the `_health` module
 attribute so the patch takes effect.
@@ -35,7 +35,7 @@ import pytest
 from helpdesk.agent_api.api.router import app
 from helpdesk.shared.core import health
 
-# An earlier change section 8: FOUR dependencies. the design names the gateway as a
+# FOUR dependencies. The gateway is a
 # dependency of the agent's readiness, so a container reporting ready while
 # every model call fails is the failure this endpoint exists to prevent. The
 # 503 case below is parametrised over this tuple, so `gateway: False` alone

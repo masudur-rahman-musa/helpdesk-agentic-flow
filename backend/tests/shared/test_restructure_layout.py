@@ -82,7 +82,7 @@ def test_the_package_lives_under_backend() -> None:
 
 
 def test_access_and_audit_each_have_one_home() -> None:
-    """After an earlier change: shared.services.access and shared.services.audit are gone;
+    """Shared.services.access and shared.services.audit are gone;
     every access and audit module resolves at its new path."""
     OLD = (
         "helpdesk.shared.services.access",
@@ -116,7 +116,7 @@ def test_access_and_audit_each_have_one_home() -> None:
 
 
 def test_scheduler_only_code_lives_in_scheduler() -> None:
-    """After an earlier change: expiry, leavers and review_schedule resolve under
+    """The expiry, leavers and review_schedule resolve under
     scheduler.jobs and NOT under shared.access."""
     NEW = (
         "helpdesk.scheduler.jobs.expiry",
@@ -138,7 +138,7 @@ def test_scheduler_only_code_lives_in_scheduler() -> None:
 
 
 def test_split_files_are_small() -> None:
-    """After an earlier change: none of the split files is unreasonably long.
+    """None of the split files is unreasonably long.
 
     reviews.py gets a higher ceiling (600) because open_review and decide_item
     each carry ~56-60 line decision docstrings that cannot be shortened without
@@ -157,6 +157,4 @@ def test_split_files_are_small() -> None:
         path = BACKEND / rel
         assert path.is_file(), f"missing split file: {path}"
         lines = path.read_text().splitlines()
-        assert len(lines) <= limit, (
-            f"{rel} has {len(lines)} lines (limit {limit})"
-        )
+        assert len(lines) <= limit, f"{rel} has {len(lines)} lines (limit {limit})"

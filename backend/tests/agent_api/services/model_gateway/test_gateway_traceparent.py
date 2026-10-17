@@ -1,4 +1,4 @@
-"""An earlier change §6: the W3C `traceparent` header minted and checked in
+"""The W3C `traceparent` header minted and checked in
 `helpdesk/gateway/traceparent.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
@@ -12,7 +12,7 @@ Expected implementation surface (the implementer must provide exactly this):
         ``ToolError`` whose code is ``ErrorCode.VALIDATION``.
     ``def traceparent_for(value: str | None) -> str`` — mint when the caller
         passes none, propagate verbatim when the caller passes a valid one.
-        Plan §2 names this as the ONE seam row 20 replaces with the active
+        This is the ONE seam that later gets replaced with the active
         span's context, which is why these cases pin the header's SHAPE
         rather than the generator.
 
@@ -20,8 +20,8 @@ Pure: no I/O, no socket, no backing service. `os.urandom` is the only
 non-determinism, which is why the mint is asserted against the pattern and
 against a second mint, never against a literal.
 
-An earlier change takes the seam this file's docstring reserved, and ADDS the three
-cases at the bottom; nothing above them moves (the plan's §8 says so, and
+A later change takes the seam this file's docstring reserved, and ADDS the three
+cases at the bottom; nothing above them moves (and
 ``test_no_caller_value_mints_a_fresh_header`` is named there as the green
 that proves the change is additive). Expected implementation surface:
 
@@ -154,8 +154,8 @@ def test_the_pattern_itself_refuses_every_malformed_row(value: str) -> None:
 
 
 def test_a_valid_caller_value_is_returned_verbatim() -> None:
-    """Catches a `traceparent_for` that always mints (plan decision C's option
-    ii): an agent turn that already holds a trace would then start a second,
+    """Catches a `traceparent_for` that always mints:
+    an agent turn that already holds a trace would then start a second,
     unconnected one, and the two services' spans would never join. Verbatim,
     not merely valid — a re-encoded or re-flagged header is a different span
     id and breaks the same join."""
@@ -184,7 +184,7 @@ def test_a_malformed_caller_value_is_refused_rather_than_replaced() -> None:
     assert excinfo.value.code is ErrorCode.VALIDATION
 
 
-# --- an earlier change: the active span the header joins -------------------------------
+# --- the active span the header joins -------------------------------
 
 
 @pytest.fixture
@@ -193,7 +193,7 @@ def traced() -> Iterator[FakeTraceClient]:
 
     Not autouse: every case above this line must keep running with tracing
     exactly as it is at rest — unconfigured — which is what makes the mint
-    case the plan's proof that the seam is additive.
+    case the proof that the seam is additive.
     """
     client = FakeTraceClient()
     configure_tracing(client=client)
@@ -208,7 +208,7 @@ def test_an_active_span_makes_the_header_carry_that_trace_and_that_span(
 ) -> None:
     """Catches a `traceparent_for` that still mints from `os.urandom` when a
     trace is active: the console would record the model call under a trace id
-    this process has never heard of, and the design's two-service join would
+    this process has never heard of, and the join between the two services would
     silently be two disconnected traces that both look healthy.
 
     The span id half is asserted too, and it is the one a "trace id only"
@@ -231,7 +231,8 @@ def test_an_active_span_makes_the_header_carry_that_trace_and_that_span(
 
 def test_a_caller_value_still_wins_over_an_active_span(traced: FakeTraceClient) -> None:
     """Catches a seam that OVERWRITES the caller's header with the local span
-    once tracing is on. The caller's value is a parent from another process; replacing it re-parents the call onto this service
+    once tracing is on. The caller's value is a parent from another process;
+    replacing it re-parents the call onto this service
     and loses the join the caller was asking for — and this is the only case
     where both a caller value and an active span exist at once, so nothing
     else can decide it."""

@@ -1,4 +1,4 @@
-"""An earlier change: one context built in dispatch, handed to every tool.
+"""One context built in dispatch, handed to every tool.
 
 Surface under test (written before it exists):
 
@@ -73,7 +73,7 @@ class _Capture:
     """A handler that records the one context it was handed.
 
     The synthetic specs mirror the pipeline test's ``_ok_handler``/``_spec``,
-    but with the new ``(ctx, args)`` signature: the whole point of an earlier change is
+    but with the new ``(ctx, args)`` signature: the whole point is
     that a handler receives a ``ToolContext`` and nothing else beside the args.
     """
 

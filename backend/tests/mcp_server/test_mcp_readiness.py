@@ -1,11 +1,11 @@
 """Tests for the shared readiness ping functions, driven from mcp-server context.
 
-An earlier change moved the three per-call readiness checks into `shared.core.health`
+The three per-call readiness checks live in `shared.core.health`
 as `ping_*` functions that take the app's existing client instead of building
 a new one on every call. This file covers the ping bodies themselves.
 
-The per-call construction assertions and the timeout assertions from the old
-file drop here: the app's long-lived clients carry those settings, and no new
+The per-call construction assertions and the timeout assertions are not tested
+here: the app's long-lived clients carry those settings, and no new
 client is ever built inside a ping function.
 
 `test_mcp_transport.py` covers the /readyz route behaviour via

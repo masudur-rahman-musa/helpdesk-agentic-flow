@@ -3,19 +3,9 @@
 import type { ChatMessage } from "@/features/chat/components/types";
 
 /**
- * The transcript: history and this turn in one list, oldest first.
- *
- * `role="log"` with the accessible name "Conversation" — a log is the region a
- * screen reader announces additions to, which is what a streamed turn is. Each
- * message is an `<article>` carrying `data-role`, so a user's question and the
- * assistant's answer are distinguishable to a test and, through the visible
- * label, to a reader. Pinned by `tests/chat-page.test.tsx`'s "renders this
- * session's messages oldest first, users and assistants apart".
- *
- * The live turn is the LAST article and holds the tokens as they arrive. It is
- * replaced by the settled `reply`, never appended to it: the post-check may
- * have regenerated the text the tokens carried, and showing both
- * would leave the replaced composition standing beside the checked one.
+ * The transcript, oldest first. `role="log"` makes a screen reader announce
+ * streamed text. The live turn is replaced by the final reply, never added to:
+ * the final check may have rewritten the streamed text.
  */
 export function Conversation({ messages, live }: { messages: ChatMessage[]; live: string }) {
   return (

@@ -4,34 +4,32 @@ import { z } from "zod";
 import { isTypedCode, readWire, WireRefusedError } from "@/lib/wire-read";
 
 /**
- * An earlier change §6, `wire-read.test.ts`: the shared wire read `lib/wire-read.ts`
- * (decision C), over the module ALONE with a stubbed `fetch` and a two-field
+ * `wire-read.test.ts`: the shared wire read `lib/wire-read.ts`, over the module ALONE with a
+ * stubbed `fetch` and a two-field
  * throwaway schema. No component, no jsdom render, no backing service.
  *
  * This is the four-line shape seven components each carry their own copy of
  * (redirected, status, typed code, `safeParse`). It lands here with
- * `RulesBoard` as its only caller; the migration of the seven is row 24i, so
+ * `RulesBoard` as its only caller; the other pages are migrated later, so
  * nothing in this file knows any page's payload — the schema is a parameter.
  *
- * Shapes the plan left open that this file fixes (a project rule and 55;
- * they belong in 24f's Deviations):
+ * Shapes the plan left open that this file fixes:
  * - `readWire(path, schema)` is called with a PATH string and a zod schema and
  *   answers `Promise<T | null>`; the `null` is the redirect and nothing else.
  * - a failed read (a body the schema refuses, a body that is not JSON, a code
- *   outside the design) throws an `Error` that is NOT a `WireRefusedError`; the
+ *   outside the typed error codes) throws an `Error` that is NOT a `WireRefusedError`; the
  *   message is not pinned, because the CALLER owns the sentence it shows
  *   (`RULES_READ_MESSAGE`) and nothing renders this one.
  * - `isTypedCode` takes `unknown`.
  * - the redirect is a 200 with `redirected` and `url` defined on the Response
- *   INSTANCE, and `location` is stubbed with `vi.stubGlobal` (standing
- *   rule 59).
+ *   INSTANCE, and `location` is stubbed with `vi.stubGlobal` .
  */
 
 const PROBE_PATH = "/api/probe/thing";
 const ORIGIN = "http://localhost:3000";
 const LOGIN_URL = "http://localhost:3000/login";
 
-/** The throwaway schema §6 asks for: two fields, both required. */
+/** A throwaway schema: two fields, both required. */
 const probeSchema = z.object({ name: z.string(), count: z.number() });
 
 const fetchStub = vi.fn<typeof fetch>();
@@ -120,14 +118,14 @@ describe("readWire — a read that worked", () => {
 
 describe("readWire — a session that expired", () => {
   it("assigns response.url and returns null for a redirected response", async () => {
-    // 22b decision E, and the case the seven copies exist to keep identical.
+    // The case the seven copies exist to keep identical.
     // Kills a `readWire` that reads `response.ok` or `response.status === 401`
     // first: a followed redirect is a 200 carrying the login page, so both see
     // success, the schema then refuses the HTML, and the caller renders "could
     // not be read" for a session that merely expired. The RETURN is asserted to
     // be `null` and not the parsed value, because that null is the third answer
     // a board needs to render neither a table, nor an alert, nor an empty state
-    // while the browser navigates away (a project rule's fourth half).
+    // while the browser navigates away .
     answer = redirectedResponse;
 
     const parsed = await readWire(PROBE_PATH, probeSchema);
@@ -150,7 +148,7 @@ describe("readWire — a refusal the wire typed", () => {
     // not an `it_admin` would be told to "try again in a moment" for something
     // no retry fixes. Kills one that drops the code (an error carrying only a
     // status), and one that keeps the wire's own free text: the code is the
-    // only thing the design puts on the wire and the sentence is the client's.
+    // only thing the error contract puts on the wire and the sentence is the client's.
     // Two codes rather than one, so a module hardcoding `FORBIDDEN` is red.
     answer = () => jsonResponse({ code }, status);
 
@@ -163,10 +161,10 @@ describe("readWire — a refusal the wire typed", () => {
 
 describe("readWire — reads that failed", () => {
   it("throws a plain error for a 502 carrying UPSTREAM_UNAVAILABLE", async () => {
-    // a project rule's discriminator, and the bug that turns an outage into
+    // The refusal-versus-failure discriminator, and the bug that turns an outage into
     // an empty board. The proxy's own 502 envelope is VALID JSON carrying a
     // `code`, so a module that read the body without asking whether the code is
-    // one of the design's eight would answer `WireRefusedError` and the caller
+    // one of the eight typed error codes would answer `WireRefusedError` and the caller
     // would render `FAILURE_MESSAGES.default` — "Something went wrong. Nothing
     // was changed." — for a dependency that is down. Arranged so only that
     // check flips it: the status is non-ok either way, and the body parses
@@ -228,16 +226,16 @@ describe("isTypedCode — the SPEC §8.1 vocabulary and nothing else", () => {
   ];
 
   it.each(CODES)("answers $typed for $name", ({ value, typed }) => {
-    // §6's three false rows, with two true rows beside them so the predicate is
-    // pinned rather than satisfied by `() => false` (recorded in 24f's
-    // Deviations). Row 1 kills a predicate written as a bare `code in
+    // Three false rows, with two true rows beside them so the predicate is
+    // pinned rather than satisfied by `() => false`. The first row kills a predicate written as a
+    // bare `code in
     // FAILURE_MESSAGES`: `default` is the shared map's fallback KEY and never a
     // wire value, so a body carrying it would be dressed as a typed refusal.
-    // Row 2 is a project rule's discriminator at the predicate — the proxy's
-    // own code must fall outside. Row 3 kills one calling `in` on a number,
-    // which throws rather than answering false. Rows 4 and 5 kill a predicate
-    // that shrank the vocabulary to the two codes this page can reach: row 24i
-    // hands this module the other five surfaces, and `INTERNAL` is what a
+    // The second row is the refusal-versus-failure discriminator at the predicate — the proxy's
+    // own code must fall outside. The third row kills one calling `in` on a number,
+    // which throws rather than answering false. The fourth and fifth rows kill a predicate
+    // that shrank the vocabulary to the two codes this page can reach: other pages
+    // hand this module the other five surfaces, and `INTERNAL` is what a
     // mid-stream failure arrives as.
     expect(isTypedCode(value)).toBe(typed);
   });

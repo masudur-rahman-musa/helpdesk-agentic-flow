@@ -1,11 +1,7 @@
-"""Deterministic JSON encoding, shared by everything that hashes a request.
+"""Deterministic JSON encoding for everything that hashes data.
 
-The audit chain hashes events with it and the idempotency fingerprint
-hashes tool arguments with it. Two copies of this encoder would be free to
-drift, and a drift means either a chain that reads as tampered or a replay
-that reads as a conflict, so there is exactly one.
-
-Moved verbatim out of `audit/chain.py`, which re-exports it.
+The audit chain and the idempotency fingerprint both use it. Two copies could
+drift, and a drift makes a good chain read as tampered or a replay as a conflict.
 """
 
 import json
@@ -15,11 +11,7 @@ from datetime import datetime
 
 
 def _render(value: object) -> str:
-    """Stringify the value types the JSON encoder cannot handle itself.
-
-    Datetimes use ISO 8601 rather than `str()` so the rendering is the one
-    the rest of the system reads and writes, offset included.
-    """
+    """Stringify datetimes (ISO 8601, offset kept) and UUIDs."""
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, uuid.UUID):
@@ -28,10 +20,9 @@ def _render(value: object) -> str:
 
 
 def canonical_json(mapping: Mapping[str, object]) -> bytes:
-    """Serialise deterministically: keys sorted at every level, no whitespace.
+    """Serialise with sorted keys and no whitespace.
 
-    Writer and verifier must agree byte for byte, so this is the only place
-    either of them turns a mapping into bytes.
+    Writer and verifier must agree byte for byte, so both come through here.
     """
     return json.dumps(
         mapping, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=_render

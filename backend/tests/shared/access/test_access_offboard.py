@@ -1,19 +1,19 @@
-"""An earlier change, sections 1 and 6: `offboard_user`, called directly over the seed.
+"""`offboard_user`, called directly over the seed.
 
 Surface under test (written before it exists):
 
 ``helpdesk.access.lifecycle``
-    ``USER_OFFBOARDED_EVENT_TYPE = "user.offboarded"`` (the design).
+    ``USER_OFFBOARDED_EVENT_TYPE = "user.offboarded"``.
     ``OFFBOARD_REVOKE_REASON`` — the fixed sentence written onto every
     `grants.revoke_reason` and every `grant.revoked` payload this tool makes,
     so an offboard's revocations are tellable from a manual `revoke_access`
-    (caller's free text) and from a transfer's (decision I).
+    (caller's free text) and from a transfer's.
     ``LEAVER_STATUS`` — the `users.status` a leaver carries.
-    ``AlreadyLeaverError(ToolError)`` — `code = POLICY_BLOCKED` (decision F).
+    ``AlreadyLeaverError(ToolError)`` — `code = POLICY_BLOCKED`.
     ``async def offboard_user(session, directory, *, user_id, end_date,
     offboarded_by_user_id, actor_ref=None, session_id=None, now)
     -> OffboardResult`` — writes `users.status` and `users.end_date` in the
-    BOUND tenant (there is no tenant argument, a project rule), revokes through
+    BOUND tenant (there is no tenant argument), revokes through
     `helpdesk.access.revoke_role_access`, closes the open requests through
     `helpdesk.access.set_request_status`, and appends one `user.offboarded`
     naming the USER, all in the caller's transaction.
@@ -22,9 +22,9 @@ Surface under test (written before it exists):
 
 ``helpdesk.access.requests``
     ``REQUEST_REJECTED_EVENT_TYPE = "request.rejected"`` — one event per
-    closed row, subject the REQUEST (decision C), payload naming the request
+    closed row, subject the REQUEST, payload naming the request
     and carrying `OFFBOARD_REVOKE_REASON` so an auditor can tell an
-    offboard's rejections from a person's (decision B).
+    offboard's rejections from a person's.
     ``lock_open_requests_for_target(session, target_user_id)`` — the
     `pending`+`approved` rows TARGETING this user, locked `FOR UPDATE`. Its
     serialising half cannot be observed from one session, so it is pinned end
@@ -32,11 +32,11 @@ Surface under test (written before it exists):
     test_two_callers_racing_the_same_offboard_leave_one_departure`.
 
 The unit of a revocation is `revoke_role_access`'s: the whole live set for
-one (user, role), one `grant.revoked` per ROW (§1, criterion 3). So
+one (user, role), one `grant.revoked` per ROW. So
 `revoked_grant_count` counts ROWS and `revoked_role_ids` counts ROLES, and a
 role holding two live rows is what tells them apart.
 
-a project rule: the seeded database is `test_access_snapshot.py`'s
+The seeded database is `test_access_snapshot.py`'s
 session-scoped `access_db_url` fixture, imported rather than rebuilt (argon2
 seeding is the slow part of this suite). Per-test isolation inside it is a
 namespace: every case plants its OWN user (a fresh uuid4 address, no
@@ -92,7 +92,7 @@ from tests.shared.access.test_access_snapshot import (
 OFFBOARDED_AT = NOW
 # The argument. Deliberately NOT `OFFBOARDED_AT.date()`, so an implementation
 # that writes `now.date()` into `users.end_date` — the effects take place now
-# either way (decision E), so nothing else would notice — fails.
+# either way, so nothing else would notice — fails.
 END_DATE = date(2026, 10, 31)
 # Well past the engine's new-joiner threshold. Nothing here is classified, but
 # a planted user needs a start date and a leaver's tenure must not be odd.
@@ -101,7 +101,7 @@ TENURED_START = date(2019, 3, 7)
 # Whoever runs the offboard. A seeded HR user, read only — no case writes to
 # it — so it cannot collide with another module's namespace.
 OFFBOARDED_BY = ROWS.users_by_department["HR"][10]
-# The third party a leaver's own filed request is about (decision A): a real
+# The third party a leaver's own filed request is about: a real
 # seeded user, so the request's FK holds. Read only.
 SOMEBODY_ELSE = ROWS.users_by_department["HR"][11]
 
@@ -112,10 +112,10 @@ ROLE_ONE = ROWS.role_ids[("mes", "viewer")]
 ROLE_TWO = ROWS.role_ids[("grafana", "viewer")]
 ROLE_THREE = ROWS.role_ids[("crm", "viewer")]
 # Named by nothing and held by nobody: the role a concurrent `revoke_access`
-# emptied between this tool's read and its revocation (decision H).
+# emptied between this tool's read and its revocation.
 PHANTOM_ROLE = ROWS.role_ids[("wiki", "viewer")]
 
-# §1's payload, exactly five keys.
+# The payload, exactly five keys.
 EXPECTED_PAYLOAD_KEYS = {
     "user_id",
     "end_date",
@@ -168,7 +168,7 @@ class OffboardFacts:
 class _WithPhantomRole(SimulatedDirectory):
     """The directory, reporting one role the user does NOT actually hold.
 
-    Decision H's race, made deterministic: `offboard_user` reads the held set
+    the race, made deterministic: `offboard_user` reads the held set
     once and then calls `revoke_role_access` per role, which re-locks that
     role's live set. A concurrent `revoke_access` landing between the two
     leaves exactly this shape — a role in the read, an empty live set at the
@@ -203,7 +203,7 @@ def _offboard(
     Every fact is copied out INSIDE the transaction that wrote it, which is
     also what proves the transaction survived a skipped role: a refusal caught
     after a statement had been issued would poison it, and both this read and
-    the commit at the end of the block would fail (decision H).
+    the commit at the end of the block would fail.
     """
 
     async def scenario() -> OffboardFacts:
@@ -471,29 +471,29 @@ def _events_of_type(url: str, event_type: str) -> list[tuple[str, str, dict[str,
     return asyncio.run(scenario())
 
 
-# --- the revocations (criteria 1 and 3) ----------------------------------------
+# --- the revocations ----------------------------------------
 
 
 def test_every_live_grant_is_revoked_and_the_count_is_rows_not_roles(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criteria 1 and 3, over a leaver holding four live rows across three
-    roles.
+    """Over a leaver holding four live rows across three
+       roles.
 
-    Catches the two ways the counts can be wrong at once. An implementation
-    that revoked "the grant" for a role — an earlier change's whole reason for making
-    the live SET the unit — leaves the second row of `ROLE_ONE` live, so the
-    person still holds the role after their own offboard; the directory's
-    answer is asserted EMPTY, which is what that fails. An implementation that
-    set `revoked_grant_count` from `len(revoked_role_ids)` answers 3 where the
-    contract says 4, and every other assertion here still passes.
+       Catches the two ways the counts can be wrong at once. An implementation
+       that revoked "the grant" for a role — the whole reason for making
+       the live SET the unit — leaves the second row of `ROLE_ONE` live, so the
+       person still holds the role after their own offboard; the directory's
+       answer is asserted EMPTY, which is what that fails. An implementation that
+       set `revoked_grant_count` from `len(revoked_role_ids)` answers 3 where the
+       contract says 4, and every other assertion here still passes.
 
-    The `grant.revoked` delta is counted as well, so an offboard that wrote
-    the rows directly instead of going through `revoke_role_access` (criterion
-    3) leaves the tables right and the audit log four events short, and the
-    reason on each row is asserted as the exact `OFFBOARD_REVOKE_REASON`
-    (decision I) rather than "some reason", so a transfer's sentence or the
-    caller's free text fails.
+       The `grant.revoked` delta is counted as well, so an offboard that wrote
+       the rows directly instead of going through `revoke_role_access`
+       leaves the tables right and the audit log four events short, and the
+       reason on each row is asserted as the exact `OFFBOARD_REVOKE_REASON`
+    rather than "some reason", so a transfer's sentence or the
+       caller's free text fails.
     """
     user_id = _plant_user(access_db_url)
     first = _plant_grant(access_db_url, user_id=user_id, role_id=ROLE_ONE)
@@ -528,14 +528,14 @@ def test_every_live_grant_is_revoked_and_the_count_is_rows_not_roles(
 def test_the_status_becomes_leaver_and_the_end_date_is_the_argument(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 1's other half: catches an offboard that revokes everything
+    """The other half: catches an offboard that revokes everything
     and leaves the person `active`, and one that writes `now.date()`.
 
-    The status write is what the design's engine reads to block every new grant
+    The status write is what the engine reads to block every new grant
     for a leaver, so an offboard that took the access away without it leaves
     the person able to request it all back the same afternoon. `END_DATE` is
     deliberately a different day from `OFFBOARDED_AT.date()` — the effects
-    happen now either way (decision E), so nothing else in this file would
+    happen now either way, so nothing else in this file would
     notice a `now.date()` written into the column — and both values are
     asserted exactly, including that they differ.
     """
@@ -553,32 +553,32 @@ def test_the_status_becomes_leaver_and_the_end_date_is_the_argument(
     assert after.end_date == END_DATE
 
 
-# --- the closures (criterion 2, decisions A, B and C) --------------------------
+# --- the closures --------------------------
 
 
 def test_the_pending_and_approved_requests_targeting_the_user_are_rejected(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision A and B, and the case that tells decision A's option 1 from
-    option 2 (a project rule for the closure event).
+    """The case that tells closing only the user's own requests from
+        closing everything touching the user.
 
-    The leaver is the TARGET of a `pending` and an `approved` row and the
-    REQUESTER of a third row that is about somebody else. An implementation
-    that closed "everything touching the user" — option 2 — would reject that
-    third row too and strip a colleague of an approval chain they still need,
-    so it is asserted still `pending` and absent from `closed_request_ids`.
-    An implementation that closed only the `pending` rows leaves the
-    `approved` one, which is exactly the row that can still become a grant
-    (the design), reopening the access this tool just removed.
+        The leaver is the TARGET of a `pending` and an `approved` row and the
+        REQUESTER of a third row that is about somebody else. An implementation
+        that closed "everything touching the user" — the wider reading — would reject that
+        third row too and strip a colleague of an approval chain they still need,
+        so it is asserted still `pending` and absent from `closed_request_ids`.
+        An implementation that closed only the `pending` rows leaves the
+        `approved` one, which is exactly the row that can still become a grant,
+    reopening the access this tool just removed.
 
-    The status written is asserted as `rejected` and not `expired` or
-    `failed`: the design fixes the vocabulary and `rejected` is the only member
-    meaning "ended without being executed" (decision B). One
-    `request.rejected` per closed row is counted, and its subject and payload
-    are read: the subject is the REQUEST, so a request's own audit trail does
-    not end at its creation (decision C), and the payload carries
-    `OFFBOARD_REVOKE_REASON`, which is what lets an auditor tell an offboard's
-    rejections from a person's.
+        The status written is asserted as `rejected` and not `expired` or
+        `failed`: the spec fixes the vocabulary and `rejected` is the only member
+        meaning "ended without being executed". One
+        `request.rejected` per closed row is counted, and its subject and payload
+        are read: the subject is the REQUEST, so a request's own audit trail does
+        not end at its creation, and the payload carries
+        `OFFBOARD_REVOKE_REASON`, which is what lets an auditor tell an offboard's
+        rejections from a person's.
     """
     user_id = _plant_user(access_db_url)
     pending = _plant_request(
@@ -627,7 +627,7 @@ def test_the_pending_and_approved_requests_targeting_the_user_are_rejected(
 def test_an_executed_and_a_rejected_request_targeting_the_user_are_untouched(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision A's boundary rows: catches "every request targeting the user",
+    """The boundary rows: catches "every request targeting the user",
     which the case above cannot tell from the right answer.
 
     `executed` and `rejected` are both ended already. Rewriting an `executed`
@@ -663,13 +663,13 @@ def test_an_executed_and_a_rejected_request_targeting_the_user_are_untouched(
     assert _event_count(access_db_url, REQUEST_REJECTED_EVENT_TYPE) == rejected_before
 
 
-# --- the refusal, before any write (criterion 6, decision F) -------------------
+# --- the refusal, before any write -------------------
 
 
 def test_an_already_leaver_target_is_refused_before_any_write(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision F: catches the "succeed idempotently" alternative, and a
+    """Catches the "succeed idempotently" alternative, and a
     refusal raised after the first effects have run.
 
     A second offboard has nothing left to revoke, so a success would write a
@@ -713,13 +713,13 @@ def test_an_already_leaver_target_is_refused_before_any_write(
     assert _event_count(access_db_url, USER_OFFBOARDED_EVENT_TYPE) == offboarded_before
 
 
-# --- the empty case (criterion 9, decision G) ----------------------------------
+# --- the empty case ----------------------------------
 
 
 def test_a_user_with_no_grants_and_no_open_requests_offboards_cleanly(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision G: catches the alternative that refuses when there is nothing
+    """Catches the alternative that refuses when there is nothing
     to revoke, the way `revoke_access` refuses `GrantNotActiveError`.
 
     That refusal exists because a caller named ONE grant and must not be told
@@ -751,13 +751,13 @@ def test_a_user_with_no_grants_and_no_open_requests_offboards_cleanly(
     assert payload["closed_request_ids"] == []
 
 
-# --- the concurrent revocation (criterion 8, decision H) -----------------------
+# --- the concurrent revocation -----------------------
 
 
 def test_a_role_emptied_before_its_revocation_is_omitted_and_the_rest_stands(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision H: catches the alternative that lets `GrantNotActiveError`
+    """Catches the alternative that lets `GrantNotActiveError`
     propagate, which rolls the WHOLE offboard back because somebody else
     revoked one role first.
 
@@ -803,13 +803,13 @@ def test_a_role_emptied_before_its_revocation_is_omitted_and_the_rest_stands(
     assert grants[0].status == REVOKED_GRANT_STATUS
 
 
-# --- the transaction (criterion 5) ---------------------------------------------
+# --- the transaction ---------------------------------------------
 
 
 def test_the_offboard_and_its_events_roll_back_together(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 5: catches an offboard that commits (or opens its own session
+    """Catches an offboard that commits (or opens its own session
     for) the status write, a revocation, a closure or an event.
 
     The caller fails AFTER `offboard_user` returned, so anything committed in
@@ -848,21 +848,21 @@ def test_the_offboard_and_its_events_roll_back_together(
     assert _event_count(access_db_url, USER_OFFBOARDED_EVENT_TYPE) == offboarded_before
 
 
-# --- the audit record (criterion 4, a project rule) --------------------------
+# --- the audit record --------------------------
 
 
 def test_user_offboarded_names_the_user_and_carries_exactly_five_keys(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """a project rule: catches an event whose subject is the caller or the
-    tool rather than the USER, and one whose payload has drifted from §1's
+    """Catches an event whose subject is the caller or the
+    tool rather than the USER, and one whose payload has drifted from the contract's
     five keys.
 
     An auditor asking "when did this person leave and what did they lose"
     queries `subject_id`; an event subject naming anything else answers that
     for nobody, while a count-only assertion still passes. The keys are
     compared as an exact set, so a dropped `end_date` — the only record of the
-    date that was ASKED for, which decision E's immediate effects otherwise
+    date that was ASKED for, which the immediate effects otherwise
     hide — or a dropped `closed_request_ids` fails here. Every value is
     compared against what the same call returned, so an event that reports the
     intent rather than what actually happened is caught too, and the leaver
@@ -915,7 +915,7 @@ def test_user_offboarded_names_the_user_and_carries_exactly_five_keys(
 def test_the_offboard_constants_and_error_code_are_exactly_the_spec_values(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Pins every constant this plan introduces.
+    """Pins every constant this change introduces.
 
     `AlreadyLeaverError` inheriting `ToolError` without setting `code` answers
     `INTERNAL` — a caller-caused refusal reported as a server fault — and the

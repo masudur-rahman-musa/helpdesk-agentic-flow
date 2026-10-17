@@ -2,12 +2,7 @@ import { cn } from "@/lib/utils";
 
 type CardElement = "div" | "section" | "li" | "article";
 
-/**
- * A bordered surface. `as` picks the element so a card can be a landmark
- * (`section` with an `aria-label` is a named region) or a list item without
- * a wrapper; every other prop reaches that element
- * (`tests/ui-primitives.test.tsx::renders a card as a named region`).
- */
+/** `as` lets a card be a named region or a list item without a wrapper. */
 export function Card({
   as: Element = "div",
   className,

@@ -1,4 +1,4 @@
-"""An earlier change, section 1 criteria 5, 6, 7 and 8, section 6: `dispatch()`.
+"""The `dispatch()` call path.
 
 Surface under test (written before it exists):
 
@@ -6,7 +6,7 @@ Surface under test (written before it exists):
     ``async def dispatch(spec: ToolSpec[Any, Any], request: Request | None,
     arguments: Mapping[str, Any]) -> mcp.types.CallToolResult``
 
-    Fixed order, pinned in both directions by the criterion-5 pair below:
+    Fixed order, pinned in both directions by the order pair below:
     identity -> registry lookup -> ``KillSwitch.check`` -> ``rbac.authorize``
     -> input model validation -> ``tenant_session`` bound from the JWT ->
     handler -> audit -> output.
@@ -36,11 +36,11 @@ built directly rather than registered, so the pipeline's guarantees can be
 tested with a handler that raises, or an input model that can be violated,
 without either leaking into the real tool surface.
 
-Audit event types (criterion 7): success writes ``spec.event_type``, an RBAC
+Audit event types: success writes ``spec.event_type``, an RBAC
 denial writes ``registry.DENIED_EVENT_TYPE``, a tripped switch writes
 ``registry.DISABLED_EVENT_TYPE``, a raising tool writes
 ``registry.FAILED_EVENT_TYPE`` — the last one from a fresh session, so it
-survives the rollback that takes the tool's own writes with it (decision D).
+survives the rollback that takes the tool's own writes with it.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
@@ -98,7 +98,7 @@ SPEC_TOOL = rbac.Tool.GET_ME
 
 # A caller no principal in the matrix recognises: `authorize` ignores unknown
 # principal strings, so an empty allowing set denies. This is the "unpermitted
-# caller" of the criterion-5 order pair, since both 10a tools allow every real
+# caller" of the order pair, since both tools allow every real
 # principal.
 NO_REAL_PRINCIPALS: tuple[str, ...] = ("not_a_principal",)
 
@@ -253,7 +253,7 @@ def _ticket_count(database_url: str, title: str) -> int:
     return asyncio.run(scenario())
 
 
-# --- criterion 5: the order pair, both directions -----------------------------
+# --- the order pair, both directions -----------------------------
 
 
 def test_a_tripped_switch_beats_an_rbac_denial(
@@ -324,7 +324,7 @@ def test_extra_arguments_are_ignored_not_rejected(
     assert result.structured_content == {"ok": True}
 
 
-# --- criterion 6: the error-mapping table -------------------------------------
+# --- the error-mapping table -------------------------------------
 
 
 def _raiser(exc: BaseException) -> Callable[[ToolContext, Any], Awaitable[Echo]]:
@@ -338,7 +338,7 @@ def _typed_error(code: ErrorCode) -> type[ToolError]:
     """A `ToolError` subclass declared for exactly one code.
 
     Declared per code rather than importing the existing subclasses so the
-    table is exhaustive over the eight §8.1 values: a ninth code added to the
+    table is exhaustive over the eight error values: a ninth code added to the
     enum fails here rather than silently going unmapped.
     """
     return type(f"_Test{code.value.title().replace('_', '')}Error", (ToolError,), {"code": code})
@@ -451,7 +451,7 @@ def test_a_failed_audit_write_is_logged_and_changes_no_answer(
     mcp_env: SeededMcp,  # noqa: F811
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Decision D's second half: if the failure event cannot be written
+    """The second half: if the failure event cannot be written
     either, the caller still gets its typed code and the loss is logged,
     never silently dropped."""
     token = token_for(mcp_env.tenant_a)
@@ -472,7 +472,7 @@ def test_a_failed_audit_write_is_logged_and_changes_no_answer(
     )
 
 
-# --- criterion 7: exactly one audit event per call ----------------------------
+# --- exactly one audit event per call ----------------------------
 
 
 def test_a_successful_call_writes_exactly_one_success_event(
@@ -537,7 +537,7 @@ def test_a_raising_tool_writes_exactly_one_failed_event(
 def test_the_failure_event_survives_the_rolled_back_transaction(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision D: an event that rolls back with the failure it records is not
+    """An event that rolls back with the failure it records is not
     a record. The tool writes a row and then raises; the row must be gone and
     the event must be there."""
     title = f"fake rollback probe {uuid.uuid4()}"
@@ -567,8 +567,8 @@ def test_the_failure_event_survives_the_rolled_back_transaction(
 def test_the_success_event_records_the_authorized_scope(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """An earlier change decision G: the scope the matrix allowed is recorded now and
-    enforced at row 11. A decision no test holds is not a decision."""
+    """The scope the matrix allowed is recorded now and
+    enforced later. A decision no test holds is not a decision."""
     tenant = mcp_env.tenant_a.tenant_id
 
     result = call_tool(bearer(token_for(mcp_env.tenant_a)), "get_me", {})
@@ -623,7 +623,7 @@ def test_the_redis_client_carries_the_pinned_timeouts(
 def test_an_unverifiable_token_writes_no_audit_row_anywhere(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision E: an unverifiable token names no tenant, so there is no chain
+    """An unverifiable token names no tenant, so there is no chain
     to append to. The cost (a token flood leaves no trace) is a decision, not
     an oversight."""
     before = _audit_count_all(mcp_env.database_url)

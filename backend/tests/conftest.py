@@ -9,7 +9,7 @@ If Postgres is unreachable the ``pg`` fixture FAILS the tests loudly with
 an explicit message. There is no silent skip: a green run must mean the
 isolation guarantees were actually proven against Postgres.
 
-An earlier change adds the shared-engine fixtures: one ``AsyncEngine`` and one session
+The shared-engine fixtures: one ``AsyncEngine`` and one session
 factory for the whole run, with the schema created once.
 Each test gets a clean slate from a fresh tenant row (a namespace), never a
 rebuilt schema or a second database. Pinned by
@@ -123,9 +123,9 @@ def fresh_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
     pg.drop(url)
 
 
-# --- The shared engine ---------------------------------------------
+# --- The shared engine --------------------------------------------------------
 #
-# a project rule: the engine, the session factory and the schema are built
+# The engine, the session factory and the schema are built
 # ONCE for the whole run. A test that reaches Postgres takes these instead of
 # building its own; per-test isolation is a fresh tenant row (a namespace), not
 # a rebuilt schema or a second database. The exempt schema and migration tests
@@ -202,7 +202,7 @@ def fresh_tenant(session_factory: async_sessionmaker[AsyncSession]) -> uuid.UUID
     return asyncio.run(make())
 
 
-# --- Redis ---------------------------------------------
+# --- Redis (killswitch) -------------------------------------------------------
 
 # The killswitch tests flush the database they run against, so they must never
 # run against the configured one. This index is dedicated to the test suite and
@@ -322,9 +322,9 @@ def redis_url(redis_base_url: str) -> str:
     return redis_base_url
 
 
-# --- The restricted application DB role ---------------------------
+# --- The restricted application DB role ---------------------------------------
 
-# An earlier change decision C: the role name is a fixed constant, never configuration,
+# The role name is a fixed constant, never configuration,
 # so there is no identifier to interpolate from an untrusted source. The literal
 # is repeated in `test_audit_db_role.py::ROLE_NAME`, which is what pins it.
 RESTRICTED_DB_ROLE = "helpdesk_app"
@@ -362,7 +362,7 @@ def migrated_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
 def restricted_db_password() -> str:
     """A throwaway password generated per run, never a secret and never from env.
 
-    a project rule keeps secrets out of tests and fixtures; the migration creates
+    The no-secrets rule keeps secrets out of tests and fixtures; the migration creates
     `helpdesk_app` NOLOGIN precisely so that no password lives in the schema.
     A random hex value is not a credential to anything outside this run.
     """
@@ -373,15 +373,16 @@ def restricted_db_password() -> str:
 def restricted_db_url(migrated_db_url: str, restricted_db_password: str) -> str:
     """The migrated database's URL, connecting as `helpdesk_app` instead of the owner.
 
-    The migration creates the role NOLOGIN, so nothing can connect as it until
-    the owner grants LOGIN and a password here. Roles are CLUSTER-GLOBAL, not
-    per database: this ALTER is visible to every database on the compose
-    Postgres, which is safe only because the suite runs one test run at a time. It is re-applied per test rather than once per session
-    because the migration round-trip case downgrades to base, which may drop
-    the role and take the LOGIN with it.
+        The migration creates the role NOLOGIN, so nothing can connect as it until
+        the owner grants LOGIN and a password here. Roles are CLUSTER-GLOBAL, not
+        per database: this ALTER is visible to every database on the compose
+        Postgres, which is safe only because the suite runs one test run at a time
+    . It is re-applied per test rather than once per session
+        because the migration round-trip case downgrades to base, which may drop
+        the role and take the LOGIN with it.
 
-    The database is the SAME one `migrated_db_url` built; only the user and the
-    password in the URL change.
+        The database is the SAME one `migrated_db_url` built; only the user and the
+        password in the URL change (never a second database).
     """
     assert restricted_db_password.isalnum(), (
         "the generated password must be alphanumeric; it is interpolated into "

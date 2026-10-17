@@ -1,4 +1,4 @@
-"""An earlier change §6: the SSE frame encoder, and `stream_turn` with no app at all.
+"""The SSE frame encoder, and `stream_turn` with no app at all.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -8,13 +8,13 @@ app, no graph and no database.
     ``STEP = "step"`` · ``TOKEN = "token"`` · ``REPLY = "reply"``
     ``ERROR = "error"`` · ``DONE = "done"`` — the five event names.
     ``REPLY_CHUNK_CHARS = 64`` — how many characters one ``token`` event
-        carries (§1's last criterion, pinned from both sides below).
+        carries (the last requirement, pinned from both sides below).
     ``def chunk_reply(reply: str) -> tuple[str, ...]`` — the CHECKED reply cut
         into ``REPLY_CHUNK_CHARS``-character pieces, in order, whose
         concatenation is the reply again.
     ``def encode_event(event: str, data: Mapping[str, Any]) -> str`` — one SSE
         frame: ``event: {event}\\ndata: {one line of JSON}\\n\\n``. The data
-        line is ONE line whatever the payload contains (§1's fourth
+        line is ONE line whatever the payload contains (the contract's fourth
         criterion), which ``json.dumps`` gives for free by escaping ``\\n`` —
         and which an implementation that pretty-printed, or that wrote the
         reply text raw, would lose.
@@ -28,11 +28,11 @@ app, no graph and no database.
         frames, so the route is a ``StreamingResponse`` over it and nothing
         else, and both this file and ``test_chat_stream.py`` parse one format.
 
-Three shapes the plan's §6 leaves open, fixed here, owed to the plan's
+Three shapes the requirements leave open, fixed here, owed to the plan's
 Deviations:
 
 1. A ``step`` event's data is EXACTLY the three keys ``{"node", "round",
-   "tools"}`` (decision C). ``node`` is LangGraph's own update key, ``round``
+   "tools"}``. ``node`` is LangGraph's own update key, ``round``
    is the state's ``round_number`` as of that update, and ``tools`` is the
    list of results that ROUND produced — ``[]`` for every node that executed
    nothing, and one ``{"tool", "ok", "error_code"}`` object per call for
@@ -148,7 +148,7 @@ CONTRADICTING_REPLY = "Good news, your fake payroll access has been granted."
 
 The turn below runs one `search_policy` retrieval and no tool through
 `execute_tools`, so `postcheck.permitted_words` is EMPTY and `granted` is a
-contradiction — 19b regenerates it once, and the whole point of decision B is
+contradiction — 19b regenerates it once, and the whole point is
 that not one character of it reaches the wire.
 """
 
@@ -264,7 +264,7 @@ def test_a_reply_of_sixty_five_characters_is_two() -> None:
 
 
 FORGED_FRAME = "\n\nevent: reply\ndata: {}"
-"""§1's fourth criterion, verbatim: a reply that tries to write its own frame."""
+"""The fourth requirement, verbatim: a reply that tries to write its own frame."""
 
 
 def test_a_reply_containing_a_frame_boundary_forges_no_event() -> None:
@@ -327,7 +327,7 @@ def test_every_frame_carries_its_data_on_one_line(label: str, payload: dict[str,
     assert json.loads(lines[1].removeprefix("data: ")) == payload, label
 
 
-# --- the encoder, with no app, no graph and no database -------------
+# --- the encoder, with no app, no graph and no database -----------------------
 
 
 def test_a_step_event_encodes_to_one_step_frame() -> None:
@@ -370,7 +370,9 @@ def test_a_reply_event_encodes_to_token_frames_then_a_reply_frame_then_done() ->
     frames = parse_frames("".join(encode_turn_event(event)))
 
     token_count = len(chunk_reply(COMPOSED_REPLY))
-    assert token_count == 3, "premise: COMPOSED_REPLY must span three chunks at REPLY_CHUNK_CHARS=64"
+    assert token_count == 3, (
+        "premise: COMPOSED_REPLY must span three chunks at REPLY_CHUNK_CHARS=64"
+    )
     assert [f.event for f in frames] == [TOKEN] * token_count + [REPLY, DONE]
     assert _streamed_text(frames) == COMPOSED_REPLY
     reply_frame = _of(frames, REPLY)[0]
@@ -456,8 +458,8 @@ async def _seed(factory: async_sessionmaker[AsyncSession]) -> tuple[uuid.UUID, .
 def stream_env() -> Iterator[StreamEnv]:
     """The schema, one seeded tenant and the checkpoint tables, built once.
 
-    a project rule: nothing per-case is built here. A throwaway database
-    rather than the compose one for an earlier change's reason — `test_models.py` and
+    Nothing per-case is built here. A throwaway database
+    rather than the compose one for the same reason as `test_models.py` and
     `test_seed.py` assert on a database's full table list, and LangGraph's
     checkpoint tables are outside `Base.metadata` on purpose.
     """
@@ -813,7 +815,7 @@ def test_the_events_are_steps_then_tokens_then_reply_then_done(stream_env: Strea
 
     The reply is longer than `REPLY_CHUNK_CHARS`, so "then tokens" is three
     frames and not one; the whole name list is asserted as a literal sequence,
-    which no ordering other than §1's can satisfy.
+    which no ordering other than the contract's can satisfy.
     """
     session_id = uuid.uuid4()
     gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
@@ -914,7 +916,7 @@ def test_an_execution_step_carries_the_tool_name_and_its_error_code(
     a successful one.
 
     The failing call answers `POLICY_BLOCKED` rather than `INTERNAL` on
-    purpose: `INTERNAL` ends the turn (17d decision B), so the turn would never
+    purpose: `INTERNAL` ends the turn, so the turn would never
     reach the second round and the case would pin the ending instead of the
     step.
     """
@@ -1072,7 +1074,7 @@ def test_a_gateway_failure_mid_stream_is_one_typed_error_event_then_done(
     """Catches decision E2 shipped by accident (an aborted connection, which a
     client cannot tell from a dropped one) and, worse, a stream that renders a
     FAILED turn's templated failure sentence as ordinary `token` events — prose
-    about a turn nothing decided, which §1 calls out as "never a partial reply".
+    about a turn nothing decided, which the contract calls out as "never a partial reply".
 
     The gateway answers the first two calls and then refuses the dial, so the
     failure lands AFTER steps are already on the wire, which is the only case

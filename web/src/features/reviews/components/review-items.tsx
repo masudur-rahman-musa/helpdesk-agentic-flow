@@ -12,27 +12,16 @@ import { Alert } from "@/components/ui/alert";
 import { formatIsoDate } from "@/lib/date-format";
 
 /**
- * The `VALIDATION` sentence on this surface, and only on this surface
- * (decision E).
- *
- * `FAILURE_MESSAGES.VALIDATION` is "That message could not be sent.", which is
- * about a chat message and says nothing true about a refused decision; 22b's
- * `tests/chat-schema.test.ts` pins every string in that map verbatim, so
- * widening the shared map is not available. Exactly ONE code is overridden —
- * every other sentence still comes from the shared map, so no second opinion
- * about `FORBIDDEN` or `TOOL_DISABLED` can appear here. Pinned by
- * `tests/reviews-page.test.tsx::pins the VALIDATION override sentence exactly`.
+ * The shared `VALIDATION` sentence is about chat messages, so this page swaps in
+ * its own for that one code only.
  */
 export const REVIEW_VALIDATION_MESSAGE =
   "That decision could not be filed. Reload the page and try again.";
 
 /**
- * One selected review's items, read only once that review is selected.
- *
- * Its own query, keyed on the review, so selecting a second review replaces
- * this list rather than adding to it: two lists on screen would put a grant
- * from another scope beside the Keep and Revoke controls of this one, and the
- * tool would happily file the decision the reviewer meant for the other row.
+ * One selected review's items. Keyed on the review, so picking another review
+ * replaces the list: two lists side by side could get a decision filed on the
+ * wrong grant.
  */
 export function ReviewItems({ reviewId }: { reviewId: string }) {
   const items = useReviewItems(reviewId);
@@ -91,21 +80,10 @@ function ItemRow({ item, reviewId }: { item: ReviewItem; reviewId: string }) {
 }
 
 /**
- * The two acts, per ITEM.
- *
- * Per item on purpose. One in-flight flag for the whole list would grey out
- * every control while a single grant is being decided, which a reviewer holding
- * forty items pays for forty times; no flag at all leaves the Revoke beside an
- * in-flight Keep live, so the opposite decision can be filed on the same item.
- * The guarantee against a double-filed decision is not this: it is the
- * server-derived idempotency key (23h), and these disabled controls are a
- * courtesy on top of it.
- *
- * A success invalidates BOTH the item query and the queue: the progress counts
- * live on the queue payload, so invalidating the items alone leaves `1 of 4
- * decided` sitting under an item the reviewer just decided. Nothing is decided
- * optimistically — `review_complete` and the item's new decision are only ever
- * what the refetch answers.
+ * Keep and revoke, per item. A list-wide flag would lock every row; no flag
+ * would leave Revoke live beside a running Keep. The server's idempotency key is
+ * the real guard. A success refreshes the items and the queue, since the
+ * progress counts live on the queue.
  */
 function DecideControls({ item, reviewId }: { item: ReviewItem; reviewId: string }) {
   const decide = useDecideReviewItem(item.item_id, reviewId);

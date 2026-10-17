@@ -1,10 +1,10 @@
-"""An earlier change §6: the per-session rate limit, with no app at all.
+"""The per-session rate limit, with no app at all.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.ratelimit``
     ``RATE_LIMIT_MESSAGES = 30`` — messages one session may send per window
-        (the design, plan decision C1).
+        (the contract, plan decision C1).
     ``RATE_LIMIT_WINDOW_SECONDS = 600`` — the fixed window's length, and the
         ``EXPIRE`` argument the first hit of a window sets.
     ``def key_for(*, tenant_id: uuid.UUID, session_id: str, now: datetime) -> str``
@@ -12,7 +12,7 @@ Expected implementation surface (the implementer must provide exactly this):
         the fixed-window index ``int(now.timestamp()) // RATE_LIMIT_WINDOW_SECONDS``.
         PURE, and it runs ``check_slug(session_id)`` BEFORE building the key,
         so the value that lands in a Redis key is bounded by the same gate
-        ``checkpointer.thread_config`` uses (§1's input-validation criterion).
+        ``checkpointer.thread_config`` uses (the contract's input-validation criterion).
     ``class RateLimitExceededError(ToolError)`` — ``code = ErrorCode.POLICY_BLOCKED``,
         what the 31st message in one window raises.
     ``class RateLimitUnavailableError(ToolError)`` — ``code = ErrorCode.INTERNAL``,
@@ -22,7 +22,7 @@ Expected implementation surface (the implementer must provide exactly this):
         one ``EXPIRE`` at ``RATE_LIMIT_WINDOW_SECONDS`` on the FIRST hit of a
         window and on no later one, and a typed refusal past the cap.
 
-Two values the plan's §6 left open and this file fixes, for the implementer to
+Two values the requirements left open and this file fixes, for the implementer to
 record in the plan's Deviations: the code carried by the over-limit refusal
 (``POLICY_BLOCKED`` — a platform rule blocked a request the caller may retry
 later; ``FORBIDDEN`` would read as a permission decision that can never
@@ -297,7 +297,7 @@ def test_a_session_id_that_is_not_a_slug_is_refused_before_any_redis_call(
     raises on ANY attribute touched, so a single `INCR` fails the case outright
     rather than showing up as a key nothing ever reads again.
 
-    The three trailing-whitespace rows are a project rule's: `$` in Python
+    The three trailing-whitespace rows come from one trap: `$` in Python
     also matches before a trailing newline, so a limiter validating with an
     anchored `match` would count `sid` and `sid\\n` as two sessions and hand a
     client twice its budget.
@@ -317,7 +317,7 @@ def test_the_session_id_bound_is_check_slugs_own_inclusive_bound() -> None:
 
     A local bound would drift from `checkpointer.thread_config`'s, and the two
     values — the one bounded before a checkpoint write and the one bounded
-    before a counter — are the SAME session id (§1). Accepted at exactly 64,
+    before a counter — are the SAME session id. Accepted at exactly 64,
     refused at 65, and 64 is `helpdesk.rag.naming.SLUG_LENGTH` rather than a
     number repeated here.
     """
@@ -340,12 +340,13 @@ def test_the_session_id_bound_is_check_slugs_own_inclusive_bound() -> None:
 def test_the_thirtieth_message_passes_and_the_thirty_first_is_refused(
     redis_url: str, tenant_id: uuid.UUID, session_id: str
 ) -> None:
-    """Catches an off-by-one on either side of the design's cap: a limiter
-    refusing at 30 costs a session the message the spec grants it, and one
-    admitting 31 is the runaway client the limit exists to bound.
+    """Catches an off-by-one on either side of the contract's cap: a limiter
+        refusing at 30 costs a session the message the spec grants it, and one
+        admitting 31 is the runaway client the limit exists to bound.
 
-    The cap is asserted as the literal 30 as well as driven, so a diff that
-    widened `RATE_LIMIT_MESSAGES` and left the loop passing is red here.
+        The cap is asserted as the literal 30 as well as driven, so a diff that
+        widened `RATE_LIMIT_MESSAGES` and left the loop passing is red here
+    .
     """
     assert RATE_LIMIT_MESSAGES == 30
 
@@ -368,8 +369,8 @@ def test_the_window_expires_after_exactly_six_hundred_seconds(
     message, which slides the window and bars a steady talker permanently.
 
     The 600 is read off the `EXPIRE` argument rather than off a TTL read back,
-    because a TTL can only ever be bounded (599 or 600) and a project rule
-    wants the value itself. The second window is reached by moving the clock,
+    because a TTL can only ever be bounded (599 or 600) and the exact
+    value is wanted. The second window is reached by moving the clock,
     not by waiting: the key changes with the window index, which is what makes
     a fixed window cheap.
     """

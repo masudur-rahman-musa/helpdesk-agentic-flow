@@ -1,4 +1,4 @@
-"""An earlier change, section 1 criterion 8, section 6: the registry's own bounds.
+"""The registry's own bounds.
 
 Surface under test (written before it exists):
 
@@ -13,7 +13,7 @@ Surface under test (written before it exists):
     ``DENIED_EVENT_TYPE``, ``DISABLED_EVENT_TYPE``, ``FAILED_EVENT_TYPE`` —
     the event types the pipeline writes for the non-success cases.
 
-a project rule: a client-supplied string that lands in a store gets a typed
+A client-supplied string that lands in a store gets a typed
 pre-check against the store's own constant, and a test asserts the INCLUSIVE
 boundary. Two stores here:
 
@@ -142,9 +142,9 @@ def test_the_registry_declares_the_non_success_event_types_exactly() -> None:
         "ticket.created",
         "request.classified",
         "request.created",
-        # An earlier change decision D: the corpus is what every access decision cites,
+        # The corpus is what every access decision cites,
         # so a change to it is a governance record and not a generic
-        # `tool.succeeded`. SPEC section 13.1's list is explicitly a minimum.
+        # `tool.succeeded`. The audit event list is explicitly a minimum.
         "policy.reingested",
     }
 
@@ -160,7 +160,7 @@ APPROVAL_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
         False,
     ),
     # Both deciding tools declare the GENERIC success event and append their
-    # the design decision event themselves (decision I): the pipeline's event
+    # decision event themselves: the pipeline's event
     # carries a fixed payload and the tool name as its subject, which would
     # record that somebody called a tool and not which request they decided.
     ("approve_request", rbac.Tool.APPROVE_REQUEST, registry.SUCCESS_EVENT_TYPE, True),
@@ -181,7 +181,7 @@ def test_each_approval_tool_is_registered_once_under_its_matrix_name(
     than deciding), pointed at the wrong matrix member — `approve_request`
     declared as `reject_request` would let a rejecter approve — or declaring
     the wrong audit event, which files an approval as a rejection in the only
-    record the design keeps of the decision.
+    record kept of the decision.
 
     The names are written out literally rather than derived from the registry:
     reading the value under test back out of the code under test would assert
@@ -197,7 +197,7 @@ def test_each_approval_tool_is_registered_once_under_its_matrix_name(
 
 
 def test_the_two_decision_event_types_are_exactly_the_spec_strings() -> None:
-    """Pins both values exactly. the design names
+    """Pins both values exactly. The audit log names
     `request.approved` and `request.rejected`, and the handlers append them
     under exactly those names; a typo would produce an event type nothing in
     the audit UI or the golden set knows, with every other test still green
@@ -207,7 +207,7 @@ def test_the_two_decision_event_types_are_exactly_the_spec_strings() -> None:
 
 
 def test_the_queue_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
-    """Decision H, pinned exactly: an unbounded list
+    """Pinned exactly: an unbounded list
     is an unbounded response over the wire, and a default that drifts changes
     what every caller who omits `limit` receives. A docstring is not a
     record."""
@@ -272,72 +272,72 @@ MUTATING_TOOL_NAMES = frozenset(
         "unlock_own_account",
         "create_ticket",
         "create_access_request",
-        # An earlier change: both record a decision and one of them executes a grant,
+        # Both record a decision and one of them executes a grant,
         # so both ride the idempotency guard. `list_pending_approvals` is a
         # read and must stay off this list.
         "approve_request",
         "reject_request",
-        # An earlier change: it creates a PERSON and their template grants, so a
+        # It creates a PERSON and their template grants, so a
         # retried call must replay rather than be refused POLICY_BLOCKED by
         # its own duplicate-address check.
         "onboard_user",
-        # An earlier change: it revokes and grants in one pass, so a retried call must
+        # It revokes and grants in one pass, so a retried call must
         # replay rather than move the person a second time (by then they are
         # already in the new department, and a re-run answers POLICY_BLOCKED
         # for a call the caller saw succeed).
         "transfer_user",
-        # An earlier change: it ends live grants, so a retried call must replay rather
+        # It ends live grants, so a retried call must replay rather
         # than re-read the live set and revoke whatever is there now.
         "revoke_access",
-        # An earlier change: it revokes every live grant and closes every open request
+        # It revokes every live grant and closes every open request
         # in one pass, so a retried call must replay rather than be refused
         # POLICY_BLOCKED by its own already-leaver check for a call the caller
         # saw succeed.
         "offboard_user",
-        # An earlier change: it writes a review and one item per active grant in scope,
+        # It writes a review and one item per active grant in scope,
         # so a retried call must replay rather than be refused POLICY_BLOCKED
         # by its own duplicate check for a call the caller saw succeed.
         # `list_review_items` is a read and must stay off this list.
         "open_access_review",
-        # An earlier change: it writes a decision and can end a grant, so a retried
+        # It writes a decision and can end a grant, so a retried
         # call must replay rather than be refused POLICY_BLOCKED by decision
         # C's already-decided check for a call the caller saw succeed.
         "decide_review_item",
-        # An earlier change: it revokes every live grant a request produced and closes
+        # It revokes every live grant a request produced and closes
         # the request, so a retried call must replay rather than be refused
         # POLICY_BLOCKED by its own status check for a call the caller saw
         # succeed (by then the request reads `rolled_back`).
         "rollback_request",
-        # An earlier change: `mark_notification_read` stamps `read_at` on one row, so
+        # `mark_notification_read` stamps `read_at` on one row, so
         # it rides the idempotency guard and a retried click replays the
         # stored response instead of re-reading the row. `list_notifications`
         # is a READ and must stay off this list: a key demanded for a bell
         # nobody can clear without minting one would make the notifications
         # page unable to list anything.
         "mark_notification_read",
-        # An earlier change (a design note, reverses an earlier change decision C): `set_kill_switch`
+        # `set_kill_switch`
         # DOES belong here. It is a normal write now, keyed and run through
         # `run_once`, so a retried toggle replays the stored response and
         # writes `tool.replayed` instead of running twice.
         "set_kill_switch",
         #
-        # An earlier change: `list_kill_switches` does NOT belong here, and for
+        # `list_kill_switches` does NOT belong here, and for
         # the plainer reason — the board is a READ. It issues one `MGET` and
         # writes nothing at all, so a `True` here would demand an idempotency
         # key for a call the guard never protects and the admin page could not
         # render without minting one.
         #
-        # An earlier change: `list_sod_rules` must stay off this list too, and for the
+        # `list_sod_rules` must stay off this list too, and for the
         # same plain reason - the rules board is a READ. It issues three
         # SELECTs and writes nothing at all.
         #
-        # An earlier change: `list_policy_documents` stays off it for the same reason -
+        # `list_policy_documents` stays off it for the same reason -
         # two SELECTs over `policy_documents` and `policy_chunks`, and nothing
         # written. A `True` here would demand an idempotency key for a call
         # the guard never protects, so `/admin/policies` could not render
         # without minting one.
         #
-        # An earlier change: `reingest_policy_document` DOES belong here. It reads a
+        # `reingest_policy_document` DOES belong here. It reads a
         # corpus file, registers a version and writes points and chunk rows,
         # so a retried call must replay the stored response rather than run
         # the ingest a second time - which, on a source the first call already
@@ -349,7 +349,7 @@ MUTATING_TOOL_NAMES = frozenset(
 
 
 def test_the_wire_name_aliases_are_exactly_the_declared_pair() -> None:
-    """An earlier change decision J. The alias table is the ONLY licence a wire name
+    """The alias table is the ONLY licence a wire name
     has to differ from its matrix member's value, so an undeclared alias
     added later must fail here rather than quietly slipping past the pairing
     check below. Written out literally: importing the table and comparing it
@@ -365,9 +365,9 @@ def test_each_spec_names_a_real_matrix_tool_and_agrees_with_its_key(name: str) -
     assert isinstance(spec.tool, rbac.Tool)
     assert spec.tool in set(rbac.Tool)
     if spec.name in registry.WIRE_NAME_ALIASES:
-        # the design gives `create_access_request` two matrix rows for one wire
+        # The matrix gives `create_access_request` two matrix rows for one wire
         # name, so identity is impossible there; the declared pairing is what
-        # replaces it (decision J).
+        # replaces it.
         assert registry.WIRE_NAME_ALIASES[spec.name] is spec.tool
     else:
         assert spec.name == spec.tool.value
@@ -417,7 +417,7 @@ def test_an_unregistered_wire_name_touches_no_redis_key(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 8: the wire name is validated before it can become a Redis
+    """The wire name is validated before it can become a Redis
     key. Redis has no length or shape limit, so an unchecked name would write
     a key nothing reads."""
     assert _redis_keys(mcp_redis_url, f"{KEY_PREFIX}:*") == []
@@ -434,12 +434,12 @@ def test_an_unregistered_wire_name_touches_no_redis_key(
 
 REVIEW_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
     # Both declare the GENERIC success event and the opener appends its own
-    # `review.opened` (decision K): the pipeline's event carries a fixed
+    # `review.opened`: the pipeline's event carries a fixed
     # payload and the TOOL as its subject, which would record that somebody
     # called a tool and not what was reviewed.
     ("open_access_review", rbac.Tool.OPEN_ACCESS_REVIEW, registry.SUCCESS_EVENT_TYPE, True),
     ("list_review_items", rbac.Tool.LIST_REVIEW_ITEMS, registry.SUCCESS_EVENT_TYPE, False),
-    # An earlier change: the queue. A READ — it writes nothing at all — so it declares
+    # The queue. A READ — it writes nothing at all — so it declares
     # the generic success event and stays OFF `MUTATING_TOOL_NAMES` above; a
     # `True` here would demand an idempotency key for a call the guard never
     # protects, and the web's `/reviews` page would be unable to list anything
@@ -456,7 +456,7 @@ REVIEW_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
 def test_each_review_tool_is_registered_once_under_its_matrix_name(
     name: str, tool: rbac.Tool, event_type: str, mutating: bool
 ) -> None:
-    """Catches the opener pointed at `DECIDE_REVIEW_ITEM` (whose the design row
+    """Catches the opener pointed at `DECIDE_REVIEW_ITEM` (whose the matrix row
     is identical, so no permission test anywhere would notice), the read
     declared as mutating — which would demand an idempotency key for a call
     the guard never protects — and the opener declared as a read, which skips
@@ -476,7 +476,7 @@ def test_each_review_tool_is_registered_once_under_its_matrix_name(
 
 
 def test_the_review_opened_event_type_is_exactly_the_spec_string() -> None:
-    """Pins the value exactly. the design names
+    """Pins the value exactly. The audit log names
     `review.opened` and the handler appends it under that name; a typo would
     produce an event type nothing in the audit UI or the golden set knows,
     with every other test still green because they read the same constant."""
@@ -490,8 +490,8 @@ NOTIFICATION_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
     # A READ: it writes nothing at all, so it declares the generic success
     # event and stays OFF `MUTATING_TOOL_NAMES` above.
     ("list_notifications", rbac.Tool.LIST_NOTIFICATIONS, registry.SUCCESS_EVENT_TYPE, False),
-    # A MUTATION that declares the GENERIC success event on purpose (decision
-    # D): "a person opened their own bell" answers no auditor's question, and
+    # A MUTATION that declares the GENERIC success event on purpose:
+    # "a person opened their own bell" answers no auditor's question, and
     # a dedicated event type would put one row in the hash chain per UI
     # interaction.
     (
@@ -516,7 +516,7 @@ def test_each_notification_tool_is_registered_once_under_its_matrix_name(
     be read without minting one — and the stamp declared as a read, which
     skips the guard entirely so a double-clicked bell runs the effect twice.
     It also catches either spec pointed at the other's matrix member, whose
-    the design rows are identical (`self_only` for all seven principals), so no
+    the matrix rows are identical (`self_only` for all seven principals), so no
     permission test anywhere would notice.
 
     The names are written out literally rather than derived from the registry:
@@ -542,12 +542,12 @@ ADMIN_READ_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
     # nothing, and a `killswitch.changed` per render would file a governance
     # record for a page view.
     ("list_kill_switches", rbac.Tool.LIST_KILL_SWITCHES, registry.SUCCESS_EVENT_TYPE, False),
-    # An earlier change: the SoD rules board, a READ over Postgres for exactly the
+    # The SoD rules board, a READ over Postgres for exactly the
     # same reasons - three SELECTs and nothing written, so the GENERIC success
     # event and OFF `MUTATING_TOOL_NAMES` above. The table described
     # twenty-six tools and now describes twenty-seven.
     ("list_sod_rules", rbac.Tool.LIST_SOD_RULES, registry.SUCCESS_EVENT_TYPE, False),
-    # An earlier change: the policy documents board, a READ over Postgres for exactly
+    # The policy documents board, a READ over Postgres for exactly
     # the same reasons - two SELECTs and nothing written, so the GENERIC
     # success event and OFF `MUTATING_TOOL_NAMES` above. The table described
     # twenty-seven tools and now describes twenty-eight.
@@ -569,7 +569,7 @@ def test_the_kill_switch_board_is_registered_once_under_its_matrix_name(
     name: str, tool: rbac.Tool, event_type: str, mutating: bool
 ) -> None:
     """Catches the board's spec pointed at `rbac.Tool.SET_KILL_SWITCH`, whose
-    the design row is identical (`platform_admin` alone, at `Scope.ANY`), so no
+    the matrix row is identical (`platform_admin` alone, at `Scope.ANY`), so no
     permission test anywhere would notice — and every kill switch the pipeline
     checked for this tool would be keyed on the writer's name instead. It also
     catches the board declared as MUTATING, which demands an idempotency key
@@ -580,12 +580,12 @@ def test_the_kill_switch_board_is_registered_once_under_its_matrix_name(
     reading the value under test back out of the code under test would assert
     nothing.
 
-    An earlier change adds `list_sod_rules` as a second row of this table, where the
+    `list_sod_rules` is a second row of this table, where the
     equivalent slip is a spec pointed at `rbac.Tool.LIST_KILL_SWITCHES` - the
     other admin READ, and the neighbour whose shape it copies.
 
-    An earlier change adds `list_policy_documents` as a third row. Its equivalent slip
-    is a spec pointed at `rbac.Tool.LIST_SOD_RULES`, whose SPEC section 7 row
+    `list_policy_documents` is a third row. Its equivalent slip
+    is a spec pointed at `rbac.Tool.LIST_SOD_RULES`, whose matrix row
     is identical (`it_admin` and `platform_admin` at `Scope.ANY`), so no
     permission test anywhere would notice and every kill switch the pipeline
     checked for the corpus board would be keyed on the rules board's name.
@@ -603,10 +603,10 @@ def test_the_kill_switch_board_is_registered_once_under_its_matrix_name(
 
 
 ADMIN_MUTATION_TOOL_EXPECTATIONS: tuple[tuple[str, rbac.Tool, str, bool], ...] = (
-    # An earlier change: the re-ingest. A MUTATION over the filesystem, Qdrant and
+    # The re-ingest. A MUTATION over the filesystem, Qdrant and
     # Postgres, so it rides the idempotency guard and IS on
     # `MUTATING_TOOL_NAMES` above - and it declares its OWN success event
-    # (decision D) rather than the generic one, which is what separates it
+    # rather than the generic one, which is what separates it
     # from every row of the admin READ table above.
     (
         "reingest_policy_document",
@@ -626,7 +626,7 @@ def test_the_reingest_tool_is_registered_once_under_its_matrix_name(
     name: str, tool: rbac.Tool, event_type: str, mutating: bool
 ) -> None:
     """Catches the spec pointed at `rbac.Tool.LIST_POLICY_DOCUMENTS`, whose
-    SPEC section 7 row is identical (`it_admin` and `platform_admin` at
+    the matrix row is identical (`it_admin` and `platform_admin` at
     `Scope.ANY`) and whose module and page it shares, so no permission test
     anywhere would notice - and every kill switch the pipeline checked for the
     re-ingest would be keyed on the board's name, leaving the mutation running
@@ -635,7 +635,7 @@ def test_the_reingest_tool_is_registered_once_under_its_matrix_name(
     It also catches the tool declared as a READ, which skips the idempotency
     guard entirely so a retried re-ingest runs the whole ingest again, and a
     declared `tool.succeeded`, which would leave `search_audit` with no way to
-    answer "when was this corpus last rewritten" - the one question decision D
+    answer "when was this corpus last rewritten" - the one question the event
     exists for.
 
     The name and the event type are written out literally rather than derived
@@ -652,7 +652,7 @@ def test_the_reingest_tool_is_registered_once_under_its_matrix_name(
 
 
 def test_the_review_item_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
-    """Decision I, pinned exactly: an unbounded item
+    """Pinned exactly: an unbounded item
     list is an unbounded response over the wire, and a default that drifts
     changes what every caller who omits `limit` receives. `PERIOD_LENGTH` is
     the column's own size and the input model checks the client's string

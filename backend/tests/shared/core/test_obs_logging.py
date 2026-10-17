@@ -1,4 +1,4 @@
-"""An earlier change section 6: the JSON log formatter and the redaction under it.
+"""The JSON log formatter and the redaction under it.
 
 Written before the implementation exists. Surface under test:
 
@@ -159,7 +159,7 @@ def test_every_forbidden_key_is_redacted_at_every_position(
 
     raw, line = _emit("a record carrying an identity", extra)
 
-    # Decision C: the key stays, its value does not.
+    # The key stays, its value does not.
     assert _at(line, path)[key] == REDACTED, label
     assert SECRET not in raw, label
 

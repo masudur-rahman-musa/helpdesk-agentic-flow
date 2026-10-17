@@ -1,10 +1,10 @@
-"""An earlier change §6: POST /chat and GET /chat/messages, the app driven in process.
+"""POST /chat and GET /chat/messages, the app driven in process.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.main``
     a FastAPI ``lifespan`` building the process-lifetime resources ONCE and
-    closing them at shutdown (decision B), reachable off ``app.state``:
+    closing them at shutdown, reachable off ``app.state``:
         ``app.state.engine`` — the SQLAlchemy async engine.
         ``app.state.session_factory`` — ``async_sessionmaker[AsyncSession]``.
         ``app.state.model`` — the gateway ``ModelClient``.
@@ -21,7 +21,7 @@ Expected implementation surface (the implementer must provide exactly this):
     ``POST /chat`` — body ``{"message": str}``; identity is the verified
         token's ``sub``, ``tenant_id`` and ``sid``, and unknown body keys are
         IGNORED (Pydantic's default, deliberately not ``extra="forbid"``:
-        §1 requires a body naming another user to be accepted and to change
+        a body naming another user must be accepted and change
         nothing). 200 ->
         ``{"reply": str, "outcome": str, "citations": [...],
         "request_id": str | None, "decision": {...} | None}`` — the fifth key
@@ -34,9 +34,9 @@ Every refusal is a typed body from ``helpdesk.errors``, never free text:
         ``auth_routes`` and ``admin_routes`` already answer with).
     400 ``{"code": "VALIDATION"}`` — a message over ``MAX_MESSAGE_CHARS``.
     500 ``{"code": "INTERNAL"}`` — an unreachable gateway, MCP server or Redis.
-The plan's §6 leaves the status/body pairs open; they are fixed here and owed
-to the plan's Deviations. A turn that ended ``FAILED`` answers the typed 500
-and carries NO reply key at all, because §1 says a dependency failure is a
+The status/body pairs below were left open by the design; they are fixed here.
+A turn that ended ``FAILED`` answers the typed 500
+and carries NO reply key at all, because a dependency failure is a
 typed code and "never ... a partial reply".
 
 Cost and isolation. Postgres and Redis are the compose stack's: one throwaway
@@ -272,7 +272,7 @@ def _test_redis_url() -> str:
 def chat_db() -> Iterator[ChatEnv]:
     """One database, its schema, the checkpoint tables and two tenants, once.
 
-    A throwaway database rather than the compose one for an earlier change's reason:
+    A throwaway database rather than the compose one for the checkpointer's reason:
     `test_models.py` and `test_seed.py` assert on a database's full table list,
     and LangGraph's checkpoint tables are outside `Base.metadata` on purpose.
     Nothing per-case is built here; a case's namespace is its
@@ -568,7 +568,7 @@ def _drive[T](
     The gateway client and the Redis client the lifespan built are CLOSED
     before being replaced, so a case that stages its own leaks neither into the
     compose stack. The tool caller is replaced at the module seam, because a
-    turn's caller is built per turn (17b decision B) and never lives on the app.
+    turn's caller is built per turn and never lives on the app.
     """
     if tools is not None:
         caller = tools
@@ -762,7 +762,7 @@ def test_identity_comes_from_the_token_and_not_from_the_body(
     chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a route that honours a `user_id` or a `session_id` from the body
-    instead of the token's `sub` and `sid` (a project rule, decision A1).
+    instead of the token's `sub` and `sid`.
 
     The named user is the OTHER person in the CALLER'S OWN tenant and the named
     tenant is the caller's own: a cross-tenant version would
@@ -842,8 +842,8 @@ def test_a_message_one_character_over_the_cap_writes_no_row_at_all(
     without this mapping FastAPI replies with an untyped 500 and a stack trace
     for an input the user can fix.
 
-    Both sides of the boundary, exactly at the cap and one over it (standing
-    rules 1 and 2): a route that refused at 4000 would reject a message the
+    Both sides of the boundary, exactly at the cap and one over it:
+    a route that refused at 4000 would reject a message the
     column stores happily.
     """
     assert MAX_MESSAGE_CHARS == 4000
@@ -974,7 +974,7 @@ def test_a_turn_with_no_access_tool_answers_a_null_decision(
 
     The key must be PRESENT and null rather than absent, which is what the
     subscript asserts: a client branching on the key needs one shape for both
-    turns (19c decision G1).
+    turns (one shape for both).
     """
     session_id = uuid.uuid4()
     gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
@@ -1161,8 +1161,8 @@ def test_the_lifespan_closes_the_pool_and_the_clients(
     chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a lifespan that builds the checkpointer pool and the gateway
-    client at startup and never closes them at shutdown — the plan's first
-    risk: a process-lifetime pool left open leaks connections into the shared
+    client at startup and never closes them at shutdown — a risk:
+    a process-lifetime pool left open leaks connections into the shared
     compose Postgres, and every module after this one pays for it.
 
     Both halves are read off the objects the LIFESPAN itself built: nothing is

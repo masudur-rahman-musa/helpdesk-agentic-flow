@@ -1,33 +1,8 @@
-"""The MCP server service: the streamable HTTP transport, health, and stdio.
+"""The MCP server: the streamable HTTP transport, health checks, and stdio.
 
-The SDK's lowlevel `Server` is used rather than its decorator-based wrapper
-so `tools/list` is built from the registry and `tools/call` goes straight to
-`dispatch.dispatch`. The wrapper would validate arguments against the tool's
-schema before any handler ran, which would put input validation ahead of the
-kill switch and RBAC and would answer with pydantic's own text — both of the
-things an earlier change's criteria 5 and 6 forbid.
-
-`create_app()` builds a FRESH server and app each call. The SDK's
-`StreamableHTTPSessionManager` refuses a second `run()` on one instance, so
-one app per process (module-level `app`, for uvicorn) and one per test.
-
-DNS-rebinding protection is on and its allow-list is CONFIGURED, never
-inferred. `transport_security` is
-passed explicitly, so the SDK reads no `host=` argument and cannot fall back to
-the loopback names alone: that inference is what answered 421 to every call
-agent-api made inside compose, where the server is reached by its service name.
-The patterns come from `MCP_ALLOWED_HOSTS`, defaulting to
-`helpdesk.core.settings.DEFAULT_MCP_ALLOWED_HOSTS` -- the three loopback names
-plus this repository's compose service name -- and a deployment reached by any
-other name sets the variable to its own list. The protection itself is never
-disabled and the list is never empty: an unlisted host is still answered 421,
-pinned by
-`test_mcp_transport.py::test_an_unlisted_host_is_refused_with_421`, and the
-explicit pass by `::test_the_transport_receives_explicit_security_settings`.
-
-`tools/list` is deliberately unauthenticated (decision I): it advertises
-names and schemas, and every call still passes the whole pipeline. Row 12
-registers tools whose names are worth less freely, and gates this then.
+The low-level SDK server is used so the kill switch and access checks run
+before argument checks. The DNS-rebinding host list is configured, never
+guessed, so calls by compose service name work.
 """
 
 import asyncio
@@ -59,24 +34,11 @@ SERVER_NAME = "helpdesk-mcp"
 SERVER_VERSION = "0.1.0"
 
 MCP_PATH = "/mcp"
-"""Where the streamable HTTP transport is mounted (the design)."""
+"""Where the streamable HTTP transport is mounted."""
 
 
 def transport_security() -> TransportSecuritySettings:
-    """The transport's DNS-rebinding settings, built from configuration.
-
-    Explicit rather than inferred from a `host=` argument:
-    the SDK reads `host` only when `transport_security` is None, so passing both
-    would leave a dead argument reading as if it still decided something. The
-    protection stays ON -- there is no flag and no empty value that turns it off
-    (decision D) -- and only the allow-list is configurable.
-
-    `allowed_origins` is deliberately left empty (decision C): nothing in a
-    browser calls `/mcp`, agent-api being a server-side httpx client that sends
-    no `Origin` header, and the middleware accepts an absent one. A configured
-    origin list would be a value nobody reads. Pinned by
-    `test_mcp_transport.py::test_the_transport_receives_explicit_security_settings`.
-    """
+    """DNS-rebinding settings, always on. No origins, since no browser calls `/mcp`."""
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=mcp_allowed_hosts_from_env(),
@@ -86,11 +48,7 @@ def transport_security() -> TransportSecuritySettings:
 async def _list_tools(
     ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
 ) -> types.ListToolsResult:
-    """Exactly the registry, with each model's own JSON schema.
-
-    Built from the registry rather than from a second list, so a schema
-    cannot drift from the model that validates it.
-    """
+    """Exactly the registry, with each model's own JSON schema, so the two cannot drift."""
     return types.ListToolsResult(
         tools=[
             types.Tool(
@@ -107,16 +65,9 @@ async def _list_tools(
 async def _call_tool(
     ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
 ) -> types.CallToolResult:
-    """The wire name is resolved before anything else can use it.
+    """Look up the tool name first, so an unknown one never reaches the kill switch.
 
-    Criterion 8: an unregistered or malformed name must not reach the kill
-    switch, because Redis has no shape or length limit and would happily
-    store a key nothing ever reads.
-
-    This is the one path that writes no audit event: there is no spec to
-    name, no declared event type and no subject, so an audit row could say
-    nothing beyond "a client sent a name we do not have". It is logged
-    instead, and carried in STATUS as owed to row 10b.
+    That case is logged, not audited: there is no tool to name.
     """
     try:
         spec = registry.lookup(params.name)
@@ -138,14 +89,7 @@ def build_server() -> Server[Any]:
 
 
 def create_app() -> FastAPI:
-    """The HTTP application: health, readiness, and the MCP transport.
-
-    `/healthz`, `/readyz` and `/metrics` are registered before the transport
-    is mounted so the mount at `/` cannot swallow them — a mount matches every
-    path under it, so a scrape registered after it would reach the streamable
-    HTTP transport and be answered 406. Pinned by
-    `test_mcp_metrics.py::test_the_metrics_route_answers_before_the_mcp_mount`.
-    """
+    """The HTTP app: health, readiness, metrics, and the MCP transport."""
     mcp_app = build_server().streamable_http_app(
         streamable_http_path=MCP_PATH,
         stateless_http=True,
@@ -155,14 +99,8 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         configure_logging()
-        # Open the three tool clients once and hold them on the MOUNTED
-        # transport app's state: dispatch sees that app as `request.app`, so a
-        # call under the server reads this one copy instead of building its own
-        #, the way agent-api holds its clients on `app.state`. The
-        # embedder is not opened here -- it stays lazy, loaded on first use.
-        # Closed at shutdown so no pooled connection leaks for the life of the
-        # process. Pinned by
-        # `test_mcp_client_lifecycle.py::test_the_lifespan_opens_the_three_clients_and_closes_them`.
+        # Open the tool clients once, on the mounted app's state, which tool
+        # calls see as `request.app`. Closed at shutdown so no pool leaks.
         tool_clients = ToolClients.open_clients(load_settings())
         mcp_app.state.tool_clients = tool_clients
         # The session manager's task group lives for the life of the app;
@@ -175,10 +113,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="mcp-server", lifespan=lifespan)
 
-    # /healthz, /readyz and /metrics registered BEFORE the transport is
-    # mounted: a mount at "/" matches every path under it, so a route
-    # registered after it would reach the MCP transport and be answered 406.
-    # Pinned by `test_mcp_metrics.py::test_the_metrics_route_answers_before_the_mcp_mount`.
+    # Health routes go first: the mount at "/" would otherwise catch them.
     _health.register_health(app, _build_mcp_checks)
 
     app.mount("/", mcp_app)
@@ -186,16 +121,7 @@ def create_app() -> FastAPI:
 
 
 def _build_mcp_checks(state: object) -> dict[str, _health._CheckFn]:
-    """Build the three readiness checks for mcp-server using its module-level clients.
-
-    The mcp-server's clients live in `shared.core.db.shared_engine` and
-    `shared.core.redis.get_redis` (lazy per-loop singletons), and in
-    `mcp_server.core.rag_clients.qdrant` (the per-loop Qdrant pool). The
-    `ToolClients` lifespan warms all three at startup so the lazy getters
-    return the same already-opened clients on every call here. `state` is
-    not used: the module-level getters are the right seam for tests to patch.
-    Pinned by `tests/shared/core/test_health.py`.
-    """
+    """The three readiness checks, using the shared per-loop clients."""
     from helpdesk.mcp_server.core import rag_clients  # avoid circular import at module level
 
     settings = load_settings()
@@ -216,11 +142,6 @@ async def _serve_stdio() -> None:
 
 
 def run_stdio() -> None:
-    """Serve the same tools over stdio, for local debugging (the design).
-
-    There is no `Authorization` header on stdio, so every tool call is
-    refused `FORBIDDEN`; `tools/list` still works, which is what makes this
-    useful for checking what the server advertises.
-    """
+    """Serve the tools over stdio for local debugging. Calls are refused; no token."""
     configure_logging()
     asyncio.run(_serve_stdio())

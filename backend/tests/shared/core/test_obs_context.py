@@ -1,6 +1,6 @@
-"""An earlier change section 6: the telemetry context a log line belongs to.
+"""The telemetry context a log line belongs to.
 
-Written before the implementation exists. Surface under test:
+Surface under test:
 
 ``helpdesk.obs.context``
     ``class TelemetryContext(BaseModel)`` — frozen, fields ``tenant_id``,
@@ -10,7 +10,7 @@ Written before the implementation exists. Surface under test:
     ``@contextmanager def bind_context(**fields) -> Iterator[TelemetryContext]``
     — binds a new context and restores the previous one on exit
 
-the design in one line: `tenant_id`, `session_id`, `trace_id` and
+The privacy rule in one line: `tenant_id`, `session_id`, `trace_id` and
 `principal_kind` may travel in telemetry; a user id, an email or a name may
 not. The last test here is that commitment, asserted on the emitted line.
 
@@ -107,8 +107,8 @@ def test_the_context_is_restored_on_exit() -> None:
 def test_two_concurrent_tasks_do_not_see_each_other_s_context() -> None:
     """Catches a module global instead of a ContextVar: with two chat turns in
     flight, the second bind overwrites the first, and one tenant's session id
-    is published on another tenant's log line — the exact disclosure SPEC
-    §13.5 exists to prevent.
+    is published on another tenant's log line — the exact disclosure the
+    privacy rule exists to prevent.
 
     Each task logs only after BOTH have bound, so a global would have been
     overwritten by the time the first task's line is rendered.

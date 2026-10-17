@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 /**
  * The shared UI kit in `components/ui/`: the status-to-tone map,
  * the badge, the button variants, and the structural primitives every page
- * will adopt in 39b. Each case pins what a page relies on: a role, a name, a
+ * will adopt. Each case pins what a page relies on: a role, a name, a
  * tone or a class, never markup for its own sake.
  */
 

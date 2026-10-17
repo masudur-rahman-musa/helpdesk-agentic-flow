@@ -1,4 +1,4 @@
-"""An earlier change, section 1 criteria 2 and 4, section 6: the identity seam.
+"""The identity seam.
 
 Surface under test (written before it exists):
 
@@ -6,18 +6,18 @@ Surface under test (written before it exists):
     ``class Identity(BaseModel, frozen=True)`` with ``user_id: uuid.UUID``,
     ``tenant_id: uuid.UUID``, ``session_id: uuid.UUID`` and ``claims:
     TokenClaims`` (kept whole so ``rbac.authorize`` still reads the token,
-    never an argument — a project rule).
+    never an argument).
     ``class IdentityRefused(ToolError)`` with ``code == ErrorCode.FORBIDDEN``.
     ``identity_from_header(authorization: str | None, secret: str,
     now: datetime) -> Identity``.
 
 One error type and one code for every cause. A caller must not be able to
 tell an absent header from an expired token from a `sub` that is not a UUID:
-the refusal table below is exhaustive over the causes named in the plan, and
+the refusal table below is exhaustive over the causes named in the module, and
 every row asserts the same code, so a "helpful" distinction fails here.
 
 ``mcp_server.tools.dispatch._session_factory(settings)`` is the seam the transport
-cases spy on: criterion 2 says no DB session is opened on a refusal, and a
+cases spy on: no DB session may be opened on a refusal, and a
 spy that is never called is the only way to prove that.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.

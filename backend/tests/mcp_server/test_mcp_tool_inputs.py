@@ -1,4 +1,4 @@
-"""An earlier change: the shape of two tool input groups, read off the classes alone.
+"""The shape of two tool input groups, read off the classes alone.
 
 No Postgres, Redis, fixture or network: class and registry inspection only.
 """
@@ -13,7 +13,7 @@ from tests.mcp_server.test_mcp_registry import MUTATING_TOOL_NAMES
 
 
 def test_set_kill_switch_is_a_mutating_tool() -> None:
-    """Catches the half-done change a design note rejects: an input that inherits
+    """Catches the half-done change: an input that inherits
     `MutatingToolInput` while the registry spec stays `mutating=False` (dispatch
     never keys the call, so the required key is dead weight), or a spec flipped
     to `mutating=True` over an input that has no key to claim. All three facts
@@ -24,7 +24,7 @@ def test_set_kill_switch_is_a_mutating_tool() -> None:
 
 
 def test_approve_and_reject_declare_request_id_once() -> None:
-    """Catches the duplicate this plan removes: `request_id` declared on both
+    """Catches the duplicate this change removes: `request_id` declared on both
     inputs. Also catches a base that exists but holds nothing (each class would
     still redeclare the field), and two different bases (one per tool), because
     the shared base must be one class that both inherit and that owns the field.

@@ -5,7 +5,7 @@ import { GET as rulesGET } from "@/app/api/admin/rules/route";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change §6, `rules-proxy-routes.test.ts`: the SoD rules board, proxied,
+ * `rules-proxy-routes.test.ts`: the SoD rules board, proxied,
  * against a stubbed `fetch`. Node environment, because the handler is
  * server-side and `NextResponse.redirect` needs the real `Response`.
  *
@@ -13,18 +13,16 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  * mocked exactly as `tests/killswitch-proxy-routes.test.ts` mocks it — the
  * module under test is the route, not Next's store.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24eb's Deviations):
- * - the handler is `export async function GET(): Promise<Response>`, 23b's
+ * Shapes this file fixes:
+ * - the handler is `export async function GET(): Promise<Response>`, the
  *   zero-argument shape, because the agent-api route takes no parameter at all.
- * - the upstream path is agent-api's own `/admin/rules` (decision C), never the
+ * - the upstream path is agent-api's own `/admin/rules`, never the
  *   browser-facing `/api/...` prefix, with no query string and no body.
  * - the transport-failure envelope is `502 { code: "UPSTREAM_UNAVAILABLE" }`,
  *   `proxyAgentApi`'s own body, and the 401 answer is a **307** to `/login`
  *   with the session cookie expired, read off `NextResponse.redirect`'s default
- *   status the way `tests/killswitch-proxy-routes.test.ts` reads it. The plan's
- *   §6 says only "clears the session cookie"; the seam does both in one
- *   response, so both are asserted here.
+ *   status the way `killswitch-proxy-routes.test.ts` reads it. The seam clears the
+ *   session cookie and redirects in one response, so both are asserted here.
  *
  * No backing service and no page: the only seam is `fetch`.
  */
@@ -112,8 +110,8 @@ afterEach(() => {
 describe("the rules proxy — the bearer, the path and the empty request", () => {
   it("sends the bearer from the httpOnly cookie and never in the URL", async () => {
     // Catches a route that reads a token from a header the browser set or from
-    // the query string — the cookie is the only copy of the bearer (22a
-    // decision A), so anything else means the client was handed one, and a
+    // the query string — the cookie is the only copy of the bearer, so anything else means the
+    // client was handed one, and a
     // token in a URL lands in every access log. Also catches a route that
     // calls agent-api directly instead of through `proxyAgentApi`: an unrouted
     // call carries no authorization header at all, which on this resource means
@@ -128,7 +126,7 @@ describe("the rules proxy — the bearer, the path and the empty request", () =>
   });
 
   it("sends no query string and no body at all", async () => {
-    // §1's last criterion, as the wire sees it: this plan introduces NO input
+    // As the wire sees it: the proxy introduces NO input
     // that shapes a key, a path or a stored value. Catches a proxy that
     // forwarded the browser's search params (a `tenant_id` or a `rule_id`
     // riding along would cross back as a `VALIDATION`, because
@@ -143,12 +141,11 @@ describe("the rules proxy — the bearer, the path and the empty request", () =>
 
   it("answers the upstream body unchanged, envelope included", async () => {
     // Catches a route that reshapes or re-wraps what agent-api sent: the page
-    // runs one `safeParse` on the tool's own `{ rules: [...] }` envelope
-    // (decision D), so a proxy that unwrapped it to a bare list, or added a key
+    // runs one `safeParse` on the tool's own `{ rules: [...] }` envelope, so a proxy that
+    // unwrapped it to a bare list, or added a key
     // of its own, leaves `rules-schema.ts` refusing a payload agent-api
     // answered correctly. A proxy that dropped the rows whose `role_b` is null
-    // would also hide exactly the rules an admin came to fix (§5's first two
-    // risks).
+    // would also hide exactly the rules an admin came to fix .
     const response = await rulesGET();
 
     expect(response.status).toBe(200);
@@ -160,7 +157,7 @@ describe("the rules proxy — the refusals", () => {
   it.each([FORBIDDEN_STATUS, UNAVAILABLE_STATUS])(
     "passes a %i through with its own typed body",
     async (status) => {
-      // §6's last web row. A 403 is `FORBIDDEN` (one of the five principals
+      // A 403 is `FORBIDDEN` (one of the five principals
       // with no cell on this row) and a 503 is `TOOL_DISABLED` (a switch
       // tripped on `list_sod_rules`). Catches a proxy that treats every non-200
       // as a transport failure: the admin would be told the platform is
@@ -196,9 +193,9 @@ describe("the rules proxy — the refusals", () => {
   });
 
   it("expires the session cookie and redirects to /login on a 401", async () => {
-    // §6's third web row. Catches a route that passes agent-api's 401 through
+    // Catches a route that passes agent-api's 401 through
     // to the browser: the stale cookie survives, so every later call fails the
-    // same way with nothing telling the admin why. This is 22a's `proxyAgentApi`
+    // same way with nothing telling the admin why. This is the `proxyAgentApi`
     // seam, so a route that opens its own `fetch` is caught here too — an
     // unrouted call answers 401, not a redirect, and clears no cookie.
     fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));

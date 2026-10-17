@@ -1,17 +1,17 @@
-"""An earlier change section 6: the notification page and the read stamp, over HTTP.
+"""The notification page and the read stamp, over HTTP.
 
 Surface under test (written before it exists; every case below is red on one
 of these names until steps 1 and 2 land):
 
-``agent_api.graph.keys`` (step 1)
+``agent_api.graph.keys``
     ``derive_notification_read_key(*, reader_user_id: uuid.UUID,
     notification_id: uuid.UUID) -> str`` -- ``uuid5(KEY_NAMESPACE, reader ||
     notification)`` over the module's existing ``\\x1f`` separator, length
     checked by ``check_idempotency_key`` before it is returned. A two-value
-    sibling of 23c's ``derive_decision_key`` and 23h's
-    ``derive_review_decision_key`` with no verb in the material (decision B).
+    sibling of ``derive_decision_key`` and 23h's
+    ``derive_review_decision_key`` with no verb in the material.
 
-``agent_api.notification_routes`` (step 2)
+``agent_api.notification_routes``
     ``router`` with ``GET /me/notifications`` (optional ``unread_only``,
     optional ``limit``) answered by ``my_notifications``, and ``POST
     /notifications/{notification_id}/read`` answered by ``mark_read_route``,
@@ -28,29 +28,29 @@ Shapes this file asserts against, all of them named
 by the plan except where noted:
 - the two tool names are exactly ``list_notifications`` and
   ``mark_notification_read``, and the read stamp's key material is the reader
-  and the notification and NOTHING else (decision B: one verb is a constant
+  and the notification and NOTHING else (one verb is a constant
   pretending to be a variable).
 - the refusal envelope is ``{"code": "<ErrorCode value>"}`` and the bearer
-  refusal a literal ``401``, 23a/23c/23h's shape, unchanged.
+  refusal a literal ``401``, the usual shape, unchanged.
 - the page's arguments are ``{}``, ``{"unread_only": ...}``, ``{"limit": ...}``
   or both -- a subclass per shape rather than a nullable field, because
   ``model_dump`` would send ``unread_only: null`` into a ``bool`` and
   ``limit: null`` into a ``1``-``200`` bound. The cases below assert the
   arguments DICT, so any construction answering those four shapes passes.
 - the stamp's arguments are exactly ``{"notification_id": ...,
-  "idempotency_key": ...}``, and the route takes NO body at all (decision B),
+  "idempotency_key": ...}``, and the route takes NO body at all,
   so the cases send none.
 - ``KEY_LENGTH`` is read from ``helpdesk.models.idempotency`` rather than
-  written as a literal, because the plan's section 5 names the constant and not
-  its value (a a project rule gap that belongs in 23gb's Deviations); the two
+  written as a literal, because the requirements name the constant and not
+  its value; the two
   bounds the plan DOES state, ``LIMIT_MIN = 1`` and ``LIMIT_MAX = 200``, are
   written out below as the literals they are.
 - a non-uuid ``notification_id`` and an unparseable ``unread_only`` are both
-  FastAPI's own ``422``: section 1 makes the first a ``uuid.UUID`` path
-  parameter and decision F makes the second a typed ``bool``, so no second
+  FastAPI's own ``422``: the first is a ``uuid.UUID`` path
+  parameter and the second a typed ``bool``, so no second
   validator is written and what the cases pin is that no tool, no key and no
   read is reached.
-- the page size bound stays the TOOL's (section 5's second risk), so the
+- the page size bound stays the TOOL's (a known risk), so the
   boundary rows here drive a caller that applies
   ``ListNotificationsInput``'s own ``1``-``200`` and answers the typed
   ``VALIDATION`` the real MCP server answers. The route's job -- the only thing
@@ -107,7 +107,7 @@ SEPARATOR = "\x1f"
 
 # The tool's bounds (`mcp_server.tools.notifications.LIMIT_MIN` / `LIMIT_MAX` /
 # `LIMIT_DEFAULT`), written out because agent-api cannot import the mcp-server
-# package. a project rule wants the values; section 5's second risk says these
+# package. The values are written out; the second risk says these
 # are the only validator, so the route must neither repeat them more narrowly
 # nor refuse what they accept.
 LIMIT_MIN = 1
@@ -138,7 +138,7 @@ PAGE_PATH = "/me/notifications"
 STAMP_PATH = f"/notifications/{NOTIFICATION_ID}/read"
 
 # The key `uuid5(KEY_NAMESPACE, READER_ID \x1f NOTIFICATION_ID)` takes, computed
-# by hand outside this file and written as the literal it is. Section 5's first
+# by hand outside this file and written as the literal it is. The first
 # risk is a key colliding across two notifications, and a derivation over the
 # right two values under the WRONG namespace or joined with a different
 # separator would be stable, unique and completely different from this: the
@@ -167,7 +167,7 @@ PAGE_PAYLOAD: Mapping[str, Any] = {
     "unread_count": 3,
 }
 """One page, exactly as `list_notifications` answers it: the two-key envelope
-of section 1 over the eight `NotificationRow` fields. The route must hand this
+over the eight `NotificationRow` fields. The route must hand this
 back UNCHANGED, so the case asserting equality is what catches a router that
 reshapes, filters, re-counts or renames on the way out."""
 
@@ -260,7 +260,7 @@ class UnreachableToolCaller:
 class BoundCheckingToolCaller:
     """The MCP server's own input validation, standing in for the wire.
 
-    Section 5's second risk: `ListNotificationsInput`'s `1`-`200` is the only
+    The second risk: `ListNotificationsInput`'s `1`-`200` is the only
     bound on the page size, so an out-of-bounds limit crosses back as a typed
     `VALIDATION` rather than being refused in agent-api. This caller answers
     exactly that, and records in `answered` only the calls it actually
@@ -360,18 +360,18 @@ def _request(
 ) -> tuple[httpx.Response, CallerSpy]:
     """One call against the app, with the tool caller replaced at the seam.
 
-    The seam is `deps.build_tool_caller` (23c decision C put `call_tool_route`
-    there), and the lifespan is NOT entered: neither route reads anything off
-    `app.state`, so entering it would buy a psycopg pool, a Redis client and a
-    gateway client that no case here uses.
+        The seam is `deps.build_tool_caller` (`call_tool_route` is built there), and the lifespan is
+        NOT entered: neither route reads anything off
+        `app.state`, so entering it would buy a psycopg pool, a Redis client and a
+        gateway client that no case here uses.
 
-    No `body` parameter exists on purpose: the stamp route takes no body at all
-    (decision B), so every call here sends none and a route that required one
-    would fail every stamp case with a 422.
+        No `body` parameter exists on purpose: the stamp route takes no body at all
+    , so every call here sends none and a route that required one
+        would fail every stamp case with a 422.
 
-    Query values go through `params` rather than through the path, so a value
-    with a trailing space is percent-encoded by httpx and reaches the route as
-    the string the browser actually sent.
+        Query values go through `params` rather than through the path, so a value
+        with a trailing space is percent-encoded by httpx and reaches the route as
+        the string the browser actually sent.
     """
     spy = CallerSpy(caller)
     monkeypatch.setattr(deps, "build_tool_caller", spy.build)
@@ -404,16 +404,16 @@ def test_the_page_route_answers_the_tools_output_unchanged(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a route that reshapes, filters, re-counts or renames
-    `list_notifications`' two-key envelope on the way out (section 1: "returns
+    `list_notifications`' two-key envelope on the way out (the tool "returns
     the tool's structured output unchanged"), and one that calls a different
     tool.
 
-    The bearer half is a project rule and decision A: the token the caller
+    The bearer half is the identity-from-token rule: the token the caller
     presented is forwarded VERBATIM, so RBAC, the kill switch and the self-only
     scope check all apply to this read. A route that minted its own service
     token, or reused a configured one, fails on the identity assertion alone; a
     route that passed the reader's id as an ARGUMENT fails on the exact key
-    set, which is what a project rule forbids on a page whose whole filter is the
+    set, which is what the identity-from-token rule forbids on a page whose whole filter is the
     caller's own identity.
     """
     caller = ScriptedToolCaller(PAGE_PAYLOAD)
@@ -440,9 +440,9 @@ def test_the_page_route_answers_the_tools_output_unchanged(
 def test_the_page_route_sends_neither_unread_only_nor_limit_when_neither_is_asked_for(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's first criterion, both halves at once. Catches a route that
+    """The first requirement, both halves at once. Catches a route that
     repeats the tool's `LIMIT_DEFAULT` (50) as a number of its own -- a second
-    place for it to drift from, a project rule -- one that sends `limit: null`
+    place for it to drift from -- one that sends `limit: null`
     into a bound of 1..200 or `unread_only: null` into a `bool` and gets a
     `VALIDATION` back, so the page shows nothing to a person with messages
     waiting, and one that defaults the filter to `True`, which would hide every
@@ -504,7 +504,7 @@ def test_the_page_route_sends_each_query_parameter_only_when_it_is_asked_for(
 def test_the_stamp_route_answers_the_tools_output_under_the_callers_own_bearer(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The mutation half of a project rule and 6 at once.
+    """The mutation half of hthe no-model-mutation and identity-from-token rules at once.
 
     Catches a route that reshapes the stamp's four-key answer, one that calls
     the wrong tool, one that forwards anything but the caller's own bearer,
@@ -514,7 +514,7 @@ def test_the_stamp_route_answers_the_tools_output_under_the_callers_own_bearer(
     `idempotency_key`, which would leave a double-clicked bell filing a second
     call instead of replaying the stored response.
 
-    No body is sent at all (decision B), so a route declaring one fails this
+    No body is sent at all, so a route declaring one fails this
     case with a 422 rather than passing quietly.
     """
     caller = ScriptedToolCaller(STAMP_PAYLOAD)
@@ -544,11 +544,11 @@ def test_the_stamp_route_answers_the_tools_output_under_the_callers_own_bearer(
 def test_the_key_is_derived_from_the_tokens_reader_and_never_from_a_query_parameter(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's identity criterion, a project rule on the one value this route
+    """The identity requirement, the identity-from-token rule on the one value this route
     derives.
 
-    The query names ANOTHER user of the SAME tenant as the caller (standing
-    rule 9: a cross-tenant name would be refused by the tenant guard on the MCP
+    The query names ANOTHER user of the SAME tenant as the caller (a cross-tenant name would be
+    refused by the tenant guard on the MCP
     side whether this rule holds or not, so it would pin nothing). Catches a
     route that derives the key from `reader_user_id` or `user_id` instead of
     from the verified `sub` -- two readers would then share a key and the second
@@ -611,7 +611,7 @@ def test_the_page_route_sends_no_identity_argument_even_when_the_query_names_one
 def test_one_reader_stamping_one_notification_twice_sends_one_key(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's idempotency criterion, through the ROUTE.
+    """The idempotency requirement, through the ROUTE.
 
     Catches a key minted fresh per call (`uuid4`) or reaching a clock: a
     double-clicked bell would then arrive under two keys and file a second call
@@ -643,7 +643,7 @@ def test_another_notification_stamped_by_the_same_reader_sends_a_different_key(
     pure function. Catches a route that derives the key from the READER alone
     and ignores its own path parameter: the second notification a person opens
     would arrive under the first one's key and be handed the first one's stored
-    answer, so the bell would never clear -- section 5's first risk, seen from
+    answer, so the bell would never clear -- a known risk, seen from
     the wire.
     """
     caller = ScriptedToolCaller(STAMP_PAYLOAD, STAMP_PAYLOAD)
@@ -696,8 +696,8 @@ def test_an_absent_or_malformed_bearer_is_a_typed_401_and_opens_no_session(
     is what flips that row. On the STAMP route the token is
     verified twice, once for the reader the key is derived from and once inside
     `call_tool_route`, so that row pins the ANSWER and claims no kill on either
-    copy (a project rule: two copies of one guard cannot be killed
-    separately, and section 5's fourth risk says so in those words).
+    copy (two copies of one guard cannot be killed
+    separately, and the tool says so in those words).
     """
     caller = ScriptedToolCaller()
 
@@ -802,9 +802,9 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """Section 1's second unhappy path, one code per row. Catches a route that
+    """The second unhappy path, one code per row. Catches a route that
     lets the tool's `ToolError` escape: FastAPI answers an untyped 500, so
-    another person's notification id (`NOT_FOUND`, 23ga decision G), an admin's
+    another person's notification id (`NOT_FOUND`), an admin's
     tripped kill switch and a matrix refusal would all read as one outage.
 
     The bearer here VERIFIES and the arguments are valid, so neither the token
@@ -865,7 +865,7 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
 def test_a_non_uuid_notification_id_reaches_no_tool_and_no_key(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's fourth criterion. Catches an id declared as a `str` and
+    """The fourth requirement. Catches an id declared as a `str` and
     passed straight through: it would FIRST reach
     `derive_notification_read_key`, which would happily digest `"../../etc"`
     into a perfectly valid key and file it against nothing, and then reach a
@@ -890,14 +890,14 @@ def test_a_non_uuid_notification_id_reaches_no_tool_and_no_key(
     assert spy.bearer_tokens == []
 
 
-# --- the tool's own bound, pinned THROUGH the route (section 5's second risk) --
+# --- the tool's own bound, pinned THROUGH the route (a known risk) --
 
 
 @pytest.mark.parametrize("limit", [LIMIT_MIN, LIMIT_MAX], ids=["limit-1", "limit-200"])
 def test_the_inclusive_ends_of_the_tools_page_size_are_accepted(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch, limit: int
 ) -> None:
-    """The INCLUSIVE ends of section 1's `1`-`200`.
+    """The INCLUSIVE ends of the `1`-`200` range.
 
     Catches a route that re-declares the bound on a query parameter of its own:
     a `Query(gt=1)`, a `Query(lt=200)` or any second opinion refuses one of
@@ -929,7 +929,7 @@ def test_a_page_size_outside_the_tools_bounds_is_a_typed_400_with_no_read(
     """The other end of the same bound, one step outside it on each side.
 
     Catches a route that answers the tool's typed `VALIDATION` as an untyped
-    500 or as FastAPI's own 422 -- 23gc has one sentence per SPEC section 8.1
+    500 or as FastAPI's own 422 -- the error map has one sentence per documented
     code and nothing to say for either -- and a route that silently CLAMPS the
     value into range, which would show somebody a page they did not ask for and
     hide the mistake from them. No row was read, which is what `answered` being
@@ -961,7 +961,7 @@ def test_a_page_size_outside_the_tools_bounds_is_a_typed_400_with_no_read(
 def test_each_value_of_unread_only_is_forwarded_as_a_bool(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch, sent: str, expected: bool
 ) -> None:
-    """Decision F's accepted half: `unread_only` is a typed `bool` query
+    """The accepted half: `unread_only` is a typed `bool` query
     parameter, so both values cross the wire as bools.
 
     Catches a route that forwards the raw STRING -- `"false"` is truthy to
@@ -990,9 +990,9 @@ def test_each_value_of_unread_only_is_forwarded_as_a_bool(
 def test_an_unparseable_unread_only_is_fastapis_own_422_with_no_read(
     notifications_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Decision F's COST, pinned rather than hidden (section 5's third risk):
-    `unread_only=maybe` answers FastAPI's untyped **422** and not SPEC section
-    8.1's typed 400, because a bool is a TYPE the route declares and not a
+    """The COST of a typed bool, pinned rather than hidden (the third risk):
+    `unread_only=maybe` answers FastAPI's untyped **422** and not the
+    typed 400, because a bool is a TYPE the route declares and not a
     vocabulary the tool owns.
 
     This row makes no claim about a typed refusal. What it catches is a route
@@ -1019,11 +1019,11 @@ def test_an_unparseable_unread_only_is_fastapis_own_422_with_no_read(
     assert spy.bearer_tokens == []
 
 
-# --- the derived key, pure (decision B) ---------------------------------------
+# --- the derived key, pure ----------------------------------------------------
 
 
 def test_the_same_reader_and_notification_derive_the_same_key_every_time() -> None:
-    """The property section 1's idempotency criterion rests on. Catches a
+    """The property the idempotency check rests on. Catches a
     derivation that reaches a clock or a random source (`uuid4`,
     `datetime.now`): the second click of a double-clicked bell would then file
     a second call instead of replaying the first one's stored response.
@@ -1044,11 +1044,11 @@ def test_the_same_reader_and_notification_derive_the_same_key_every_time() -> No
 def test_changing_either_of_the_two_values_changes_the_key(
     reader: uuid.UUID, notification_id: uuid.UUID
 ) -> None:
-    """Section 5's first risk, one value at a time. Each row is the failure the
+    """The first risk, one value at a time. Each row is the failure the
     value prevents: without the reader two people stamping their own copy of
     one message would share a key and the second would replay the first's
     answer; without the notification id one reader's second stamp would replay
-    their first on a DIFFERENT notification -- the collision section 5 names,
+    their first on a DIFFERENT notification -- the collision named in the risk list,
     which leaves the bell counting a message the person has opened.
     """
     baseline = derive_notification_read_key(
@@ -1066,7 +1066,7 @@ def test_the_key_is_the_uuid5_of_the_two_values_under_the_modules_namespace() ->
     or joined with a different separator: it would be stable, unique and
     completely different from the key `graph/keys.py` documents, so every other
     case in this file passes while the module has two derivations under two
-    namespaces (decision B's whole reason for putting this function in that
+    namespaces (the whole reason for putting this function in that
     module rather than beside the routes).
 
     `EXPECTED_READ_FINGERPRINT` is hand-computed and written as a literal, and the
@@ -1087,11 +1087,11 @@ def test_the_key_is_the_uuid5_of_the_two_values_under_the_modules_namespace() ->
 
 
 def test_the_derived_key_fits_the_column_it_is_stored_in() -> None:
-    """Section 1's length half: the key is length-checked by
+    """The length half: the key is length-checked by
     `check_idempotency_key` before it reaches the wire. Catches a derivation
     that returns the MATERIAL rather than a uuid over it -- a string carrying
     both uuids and the separator, which would abort the store AFTER the stamp
-    had run, as a database error instead of the code SPEC section 8.1 names.
+    had run, as a database error instead of the documented error code.
     """
     key = derive_notification_read_key(
         reader_user_id=READER_ID, notification_id=OTHER_NOTIFICATION_ID
@@ -1102,18 +1102,16 @@ def test_the_derived_key_fits_the_column_it_is_stored_in() -> None:
 
 
 def test_the_key_check_is_inclusive_at_the_column_length_and_refuses_one_over() -> None:
-    """Section 1's stored-value boundary, pinned at its exact value (standing
-    rule 2): a key of exactly `KEY_LENGTH` is accepted and one character over
-    is refused as `VALIDATION` before it can reach the wire.
+    """The stored-value boundary, pinned at its exact value: a key of exactly `KEY_LENGTH`
+    is accepted and one character over is refused as `VALIDATION` before it can reach the wire.
 
-    NO KILL CLAIM of its own on this plan's code. `check_idempotency_key` is
-    17c's guard, already pinned by `test_agent_planning.py`, and whether
+    NO KILL CLAIM of its own on this code. `check_idempotency_key` is
+    guard, already pinned by `test_agent_planning.py`, and whether
     `derive_notification_read_key` routes THROUGH it is unobservable -- every
     derived key is a 36-character uuid, so the check can never fire from that
-    caller. This row is here because section 1 states the bound and standing
-    rule 39 wants the value written where the plan states it; the case above is
-    what pins the derivation returning a uuid at all (a project rule's
-    shape).
+    caller. This row is here because the requirements state the bound and want the value written
+    out;
+    the case above is what pins the derivation returning a uuid at all.
     """
     longest = "k" * KEY_LENGTH
 

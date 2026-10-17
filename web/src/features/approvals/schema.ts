@@ -1,33 +1,13 @@
 /**
- * The parser for what `/api/me/approvals` returns.
- *
- * Written over the ENVELOPE rather than over a bare row, the same shape
- * `access-schema.ts` has, so 23d's page runs one `safeParse` on the proxy's
- * body and gets either the whole queue or one refusal — never a half-parsed
- * list it has to check again per row.
- *
- * Every one of the twenty fields is REQUIRED, and nullable only where the tool
- * can answer null (`requested_expiry_days`, and an unresolved seat's
- * `user_id`). An `.optional()` field would let a dropped column reach the page
- * as `undefined` and render as a blank cell instead of a refused payload;
- * `tests/approvals-schema.test.ts` rejects a row with any one of the twenty
- * missing, one case per field.
- *
- * Nothing here is `.strict()`. The wire may grow — this plan is itself a
- * widening of the same tool — and a page that refused a payload carrying one
- * new key would break on a deploy that changed nothing it reads.
- *
- * The seat and the citation shapes are `access-schema.ts`' own: one queue row
- * and one request row carry the SAME stored chain and the same stored
- * citations, so a second declaration here would be two opinions about one
- * JSONB column.
+ * Parser for the approver's queue. Every field is required, so a dropped
+ * column fails the parse. Seat and citation shapes are shared with requests,
+ * since both read the same stored data.
  */
 
 import { z } from "zod";
 
 import { approvalSlotSchema, requestCitationSchema } from "@/features/access/schema";
 
-/** One pending approval: the twenty fields of an earlier change §1. */
 export const pendingApprovalSchema = z.object({
   request_id: z.string(),
   requester_user_id: z.string(),

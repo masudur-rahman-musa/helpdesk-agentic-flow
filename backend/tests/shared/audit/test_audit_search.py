@@ -1,10 +1,10 @@
-"""An earlier change section 6, first block: the audit search query, against Postgres.
+"""The audit search query, against Postgres.
 
-Surface under test (written before it exists):
+Surface under test:
 
 ``helpdesk.audit.search`` (new module, re-exported from ``helpdesk.audit``)
     ``SCAN_CAP: int`` — the bound on how many rows ONE call may read. The cap
-    is on the READ, not on the caller's ``limit``: an earlier change decision A filters
+    is on the READ, not on the caller's ``limit``: the handler filters
     by scope in the handler, AFTER the read, so a page can come back short and
     the cursor is what makes the rest reachable.
     ``AuditSearchPage`` — ``events`` (the rows, ``seq`` DESC), ``lowest_seq``
@@ -24,7 +24,7 @@ invisible through the ORM guard.
 
 Style follows ``test_audit_writer.py``: the schema comes from
 ``Base.metadata`` via ``_seed.schema_engine`` on the session-scoped throwaway
-database (a project rule — one database for the whole run, never one per
+database (one database for the whole run, never one per
 test), and each scenario runs inside a single ``asyncio.run``. Per-test
 isolation inside it is a namespace: every case makes its OWN tenant and
 plants events under its own ``event_type`` marker, so no two cases can read
@@ -60,15 +60,15 @@ from helpdesk.shared.audit.search import (
     search_audit_events,
 )
 
-# The plan's own number, asserted exactly by
-# `test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor` (standing rule
-# 2). A literal here rather than a re-import so a widened cap fails a case
+# The agreed cap, asserted exactly by
+# `test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor`. A literal here rather than a
+# re-import so a widened cap fails a case
 # instead of silently travelling with the module.
 EXPECTED_SCAN_CAP = 500
 
 # Four fixed instants, far apart and in the past, so nothing here depends on
 # when the suite runs. The time-range cases filter at the MIDPOINTS below
-# rather than at an instant a row carries: an earlier change takes no decision on
+# rather than at an instant a row carries: nothing says
 # whether `occurred_from` / `occurred_to` are inclusive, and a test must not
 # invent one.
 T1 = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
@@ -146,10 +146,10 @@ def _seqs(page: AuditSearchPage) -> list[int]:
     return [row.seq for row in page.events]
 
 
-# --- decision D: every filter narrows, and absent means "no filter" -------------
+# --- every filter narrows, and absent means "no filter" -------------
 
-# The planting every narrowing case reads. Row 0 and row 2 share an
-# `event_type` and a `subject_id`; rows 0 and 1 share a `subject_type` and an
+# The planting every narrowing case reads. The rows at index 0 and 2
+# share an `event_type` and a `subject_id`; those at index 0 and 1 share a `subject_type` and an
 # `actor_ref`; the four `occurred_at`s are strictly increasing. So each filter
 # below selects a DIFFERENT pair, and no two filters can be confused for each
 # other.
@@ -181,7 +181,7 @@ def test_each_decision_d_filter_narrows_and_an_absent_one_does_not(
     filters: dict[str, Any],
     expected: tuple[int, ...],
 ) -> None:
-    """Criterion 3, one filter per row, over one shared planting.
+    """One filter per row, over one shared planting.
 
     KILL, per row: dropping THAT filter from the WHERE clause. Every filtered
     row expects two of the four planted events, so an ignored filter returns
@@ -193,8 +193,8 @@ def test_each_decision_d_filter_narrows_and_an_absent_one_does_not(
     returns nothing and fails only here.
 
     The two time rows filter at a midpoint between two planted instants, not
-    at an instant a row carries: an earlier change decides nothing about inclusivity,
-    so pinning `>=` over `>` here would invent a decision the plan never took.
+    at an instant a row carries: nothing says whether the range is inclusive,
+    so pinning `>=` over `>` here would invent a rule nobody set.
     """
 
     async def scenario() -> None:
@@ -218,7 +218,7 @@ def test_each_decision_d_filter_narrows_and_an_absent_one_does_not(
 def test_events_come_back_newest_first_and_before_seq_resumes_without_a_gap(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 2's ordering plus decision B's keyset, in one planting.
+    """The ordering plus the keyset, in one planting.
 
     KILL, first half: dropping `ORDER BY seq DESC`. The five rows are planted
     oldest first, so Postgres's natural read order is the exact REVERSE of
@@ -262,7 +262,7 @@ def test_events_come_back_newest_first_and_before_seq_resumes_without_a_gap(
 def test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision B's bound, at exactly cap and cap+1.
+    """The read bound, at exactly cap and cap+1.
 
     KILL: an unbounded read, or a cap applied as `SCAN_CAP + 1` / `- 1`. A
     planting of exactly `SCAN_CAP + 1` rows is the only size that separates
@@ -277,8 +277,8 @@ def test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor(
     handing `next_before_seq` back.
 
     `SCAN_CAP` itself is asserted as an exact number here: a cap that drifts
-    changes how much work one call does against the one table the design
-    never prunes.
+    changes how much work one call does against the one table that
+    is never pruned.
     """
     assert SCAN_CAP == EXPECTED_SCAN_CAP
 
@@ -310,20 +310,20 @@ def test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor(
     asyncio.run(scenario())
 
 
-# --- the tenant boundary (criterion 2) ------------------------------------------
+# --- the tenant boundary ------------------------------------------
 
 
 def test_another_tenants_events_are_invisible_through_the_bound_session(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 2's "OWN tenant only", with nothing else able to hide the row.
+    """The "OWN tenant only" rule, with nothing else able to hide the row.
 
     KILL: reading through anything that escapes `helpdesk.core.db`'s ORM
     guard — a `text()` query, a raw connection, or a select against a
     non-tenant-scoped entity. Both tenants are planted with the SAME
     `event_type`, the same `subject_type`, the same `subject_id` and the same
     `actor_ref`, and the search is called with no filter at all, so not one
-    of decision D's filters can be the thing that withholds tenant B's rows.
+    of the filters can be the thing that withholds tenant B's rows.
     The only difference between the two sets is which tenant they belong to.
 
     The same page is then read through a session bound to tenant B, and it
@@ -352,19 +352,19 @@ def test_another_tenants_events_are_invisible_through_the_bound_session(
     asyncio.run(scenario())
 
 
-# --- the refusal, before any read (criterion 9) ---------------------------------
+# --- the refusal, before any read ---------------------------------
 
 
 def test_an_inverted_time_range_is_refused_validation_before_any_statement_runs(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 9's "before any read", proved by counting statements.
+    """The "before any read" rule, proved by counting statements.
 
     KILL: a range check placed AFTER the SELECT, or none at all. Without the
     counter both would look identical from the outside — an inverted range
     matches no row, so a query that ran anyway answers the same empty page —
-    which is exactly what the criterion refuses: an empty page reads as "no
+    which is exactly what the refusal prevents: an empty page reads as "no
     such events", and a caller who transposed two dates would be told their
     audit trail is clean.
 
@@ -372,7 +372,7 @@ def test_an_inverted_time_range_is_refused_validation_before_any_statement_runs(
     with the two instants the right way round DOES execute a statement, so a
     listener that never fires cannot make the first half pass.
 
-    The code is asserted as `ErrorCode.VALIDATION` (the design), not just as
+    The code is asserted as `ErrorCode.VALIDATION` not just as
     "some exception": an inverted range refused as `INTERNAL` tells the
     caller the service is broken rather than that their input is.
     """

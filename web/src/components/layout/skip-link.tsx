@@ -1,12 +1,4 @@
-/**
- * The first focusable element on every page. It has to be FIRST in the DOM,
- * not merely present: a skip link behind the banner, the nav and the theme
- * toggle takes four tabs to reach, which is the thing it exists to avoid.
- * Pinned by `tests/shell.test.tsx`'s "makes the skip link the first focusable
- * element in the shell".
- *
- * Visually hidden until focused, then drawn over the page.
- */
+/** Must be first in the DOM: behind the nav it takes several tabs to reach. */
 export function SkipLink() {
   return (
     <a

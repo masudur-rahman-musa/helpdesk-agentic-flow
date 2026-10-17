@@ -1,11 +1,8 @@
 import { cn } from "@/lib/utils";
 
 /**
- * A table inside its own horizontal scroll wrapper, so a wide table scrolls by
- * itself at phone width instead of pushing the page sideways. `aria-label`
- * and every other prop go to the `<table>`, never the wrapper, so the table
- * keeps its name (`tests/ui-primitives.test.tsx::renders a table by name
- * inside a horizontal scroll wrapper`).
+ * A wide table scrolls inside its own wrapper, not the page. Props go to the
+ * `<table>`, not the wrapper, so it keeps its accessible name.
  */
 export function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (

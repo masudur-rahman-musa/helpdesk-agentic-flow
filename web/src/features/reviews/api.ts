@@ -42,13 +42,7 @@ export function useDecideReviewItem(itemId: string, reviewId: string) {
   });
 }
 
-/**
- * A decision the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so
- * no free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
+/** A refused decision. It carries only the typed code; the app picks the sentence. */
 export class DecisionRefusedError extends Error {
   readonly code: unknown;
 
@@ -59,16 +53,9 @@ export class DecisionRefusedError extends Error {
 }
 
 /**
- * The queue for one filter, or the empty list while the browser follows the
- * proxy's redirect to `/login`. `all` sends no `status` parameter at all rather
- * than a word the tool's enum has no member for.
- *
- * A refused read throws a `WireRefusedError` and this page dresses it with
- * nothing (24ia decision B): the queue's own alert is what a reviewer sees for a
- * typed 403 as well as for a bodyless 500, and the per-code sentences on this
- * surface stay the DECISION's alone. Pinned by
- * `tests/reviews-page.test.tsx::a 403 FORBIDDEN on the queue renders the queue
- * alert, not the code's sentence`.
+ * The queue for one filter, or an empty list during the redirect to `/login`.
+ * `all` sends no `status`, since the tool's enum has no such word. Errors throw
+ * to the queue's own alert.
  */
 async function fetchReviews(status: string): Promise<ReviewQueueRow[]> {
   const url = status === "all" ? API.myReviews : `${API.myReviews}?status=${status}`;
@@ -76,28 +63,15 @@ async function fetchReviews(status: string): Promise<ReviewQueueRow[]> {
   return parsed === null ? [] : parsed.reviews;
 }
 
-/**
- * The items of one review, or the empty list while the browser follows the
- * proxy's redirect to `/login`. The review id is a path segment and never a
- * query parameter, pinned by `tests/reviews-page.test.tsx::reads
- * /api/reviews/{review_id}/items with an empty query string`.
- *
- * Same dressing as the queue read: the item alert answers a typed 403 and a
- * bodyless 500 alike (`::a 403 FORBIDDEN on the items renders the item alert,
- * not the code's sentence`).
- */
+/** One review's items, or an empty list during the redirect to `/login`. */
 async function fetchItems(reviewId: string): Promise<ReviewItem[]> {
   const parsed = await readWire(apiPath(API.reviewItems, { reviewId }), reviewItemsSchema);
   return parsed === null ? [] : parsed.items;
 }
 
 /**
- * One decision, posted to the proxy for this item.
- *
- * No idempotency key is sent: agent-api derives it from the verified reviewer,
- * the item and the word (23h), so a double-clicked Keep replays the stored
- * response instead of filing a second decision. The only string this page sends
- * is the tool's own enum, chosen from a fixed control.
+ * One decision. No idempotency key: the server makes it from the reviewer, the
+ * item and the word, so a double click replays.
  */
 async function postDecision(itemId: string, decision: "keep" | "revoke"): Promise<void> {
   const response = await fetch(apiPath(API.decideReviewItem, { itemId }), {

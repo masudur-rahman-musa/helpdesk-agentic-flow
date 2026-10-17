@@ -7,20 +7,18 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { reasonSentence } from "@/lib/decision-labels";
 
 /**
- * An earlier change §6, `requests-page.test.tsx`: the `/requests` list against a stubbed
- * `fetch`. jsdom, no agent-api, no backing service. (No basename collision in
- * the tree — a project rule.)
+ * `requests-page.test.tsx`: the `/requests` list against a stubbed
+ * `fetch`. jsdom, no agent-api, no backing service. (No other test file shares this name.)
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23b's Deviations):
+ * Shapes this file fixes:
  * - the unit under test is `RequestList` from
  *   `web/src/features/requests/components/request-list.tsx`, taking **no props** and doing
- *   its own read of `/api/me/requests` through TanStack Query (decision A) —
+ *   its own read of `/api/me/requests` through TanStack Query —
  *   the same division `ChatPanel` has, so `app/requests/page.tsx` stays a thin
  *   wrapper a test never has to await.
  * - the accessible names: region `My requests`, the row list `Requests`, and
  *   INSIDE a row the three nested lists `Reasons`, `Approvers` and `Sources`.
- *   §6 names only the outer two and `Approvers`; the other two are needed for
+ *   Only the outer two and `Approvers` were named; the other two are needed for
  *   "one listitem per reason" and "one listitem per citation" to be countable
  *   at all, since a row holding three lists cannot be counted by `listitem`.
  * - a row's listitems are its DIRECT children of the `Requests` list
@@ -33,10 +31,10 @@ import { reasonSentence } from "@/lib/decision-labels";
  *   different date in half the world). The disjointness is what makes "a
  *   pending row shows no expiry line at all" assertable as the absence of
  *   `Expires`.
- * - the empty state is the literal sentence of §6, and a failed read is a
+ * - the empty state is the literal sentence, and a failed read is a
  *   `role="alert"` element.
  *
- * The wire shape is 23a's as BUILT: nineteen fields per row inside
+ * The wire shape is the as BUILT: nineteen fields per row inside
  * `{ requests: [...] }` (`mcp_server.tools.access`, parsed by
  * `web/src/features/access/schema.ts`), a citation being
  * `{document_slug, title, version, heading_path, chunk_id}` with `heading_path`
@@ -302,7 +300,7 @@ describe("RequestList — a read that fails", () => {
     "$name renders an alert and no list",
     async (row) => {
       // Both rows catch the same wrong implementation from two directions: a page
-      // that answers an empty array when the read fails. It would render §6's
+      // that answers an empty array when the read fails. It would render the
       // empty state — "you have not asked for any access yet" — over a request
       // list the user may well have filed, which is worse than saying nothing.
       // The first row additionally catches a page that CASTS the body instead of
@@ -323,8 +321,8 @@ describe("RequestList — a read that fails", () => {
 
 describe("RequestList — an expired session", () => {
   it("follows the proxy's redirect to /login instead of rendering rows", async () => {
-    // §1's unhappy path, and the reason it is `response.redirected` and never a
-    // status (22b decision E): the browser has ALREADY followed the proxy's
+    // And the reason it is `response.redirected` and never a
+    // status: the browser has ALREADY followed the proxy's
     // 307, so what arrives here is a 200 carrying the login page. Catches a
     // fetcher checking `response.ok` or `response.status === 401` — both see a
     // successful response, so the parser refuses the HTML and the user sits on
@@ -340,15 +338,13 @@ describe("RequestList — an expired session", () => {
 });
 
 /**
- * An earlier change §6, added to 23b's file and rewriting none of it (§8): the three
+ * Cases added to the file, rewriting none of it: the three
  * cases that hold `fetchRequests` still, after its four private lines become
  * `readWire("/api/me/requests", myRequestsSchema)`.
  *
  * The sentence is not held as a constant anywhere today — it is JSX text inside
  * `request-list.tsx` — so `READ_ALERT` below is it copied byte for byte, and
- * the mismatch with §6's "taken from the constant the file already holds" is
- * reported to 24ia rather than fixed by exporting a constant this plan's §3
- * does not authorise.
+ * it stays a copy rather than an exported constant.
  */
 describe("RequestList — through the shared wire reader", () => {
   const READ_ALERT = "Your requests could not be read. Try again in a moment.";
@@ -367,11 +363,11 @@ describe("RequestList — through the shared wire reader", () => {
   }
 
   it("a 403 FORBIDDEN renders this page's own read sentence, not the code's", async () => {
-    // Decision B, pinned rather than assumed. Through `readWire` a typed code
+    // Pinned rather than assumed. Through `readWire` a typed code
     // arrives as a `WireRefusedError` where today every non-ok status arrives as
     // a plain `Error`, so this kills the two migrations that changes: one that
     // dresses the code per page (`failureMessage(error.code)` would put "You are
-    // not allowed to do that." here, which no closed plan's §1 asked for and
+    // not allowed to do that." here, which nobody asked for and
     // which this file's other cases would stay green for), and one that lets the
     // new class escape the page's error branch entirely — rethrown outside the
     // query function it reaches no `isError` at all and the page sits on its
@@ -393,7 +389,7 @@ describe("RequestList — through the shared wire reader", () => {
     // The path and the query as they are today, asserted as an exact `pathname`
     // and an exact `search` so a migration cannot move the call while it moves
     // the reader. Kills a `readWire` call handed `/api/requests`, `/api/me` or a
-    // path with the tenant or the user spliced into it (a project rule: identity is
+    // path with the tenant or the user spliced into it (identity is
     // the token's, and a page naming either is the bug this assertion is
     // cheapest at), and kills one that gains a filter or a page size the tool
     // was never asked for — `toContain` on the url would pass for every one of
@@ -411,7 +407,7 @@ describe("RequestList — through the shared wire reader", () => {
 
   it("a bodyless 500 renders the same read sentence", async () => {
     // `readWire` reads the body of every non-ok response to look for a typed
-    // code, where `fetchRequests` reads it for no failure at all (§5's second
+    // code, where `fetchRequests` reads it for no failure at all (a
     // risk). A response with no body at all is where that difference shows:
     // kills a migration whose refusal branch awaits an unguarded `json()` and
     // hands the page whatever `SyntaxError` says instead of its own sentence,

@@ -1,30 +1,8 @@
 /**
- * One label per member of the review family's three vocabularies, in one place
- *.
- *
- * A separate module from `lib/decision-labels.ts` on purpose: that file's
- * `statusLabel` already means REQUEST status, and a second `open`/`completed`
- * status in the same namespace is a collision the next reader has to
- * disambiguate by call site. `reviews-schema.ts` is the same precedent one
- * layer down — the review family carries its own file.
- *
- * Every key here is the enum's VALUE as `model_dump(mode="json")` puts it on
- * the wire (`sod_conflict`, `completed`, `keep`), never the Python member name,
- * which is the failure `tests/review-labels.test.ts` exists to catch: a map
- * keyed by member name misses on every lookup and the fallback makes it
- * silently green.
- *
- * The three maps are a HAND-KEPT mirror of three Python enums in
- * `helpdesk/models/access.py`, so a member added on the Python side renders as
- * its raw code with nothing red. `tests/review-labels.test.ts` lists all eight
- * members as LITERALS and asserts each map's key set equals its enum's, so
- * adding one is a deliberate edit to that list.
- *
- * A value no map knows answers THE VALUE ITSELF, `decision-labels.ts`'s
- * decision B one module over: the raw code is greppable against the enum the
- * moment someone reports it, where a vague default would hide the drift.
- * Pinned by `::an unknown value in any of the three maps renders the raw wire
- * string`.
+ * Labels for the review flag, status and decision values. Kept apart from
+ * `decision-labels.ts`, whose `statusLabel` means request status. Keys are wire
+ * values, not Python member names. An unknown value shows its raw code, so the
+ * gap is easy to search for.
  */
 
 /** `helpdesk.models.access.ReviewFlag`, in its precedence order. */

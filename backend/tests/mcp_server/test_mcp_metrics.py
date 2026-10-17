@@ -1,4 +1,4 @@
-"""An earlier change section 6: `/metrics` on mcp-server, and the `dispatch` call site.
+"""`/metrics` on mcp-server, and the `dispatch` call site.
 
 Written before the implementation exists. Surface under test:
 
@@ -80,10 +80,10 @@ LEAK_MARKER = "leaky-detail-that-must-never-cross-the-boundary"
 def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistry]:
     """A registry of this test's own, installed over the module-level pair.
 
-    Decision C: the call sites read `helpdesk.obs.metrics.METRICS` at call
+    The call sites read `helpdesk.obs.metrics.METRICS` at call
     time, so replacing both names here is what makes an absolute assertion
-    possible without resetting anything process-wide (a project rule's shape:
-    a namespace, never a rebuild).
+    possible without resetting anything process-wide (a
+    namespace, never a rebuild).
     """
     registry = CollectorRegistry()
     monkeypatch.setattr(metrics, "REGISTRY", registry)
@@ -119,8 +119,8 @@ def test_the_metrics_route_answers_before_the_mcp_mount(
     the scrape reaches the streamable HTTP transport instead — which answers a
     plain GET with its own refusal, never a 200 carrying an exposition. The
     content type is asserted as the exact string because a scraper dispatches
-    on it, and no `Authorization` header is sent because decision D makes this
-    endpoint unauthenticated (`/healthz`'s shape).
+    on it, and no `Authorization` header is sent because this
+    endpoint is unauthenticated (`/healthz`'s shape).
     """
     response = http_get("/metrics")
 
@@ -221,7 +221,7 @@ def test_an_unregistered_tool_name_creates_no_series(
     """Catches instrumentation moved up into `main._call_tool`, where the label
     value would be the name the CLIENT submitted.
 
-    That is the cardinality leak of an earlier change's second risk in its exact form: a
+    That is the cardinality leak in its exact form: a
     label fed from client text is one series per string anybody sends, held in
     process memory forever, and the process dies of it long before anybody
     notices the dashboard. `registry.lookup` refuses the name before `dispatch`
@@ -246,7 +246,7 @@ def test_the_exposition_carries_no_argument_text_from_a_refused_call(
     """Catches a `status` (or any other) label built from the exception's text
     rather than from the typed code.
 
-    §1's input-validation criterion says no label value is client text; the
+    No label value may be client text; the
     detail carried by every refusal in this suite is `LEAK_MARKER`, so a label
     fed from `str(exc)` puts it in the exposition and nothing else does. The
     same assertion covers the tool ARGUMENTS, which is the other string a call

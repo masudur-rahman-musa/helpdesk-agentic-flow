@@ -1,43 +1,14 @@
-"""The `search_policy` tool: hybrid retrieval over the caller's own corpus.
+"""The `search_policy` tool: hybrid search over the caller's own policy corpus.
 
-A read, and the only tool that reaches Qdrant. Everything it does with the
-corpus is 15a's — the two arms, the RRF fusion, the refusal predicate and the
-citation rendering — so this module is a boundary and not a second copy of any
-of that: it turns a token into a collection name, calls the three functions in
-the one order the plan fixes, and renders the result as the wire shape.
+The search, ranking and refusal rules live in the retrieval service; this
+module turns the token into a collection name and shapes the answer.
 
-**The collection comes from the TOKEN** (a project rule, an earlier change decision A).
-`identity.tenant_id` is read back through `find_tenant_by_id` to get the slug
-`vectors.collection_name` needs; no argument names a tenant or a collection,
-and `SearchPolicyInput` ignores extras, so a `tenant_id` argument is dropped
-rather than honoured and rather than rejected. This matters more here than for
-the self-scoped reads: one collection per tenant IS the isolation (SPEC
-§12.4), so there is no second guard behind a wrong collection name. Pinned at
-the argument by
-`test_mcp_search_policy.py::test_the_collection_searched_is_the_tokens_and_an_extra_tenant_id_is_dropped`
-and end to end, against the real store, by
-`test_mcp_policy_isolation.py::test_tenant_bs_marker_is_returned_to_tenant_b_and_never_to_tenant_a`.
+The collection comes from the token. One collection per tenant is the whole
+isolation, with no second guard behind it, so no argument may name a tenant.
 
-**The tool decides the refusal, not its caller** (decision C). `should_refuse`
-has one home (15a decision D), and a refused page carries NO citations, so row
-17 cannot answer from chunks the threshold rejected — the exact failure
-requirement #14 exists to prevent. It is also why the two halves of 15a are
-called separately: a refusing turn never pays the title query, pinned by
-`::test_a_refused_page_never_pays_the_title_query`, whose points name a
-document row that is not there so an implementation resolving first could only
-fail.
-
-**`document` carries the slug** (decision B). the design's six citation fields
-are a strict subset of the seven here; the seventh is `title`, which exists
-because a citation the UI cannot render is a wrong answer (15a decision E).
-The internal dense cosine `should_refuse` reads is NOT on this model and never
-reaches a prompt, pinned as an exact field set by
-`::test_a_page_carries_exactly_the_seven_citation_fields_in_fused_order`.
-
-No session and no client is opened here: the handler takes both off its
-`ToolContext` — the pipeline binds the session to the token's tenant, and
-`ctx.clients` wraps the process-level accessors so the embedder still loads on
-first use only.
+The tool decides the refusal, not its caller. A refused page carries no
+citations, so nothing downstream can answer from chunks the threshold
+rejected. Titles are looked up only when the page is not refused.
 """
 
 import uuid
@@ -50,44 +21,24 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.tenants import find_tenant_by_id
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
-"""Extra arguments are dropped, never refused.
-
-The tenant arrives on the token, so an argument naming one is data to discard,
-not a reason to fail the call — the same rule the self-scoped reads follow
-(`tools/read.py`)."""
+"""Extra arguments are dropped, never refused: the tenant comes from the token."""
 
 
 class UnknownTenantError(ToolError):
     """The token's tenant id has no row.
 
-    `INTERNAL`, not `FORBIDDEN` or `NOT_FOUND`: the token verified, so nothing
-    about the caller is wrong and nothing they asked for is missing — a signed
-    `tenant_id` with no tenant behind it means this repo's own invariant is
-    broken. Reading it as a permission decision would hide that behind a
-    legitimate-looking denial, the same reasoning as `registry.lookup`'s.
-
-    No test reaches this branch and none can without deleting a tenant row
-    out from under a live token: the pipeline binds the session to the same
-    id, so a token whose tenant is gone fails before the handler runs. It is
-    a guard against `find_tenant_by_id` returning None, not a behaviour with
-    a kill.
+    `INTERNAL`, not a denial: the token verified, so a missing tenant means the
+    system's own data is broken, and a denial would hide that.
     """
 
     code = ErrorCode.INTERNAL
 
 
 class SearchPolicyInput(BaseModel):
-    """A question and a page size. The tenant is NOT an argument.
+    """A question and a page size. The tenant is not an argument.
 
-    `top_k`'s default is the corpus default 15a fixes, imported rather than
-    written out so the number a client sees in the advertised schema cannot
-    drift from the one the library uses; read off that schema by
-    `test_mcp_search_policy.py::test_search_policy_is_advertised_with_a_default_page_of_six`.
-
-    Neither field declares its bound here: `retrieval.search_hits` runs
-    `check_query` and `check_top_k` before any effect, so the cap has one home
-    and one error, and a refused argument reaches neither the embedder nor the
-    store (`::test_a_refused_argument_reaches_neither_the_embedder_nor_the_store`).
+    The bounds are checked in the retrieval service before anything runs, so
+    there is one cap and one error.
     """
 
     model_config = _IGNORE_EXTRAS
@@ -100,11 +51,10 @@ class SearchPolicyInput(BaseModel):
 
 
 class PolicyCitation(BaseModel):
-    """One cited chunk: exactly the seven fields, and nothing internal.
+    """One cited chunk, with nothing internal.
 
-    `document` is the document SLUG, which is what the design names; 15a's
-    dataclass calls the same value `document_slug`, so this model is the
-    rename and not a passthrough.
+    `document` is the document slug. The score the refusal reads is not here, so
+    it never reaches a prompt.
     """
 
     document: str
@@ -119,8 +69,7 @@ class PolicyCitation(BaseModel):
 class SearchPolicyOutput(BaseModel):
     """The page, and whether the tool refused to answer from it.
 
-    `citations` is empty whenever `refused` is true. The two are not
-    independent: a caller must never be handed chunks the threshold rejected.
+    `citations` is always empty when `refused` is true.
     """
 
     citations: list[PolicyCitation]
@@ -130,9 +79,8 @@ class SearchPolicyOutput(BaseModel):
 async def search_policy(ctx: ToolContext, args: SearchPolicyInput) -> SearchPolicyOutput:
     """Search this tenant's policy corpus; refuse when nothing matches well.
 
-    The order is fixed and is what the acceptance criteria assert: retrieve
-    and fuse (`search_hits`), judge (`should_refuse`), and resolve titles
-    (`resolve_citations`) ONLY when the page is worth answering from.
+    Order: search, judge, then look up titles only for a page worth answering
+    from.
     """
     tenant = await find_tenant_by_id(ctx.session, ctx.identity.tenant_id)
     if tenant is None:

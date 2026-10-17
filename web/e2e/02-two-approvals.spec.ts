@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { accounts, decisionCard, loginAs, type Principal, sendTurn } from "./_fixtures";
 
 /**
- * Flow 2 of the design, an earlier change criterion 3: the same employee asks for an admin
+ * Flow 2: the same employee asks for an admin
  * role, the card reads queued and names two approvers, the department manager
  * approves and then the system owner does, and the grant lands with an expiry
  * exactly 30 days after the grant date.
@@ -20,8 +20,8 @@ import { accounts, decisionCard, loginAs, type Principal, sendTurn } from "./_fi
  * `expiry.py::ADMIN_CAP_DAYS` is 30 and `CLASS_CAP_DAYS[PRIVILEGED]` is 90, so
  * the effective expiry is 30.
  *
- * DEVIATION (plan §6, "asserts the expiry date is exactly 30 days after the
- * grant date"). The DECISION CARD cannot carry that date: the card's
+ * DEVIATION from asserting the expiry date is exactly 30 days after the
+ * grant date on the card. The DECISION CARD cannot carry that date: the card's
  * `expires_at` comes from `agent_api/decision_card.py::_card`, which reads it
  * off the created grant and answers `None` for a request that is only PENDING,
  * so a queued card renders `Expires in 30 days` with no `(until ...)` tail at

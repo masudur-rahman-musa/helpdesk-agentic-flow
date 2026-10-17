@@ -1,25 +1,10 @@
 /**
- * One sentence per typed code, in one place.
- *
- * The wire carries `{ code: "<ErrorCode value>" }` — agent-api's own envelope,
- * from `chat_routes._typed` and `graph/build.py::_failure_frames` — and never
- * a human sentence: the design's vocabulary is closed precisely so the client
- * owns the wording and no free text crosses the boundary. Rendering the code
- * itself would show a user "POLICY_BLOCKED"; picking a sentence per call site
- * is how two places end up saying two different things about one refusal.
- *
- * The map is TOTAL over the eight codes in `helpdesk/errors.py::ErrorCode`
- * plus `default`, so a code that reaches the alert region always has a
- * sentence: `INTERNAL` in particular is what a mid-stream failure arrives as,
- * and a missing entry would render the literal "undefined". The three
- * sentences an earlier change fixed are pinned verbatim, and the totality of the map is
- * pinned through `INTERNAL`, by `tests/chat-schema.test.ts`.
- *
- * No sentence names a tenant, a user or a tool: a refusal explains what the
- * person can do next and nothing about what exists behind it.
+ * One sentence per typed error code. The server sends only the code, so every
+ * page says the same thing about one refusal. A sentence never names a tenant,
+ * user or tool: it says what to do next, not what exists behind it.
  */
 
-/** Every the design code, as its wire value. */
+/** Every typed error code, as its wire value. */
 export type FailureCode =
   | "FORBIDDEN"
   | "NOT_FOUND"
@@ -43,9 +28,8 @@ export const FAILURE_MESSAGES: Record<FailureCode | "default", string> = {
 };
 
 /**
- * The sentence for whatever the wire said, including nothing at all: a body
- * with no `code` (a proxy's error page, a truncated JSON) falls to `default`
- * rather than rendering an empty alert.
+ * The sentence for any reply, even one with no `code`, which falls to
+ * `default` instead of an empty alert.
  */
 export function failureMessage(code: unknown): string {
   if (typeof code === "string" && code in FAILURE_MESSAGES) {

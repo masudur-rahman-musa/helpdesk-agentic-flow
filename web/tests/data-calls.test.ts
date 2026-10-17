@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * An earlier change: components only show data. The scan reads `web/src` off disk.
+ * Components only show data. The scan reads `web/src` off disk.
  */
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");

@@ -1,9 +1,4 @@
-/**
- * The top of every page: the page's one level-one heading, a one-line
- * description, and room on the right for the page's own actions
- * (`tests/ui-primitives.test.tsx::renders the page header title as the
- * level-one heading`).
- */
+/** The top of every page: its one h1, a line of text, and its actions. */
 export function PageHeader({
   title,
   description,

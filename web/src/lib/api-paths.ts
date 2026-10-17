@@ -1,10 +1,6 @@
 /**
- * Every `/api/...` path the web app serves, in one place.
- *
- * Callers read a path from `API` instead of writing the string by hand. A path
- * with an id in it is a template with the spot marked `{name}`, and `apiPath`
- * fills it. `tests/api-paths.test.ts` checks the list against the route files
- * under `src/app/api/` both ways, so a renamed, missing or unlisted route fails.
+ * Every `/api/...` path the web app serves, in one place. A path with an id
+ * marks the spot as `{name}`, and `apiPath` fills it.
  */
 export const API = {
   login: "/api/login",
@@ -31,9 +27,8 @@ export const API = {
 } as const;
 
 /**
- * Fill each `{name}` spot in `template` with `params[name]`, escaped. A spot
- * with no value throws, so a path never goes out with a marker or "undefined"
- * in it (`::apiPath refuses a missing id`).
+ * Fill each `{name}` spot, escaped. A missing value throws, so a path never goes
+ * out with a marker or "undefined" in it.
  */
 export function apiPath(template: string, params: Record<string, string> = {}): string {
   return template.replace(/\{([^}]+)\}/g, (_, name: string) => {

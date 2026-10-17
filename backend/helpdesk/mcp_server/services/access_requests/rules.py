@@ -1,28 +1,9 @@
-"""The separation-of-duties rules read as RULES, for a person to look at.
+"""Separation-of-duties rules in words, for the admin rules page.
 
-`snapshot.py` already loads the same rows as `SodRuleSnapshot` — three ids and
-a `policy_ref`, the vocabulary an earlier change's engine needs to judge a pair — and
-`reviews.py` reads that same shape for its `sod_conflict` flag. Neither
-answers the question the design's `/admin/rules` page asks: which two roles
-conflict, in words, and why. That is what `read_sod_rules` is for, and it
-decides nothing about access.
-
-The read is three statements whatever the rule count:
-the rules, then the roles both sides name, then the systems those roles
-belong to. Resolving a side with `Repository.get` inside the loop answers
-exactly the same rows and costs a round trip per side per rule, so the count
-is pinned rather than the shape —
-`test_access_sod_rules.py::test_the_whole_read_issues_exactly_three_selects`.
-
-Every read goes through the tenant-scoped repository helpers, so the tenant
-filter is the guard in `helpdesk/core/db.py` and this module adds no second
-one: a `role_a_id` pointing at a role row in ANOTHER tenant resolves to
-`None` rather than to that role's name, which is the only genuinely dangerous
-answer this read could give
-(`::test_a_rule_naming_another_tenants_role_answers_null_and_never_that_name`).
-
-`helpdesk/policy/` is not imported and gains nothing: these
-rows are records here, not inputs to a decision.
+The engine reads these rows as ids. This read resolves each side to role and
+system names so a person can see which two roles conflict and why. It decides
+nothing about access. A role in another tenant resolves to `None`, never to
+its name.
 """
 
 import uuid
@@ -38,12 +19,7 @@ from helpdesk.shared.models import Role, SodRule, System
 class SodRuleRole:
     """One side of a rule, resolved to the words the page shows.
 
-    A frozen dataclass around what the two lookups answered, the shape
-    `PendingWithContext` already uses: the wire model is 24eb's, and a second
-    Pydantic model here would be two contracts to keep in step. The system's
-    slug and name come from the SYSTEM row the role points at, never from the
-    role's own columns — pinned by
-    `test_access_sod_rules.py::test_a_rule_comes_back_with_both_sides_resolved_and_the_exact_two_field_sets`.
+    The system's slug and name come from the system row the role points at.
     """
 
     role_id: uuid.UUID
@@ -57,12 +33,8 @@ class SodRuleRole:
 class SodRuleDetail:
     """One rule: both ids, both resolved sides, the rationale and the ref.
 
-    The two ids are ALWAYS present and each resolved block may be `None`
-    (plan decision B). A rule whose role row cannot be read is still a row an
-    admin has to see and fix, so it is neither dropped nor raised on, and the
-    id is what makes it actionable
-    (`::test_a_rule_naming_no_role_row_answers_that_side_null_and_keeps_its_id`).
-    Nullability IS the marker: there is no second fact for a flag to carry.
+    A side may be `None` when its role row cannot be read. The rule is still
+    shown with its id, because an admin has to see it to fix it.
     """
 
     rule_id: uuid.UUID
@@ -75,16 +47,10 @@ class SodRuleDetail:
 
 
 async def read_sod_rules(session: AsyncSession) -> tuple[SodRuleDetail, ...]:
-    """The bound tenant's SoD rules, resolved, in one total order.
+    """The bound tenant's SoD rules, resolved, sorted by `policy_ref` then id.
 
-    Ordered `policy_ref` ascending then `rule_id` ascending (decision C).
-    Both columns are non-null on every row, so the order is total and
-    assertable as an exact sequence, and it survives a side that resolves to
-    nothing and has no name to sort by. Applied here rather than in the tool,
-    so 24eb's wire and every later caller read the same sequence
-    (`::test_the_rows_are_ordered_by_policy_ref_then_rule_id`).
-
-    The session is tenant-bound, so there is no tenant argument to trust: the rules are the token's tenant's own rows.
+    Three queries whatever the rule count. Both sort columns are never null,
+    so the order holds even when a side resolves to nothing.
     """
     rules = await Repository(session, SodRule).list()
     role_ids = {rule.role_a_id for rule in rules} | {rule.role_b_id for rule in rules}

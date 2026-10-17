@@ -5,12 +5,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * An earlier change: every `.tsx` file under `web/src` is 250 lines or fewer, and the
- * five big components were split into the parts the plan names. Reads files by
+ * Every `.tsx` file under `web/src` is 250 lines or fewer, and the
+ * five big components were split into smaller parts. Reads files by
  * path, no render, no service.
- *
- * input validation: §5 n/a — no input here shapes a key, identifier, path or
- * stored value.
  */
 
 const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");

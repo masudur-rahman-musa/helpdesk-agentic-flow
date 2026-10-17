@@ -1,4 +1,4 @@
-"""Effective expiry, the design.
+"""Effective expiry.
 
 effective_expiry_days = min(requested if given, role.default_expiry_days,
 class cap) using the FINAL risk class. Caps: low 365, elevated 180,

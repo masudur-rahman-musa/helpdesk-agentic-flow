@@ -8,7 +8,7 @@ import AppNotFound from "@/app/(app)/not-found";
 import RootNotFound from "@/app/not-found";
 
 /**
- * An earlier change §Tests (`app-states.test.tsx`): the three standard Next.js screens
+ * The three standard Next.js screens
  * for the signed-in group — loading, error, not-found — and the root not-found
  * screen for unknown URLs. jsdom only, no agent-api, no backing service.
  *

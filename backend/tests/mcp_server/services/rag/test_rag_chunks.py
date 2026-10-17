@@ -1,4 +1,4 @@
-"""An earlier change §6: the `policy_chunks` half, in `helpdesk/rag/chunks.py`.
+"""The `policy_chunks` half, in `helpdesk/rag/chunks.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -8,7 +8,8 @@ Expected implementation surface (the implementer must provide exactly this):
         one ``policy_chunks`` row per chunk, in chunk order, written through
         ``core.repository.Repository`` (never ``session.execute``), carrying
         ``qdrant_point_id``, ``chunk_index``, ``heading_path``, ``char_start``,
-        ``char_end`` and ``text``. The tenant is stamped by the session; it is never an argument.
+        ``char_end`` and ``text``. The tenant is stamped by the session
+; it is never an argument.
     ``async def replace_chunks(session, *, document_id, chunks, point_ids)
         -> None`` — the rows of that document version become exactly the new
         set, rather than a second set appended beside the old one.
@@ -16,10 +17,10 @@ Expected implementation surface (the implementer must provide exactly this):
     Both refuse a typed ``VALIDATION`` before any write when `chunks` and
     `point_ids` are not the same length: a row whose `qdrant_point_id` came
     from a different chunk is a citation that resolves to the wrong span, and
-    14a decision F's "no chunk row without its point" would be false while
+    the rule "no chunk row without its point" would be false while
     every row still looked well-formed.
 
-a project rule: the database is `test_policy_models.py`'s session-scoped
+The database is `test_policy_models.py`'s session-scoped
 `policy_db_url`, imported rather than rebuilt, and the two tenants seeded
 there are the two this file uses. Per-test isolation is a namespace: every
 case registers its own uuid-suffixed document slug, so no two cases share a
@@ -174,8 +175,8 @@ def _namespace_slug() -> str:
 def test_every_written_row_carries_its_point_id_and_its_offsets(
     policy_db_url: str,  # noqa: F811
 ) -> None:
-    """Catches a `write_chunks` that leaves `qdrant_point_id` NULL (14a
-    decision F's whole point: a chunk row without its point is a stored
+    """Catches a `write_chunks` that leaves `qdrant_point_id` NULL (the
+    whole point: a chunk row without its point is a stored
     citation retrieval can never resolve), and one that drops `char_start` /
     `char_end` so the row cannot be located in the document it came from."""
     document_slug = _namespace_slug()
@@ -363,7 +364,7 @@ def test_a_second_version_of_one_document_keeps_the_first_versions_chunks(
     policy_db_url: str,  # noqa: F811
 ) -> None:
     """Catches a `write_chunks` that keys its rows on (tenant, document slug)
-    instead of on the document VERSION row: the design retains the
+    instead of on the document VERSION row: the contract retains the
     superseded version's spans for audit, and a write that overwrote them
     would leave an audited answer with nothing behind it."""
     document_slug = _namespace_slug()

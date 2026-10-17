@@ -1,8 +1,8 @@
-"""An earlier change section 6: the one error map, and the three wire statuses it changes.
+"""The one error map, and the three wire statuses it changes.
 
 The agent-api turned a typed error code into an HTTP status in two places that
 disagreed: the proxied routes (`core.deps.STATUS_FOR_CODE`) and the chat
-service (`services.chat.STATUS_FOR_CODE`). This plan folds both into one map in
+service (`services.chat.STATUS_FOR_CODE`). The two are folded into one map in
 `core.deps` with a row for every one of the eight `ErrorCode` members, so one
 code crosses the wire as one status and nothing falls through to 500 by
 accident. Two answers stay explicit and are NOT a code lookup: an
@@ -20,7 +20,7 @@ Every case below is red until that fold lands:
 - a proxied SOD_CONFLICT has no row, so it falls through to 500 not 409.
 
 Case 5 (the rate limit stays a literal 429) may already pass: it guards a
-behaviour this plan keeps rather than one it introduces. It fails only if the
+behaviour this change keeps rather than one it introduces. It fails only if the
 fold makes the rate limit a POLICY_BLOCKED lookup, which would answer 409.
 
 Cost and isolation. Cases 1, 2 and 4 open no socket: they read the map, call
@@ -78,14 +78,15 @@ from helpdesk.shared.models import Base, Department, Role, System, Tenant, User
 
 
 def test_the_one_map_has_a_row_for_every_code() -> None:
-    """Catches the five-row map this plan replaces, where SOD_CONFLICT,
-    IDEMPOTENCY_CONFLICT and INTERNAL have no row and fall through to 500: a
-    SOD_CONFLICT or an idempotency clash a user could act on would read as an
-    outage they cannot.
+    """Catches the five-row map this change replaces, where SOD_CONFLICT,
+        IDEMPOTENCY_CONFLICT and INTERNAL have no row and fall through to 500: a
+        SOD_CONFLICT or an idempotency clash a user could act on would read as an
+        outage they cannot.
 
-    Asserted as an EXACT mapping, not key by key: a map read
-    one code at a time stays green when a row is missing, so only the whole-dict
-    equality and the length catch a short map. Every value is a literal: 400, 403, 404, three 409s, 503, 500.
+        Asserted as an EXACT mapping, not key by key: a map read
+        one code at a time stays green when a row is missing, so only the whole-dict
+        equality and the length catch a short map. Every value is a literal:
+    400, 403, 404, three 409s, 503, 500.
     """
     assert dict(deps.STATUS_FOR_CODE) == {
         ErrorCode.VALIDATION: 400,
@@ -109,7 +110,7 @@ def test_chat_is_no_longer_its_own_map() -> None:
     POLICY_BLOCKED as 429, so a chat refusal and a proxied refusal answer one
     code two ways. The two `not hasattr` checks fail until both are dropped.
 
-    After an earlier change, `_rendered` on a FAILED turn raises `ToolError` instead of
+    `_rendered` on a FAILED turn raises `ToolError` instead of
     returning a `JSONResponse`. The raised error carries the turn's `error_code`
     so the app-level handler in `router.py` is the one edge that renders it.
     A plain frozen `TurnState` with no node run and no socket, so the only thing
@@ -409,7 +410,7 @@ def _test_redis_url() -> str:
 def chat_db() -> Iterator[ChatEnv]:
     """One database, its schema, the checkpoint tables and one tenant, once.
 
-    A throwaway database rather than the compose one: the
+    A throwaway database rather than the compose one (the checkpointer's reason): the
     LangGraph checkpoint tables are outside `Base.metadata` on purpose. Nothing
     per-case is built here; a case's namespace is its own
     session id.
@@ -618,7 +619,7 @@ def test_the_rate_limit_still_answers_429(
 ) -> None:
     """Catches a fold that routed the rate limit through the code map: the one
     map reads POLICY_BLOCKED as 409, but the rate limit is a literal 429 where
-    it is caught (the plan's second explicit answer). A rate-limited `/chat`
+    it is caught (an explicit answer). A rate-limited `/chat`
     that answered 409 would tell a client its action conflicts with state when
     the truth is "slow down".
 

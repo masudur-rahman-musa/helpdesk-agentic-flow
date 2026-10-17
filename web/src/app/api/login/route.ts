@@ -1,14 +1,8 @@
 /**
- * POST /api/login — the cookie proxy.
+ * POST /api/login: trades the sign-in form for a session cookie.
  *
- * Order is the whole point: parse, then pre-check against `loginSchema`, and
- * only then call agent-api. `tests/login-route.test.ts` primes the fetch stub
- * to SUCCEED and asserts the call count is 0 for a refused body, which is the
- * only assertion that can tell this order from the other one.
- *
- * Every refusal — unparseable body, failed pre-check, upstream 401 — answers
- * the same `SIGN_IN_FAILED_MESSAGE` and sets no cookie, so nothing here says
- * which of the three inputs was wrong.
+ * The body is checked before agent-api is called. Every refusal gets the same
+ * message and no cookie, so the reply never says which input was wrong.
  */
 
 import { NextResponse } from "next/server";
@@ -39,9 +33,7 @@ export async function POST(request: Request): Promise<Response> {
     return refusal(401);
   }
 
-  // The body carries no token: the bearer leaves this handler only as an
-  // httpOnly cookie (`tests/login-route.test.ts`, "never returns the bearer
-  // in the response body").
+  // The token leaves only as an httpOnly cookie, never in the body.
   const response = NextResponse.json({ ok: true });
   setSessionCookie(response, result.token);
   return response;

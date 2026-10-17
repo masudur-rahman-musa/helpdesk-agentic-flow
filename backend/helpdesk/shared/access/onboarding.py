@@ -1,4 +1,4 @@
-"""Creating a new user and applying their department's template. See `lifecycle.py` for the shared types this uses."""
+"""Creating a new user and giving them their department's template roles."""
 
 import uuid
 from datetime import date, datetime
@@ -44,17 +44,10 @@ async def onboard_user(
 ) -> OnboardResult:
     """Create the person, apply their department's template, record the hire.
 
-    The caller has already resolved `department_id` and `manager_user_id`
-    inside its own tenant and refused either absence `NOT_FOUND`
-    (`mcp_server.tools.lifecycle.onboard_user`); what is left here is the
-    domain decision. `manager_user_id` is carried into the event and nowhere
-    else: the design models management on `departments`, so `users` has no
-    manager column to write it to (decision E).
-
-    `now` is keyword-only and supplied by the caller, so the tenure the engine
-    reads, every classification and every `granted_at` answer for one instant;
-    reading a clock here would let two template roles be classified against
-    two different moments.
+    The caller has already found the department and manager in its own
+    tenant. The manager goes only into the event: `users` has no manager
+    column, since managers belong to departments. `now` comes from the
+    caller so every role is checked against the same moment.
     """
     if await find_user_by_email(session, email) is not None:
         raise DuplicateEmailError("a user with that email already exists in this tenant")
@@ -69,9 +62,8 @@ async def onboard_user(
         status=JOINER_STATUS,
     )
 
-    # Sorted, so the deciding pass and the executing pass walk the template in
-    # the same order. Which half of a conflicting pair loses is then a
-    # property of the data rather than of the order a set happened to iterate.
+    # Sorted, so which half of a conflicting pair loses depends on the data,
+    # not on set order.
     template_role_ids = sorted(await directory.list_department_role_ids(department_id))
     to_apply, skipped = await _decide(
         session,
@@ -127,7 +119,7 @@ async def _append_onboarded(
     session_id: uuid.UUID | None,
     now: datetime,
 ) -> None:
-    """the design's hire record, subject the new user, six keys exactly."""
+    """The hire event, with the new user as subject."""
     await append_event(
         session,
         bound_tenant_id(session),

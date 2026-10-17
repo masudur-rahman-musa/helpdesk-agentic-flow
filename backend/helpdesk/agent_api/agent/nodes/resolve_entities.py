@@ -1,25 +1,10 @@
-"""`resolve_entities`: the user's wording turned into directory rows (§10.1 step 4).
+"""`resolve_entities`: the user's wording turned into directory rows.
 
-The candidate list is read through the tenant-scoped repository, so it is the
-caller's OWN tenant's systems and roles and nothing else — plan §5's third
-risk, pinned by
-`test_agent_turn.py::test_a_candidate_in_another_tenant_is_not_a_candidate`,
-whose other tenant owns a system with the same slug.
-
-The read stays here and the ranking stays in `matching.py` (decision G): the
-matcher takes candidates as data, which is what lets every ordering and cutoff
-case run with no database at all.
-
-A system or role is NEVER guessed. One candidate resolves; two or more ask,
-offering at most three; none asks a clarifying question instead. The branch is
-computed by `gates.candidate_outcome` — pure code, no graph — and recorded as
-`outcome` for the conditional edge to read (the design).
-
-`system` and `role` are resolved independently and the STRICTER answer wins:
-an ambiguous role does not become a resolved turn because the system was
-unambiguous. Roles are matched across the tenant rather than within the
-resolved system, because a user who names a role and not a system is exactly
-the case a system-first lookup cannot answer.
+Candidates are read through the tenant-scoped repository, so only the
+caller's own tenant's systems and roles can match. A system or role is never
+guessed: one match resolves, several ask, none asks a clarifying question.
+System and role are resolved on their own and the stricter answer wins. Roles
+are matched across the tenant, since a user may name a role but no system.
 """
 
 from collections.abc import Sequence
@@ -35,24 +20,15 @@ NOTHING_MATCHED_QUESTION = (
     "I could not find anything by that name here. Could you give the exact "
     "name as it appears in your access list?"
 )
-"""What the turn asks when the term matched no candidate at all.
-
-Named separately from the extraction gate's question because the two say
-different things: that one means "I am not sure what you want", this one means
-"I know what you want and no such thing exists in your company".
-"""
+"""Asked when nothing matched. Unlike the extraction question, this means
+"I know what you want, but nothing by that name exists here"."""
 
 DISAMBIGUATION_PREFIX = "Which one do you mean?"
 
 
 def option_label(candidate: Candidate) -> str:
-    """One offered option: the slug first, then the display name.
-
-    The slug leads because two rows may share a display name — that is exactly
-    what makes a turn ambiguous — and options that read identically are not a
-    question anyone can answer. Pinned by
-    `test_agent_turn.py::test_two_matching_systems_ask_for_disambiguation`.
-    """
+    """One offered option, slug first: two rows can share a display name, and
+    identical options are no question at all."""
     return f"{candidate.slug} ({candidate.name})"
 
 
@@ -103,9 +79,5 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
 
 
 def _candidates(rows: Sequence[System] | Sequence[Role]) -> tuple[Candidate, ...]:
-    """Directory rows reduced to what the pure matcher takes.
-
-    ORM instances stop here: `matching.py` is framework-free by decision G,
-    and handing it a row would drag a session into every test of the ranking.
-    """
+    """Directory rows reduced to what the pure matcher takes."""
     return tuple(Candidate(id=row.id, slug=row.slug, name=row.name) for row in rows)

@@ -1,4 +1,4 @@
-"""An earlier change §6: the two arms and their pre-checks (`rag/retrieval.py`, `naming.py`).
+"""The two arms and their pre-checks (`rag/retrieval.py`, `naming.py`).
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -19,17 +19,17 @@ Expected implementation surface (the implementer must provide exactly this):
         ``vectors.collection_name`` names, each filtered ``is_current=true``
         and each asking for ``CANDIDATES_PER_ARM`` candidates, fused by
         ``fuse`` and cut to ``top_k``. The embedder is passed in and never
-        constructed here, as `pipeline.py` already does it (decision D).
+        constructed here, as `pipeline.py` already does it.
         An unreachable store raises ``VectorStoreUnavailableError``.
 
-a project rule: Postgres comes from the shared conftest `session_factory`
+Postgres comes from the shared conftest `session_factory`
 -- one engine for the whole run, schema created once -- and Qdrant is the
 compose instance. Per-test
 isolation is a namespace — this file seeds ONE tenant of its own, whose slug
 is the collection name, and every case plants its own uuid-suffixed document
 slug inside it. The collection is dropped at both ends of the session.
 
-No file in this plan loads a real model: the arms are driven with vectors the
+No file in this change loads a real model: the arms are driven with vectors the
 case chooses, the way `test_rag_chunking.py` drives the merge.
 
 No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
@@ -81,7 +81,7 @@ from tests.mcp_server.services.rag.test_rag_vectors import (
 )
 
 # Imported, not redefined: one Qdrant connectivity gate for the whole run
-#. The database comes from the shared `session_factory`.
+# . The database comes from the shared `session_factory`.
 from tests.support.seed import seed_tenant
 
 INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
@@ -98,8 +98,8 @@ def retrieval_tenant(
     """One seeded tenant for the whole file, and its collection, dropped twice.
 
     A tenant of its own on the shared database: the collection is named after
-    the tenant slug, so a slug nothing else ingests IS the namespace (standing
-    rule 7). Dropped before as well as after, so a previous run's points can
+    the tenant slug, so a slug nothing else ingests IS the namespace. Dropped before as well as
+    after, so a previous run's points can
     neither hide a filter bug nor invent one.
     """
 
@@ -280,7 +280,7 @@ def _drive_db[T](
     return asyncio.run(scenario())
 
 
-# --- the caps, pure ----------------------------------
+# --- the caps, pure -----------------------------------------------------------
 
 
 def test_the_query_and_page_caps_are_exactly_the_planned_values() -> None:
@@ -344,7 +344,7 @@ def test_check_query_refuses_an_empty_or_oversized_query(value: str, label: str)
     assert label in {"empty", "over"}
 
 
-# --- the pre-checks build no request (plan §5) --------------------------------
+# --- the pre-checks build no request ------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -364,7 +364,7 @@ def test_a_refused_argument_reaches_neither_the_store_nor_the_embedder(
     """Catches a check placed after the query is embedded or after the arms
     are issued: both stand-ins record every call, so "refused" and "refused
     before any effect" are told apart here rather than inferred from the
-    exception (plan §5). An oversized query would otherwise be sent to a
+    exception. An oversized query would otherwise be sent to a
     model that truncates at 512 tokens and to a store with no cap of its own."""
     tenant_slug, tenant_id = retrieval_tenant
     store = RecordingStore()
@@ -390,17 +390,17 @@ def test_a_refused_argument_reaches_neither_the_store_nor_the_embedder(
     assert embedder.calls == [], "the refused call reached the embedder"
 
 
-# --- what each arm asks for (decision C) --------------------------------------
+# --- what each arm asks for ---------------------------------------------------
 
 
 def test_each_arm_asks_for_the_candidate_count_against_its_own_named_vector(
     session_factory: async_sessionmaker[AsyncSession],
     retrieval_tenant: tuple[str, uuid.UUID],
 ) -> None:
-    """Catches an arm that fetches `top_k` candidates instead of 30 (decision
-    C: fusion then becomes a no-op and nothing else in this suite can see it)
+    """Catches an arm that fetches `top_k` candidates instead of 30 (fusion then becomes a
+    no-op and nothing else in this suite can see it)
     and a search that issues ONE request — a dense-only or server-side-fused
-    search, which decision B rejected because its k is not SPEC's 60."""
+    search, which was rejected because its k is not 60."""
     tenant_slug, tenant_id = retrieval_tenant
     store = RecordingStore()
 
@@ -557,9 +557,9 @@ def test_an_unreachable_store_is_typed_internal_without_naming_the_store(
 ) -> None:
     """Catches arms issued outside `vectors.py`'s `_translated`: the raw
     `qdrant_client` exception carries the store's name and its URL into a
-    message a tool boundary forwards to a user, and it arrives under no SPEC
-    §8.1 code at all. A partial failure is one typed INTERNAL, never half a
-    page returned as a whole one (plan §5)."""
+    message a tool boundary forwards to a user, and it arrives under no
+    the contract code at all. A partial failure is one typed INTERNAL, never half a
+    page returned as a whole one."""
     tenant_slug, tenant_id = retrieval_tenant
     settings = _settings().model_copy(
         update={"qdrant_url": CLOSED_PORT_URL, "qdrant_timeout_seconds": 2.0}

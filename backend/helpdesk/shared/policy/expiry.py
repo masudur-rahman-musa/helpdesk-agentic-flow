@@ -1,13 +1,8 @@
-"""Effective expiry and the cap reason (the design).
+"""Effective expiry: the smallest of the ask, the role default and the cap
+for the final risk class (after any escalation).
 
-Effective expiry is the minimum of what was asked for, the role's own
-default, and the cap for the final risk class — final meaning after the
-new-joiner bump and the self-requested-admin escalation, so an escalation
-tightens the cap on its own.
-
-An over-ask is not an error: the request proceeds at the cap and records
-`EXPIRY_CAPPED`. The reason is about the ask, so it appears only when a
-requested value was actually reduced.
+An over-ask is not an error. It goes ahead at the cap and records
+`EXPIRY_CAPPED`.
 """
 
 from helpdesk.shared.policy.types import Privilege, RequestSnapshot, RiskClass
@@ -20,7 +15,7 @@ CLASS_CAP_DAYS: dict[RiskClass, int] = {
 }
 
 ADMIN_CAP_DAYS = 30
-"""Admin privilege is capped here whatever the class (the design)."""
+"""Admin privilege is capped here whatever the class."""
 
 
 def effective_expiry(snapshot: RequestSnapshot, risk_class: RiskClass) -> tuple[int, bool]:

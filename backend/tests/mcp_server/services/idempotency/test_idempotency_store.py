@@ -1,10 +1,10 @@
-"""An earlier change section 6: the idempotency key table and its repository helpers.
+"""The idempotency key table and its repository helpers.
 
 Expected implementation surface:
 
 ``helpdesk.models.IdempotencyKey`` (``helpdesk/models/idempotency.py``,
 re-exported from ``helpdesk.models``)
-    Table ``idempotency_keys`` (the design), a ``TenantScoped`` model with
+    Table ``idempotency_keys``, a ``TenantScoped`` model with
     ``key: str``, ``tool_name: str``, ``request_fingerprint: str``,
     ``response: dict[str, Any]`` (JSONB) and ``expires_at: datetime``
     (timezone-aware). Unique on ``(tenant_id, key)`` — the backstop behind
@@ -144,7 +144,7 @@ def _reflect(conn: Connection) -> tuple[set[str], list[Any], list[Any]]:
 
 
 def test_migration_creates_the_table_with_its_indexes(fresh_db_url: str) -> None:
-    """Section 6: the table exists after `alembic upgrade head`, not only in metadata."""
+    """The table exists after `alembic upgrade head`, not only in metadata."""
     result = subprocess.run(
         ["uv", "run", "alembic", "upgrade", "head"],
         cwd=REPO_ROOT / "backend",  # alembic.ini lives in backend/
@@ -284,7 +284,7 @@ def test_a_key_stored_by_another_tenant_reads_as_absent(
 def test_helpers_refuse_a_session_with_no_tenant_bound(
     session_factory: async_sessionmaker[AsyncSession], helper: str
 ) -> None:
-    """No tenant bound means no silent full-table access (a project rule, an earlier change)."""
+    """No tenant bound means no silent full-table access."""
 
     async def scenario() -> None:
         factory = session_factory

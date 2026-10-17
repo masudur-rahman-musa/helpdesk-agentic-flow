@@ -1,23 +1,8 @@
 /**
- * The one login schema, shared by the client form and the route handler
- *.
- *
- * The two widths are the columns' own: `tenants.slug` is `String(64)` and
- * `users.email` is `String(320)` in `helpdesk/models/directory.py`. Pinned at
- * those exact numbers by `tests/schemas.test.ts` ("pins the tenant slug width
- * at exactly 64", "pins the email width at exactly 320").
- *
- * Both patterns are anchored at both ends. An unanchored pattern matches a
- * SUBSTRING, so `nordlicht\n` would pass — the same trap a project rule
- * records on the Python side. Killed by `tests/schemas.test.ts`'s rejection
- * table (trailing newline, trailing CRLF, trailing space) and by its
- * "anchors SLUG_PATTERN at both ends" case.
- *
- * Neither value lands in a store from here: the pre-check exists so the form
- * renders its own messages and so an oversized body never reaches agent-api
- * (`tests/login-route.test.ts`, "never calls fetch for ..."). It is not a
- * control — any other client can still post an uncapped body, which is
- * an earlier change decision E and row 27's work.
+ * The one login schema, shared by the form and the route handler. The widths
+ * match the database columns. Patterns are anchored at both ends, or a
+ * trailing newline would pass. A pre-check only: it keeps oversized bodies from
+ * agent-api, which still checks on its own.
  */
 
 import { z } from "zod";
@@ -28,9 +13,8 @@ export const EMAIL_MAX_LENGTH = 320;
 export const SLUG_PATTERN = /^[a-z0-9-]+$/;
 
 /**
- * Deliberately simpler than a full address grammar: one `@`, a dot in the
- * domain, no whitespace anywhere. Anchored, so a trailing newline is refused
- * here for the same reason it is in the slug.
+ * Simpler than a full address grammar on purpose: one `@`, a dot in the
+ * domain, no whitespace.
  */
 export const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 

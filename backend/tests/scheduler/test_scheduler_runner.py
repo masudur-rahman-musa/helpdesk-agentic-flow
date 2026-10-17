@@ -1,11 +1,11 @@
-"""An earlier change §6: the scheduler's job registry, its cadence-gate lock and its tick.
+"""The scheduler's job registry, its cadence-gate lock and its tick.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
 
 ``scheduler.runner``
     ``TICK_SECONDS = 60`` — how often the loop wakes.
-    ``EXPIRE_GRANTS_CADENCE_SECONDS = 300`` — the design's five minutes, and the
+    ``EXPIRE_GRANTS_CADENCE_SECONDS = 300`` — the product spec five minutes, and the
         `PX` of the lock key.
     ``JOB_LOCK_PREFIX = "helpdesk:joblock:"``
     ``JOB_NAME_MAX_LENGTH = 64`` · ``JOB_NAME_PATTERN = r"[a-z][a-z0-9_]*"``
@@ -13,35 +13,35 @@ must provide exactly this):
     ``def check_job_name(name: str) -> str`` — the accepted name, or a
         ``ToolError`` whose ``code`` is ``ErrorCode.VALIDATION``. Matched with
         ``re.fullmatch``, length-capped against
-        ``JOB_NAME_MAX_LENGTH`` (a project rule: the name becomes a Redis key
+        ``JOB_NAME_MAX_LENGTH`` (the name becomes a Redis key
         segment, and Redis has no length backstop of its own).
     ``class Job`` — a frozen dataclass carrying ``name``, ``cadence_seconds``
         and ``run``, an ``async (session, now) -> None`` called once per
         tenant with a `tenant_session`-bound session.
-    ``REGISTRY: dict[str, Job]`` — the jobs this service runs; 21a registers
+    ``REGISTRY: dict[str, Job]`` — the jobs this service runs; at first it registers
         exactly ``expire_grants``.
     ``async def tick(factory, redis, *, now) -> None`` — for every job in
         ``REGISTRY``, claim the cadence gate with
         ``SET <key> <token> NX PX <cadence*1000>`` and, if claimed, run the
         job once per tenant. A job that raises has its key DELETED
-        (decision C) and stops neither the tick nor the other jobs; one
+ and stops neither the tick nor the other jobs; one
         tenant raising does not stop the other tenants.
     ``async def run_loop() -> None`` — the lifespan task: ``tick`` every
         ``TICK_SECONDS``.
 
 ``helpdesk.shared.core.redis``
     ``REDIS_TIMEOUT_SECONDS = 2`` · ``def get_redis(settings) -> Redis``
-    (both halves asserted on the CONSTRUCTED client, a project rule) ·
+    (both halves asserted on the CONSTRUCTED client) ·
     ``async def close_loop_clients() -> None``.
 
-a project rule: one database and one dedicated Redis index for the whole
+One database and one dedicated Redis index for the whole
 run, both built once. Per-test isolation is a namespace: every case that
 needs a lock key owns a uuid-suffixed JOB NAME, so its key
 (`helpdesk:joblock:<name>`) cannot collide with another case's — the one
 exception is the case that pins the literal `helpdesk:joblock:expire_grants`,
 which deletes exactly that key first.
 
-a project rule: this file carries the service in its name, and no basename
+This file carries the service in its name, and no basename
 in it collides with an existing test file.
 
 No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
@@ -342,7 +342,7 @@ def _recording_job(name: str, seen: list[uuid.UUID]) -> Job:
 def test_the_runner_constants_are_exactly_the_planned_values() -> None:
     """Catches a cadence, a tick or a key prefix quietly changed. Every one of
     them is a number the rest of this file asserts against: a tick of 600 with
-    a cadence of 300 runs each job twice as rarely as the design asks, and a
+    a cadence of 300 runs each job twice as rarely as the product spec asks, and a
     changed prefix silently orphans every lock a running instance holds while
     the new one takes fresh ones."""
     assert TICK_SECONDS == 60
@@ -354,7 +354,7 @@ def test_the_runner_constants_are_exactly_the_planned_values() -> None:
 
 
 def test_the_registry_holds_expire_grants_at_the_planned_cadence() -> None:
-    """Catches a job registered under a name that is not the one the design and
+    """Catches a job registered under a name that is not the one the product spec and
     every lock key in this file spell, and a job registered with its own
     cadence literal rather than the constant — the key's TTL IS the cadence
     gate, so a job whose declared cadence and whose TTL disagree either runs
@@ -407,7 +407,7 @@ def test_a_job_name_one_character_over_the_cap_is_refused() -> None:
     ],
 )
 def test_the_job_name_pattern_refuses_these(name: str) -> None:
-    """a project rule's rejection table. `re.match` and a Pydantic
+    """The rejection table. `re.match` and a Pydantic
     `Field(pattern=...)` both anchor only at the start, so all three of the
     trailing-whitespace rows are ACCEPTED by them and only `re.fullmatch`
     refuses: a name carrying a newline becomes a Redis key carrying a
@@ -420,7 +420,7 @@ def test_the_job_name_pattern_refuses_these(name: str) -> None:
     assert getattr(excinfo.value, "code", None) is not None, "must be a typed ToolError"
 
 
-# --- the cadence gate (criterion 10, decision B) -----------------------------
+# --- the cadence gate -----------------------------
 
 
 def test_a_due_job_leaves_a_lock_key_per_tenant_with_the_cadence_ttl(
@@ -428,7 +428,7 @@ def test_a_due_job_leaves_a_lock_key_per_tenant_with_the_cadence_ttl(
     scheduler_redis_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Criterion 10 on the REAL registry, so the literal per-tenant key names
+    """The REAL registry, so the literal per-tenant key names
     and the literal TTL are pinned together.
 
     Catches a runner that still takes one lock per job instead of one per
@@ -438,7 +438,7 @@ def test_a_due_job_leaves_a_lock_key_per_tenant_with_the_cadence_ttl(
     of two — a runner that cannot tell one tenant's gate from another's.
     Also catches a lock taken with no expiry (the job would never run
     again after one tick) and a lock released at the end of the run
-    (decision B makes the key itself the cadence gate, so a released key
+    (the key itself is the cadence gate, so a released key
     means the job re-runs on the next tick).
     """
     database_url, tenants = scheduler_db
@@ -463,13 +463,13 @@ def test_a_second_tick_in_the_same_window_does_not_run_the_job(
     job_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The `NX` half of decision B. Two ticks inside one cadence window: the
+    """The `NX` half of the cadence gate. Two ticks inside one cadence window: the
     second must find the key already set and do nothing.
 
     Catches a plain `SET` (which succeeds every time and re-arms the TTL, so
     the job runs on every 60-second tick instead of every 300), and a gate
     that checks `EXISTS` before setting — the read and the write would not be
-    one operation, which is the whole reason the plan spells `SET NX PX`.
+    one operation, which is the whole reason the code spells `SET NX PX`.
     Counted per tenant: with two seeded tenants, one claimed window is two
     runs, and two claimed windows would be four.
     """
@@ -497,7 +497,7 @@ def test_the_tick_opens_one_tenant_session_per_tenant(
     """Catches a tick that runs each job once against an UNBOUND session:
     every job in this service reads and writes tenant-scoped tables, and an
     unbound session raises `UnboundTenantQueryError` on the first query —
-    which decision C's error handling would then swallow silently, so the
+    which the error handling would then swallow silently, so the
     sweep would appear to run for ever while expiring nothing. Also catches a
     tick that visits the first tenant only."""
     database_url, tenants = scheduler_db
@@ -521,7 +521,7 @@ def test_a_job_that_raises_has_its_key_deleted_and_leaves_the_other_job_running(
     job_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decision C, both halves in one case, now checked per-tenant key.
+    """Both halves in one case, now checked per-tenant key.
 
     The key deletion is what turns a transient Postgres blip into a
     60-second delay instead of a 300-second one: catches a runner that
@@ -570,7 +570,7 @@ def test_one_tenant_raising_leaves_the_other_tenants_work_committed(
     job_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Criterion 11's second half. One tenant's data can be broken in a way
+    """The second half. One tenant's data can be broken in a way
     another's is not, and a sweep that gives up on the first failure would
     leave every later tenant's grants unexpired indefinitely, with nothing but
     a log line to say so.
@@ -618,8 +618,8 @@ def test_one_tenant_raising_leaves_the_other_tenants_work_committed(
 def test_the_redis_client_carries_both_timeout_halves(
     scheduler_redis_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Asserted on the CONSTRUCTED client, not on the constant (standing rule
-    14): a test that only reads `REDIS_TIMEOUT_SECONDS` passes with every
+    """Asserted on the CONSTRUCTED client, not on the constant:
+    a test that only reads `REDIS_TIMEOUT_SECONDS` passes with every
     timeout argument deleted from the module.
 
     Both halves, because a connect timeout alone leaves a completed handshake
@@ -685,9 +685,14 @@ def test_a_failed_tenant_frees_only_its_own_lock_and_keeps_the_others(
         if bound_tenant_id(session) == tenant_a.tenant_id:
             raise RuntimeError("tenant A's job failed")
 
-    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
-        job_name: Job(name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=boom_for_a)
-    })
+    monkeypatch.setattr(
+        "helpdesk.scheduler.runner.REGISTRY",
+        {
+            job_name: Job(
+                name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=boom_for_a
+            )
+        },
+    )
 
     async def scenario() -> None:
         engine = create_engine(database_url)
@@ -741,11 +746,14 @@ def test_the_next_tick_reruns_only_the_tenant_that_failed(
         if tid == tenant_a.tenant_id and tick_count[tid] == 1:
             raise RuntimeError("tenant A fails on first tick")
 
-    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
-        job_name: Job(
-            name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=counting_run
-        )
-    })
+    monkeypatch.setattr(
+        "helpdesk.scheduler.runner.REGISTRY",
+        {
+            job_name: Job(
+                name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=counting_run
+            )
+        },
+    )
 
     async def scenario() -> None:
         engine = create_engine(database_url)
@@ -792,11 +800,14 @@ def test_a_run_cancelled_midway_frees_its_lock(
     async def cancel_me(session: AsyncSession, now: datetime) -> None:
         raise asyncio.CancelledError("cancelled mid-run")
 
-    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
-        job_name: Job(
-            name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=cancel_me
-        )
-    })
+    monkeypatch.setattr(
+        "helpdesk.scheduler.runner.REGISTRY",
+        {
+            job_name: Job(
+                name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=cancel_me
+            )
+        },
+    )
 
     async def scenario() -> None:
         engine = create_engine(database_url)
@@ -849,9 +860,10 @@ def test_the_job_run_counter_rises_once_per_tenant(
     async def noop(session: AsyncSession, now: datetime) -> None:
         pass
 
-    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
-        job_name: Job(name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=noop)
-    })
+    monkeypatch.setattr(
+        "helpdesk.scheduler.runner.REGISTRY",
+        {job_name: Job(name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=noop)},
+    )
 
     async def scenario() -> None:
         engine = create_engine(database_url)
@@ -867,9 +879,7 @@ def test_the_job_run_counter_rises_once_per_tenant(
 
     asyncio.run(scenario())
 
-    value = fresh_registry.get_sample_value(
-        "helpdesk_job_runs_total", {"job": job_name}
-    )
+    value = fresh_registry.get_sample_value("helpdesk_job_runs_total", {"job": job_name})
     assert value == 2.0, (
         f"expected helpdesk_job_runs_total{{job={job_name!r}}} == 2.0 (one per tenant), got {value}"
     )
@@ -904,9 +914,10 @@ def test_the_job_failure_counter_rises_once_per_failed_tenant(
         if bound_tenant_id(session) == tenant_a.tenant_id:
             raise RuntimeError("tenant A fails")
 
-    monkeypatch.setattr("helpdesk.scheduler.runner.REGISTRY", {
-        job_name: Job(name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=fail_a)
-    })
+    monkeypatch.setattr(
+        "helpdesk.scheduler.runner.REGISTRY",
+        {job_name: Job(name=job_name, cadence_seconds=EXPIRE_GRANTS_CADENCE_SECONDS, run=fail_a)},
+    )
 
     async def scenario() -> None:
         engine = create_engine(database_url)

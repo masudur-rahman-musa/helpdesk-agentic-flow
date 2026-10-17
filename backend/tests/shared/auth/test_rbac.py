@@ -3,7 +3,7 @@
 Expected implementation surface (the implementer must provide exactly this):
 
 ``helpdesk.auth.rbac`` (pure: no I/O; identity comes ONLY from claims)
-    ``class Tool(StrEnum)``  -- one member per tool in the the design matrix;
+    ``class Tool(StrEnum)``  -- one member per tool in the permission matrix;
         ``CREATE_ACCESS_REQUEST_SELF = "create_access_request_self"`` and
         ``CREATE_ACCESS_REQUEST_ON_BEHALF = "create_access_request_on_behalf"``
         are two distinct members.
@@ -48,7 +48,7 @@ PRINCIPALS: tuple[str, ...] = (
     "platform_admin",
 )
 
-# The the design matrix, written out literally per tool and per principal so the
+# The permission matrix, written out literally per tool and per principal so the
 # test cannot drift together with the implementation. Value is the expected
 # scope string on allow, or None for deny.
 #
@@ -62,10 +62,10 @@ MATRIX: dict[str, dict[str, str | None]] = {
     "reset_own_password": dict.fromkeys(PRINCIPALS, "self_only"),
     "unlock_own_account": dict.fromkeys(PRINCIPALS, "self_only"),
     "create_access_request_self": dict.fromkeys(PRINCIPALS, "self_only"),
-    # An earlier change: a notification is addressed to ONE person and read
+    # A notification is addressed to ONE person and read
     # and cleared by that person, so both rows join the self-scoped block
-    # above rather than the review rows they arrive beside. the design gives
-    # `/notifications` to every principal, so a None in either row would be
+    # above rather than the review rows they arrive beside. Every principal may open
+    # `/notifications`, so a None in either row would be
     # somebody who cannot read — or cannot clear — their own bell.
     "list_notifications": dict.fromkeys(PRINCIPALS, "self_only"),
     "mark_notification_read": dict.fromkeys(PRINCIPALS, "self_only"),
@@ -174,7 +174,7 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
-    # An earlier change: the review QUEUE carries the same cell as the three
+    # The review QUEUE carries the same cell as the three
     # rows above. A manager reads their own department's reviews, a system
     # owner their own systems', and the three `any` principals every one in the
     # tenant; `employee` and `auditor` hold nothing, so neither can learn which
@@ -215,9 +215,9 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
-    # An earlier change: the READ half of the row above, with the same
-    # single cell. the design gives `/admin/killswitch` to `platform_admin`
-    # alone, so a read whose audience is wider than the write's would show six
+    # The READ half of the row above, with the same single cell. Only
+    # `platform_admin` may open `/admin/killswitch`, so a read whose audience is wider than the
+    # write's would show six
     # principals a board none of them can act on — `it_admin` and `auditor`
     # are the cells that matter, each holding one on a neighbouring admin row
     # and none here.
@@ -230,8 +230,8 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
-    # An earlier change: the SoD rules board, read-only in v1. SPEC section
-    # 14 gives `/admin/rules` to `it_admin` and `platform_admin`, so those two
+    # The SoD rules board, read-only in v1. Only `it_admin` and
+    # `platform_admin` may open `/admin/rules`, so those two
     # cells and no others - `auditor` reads what HAPPENED through
     # `search_audit`, and a rule is configuration, so the cell it holds on
     # that neighbouring row must not be copied here.
@@ -244,10 +244,10 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
-    # An earlier change: the policy documents board, read-only. SPEC section 14 gives
-    # `/admin/policies` to `it_admin` and `platform_admin`, so those two cells
-    # and no others. `auditor` is deliberately absent on a design note's reasoning
-    # (the corpus is configuration, and what HAPPENED is read through
+    # The policy documents board, read-only. Only `it_admin` and
+    # `platform_admin` may open `/admin/policies`, so those two cells
+    # and no others. `auditor` is deliberately absent, same as on the SoD
+    # board (the corpus is configuration, and what HAPPENED is read through
     # `search_audit`), and `employee` is absent even though every principal
     # may SEARCH the corpus: reading a policy is not reading the ingest's
     # version history.
@@ -260,13 +260,13 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
-    # An earlier change: the WRITE half of the row above, with the same two cells. SPEC
-    # section 14 gives `/admin/policies` to `it_admin` and `platform_admin`,
+    # The WRITE half of the row above, with the same two cells.
+    # Only `it_admin` and `platform_admin` may open `/admin/policies`,
     # and this is the action on that page, so a wider row would hand somebody
     # a button the page never shows them - and a narrower one (`platform_admin`
     # alone, copied from `set_kill_switch` by habit) would leave the `it_admin`
-    # who reads the board unable to act on it. `auditor` is absent on ADR
-    # 0021's reasoning, and `employee` is absent even though every principal
+    # who reads the board unable to act on it. `auditor` is absent for the same
+    # reason as above, and `employee` is absent even though every principal
     # may SEARCH the corpus: reading a policy is not rewriting the evidence
     # every access decision cites.
     "reingest_policy_document": {
@@ -428,7 +428,7 @@ def test_authorization_result_is_frozen() -> None:
 
 # --- 7. `scopes`: every allowing principal's scope, not just the widest ------
 #
-# An earlier change decision B. `scope` keeps its meaning (the widest, still what the
+# `scope` keeps its meaning (the widest, still what the
 # pipeline records on the audit payload) and `scopes` is added beside it, so
 # the one enforcement that needs the full set — the approval queue, whose
 # manager+system_owner caller must see the UNION of two incomparable reaches —
@@ -460,7 +460,7 @@ def test_matrix_single_principal_scopes(tool: str, principal: str, expected: str
 @pytest.mark.parametrize(
     ("principals", "tool", "expected_scope", "expected_scopes"),
     [
-        # The case an earlier change exists for: two incomparable reaches, one caller.
+        # The case `scopes` exists for: two incomparable reaches, one caller.
         # `scope` collapses them; `scopes` must not.
         (
             ["manager", "system_owner"],
@@ -498,7 +498,7 @@ def test_multi_principal_scopes_carry_every_allowing_scope(
     expected_scopes: set[str],
 ) -> None:
     """Catches `scopes` built as `{scope}` — the widest wrapped in a set,
-    which reads like the union and is the exact narrowing this plan removes:
+    which reads like the union and is the exact narrowing the code must not do:
     a manager who also owns a system would keep seeing only their department's
     queue. Also catches the reverse regression, `scope` widened or narrowed to
     match the set, which would change what every existing caller records."""
@@ -527,7 +527,7 @@ def test_scopes_is_an_immutable_set() -> None:
 
 
 def test_principals_of_keeps_the_matrix_members_and_drops_the_rest() -> None:
-    """`principals_of` alone decides who may fill a the design group approver
+    """`principals_of` alone decides who may fill a group approver
     seat (`helpdesk.access.approvals.may_fill` takes its output), so it needs
     its own pin rather than riding on `authorize`'s.
 

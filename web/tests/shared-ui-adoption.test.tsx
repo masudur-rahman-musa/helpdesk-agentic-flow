@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * An earlier change: the shared Alert, TextArea, Input, date format and the moved
+ * The shared Alert, TextArea, Input, date format and the moved
  * label and error modules are used everywhere, and nothing copies them by
  * hand. Reads source files only; jsdom, no service.
  */

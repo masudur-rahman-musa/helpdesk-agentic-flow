@@ -7,32 +7,17 @@ import {
 } from "@/features/admin/killswitch/schema";
 import { API } from "@/lib/api-paths";
 import { queryKeys } from "@/lib/query-keys";
-// The vocabulary check alone: `readWire` is a GET and cannot express the toggle
-// POST, so its fetch stays as it is while the design's eight are checked in the
-// one place that holds them.
+// `readWire` only does GETs, so the toggle POST reuses just its code check.
 import { isTypedCode, readWire } from "@/lib/wire-read";
 
-/**
- * What the board answered, or `null` while the browser navigates away.
- *
- * The null is the redirect case and nothing else: rendering the empty state for
- * an expired session would be a platform reporting itself clean to somebody who
- * is not even signed in, and rendering the alert would blame a read that was
- * fine. Pinned by `::follows the proxy's redirect to /login instead of
- * rendering a board`, which asserts all three absences.
- */
+/** `null` only while the browser follows the redirect to `/login`. */
 export type BoardAnswer = KillSwitchRow[] | null;
 
-/** The kill switch board, read through TanStack Query. */
 export function useKillSwitchBoard() {
   return useQuery({ queryKey: queryKeys.killSwitchBoard, queryFn: fetchBoard });
 }
 
-/**
- * Re-read the board. Invalidation and never an optimistic rewrite: the tool
- * decides what the row becomes, and a row that changed on click would show a
- * stop that did not land as done.
- */
+/** Re-read, never an optimistic update: the server decides what the row becomes. */
 export function useRefreshKillSwitchBoard(): () => void {
   const queryClient = useQueryClient();
   return () => {
@@ -40,10 +25,7 @@ export function useRefreshKillSwitchBoard(): () => void {
   };
 }
 
-/**
- * One row's toggle. `onChanged` runs only when the change landed, never on the
- * redirect to `/login`, so nothing re-reads under an expired session.
- */
+/** `onChanged` runs only when the change landed, never on a redirect. */
 export function useKillSwitchToggle(tool: string, onChanged: () => void) {
   return useMutation({
     mutationFn: ({ act, reason }: { act: ToggleAct; reason: string }) =>
@@ -56,40 +38,22 @@ export function useKillSwitchToggle(tool: string, onChanged: () => void) {
   });
 }
 
-/**
- * The whole board, in the registry's order, or `null` while the browser follows
- * the proxy's redirect to `/login`.
- */
 async function fetchBoard(): Promise<BoardAnswer> {
   const payload = await readWire(API.killSwitch, killSwitchBoardSchema);
   return payload === null ? null : payload.switches;
 }
 
-/** The two scope literals the tool takes, and the only two this page sends. */
 type Scope = "global" | "tenant";
 
-/** One control's identity: which layer it acts on and in which direction. */
 export interface ToggleAct {
   scope: Scope;
   enabled: boolean;
 }
 
-/**
- * What a toggle POST resolved to: whether the board should be re-read.
- *
- * `false` is the redirect case and nothing else — the browser is navigating to
- * `/login`, so invalidating a query it is about to leave behind would fire a
- * read under an expired session.
- */
+/** Whether to re-read the board; `false` on a redirect to `/login`. */
 export type ToggleOutcome = boolean;
 
-/**
- * A toggle the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so
- * no free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
+/** Carries only the typed code; the page picks the sentence. */
 export class ToggleRefusedError extends Error {
   readonly code: string;
 
@@ -100,14 +64,8 @@ export class ToggleRefusedError extends Error {
 }
 
 /**
- * One change, posted to the proxy for this tool, this layer and this direction.
- *
- * `enabled` describes the SWITCH and `stopped` the TOOL (13c decision B), so a
- * Stop sends `enabled: true` at either scope. Inverting it would release a tool
- * an admin just stopped, silently, with a 200.
- *
- * Answers `false` when the browser is navigating to `/login`, so the caller
- * files nothing and re-reads nothing.
+ * `enabled` is about the switch, not the tool: Stop sends `enabled: true`.
+ * Getting it backwards would quietly release a tool an admin just stopped.
  */
 async function postToggle(tool: string, act: ToggleAct, reason: string): Promise<ToggleOutcome> {
   const response = await fetch(API.killSwitch, {
@@ -126,10 +84,7 @@ async function postToggle(tool: string, act: ToggleAct, reason: string): Promise
     return false;
   }
   if (!response.ok) {
-    // The status is read BEFORE the body: the proxy's own `502
-    // UPSTREAM_UNAVAILABLE` is valid JSON carrying a code outside the design,
-    // and a reader that skipped the status would answer a refusal sentence for
-    // an outage.
+    // Check the status first: the proxy's own 502 body is valid JSON too.
     const body = await readJson(response);
     const code =
       typeof body === "object" && body !== null ? (body as { code?: unknown }).code : undefined;
@@ -139,9 +94,7 @@ async function postToggle(tool: string, act: ToggleAct, reason: string): Promise
     throw new Error(`the kill switch could not be changed (${response.status})`);
   }
 
-  // Parsed and its fields UNRENDERED (decision F): the invalidated board is
-  // what an admin reads, and the parse is what turns an answer that is not a
-  // set result into a failure sentence rather than a confident refetch.
+  // Parsed only to catch a wrong answer; the re-read board is what shows.
   const parsed = setKillSwitchResultSchema.safeParse(await readJson(response));
   if (!parsed.success) {
     throw new Error("the kill switch answer did not match what this page reads");
@@ -149,7 +102,6 @@ async function postToggle(tool: string, act: ToggleAct, reason: string): Promise
   return true;
 }
 
-/** The body as JSON, or `undefined` when it is not JSON at all. */
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();

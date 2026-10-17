@@ -5,49 +5,20 @@ import Link from "next/link";
 import { useUnreadCount } from "@/features/notifications/api";
 
 /**
- * The unread count in the shell's header, and the route into `/notifications`
- *.
- *
- * Its OWN client component with its own query (decision B), rendered in the
- * shell's "Account" group: a header on every authenticated page
- * never waits on the page's fifty rows to know whether to show a number.
- *
- * It reads `unread_only=true&limit=1` and renders `unread_count` ALONE — the
- * tool's whole tally (23ga decision B), never the length of what `limit=1`
- * handed it, which would read 1 while seven rows waited and understate every
- * count above the page size. Pinned by
- * `tests/notification-bell.test.tsx::reads unread_only=true&limit=1 and renders
- * the tally, not the rows it was handed`.
- *
- * Refetch on mount and on window focus, TanStack's own default, and NO poll
- * (decision D): the bell is on every authenticated page, so an interval
- * multiplies MCP round trips by tabs and by minutes for a table four scheduler
- * jobs write to a few times a day. Pinned as behaviour rather than as a prop by
- * `::does not poll: no second read after two minutes of clock`.
- *
- * A failed read is SILENT — the link with no count and no alert (§1). An error
- * region here sits in the header of the whole authenticated app and follows a
- * person from screen to screen, including onto the routes that are working, so
- * the one thing this component owes on failure is the route into the page.
- * Pinned by the two `a read that fails` rows.
- *
- * The read goes through `lib/wire-read.ts`, so an expired session
- * arrives as that module's `null` and never as a status (22b decision E), the
- * same as the page's two call sites. This read fires on every authenticated
- * page, so it is the likeliest place a stale session is discovered at all.
+ * The unread count in the header, linking to `/notifications`. It has its own
+ * small query, so the header never waits on the full list. No polling: it sits
+ * on every page, so a timer would multiply server calls for data that changes a
+ * few times a day. A failed read stays silent: an alert here would follow the
+ * person onto pages that work.
  */
 export function NotificationBell() {
-  // `null` when no `QueryClientProvider` is above, which only
-  // `tests/shell.test.tsx` renders; `useUnreadCount` says why the bell then
-  // renders nothing at all.
   const unread = useUnreadCount();
   if (unread === null) {
     return null;
   }
 
-  // `undefined` while the read is in flight AND after it failed, which is the
-  // same thing to a reader: the count is unknown, so the bell says nothing
-  // about it rather than rendering `0` and claiming nothing is waiting.
+  // Unknown while loading or after a failure, so show no number rather than a
+  // false 0.
   const count = unread.count;
 
   return (

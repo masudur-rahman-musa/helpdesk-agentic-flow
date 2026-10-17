@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { queryKeys } from "@/lib/query-keys";
 
 /**
- * An earlier change: the one list of query keys. Fixed entries are arrays; the rest are
+ * The one list of query keys. Fixed entries are arrays; the rest are
  * functions that build a key from an id or a filter.
  */
 

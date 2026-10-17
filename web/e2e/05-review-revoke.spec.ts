@@ -3,7 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { accounts, loginAs, type Principal } from "./_fixtures";
 
 /**
- * Flow 5 of the design, an earlier change criterion 6: the manager opens `/reviews`,
+ * Flow 5: the manager opens `/reviews`,
  * revokes a stale grant on an open review item, and the item then shows
  * revoked with the grant actually gone.
  *
@@ -16,21 +16,21 @@ import { accounts, loginAs, type Principal } from "./_fixtures";
  * flags a lapsed-but-active grant `stale` — `REVIEW_FLAG_LABELS.stale` is
  * `Expiring with no renewal`.
  *
- * HARNESS REQUIREMENT (`dev/scripts/e2e_reset.py`, plan §7 step 3). No review
+ * HARNESS REQUIREMENT (the e2e reset script). No review
  * exists after a seed: `scripts/seed.py` plants none, and the only writer is
- * `open_review`, driven by the scheduler, which plan §3 does not start as a
+ * `open_review`, driven by the scheduler, which the e2e run does not start as a
  * `webServer`. The reset therefore has to open one review over a scope that
  * contains a stale grant and whose reviewer is `employee_manager`, or this
  * flow has nothing to select.
  *
- * DEVIATION (plan §1, "completes the review"). There is no such act in the
+ * DEVIATION from completing the review. There is no such act in the
  * product. `web/lib/reviews-schema.ts` says it in as many words — "there is no
  * `review.completed` event and no `complete_review` tool" — and
  * `components/reviews/review-queue.tsx` carries no control for it: a review
  * completes when its LAST undecided item is decided, and `open_review` writes
  * "an item per live grant" in the scope, which for any seeded scope is dozens
- * to hundreds of clicks. Completion is therefore not asserted. What the plan's
- * §6 kill actually asks for is asserted instead, and more strictly than the
+ * to hundreds of clicks. Completion is therefore not asserted. What the flow really needs
+ * is asserted instead, and more strictly than the
  * item's own label would: the `grant.revoked` count on `/admin/audit` before
  * and after the click. A review that records a decision and does nothing
  * leaves that count where it was.
@@ -85,7 +85,7 @@ test("revoking a stale item on an open review revokes the grant behind it", asyn
   await page.goto("/reviews");
   await expect(page.getByRole("region", { name: "Reviews" })).toBeVisible();
 
-  // The filter's own default is `open` (23f decision D), so the queue on paint
+  // The filter's own default is `open`, so the queue on paint
   // is the open reviews and nothing else. A premise, read off the page.
   await expect(page.getByRole("combobox", { name: "Status" })).toHaveValue("open");
   const queue = page.getByRole("list", { name: "Review queue" }).getByRole("listitem");

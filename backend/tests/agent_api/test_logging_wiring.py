@@ -1,4 +1,4 @@
-"""An earlier change section 6: agent-api binds the telemetry context per request.
+"""Agent-api binds the telemetry context per request.
 
 Written before the middleware exists. Surface under test:
 
@@ -18,7 +18,7 @@ The line is captured through a `JsonFormatter` handler attached here rather
 than through the service's own handler: what is under test is the BIND, and
 `test_obs_logging.py` already owns the formatter.
 
-An earlier change ADDS the case at the bottom and moves nothing above it. The
+A later case at the bottom moves nothing above it. The
 surface it expects: ``run_turn`` opens the turn's trace and REBINDS the
 telemetry context for the turn — ``tenant_id``, ``session_id`` and
 ``principal_kind`` read back off ``current_context()``, ``trace_id`` from
@@ -92,7 +92,7 @@ def test_a_record_logged_during_a_request_carries_that_call_s_tenant_and_session
     """Catches a service that calls `configure_logging()` but never binds the
     context, so every line is context-free: the logs parse, look structured,
     and answer none of the questions ("what happened on this session, for this
-    tenant") the whole of the design is built around.
+    tenant") the whole of the contract is built around.
 
     A bind that read identity from somewhere other than this call's own token
     dies here too: the tenant and session asserted are the ones minted for
@@ -149,7 +149,7 @@ def test_a_record_logged_during_a_request_carries_that_call_s_tenant_and_session
     assert line["tenant_id"] == str(tenant_id)
     assert line["session_id"] == str(session_id)
 
-    # the design on the wired path: identity handed in by a careless caller is
+    # The contract on the wired path: identity handed in by a careless caller is
     # redacted in place, and neither value survives anywhere in the line.
     for key in ("user_id", "email"):
         assert key in FORBIDDEN_KEYS
@@ -158,7 +158,7 @@ def test_a_record_logged_during_a_request_carries_that_call_s_tenant_and_session
     assert PROBE_EMAIL not in raw
 
 
-# --- an earlier change: the turn's trace id on every line of that turn -----------------
+# --- the turn's trace id on every line of that turn ---------------------------
 
 
 TRACE_LOGGER_NAME = "test.wiring.agent_api.tracing"

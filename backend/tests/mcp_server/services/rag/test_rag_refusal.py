@@ -1,11 +1,11 @@
-"""An earlier change §6: the refusal predicate in `helpdesk/rag/retrieval.py`.
+"""The refusal predicate in `helpdesk/rag/retrieval.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``helpdesk.rag.retrieval``
-    ``REFUSAL_THRESHOLD = 0.35`` — the design's number, read against the
+    ``REFUSAL_THRESHOLD = 0.35`` — the contract's number, read against the
         best DENSE COSINE of the page and not against the fused score
-        (decision A, a design note).
+.
     ``def should_refuse(hits: Sequence[SearchHit]) -> bool`` — True when the
         page holds no dense cosine at or above the threshold; False at
         exactly the threshold (inclusive on the ANSWERING side). An empty
@@ -13,7 +13,7 @@ Expected implementation surface (the implementer must provide exactly this):
 
 Pure: no store, no session, no model. Every hit is hand-built, so the case
 chooses both numbers the predicate could read and the two can disagree —
-which is the only way decision A is testable at all.
+which is the only way the refusal rule is testable at all.
 """
 
 import uuid
@@ -27,7 +27,7 @@ DOCUMENT_ID = uuid.UUID("22222222-2222-5222-8222-222222222222")
 
 # What RRF over two arms actually produces for a chunk both arms ranked first:
 # 2/61. Every fused score the system can ever emit is under 0.033, which is
-# the whole of decision A (SPEC's 0.35 read against a fused score refuses
+# the whole point (a 0.35 cutoff read against a fused score refuses
 # every answer). Written as a literal, not derived from `RRF_K`.
 BEST_POSSIBLE_FUSED_SCORE = 2.0 / 61.0
 
@@ -53,7 +53,7 @@ def _page(*cosines: float | None) -> Sequence[SearchHit]:
     ]
 
 
-# --- the constant -------------------------------------------
+# --- the constant -------------------------------------------------------------
 
 
 def test_the_refusal_threshold_is_exactly_thirty_five_hundredths() -> None:
@@ -88,7 +88,7 @@ def test_an_empty_page_refuses() -> None:
     assert should_refuse(()) is True
 
 
-# --- what the threshold is measured on (decision A) ---------------------------
+# --- what the threshold is measured on ----------------------------------------
 
 
 def test_the_threshold_is_measured_on_dense_cosine_not_the_fused_score() -> None:

@@ -1,16 +1,16 @@
-"""An earlier change §6: the model client in `helpdesk/gateway/client.py`, the only
+"""The model client in `helpdesk/gateway/client.py`, the only
 place in this repo that calls the gateway's chat endpoint.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``helpdesk.gateway.client``
     ``class ModelAlias(StrEnum)`` — exactly two members, ``"agent-default"``
-        and ``"agent-strong"`` (the design, plan decision E).
+        and ``"agent-strong"``.
     ``MAX_SCHEMA_NAME_LENGTH: int = 128`` — a COPY of the console's
-        ``providers/base.py::MAX_TOOL_NAME_LENGTH`` (plan §5).
+        ``providers/base.py::MAX_TOOL_NAME_LENGTH``.
     ``SCHEMA_NAME_PATTERN: re.Pattern[str]`` — mirrors the console's
         ``TOOL_NAME_PATTERN``, matched with ``re.fullmatch``.
-    ``DATA_CLASS: str = "confidential"`` (plan decision F).
+    ``DATA_CLASS: str = "confidential"``.
     ``CONNECT_TIMEOUT_SECONDS: float = 5.0`` /
         ``READ_TIMEOUT_SECONDS: float = 60.0`` — the read half is wider than
         the redaction client's 30.0 because a generation is slower than a
@@ -32,7 +32,7 @@ Expected implementation surface (the implementer must provide exactly this):
         ``async def complete_json(self, schema_model, messages, *, <same
             keywords>) -> StructuredAnswer[<schema_model>]``
 
-An earlier change changes exactly one return shape (decision A). ``complete_json``
+One return shape is special: ``complete_json``
 answers a ``StructuredAnswer`` rather than the bare model:
 
     ``@dataclass(frozen=True) class StructuredAnswer[M: BaseModel]`` —
@@ -87,7 +87,7 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 BASE_URL = "http://gateway.invalid:8080"
 TENANT = "nordlicht"
 OTHER_TENANT = "cuan"
-# Obviously fake, tests only (a project rule/8): these are not credentials.
+# Obviously fake, tests only: these are not credentials.
 API_KEYS: dict[str, str] = {TENANT: "fake-key-nordlicht", OTHER_TENANT: "fake-key-cuan"}
 
 SESSION_ID = "session-0000-fake"
@@ -288,7 +288,7 @@ def _complete_json(
 def test_the_model_client_constants_are_exactly_the_planned_values() -> None:
     """Catches a cap, a timeout or a data class set to any other number or
     string — in particular a `DATA_CLASS` copied from the redaction client's
-    `"internal"`, which would route chat under a wider class than the design
+    `"internal"`, which would route chat under a wider class than the policy
     fixes, and a `MAX_SCHEMA_NAME_LENGTH` that drifts from the console's
     `MAX_TOOL_NAME_LENGTH` and so presents as a puzzling 422 rather than a
     local refusal."""
@@ -378,10 +378,10 @@ def test_the_session_header_is_absent_when_no_session_is_given() -> None:
 
 
 def test_a_valid_caller_traceparent_is_propagated_verbatim() -> None:
-    """Catches a client that mints its own header regardless of the caller's
-    (plan decision C's option ii): the agent turn's trace and the gateway's
-    would be two unconnected traces, and the design's single span across both
-    services would never form."""
+    """Catches a client that mints its own header regardless of the caller's:
+    the agent turn's trace and the gateway's
+        would be two unconnected traces, and the single span across both
+        services would never form."""
     recorder = _Recorder(_ok_response())
     client = _client(recorder)
 
@@ -393,7 +393,7 @@ def test_a_valid_caller_traceparent_is_propagated_verbatim() -> None:
 def test_the_other_tenants_key_is_used_for_the_other_tenant() -> None:
     """Catches a client that picks the first configured key (or a single
     module-level key) instead of looking the caller's tenant up in the map,
-    which is the whole point of a design note's per-tenant keys. The pair is
+    which is the whole point of per-tenant keys. The pair is
     asserted together because the console compares them."""
     recorder = _Recorder(_ok_response())
     client = _client(recorder)
@@ -490,8 +490,8 @@ def test_no_gateway_wording_url_or_provider_name_reaches_the_message(row: _Row) 
     """Catches a client that builds its message from `response.text` or from
     the request URL. The gateway's body can quote the prompt it was given —
     the one string on this path carrying confidential company data — and it
-    names the provider and model that served the turn, which a project rule
-    keeps out of this repo entirely."""
+    names the provider and model that served the turn, and
+    this repo keeps those names out entirely."""
     client = _client(_Recorder(_response_for(row)))
 
     with pytest.raises(ToolError) as excinfo:
@@ -526,7 +526,7 @@ def test_a_session_id_of_exactly_the_slug_cap_is_accepted() -> None:
 
 def test_a_session_id_one_character_over_the_cap_is_refused_before_any_request() -> None:
     """Catches a missing pre-check on a value that lands in a HEADER: an
-    unbounded `X-Session` is one of the unsized stores a project rule names,
+    unbounded `X-Session` is one of the unsized stores that must be capped,
     and an over-long one would be refused by the console after the prompt was
     already on the wire. The transport fails the test if it is reached, so a
     check placed after the request is built does not pass this row."""
@@ -649,8 +649,8 @@ def test_complete_json_sends_the_response_format_pydantic_generates() -> None:
 
 
 def test_complete_json_retries_exactly_once_and_returns_the_second_answer() -> None:
-    """Catches a client that gives up on the first unparseable answer (SPEC
-    §10.1 step 2's retry missing, so one malformed generation fails a turn a
+    """Catches a client that gives up on the first unparseable answer (the
+    retry missing, so one malformed generation fails a turn a
     second call would have completed). The request COUNT is the assertion: a
     client that retries in a loop would also return the model here, and only
     the count of two tells the two implementations apart."""
@@ -713,7 +713,7 @@ def test_complete_json_gives_up_after_the_second_invalid_answer() -> None:
 
 
 def test_complete_json_returns_the_validated_value_beside_the_calls_own_usage() -> None:
-    """An earlier change decision A. Catches a `complete_json` that returns the bare
+    """Catches a `complete_json` that returns the bare
     model and throws the `ModelAnswer` away, which is the shape this method
     had before: the agent's `tokens_used` would then have nothing to read for
     the extraction or for any planning round, and `MAX_TURN_TOKENS` could
@@ -765,13 +765,13 @@ def test_the_usage_of_a_retried_call_is_the_second_answers_not_the_first() -> No
     assert result.usage.text == json.dumps(VALID_DECISION)
 
 
-# --- an earlier change: strict structured outputs ----------------------------------------
+# --- strict structured outputs ----------------------------------------
 
 
 class StrictDecision(BaseModel):
     """`Decision` as strict mode needs it: extra keys forbidden, no defaults.
 
-    Local to the an earlier change cases so they do not lean on an earlier change §8's edit to
+    Local to the strict-schema cases so they do not lean on the later edit to
     `Decision`: the client refuses a non-strict schema before sending, so a
     case built on the old model would go red for the pre-check, not for the
     `strict` flag it means to pin.
@@ -826,7 +826,7 @@ def test_a_non_strict_schema_is_refused_before_any_request() -> None:
     assert excinfo.value.code is ErrorCode.VALIDATION
 
 
-# --- a project rule: no provider model name anywhere ----------------------------
+# --- no provider model name anywhere ----------------------------
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _SWEPT_TREES: tuple[Path, ...] = (_REPO_ROOT / "backend" / "helpdesk",)
@@ -851,11 +851,11 @@ _PROVIDER_PREFIXES: tuple[str, ...] = (
     "text-embedding-ada",
 )
 """Provider model ids, lowercased. A literal list, so a provider whose ids
-match none of these would pass (plan §5 names that limit).
+match none of these would pass.
 
 `BAAI/bge-small-en-v1.5` is deliberately NOT here: it is the local fastembed
 dense model in `helpdesk/rag/embedding.py`, an argument to a library that
-runs in this process, not a model named at the gateway. a project rule is about
+runs in this process, not a model named at the gateway. The rule against provider names is about
 gateway calls, which are named by alias.
 """
 
@@ -867,11 +867,11 @@ def _swept_files() -> list[Path]:
 
 
 def test_no_provider_model_name_appears_in_the_repo() -> None:
-    """Catches the exact regression a project rule forbids: a provider model id
+    """Catches the exact regression the no-provider-names rule forbids: a provider model id
     pasted into a call, a constant or a docstring under
     `packages/helpdesk/helpdesk/` or `services/`, which is how "we only use
-    aliases" quietly stops being true. Scoped to those two trees, so a plan
-    file, a test fixture or an ADR discussing a provider is not swept."""
+    aliases" quietly stops being true. Scoped to those two trees, so a test fixture or a design note
+    discussing a provider is not swept."""
     offenders = [
         (path, prefix)
         for path in _swept_files()

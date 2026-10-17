@@ -1,4 +1,4 @@
-"""Snapshot builders for the an earlier change policy-engine tests.
+"""Snapshot builders for the policy-engine tests.
 
 Fixed uuids, keyword overrides, and one default snapshot that classifies
 `low` / `auto` so each case only states the fields it is about.

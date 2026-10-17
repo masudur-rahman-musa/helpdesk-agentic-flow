@@ -1,9 +1,9 @@
-"""An earlier change, sections 1 and 6: the three helpdesk mutating tools, through the transport.
+"""The three helpdesk mutating tools, through the transport.
 
 Surface under test (written before it exists):
 
 ``mcp_server.tools.self_service``
-    ``reset_own_password(idempotency_key)`` — simulated reset (the design):
+    ``reset_own_password(idempotency_key)`` — simulated reset:
     sets ``users.password_reset_requested_at`` on the TOKEN's user and returns
     a one-time token display placeholder that is obviously fake. Declared
     audit event ``user.password_reset``.
@@ -12,9 +12,9 @@ Surface under test (written before it exists):
     ``user.account_unlocked``.
     ``create_ticket(kind, title, body, idempotency_key)`` — persists a ticket
     row carrying the token's ``tenant_id`` and ``user_id``, status ``open``.
-    ``kind`` is exact enum membership over the four the design values, ``title``
-    is at most 256 (the column's own bound), ``body`` at most 10_000 (plan
-    10b decision C). Declared audit event ``ticket.created``.
+    ``kind`` is exact enum membership over the four values, ``title``
+    is at most 256 (the column's own bound), ``body`` at most 10_000 (the
+    Pydantic max_length). Declared audit event ``ticket.created``.
 
     All three input models forbid extra fields: a ``user_id``
     or ``tenant_id`` in the arguments is ``VALIDATION`` with no effect run.
@@ -27,7 +27,7 @@ Surface under test (written before it exists):
     second time. The kill switch stays ahead of the guard, so a stopped call
     burns no key.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: a unique idempotency key and a unique ticket title per test.
@@ -67,21 +67,21 @@ RESET = "reset_own_password"
 UNLOCK = "unlock_own_account"
 CREATE_TICKET = "create_ticket"
 
-# The declared audit event types.
+# The declared audit event types (one event per action).
 RESET_EVENT = "user.password_reset"
 UNLOCK_EVENT = "user.account_unlocked"
 TICKET_EVENT = "ticket.created"
 REPLAYED_EVENT = "tool.replayed"
 
-# The two flag columns decision A adds to `users`. An allowlist, not free
+# The two flag columns added to `users`. An allowlist, not free
 # text: `_user_flag` interpolates one of exactly these into SQL.
 RESET_FLAG = "password_reset_requested_at"
 UNLOCK_FLAG = "account_unlocked_at"
 _FLAG_COLUMNS = frozenset({RESET_FLAG, UNLOCK_FLAG})
 
-# The caps under test, asserted at their exact inclusive boundaries
-#. Title is the column's String(256); body is plan
-# 10b decision C's Pydantic max_length.
+# The caps under test, asserted at their exact inclusive boundaries.
+# Title is the column's String(256); body is the
+# Pydantic max_length.
 TITLE_MAX = 256
 BODY_MAX = 10_000
 
@@ -199,7 +199,7 @@ def test_reset_own_password_flags_the_token_user_and_returns_a_fake_placeholder(
     result = call_tool(bearer(token_for(caller)), RESET, {"idempotency_key": _key()})
 
     payload = _structured(result)
-    # the design "simulated reset": the placeholder must be obviously fake, so
+    # A simulated reset: the placeholder must be obviously fake, so
     # it has to say so — a realistic-looking one-time token fails here.
     assert "fake" in json.dumps(payload).lower(), payload
     flag_after = _user_flag(mcp_env.database_url, caller.user_id, RESET_FLAG)
@@ -260,7 +260,7 @@ def test_create_ticket_persists_a_row_for_the_token_user(
     assert events_after == [*events_before, TICKET_EVENT]
 
 
-# --- a project rule / a project rule ---------------------------------------------
+# --- identity and tenant come from the token ---------------------------------------------
 
 
 @pytest.mark.parametrize("tool", [RESET, UNLOCK, CREATE_TICKET])
@@ -348,7 +348,7 @@ def test_the_body_boundary_is_inclusive_at_10000(
     length: int,
     accepted: bool,
 ) -> None:
-    """Catches decision C being dropped (the column is unbounded Text, so
+    """Catches the body cap being dropped (the column is unbounded Text, so
     nothing else refuses an oversized body) or its cap drifting off 10_000."""
     title = _title()
     body = "b" * length
@@ -416,7 +416,7 @@ def test_a_kind_outside_the_enum_is_refused_with_no_row(
 ) -> None:
     """Catches kind checked by anything weaker than exact enum membership: a
     prefix match, a stripped compare, or a `$`-anchored regex each admit one
-    of these rows (a project rule's shape)."""
+    of these rows."""
     title = _title()
 
     result = call_tool(
@@ -436,7 +436,7 @@ def test_a_replayed_create_ticket_is_byte_identical_and_files_one_ticket(
     """Catches the pipeline ignoring the `mutating` flag (the effect runs
     twice, two rows), a replay response rebuilt rather than replayed (bytes
     differ), or a replay writing `ticket.created` a second time — a second
-    creation event for one ticket is a false record (decision B)."""
+    creation event for one ticket is a false record."""
     caller = mcp_env.probe
     key = _key()
     title = _title()
@@ -510,7 +510,7 @@ def test_a_missing_idempotency_key_is_refused(
 ) -> None:
     """Catches `idempotency_key` made optional or defaulted in any mutating
     input model: an unguarded retry of a keyless call is exactly the double
-    effect the design forbids."""
+    effect the idempotency rule forbids."""
     title = _title()
     arguments: dict[str, Any] = (
         {"kind": "general", "title": title, "body": "fake body"} if tool == CREATE_TICKET else {}

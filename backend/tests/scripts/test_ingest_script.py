@@ -1,4 +1,4 @@
-"""The ingest script resolves its corpus root as an earlier change section 1 says.
+"""The ingest script resolves its corpus root as designed.
 
 Two pure functions of `scripts/ingest.py` are under test and nothing else:
 
@@ -7,7 +7,7 @@ Two pure functions of `scripts/ingest.py` are under test and nothing else:
 
 `_corpus_root` exists so the "flag, or settings default?" answer is reachable
 without building `Settings` from a live environment. The
-script's own docstring says nothing in it is tested directly; an earlier change makes
+script's own docstring says nothing in it is tested directly; this narrows
 that sentence narrower rather than false, and these three cases are the whole
 of what it now excludes.
 

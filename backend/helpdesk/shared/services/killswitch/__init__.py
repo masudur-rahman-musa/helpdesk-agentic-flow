@@ -1,10 +1,7 @@
-"""Kill switches: an admin can turn any tool off, per tenant or platform-wide.
+"""Kill switches: an admin can turn any tool off, per tenant or for everyone.
 
-`check` is the one call every tool makes before it runs (the design);
-`trip`, `clear` and `status` are what the admin surface drives. `switch.py`
-is I/O only; `change.py` is the layer above it that decides — the protected
-tool guard and the `killswitch.changed` record, which no caller can skip on
-the way to a write.
+Every tool calls `check` before it runs. `switch.py` only stores and reads;
+`change.py` holds the guard and the audit record so no caller can skip them.
 """
 
 from helpdesk.shared.services.killswitch.change import (

@@ -4,14 +4,13 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/features/chat/schema";
 
 /**
- * An earlier change §6, `chat-schema.test.ts`: the ONE schema the composer and the route
+ * `chat-schema.test.ts`: the ONE schema the composer and the route
  * handler share, checked against `MAX_MESSAGE_CHARS`, on both sides of the
  * bound and on the empty string — the same three answers
- * `helpdesk.models.conversation.check_message_content` gives (§1, "input
- * validation").
+ * `helpdesk.models.conversation.check_message_content` gives (input
+ * validation).
  *
- * Shapes this file fixes that the plan left open (a project rule/39; these go
- * in the plan's Deviations):
+ * Shapes this file fixes:
  * - `web/src/features/chat/schema.ts` exports `MAX_MESSAGE_CHARS` (the mirror of the
  *   Python constant) and `chatMessageSchema`, a Zod object over the WIRE body
  *   `{ message: string }` rather than a bare string schema. The route handler
@@ -19,7 +18,7 @@ import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/features/chat/schema";
  *   `safeParse` serves both and the two cannot drift into checking different
  *   shapes.
  * - `FAILURE_MESSAGES` is a plain object keyed by the `ErrorCode` VALUE plus a
- *   `default` key. §6 fixes three of its entries as literals and the page test
+ *   `default` key. Three of its entries are literals and the page test
  *   reads `FAILURE_MESSAGES.INTERNAL`, so the map is TOTAL over the eight codes
  *   in `helpdesk/errors.py::ErrorCode`; only the three sentences the plan wrote
  *   down are pinned as literals here, because the other five are the
@@ -27,7 +26,7 @@ import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/features/chat/schema";
  *   satisfy without reading this file.
  *
  * The map lives in `web/src/lib/failure-messages.ts`; it is asserted here rather than in
- * a fifth file because §6 fixes exactly four files and these are constants of
+ * a fifth file because these are constants of
  * the same "one message, one constant" family as the schema.
  */
 
@@ -43,7 +42,7 @@ describe("MAX_MESSAGE_CHARS", () => {
     // Catches an implementation that mirrors the Python cap by eye and writes
     // 4096, 2000 or "some large number": a web cap ABOVE the column width lets
     // a message through to be refused by agent-api after the round trip, and one
-    // below silently truncates what a user may ask. a project rule wants the
+    // below silently truncates what a user may ask. The test wants the
     // value, not a band.
     expect(MAX_MESSAGE_CHARS).toBe(CAP);
   });
@@ -98,8 +97,8 @@ describe("FAILURE_MESSAGES", () => {
     // rendering the literal "undefined" into the alert region, which the page
     // test's reference comparison would otherwise accept.
     // The local annotation is deliberate: it typechecks whether the map is a
-    // total record over the codes or an index signature (a project rule's
-    // shape, on the TypeScript side).
+    // total record over the codes or an index signature (the same shape on the
+    // TypeScript side).
     const internal: string | undefined = FAILURE_MESSAGES.INTERNAL;
     expect(typeof internal).toBe("string");
     expect((internal ?? "").length).toBeGreaterThan(0);

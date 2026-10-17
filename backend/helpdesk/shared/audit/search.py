@@ -1,22 +1,10 @@
-"""Reading one tenant's audit log back under a filter (the design, an earlier change).
+"""Reading one tenant's audit log back under a filter.
 
-The audit package owns its own SQL, the way `verify.py` does: no service
-reaches for `session.execute` against `audit_events`, so every read of the
-log is in one place and one place is where a filter can be got wrong.
-
-The session is TENANT-BOUND (`helpdesk.core.db.tenant_session`), so this
-module takes no tenant argument at all and cannot be asked for another
-tenant's events; pinned by
-`test_audit_search.py::test_another_tenants_events_are_invisible_through_the_bound_session`,
-which plants identical rows in two tenants and searches with no filter, so
-nothing but the ORM guard can withhold either set.
-
-The bound on one call is `SCAN_CAP` rows READ, not the caller's `limit`.
-An earlier change decision A filters by scope in the tool handler, AFTER this read,
-so a page can come back short of what the caller asked for; `lowest_seq` is
-what makes the rest reachable through `before_seq`. `audit_events` is the
-one table the design never prunes, which is why an unbounded read is not an
-option here (decision B).
+The session is bound to one tenant, so this takes no tenant argument and
+cannot be asked for another tenant's events. One call reads at most
+`SCAN_CAP` rows. The scope filter runs later, in the tool, so a page can
+come back short; `lowest_seq` passed back as `before_seq` reaches the rest.
+The log is never pruned, so an unbounded read is not an option.
 """
 
 from dataclasses import dataclass
@@ -30,23 +18,14 @@ from helpdesk.shared.models import AuditEvent
 from helpdesk.shared.crud.audit import fetch_audit_events_page
 
 SCAN_CAP = 500
-"""How many rows ONE search may read, before the scope filter runs.
-
-Pinned exactly by
-`test_audit_search.py::test_the_scan_cap_is_read_exactly_and_hands_back_a_cursor`,
-which plants `SCAN_CAP + 1` rows: the only planting size that separates an
-unbounded read, an off-by-one cap and this one.
-"""
+"""How many rows one search may read, before the scope filter runs."""
 
 
 class InvalidTimeRangeError(ToolError):
     """`occurred_from` is later than `occurred_to`.
 
-    Refused BEFORE any statement runs, rather than answered with the empty
-    page such a range would legitimately match: a caller who transposed two
-    dates would otherwise be told their audit trail is clean. Pinned by
-    `test_audit_search.py::test_an_inverted_time_range_is_refused_validation_before_any_statement_runs`,
-    which counts the statements the engine sends.
+    Refused before any query, not answered with an empty page: a caller who
+    swapped two dates would otherwise be told their audit trail is clean.
     """
 
     code = ErrorCode.VALIDATION
@@ -60,14 +39,10 @@ class AuditSearchPage:
     """The matching rows, `seq` DESC."""
 
     lowest_seq: int | None
-    """The lowest `seq` this call scanned, or None when nothing matched.
-
-    Where the next page starts: the caller passes it back as `before_seq`.
-    """
+    """The lowest `seq` scanned, or None; pass it back as `before_seq`."""
 
     has_more: bool
-    """True exactly when the read stopped at `SCAN_CAP` rather than at the
-    end of the log, so a caller can tell a full page from a final one."""
+    """True when the read stopped at `SCAN_CAP` rather than the end of the log."""
 
 
 def _filters(
@@ -80,13 +55,7 @@ def _filters(
     occurred_to: datetime | None,
     before_seq: int | None,
 ) -> list[ColumnElement[bool]]:
-    """Decision D's filter surface, each one applied only when it is given.
-
-    An absent filter adds no clause at all — not an empty-string comparison —
-    which is the half of criterion 3 the `no-filter` row of
-    `test_audit_search.py::test_each_decision_d_filter_narrows_and_an_absent_one_does_not`
-    pins.
-    """
+    """One clause per filter given; a missing filter adds no clause at all."""
     clauses: list[ColumnElement[bool]] = []
     if event_type is not None:
         clauses.append(AuditEvent.event_type == event_type)
@@ -120,9 +89,7 @@ async def search_audit_events(
 ) -> AuditSearchPage:
     """At most `SCAN_CAP` of the bound tenant's events, newest `seq` first.
 
-    Every filter is optional and every one of them narrows; ordering is by
-    `seq` and never by `occurred_at`, because `seq` is the only column that
-    totally orders a tenant's chain (two events can share an instant).
+    Ordered by `seq`, not `occurred_at`: two events can share an instant.
     """
     if occurred_from is not None and occurred_to is not None and occurred_from > occurred_to:
         raise InvalidTimeRangeError(

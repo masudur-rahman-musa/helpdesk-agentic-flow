@@ -6,12 +6,11 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ApprovalQueue } from "@/features/approvals/components/approval-queue";
 
 /**
- * An earlier change §6, `role-nav.test.tsx`: the shell reads `/api/me` and shows the
+ * `role-nav.test.tsx`: the shell reads `/api/me` and shows the
  * signed-in user's name and account type, and only the tabs that user can use.
  * jsdom, a stubbed `fetch`, no agent-api.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 42's Deviations):
+ * Shapes this file fixes:
  * - `/api/me` answers `{ display_name, principals, tabs }`; `tabs` is a list of
  *   ten stable keys: `chat requests access approvals reviews notifications
  *   audit killswitch rules policies`. The Python side holds the same ten as a
@@ -26,7 +25,7 @@ import { ApprovalQueue } from "@/features/approvals/components/approval-queue";
  * - the strip is the proof the read RESOLVED: every "four links" row that could
  *   also be satisfied by a pending read first waits for the strip.
  * - the page the hidden-URL row renders is `ApprovalQueue`, whose refused read
- *   is the region alert its own tests pin (23d decision B). The plan calls that
+ *   is the region alert its own tests pin. The plan calls that
  *   "the tool's forbidden sentence"; the page's sentence is the read alert,
  *   so that is what is asserted and it is recorded as a deviation.
  *
@@ -207,7 +206,7 @@ describe("the shell by profile", () => {
 
   it("shows the principals in enum order, not in the order the wire sent them", async () => {
     // Catches a label list built by mapping the wire array as it arrived
-    // (decision D: enum order). The wire sends `system_owner` BEFORE `manager`,
+    // (enum order). The wire sends `system_owner` BEFORE `manager`,
     // the enum has `manager` first, and one strip carries both labels so the
     // order of their positions is the only thing that differs.
     meAnswer = async () =>
@@ -287,7 +286,7 @@ describe("while /api/me is pending or has failed", () => {
   ] as const;
 
   it.each(failures)("shows the four universal links and no strip when $why", async ({ answer }) => {
-    // Decision E: a failed `/me` never shows MORE than four. Catches a nav that
+    // A failed `/me` never shows MORE than four. Catches a nav that
     // falls back to all ten on error (the old behaviour, and the tempting
     // "fail open" one), and a strip rendered from a half-parsed body. The
     // client is awaited until it has settled, so this is the state AFTER the
@@ -305,7 +304,7 @@ describe("while /api/me is pending or has failed", () => {
 
 describe("a hidden route opened by URL", () => {
   it("still renders the page and its refusal for an employee, with no Approvals link", async () => {
-    // Hiding is cosmetic (§1). Catches two opposite defects: a nav that still
+    // Hiding is cosmetic. Catches two opposite defects: a nav that still
     // lists Approvals for an employee, and a shell that BLOCKS the page it
     // hides (a redirect, a 404 or an empty main) instead of letting the tool's
     // 403 stand. The employee profile is awaited first, so "no Approvals link"

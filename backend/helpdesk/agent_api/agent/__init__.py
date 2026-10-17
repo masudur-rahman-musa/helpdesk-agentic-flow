@@ -1,7 +1,5 @@
-"""The agent turn as a LangGraph `StateGraph` (the design).
+"""The agent turn as a LangGraph `StateGraph`.
 
-Deliberately re-exports nothing. `build.py` is the only module that imports
-LangGraph, and importing it from here would put the framework behind every
-`agent_api.graph` import — including the two pure modules whose whole point
-is that they can be tested with no graph at all (the design).
+Re-exports nothing, so the pure modules here can be imported and tested
+without loading LangGraph.
 """

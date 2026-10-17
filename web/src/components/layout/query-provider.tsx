@@ -4,9 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 
 /**
- * One TanStack Query client per browser session. Created in state rather than
- * at module scope: a module-level client is shared between requests on the
- * server, which would leak one user's cached data into another's render.
+ * One query client per browser session, kept in state: a module-level client
+ * is shared across server requests and would leak one user's data to another.
  */
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [client] = useState(

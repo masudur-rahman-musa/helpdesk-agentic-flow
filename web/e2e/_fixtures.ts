@@ -3,17 +3,17 @@ import { readFile } from "node:fs/promises";
 import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
- * The shared helpers of an earlier change's five flows: who to sign in as, how to send a
- * turn, and the two locators worth naming once (step 7).
+ * The shared helpers of the e2e flows: who to sign in as, how to send a
+ * turn, and the two locators worth naming once.
  *
  * Every selector here is a role or an `aria-label` the shipped UI already
- * carries (decision F). Nothing in `web/app/` or `web/components/` is touched
+ * carries. Nothing in `web/app/` or `web/components/` is touched
  * to make a flow pass, and a flow that cannot find its element is a finding
  * about the UI's accessibility rather than a reason to reach for a CSS
  * selector.
  */
 
-/** One seeded person, exactly as `dev/scripts/e2e_accounts.py` prints them. */
+/** One seeded person, exactly as the e2e accounts script prints them. */
 export interface Principal {
   email: string;
   password: string;
@@ -32,9 +32,9 @@ let cached: Record<string, Principal> | null = null;
  * The seeded accounts, read once per worker from `E2E_ACCOUNTS_FILE`.
  *
  * A file rather than an env var per person, and derived rather than written
- * down: `dev/scripts/e2e_accounts.py` re-derives every password from the seed's
+ * down: the e2e accounts script re-derives every password from the seed's
  * own formula, so no password string exists in a spec, a fixture or
- * `.env.example` (a project rule, plan section 5).
+ * `.env.example`.
  */
 export async function accounts(): Promise<Record<string, Principal>> {
   if (cached !== null) {
@@ -113,10 +113,8 @@ export function decisionCard(page: Page): Locator {
  * NOT `getByRole("region", { name: "Sources" })`. `components/chat/citations.tsx`
  * renders an UNNAMED `<section>` whose first child is `<h2>Sources</h2>`, and a
  * `section` with no accessible name is not exposed as a `region` at all, so the
- * obvious query matches nothing. Located by the heading instead, and recorded
- * in the plan's Deviations: an earlier change section 3 lists `Sources` among the labels
- * the UI already carries, and on this surface it is a heading rather than a
- * label.
+ * obvious query matches nothing. Located by the heading instead, and noted
+ * here: `Sources` is a heading on this surface, not a label.
  */
 export function sources(page: Page): Locator {
   return page.locator("section").filter({ has: page.getByRole("heading", { name: "Sources" }) });

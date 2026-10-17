@@ -1,17 +1,17 @@
-"""An earlier change section 6: the `audit_events` table and its append-only trigger.
+"""The `audit_events` table and its append-only trigger.
 
 Expected implementation surface:
 
 ``helpdesk.models.audit.AuditEvent`` (also exported from ``helpdesk.models``)
-    A ``TenantScoped`` model on table ``audit_events`` with the the design
+    A ``TenantScoped`` model on table ``audit_events`` with these
     columns: ``seq`` (bigserial, DB-assigned), ``occurred_at``,
     ``actor_kind`` (``user``/``agent``/``system``), ``actor_ref``,
     ``session_id``, ``trace_id``, ``event_type``, ``subject_type``,
     ``subject_id``, ``payload`` (jsonb), ``prev_hash``, ``hash``.
 
 One Alembic revision creates the table, a ``(tenant_id, seq)`` index, and a
-trigger plus function that raise on UPDATE and DELETE (the design, an earlier change
-decision C). ``downgrade`` drops the trigger and the function explicitly, so
+trigger plus function that raise on UPDATE and DELETE. ``downgrade`` drops the trigger and the
+function explicitly, so
 downgrade → upgrade round-trips.
 
 These tests run Alembic against a pristine throwaway database (the
@@ -265,7 +265,7 @@ def test_update_and_delete_are_rejected_by_the_trigger(
     asyncio.run(scenario())
 
 
-@pytest.mark.slow  # an earlier change: 2.6s call, runs the audit migration down then up
+@pytest.mark.slow  # 2.6s call, runs the audit migration down then up
 def test_downgrade_then_upgrade_round_trips_with_the_trigger_intact(fresh_db_url: str) -> None:
     """The trigger and its function must be dropped explicitly."""
     _alembic("upgrade", "head", fresh_db_url)

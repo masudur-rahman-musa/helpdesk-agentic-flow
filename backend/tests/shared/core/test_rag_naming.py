@@ -1,4 +1,4 @@
-"""An earlier change §6: the four typed pre-checks in `helpdesk/rag/naming.py`.
+"""The four typed pre-checks in `helpdesk/rag/naming.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -8,9 +8,9 @@ Expected implementation surface (the implementer must provide exactly this):
     ``TITLE_LENGTH = 200`` — the `policy_documents.title` column width.
     ``SOURCE_PATH_LENGTH = 256`` — the `policy_documents.source_path` width.
     ``SLUG_PATTERN: re.Pattern[str]`` — a lowercase-hyphen slug.
-    ``VERSION_PATTERN: re.Pattern[str]`` — ``r"v[1-9][0-9]{0,3}"`` (decision G).
+    ``VERSION_PATTERN: re.Pattern[str]`` — ``r"v[1-9][0-9]{0,3}"``.
     ``InvalidPolicyNameError(ToolError)`` — ``code = ErrorCode.VALIDATION``.
-    ``COLLECTION_NAME_LENGTH = 71`` — an earlier change decision G: the Qdrant
+    ``COLLECTION_NAME_LENGTH = 71`` — the Qdrant
         collection name is an UNSIZED store (a URL path segment with no
         backstop of its own), so it gets a typed pre-check beside the four
         above. The value is ``len("policy_") + SLUG_LENGTH``.
@@ -26,13 +26,14 @@ Expected implementation surface (the implementer must provide exactly this):
     length against the SAME constant the column width is declared with, so
     the check cannot drift from the column.
 
-Length caps and the version pattern are pinned to their exact values here: a band would admit a wrong number, and a docstring is not
+Length caps and the version pattern are pinned to their exact values here: a band would admit a
+wrong number, and a docstring is not
 a record.
 
 The version cap is deliberately NOT boundary-tested as "accepted at 8":
 `VERSION_PATTERN` admits at most five characters (`v9999`), so no
 8-character version can ever be accepted and an "accepted at 8" row would be
-unsatisfiable by the shape this plan fixes. Pinned
+unsatisfiable by the shape this module fixes. Pinned
 instead: the constant's exact value, the longest pattern-valid version being
 accepted, and an 8-character candidate being refused — by the pattern rather
 than by the cap, which that case's docstring says out loud.
@@ -80,7 +81,7 @@ def _path_of_length(length: int) -> str:
 
 def test_the_four_length_caps_are_exactly_the_spec_values() -> None:
     """Catches an implementation that sizes a check or a column to any number
-    other than the design's 64/8/200/256, including one that widens the check
+    other than 64/8/200/256, including one that widens the check
     without widening the column it guards."""
     assert SLUG_LENGTH == 64
     assert VERSION_LENGTH == 8
@@ -90,7 +91,7 @@ def test_the_four_length_caps_are_exactly_the_spec_values() -> None:
 
 def test_the_version_pattern_is_exactly_decision_g() -> None:
     """Catches a version pattern that admits `v0`, `v01` or a five-digit
-    version — any pattern other than decision G's `v[1-9][0-9]{0,3}`, which
+    version — any pattern other than `v[1-9][0-9]{0,3}`, which
     is what the corpus directory names and the Qdrant payload filter agree
     on."""
     assert VERSION_PATTERN.pattern == r"v[1-9][0-9]{0,3}"
@@ -144,8 +145,8 @@ def test_a_value_one_over_the_cap_is_refused(check: Check, value: str, cap: int)
 
 
 def test_the_longest_pattern_valid_version_is_accepted() -> None:
-    """Catches a version check that caps the digits below decision G's three
-    optional ones, refusing `v9999` although both the pattern and the column
+    """Catches a version check that caps the digits below the three
+    optional digits the pattern allows, refusing `v9999` although both the pattern and the column
     hold it."""
     assert len("v9999") <= VERSION_LENGTH
     assert check_version("v9999") == "v9999"
@@ -212,7 +213,7 @@ def test_an_empty_slug_and_an_empty_version_are_refused() -> None:
         assert excinfo.value.code is ErrorCode.VALIDATION
 
 
-# --- an earlier change: the collection name, an unsized store (decision G) -------------
+# --- the collection name, an unsized store -------------
 
 COLLECTION_PREFIX = "policy_"
 
@@ -227,7 +228,7 @@ def test_the_collection_name_cap_is_exactly_the_prefix_plus_the_slug_cap() -> No
     derived from what a collection name IS: a cap under 71 would refuse the
     longest tenant `check_slug` accepts, and one over it would admit a name no
     valid tenant can produce, which makes the pair a duplicate check instead
-    of an earlier change §5's narrowing pair."""
+    of a narrowing pair."""
     assert COLLECTION_NAME_LENGTH == 71
     assert len(COLLECTION_PREFIX) + SLUG_LENGTH == COLLECTION_NAME_LENGTH
 

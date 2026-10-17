@@ -1,20 +1,20 @@
-"""An earlier change, sections 1 and 6: the three approval tools, through the transport.
+"""The three approval tools, through the transport.
 
 Surface under test (written before it exists):
 
 ``mcp_server.tools.approvals``
     ``list_pending_approvals(limit=50)`` — a registered READ tool (registry
     event ``tool.succeeded``) answering "what is waiting for ME": pending
-    rows in the caller's scope that carry an open slot this caller may fill
-    (decision G), oldest first, at most ``limit`` (decision H,
-    ``LIMIT_MIN = 1``, ``LIMIT_DEFAULT = 50``, ``LIMIT_MAX = 200``).
+    rows in the caller's scope that carry an open slot this caller may fill,
+    oldest first, at most ``limit``
+    (``LIMIT_MIN = 1``, ``LIMIT_DEFAULT = 50``, ``LIMIT_MAX = 200``).
     ``approve_request(request_id, comment?, idempotency_key)`` and
     ``reject_request(request_id, reason, idempotency_key)`` — MUTATING tools
-    that APPEND ``request.approved`` / ``request.rejected`` themselves
-    (decision I), recording the caller against exactly ONE open slot,
-    executing the grant through an earlier change's ``execute_grant`` when the last
-    slot is approved, and refusing a non-pending row ``POLICY_BLOCKED``
-    (decision J), a caller matching no open slot ``FORBIDDEN``, and an
+    that APPEND ``request.approved`` / ``request.rejected`` themselves,
+    recording the caller against exactly ONE open slot,
+    executing the grant through ``execute_grant`` when the last
+    slot is approved, and refusing a non-pending row ``POLICY_BLOCKED``,
+    a caller matching no open slot ``FORBIDDEN``, and an
     unknown or other-tenant ``request_id`` ``NOT_FOUND``.
     ``COMMENT_MAX_LENGTH = 2000``, ``REASON_MAX_LENGTH = 2000``.
 
@@ -23,10 +23,10 @@ snapshot, never as counts. The handlers append their domain
 event BEFORE execution and the pipeline's generic ``tool.succeeded`` lands
 last, so a completing approval reads ``request.approved``, ``grant.executed``,
 ``tool.succeeded`` in ``seq`` order — and an approval that completed a chain
-but FAILED execution (decision E) differs from it by the missing
+but FAILED execution differs from it by the missing
 ``grant.executed`` and nothing else.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: each case owns seeded users no other case decides for, plants its
@@ -81,13 +81,13 @@ LIST = "list_pending_approvals"
 APPROVE = "approve_request"
 REJECT = "reject_request"
 
-# the design's two decision events (the registry event_type of each deciding
-# tool, decision I) and the grant event an earlier change declares.
+# The two decision events (the registry event_type of each deciding
+# tool) and the grant event.
 REQUEST_APPROVED_EVENT = "request.approved"
 REQUEST_REJECTED_EVENT = "request.rejected"
 GRANT_EXECUTED_EVENT = "grant.executed"
-# The pipeline's own event for both deciding tools: they append their SPEC
-# §13.1 domain event themselves (decision I), because the pipeline's event
+# The pipeline's own event for both deciding tools: they append their domain
+# event themselves, because the pipeline's event
 # carries a fixed payload and the TOOL as its subject, which would record
 # that somebody called a tool and not which request they decided.
 SUCCEEDED_EVENT = "tool.succeeded"
@@ -105,7 +105,7 @@ PRODUCTION_MANAGER = ROWS.users_by_department["Production"][0]
 NOT_THE_MANAGER = ROWS.users_by_department["Production"][60]
 
 # The seeded HR officer (HR index 1) and auditor (index 1 of the auditor
-# department): the design gives neither a cell on the approval row.
+# department): the matrix gives neither a cell on the approval row.
 HR_OFFICER = ROWS.users_by_department["HR"][1]
 # The `prod-k8s` owner is an IT user carrying `system_owner`; the two seeded
 # `it_admin`s and the `platform_admin` follow the owners in the IT department.
@@ -144,7 +144,7 @@ LIMIT_TARGET_TWO = ROWS.users_by_department["Production"][56]
 EXTRA_ARG_TARGET = ROWS.users_by_department["Production"][57]
 NOT_PENDING_TARGET = ROWS.users_by_department["Production"][58]
 HR_SEAT_TARGET = ROWS.users_by_department["Production"][59]
-# An earlier change step 5: the chain an `hr` caller now completes, on its own target
+# The chain an `hr` caller now completes, on its own target
 # so the `it_admin` refusal case above keeps its own untouched row.
 HR_CHAIN_TARGET = ROWS.users_by_department["Production"][67]
 # Same tenant, another department: a cross-tenant target
@@ -163,7 +163,7 @@ GRANTABLE_ROLE = ROWS.role_ids[("grafana", "viewer")]
 CAPPED_ROLE = ROWS.role_ids[("hris", "viewer")]
 CRITICAL_CLASS_CAP_DAYS = 30
 ROLE_DEFAULT_EXPIRY_DAYS = 365
-# The seeded SoD pair (SoD-STD §2.1); Production's template holds neither.
+# The seeded SoD pair; Production's template holds neither.
 SOD_REQUEST_ROLE = ROWS.role_ids[("payments", "approver")]
 SOD_CONFLICTING_ROLE = ROWS.role_ids[("payments", "initiator")]
 # `prod-k8s` is owned by PROD_K8S_OWNER; `crm` is owned by somebody else, so
@@ -198,7 +198,7 @@ def _key() -> str:
 
 
 def _seat(slot: ApproverSlot, user_id: uuid.UUID | None = None) -> dict[str, Any]:
-    """One stored open seat, exactly the JSONB shape an earlier change writes."""
+    """One stored open seat, exactly the JSONB shape the create tool writes."""
     return {"slot": slot.value, "user_id": None if user_id is None else str(user_id)}
 
 
@@ -372,7 +372,7 @@ def _queue_ids(payload: dict[str, Any]) -> list[str]:
     return [str(entry["request_id"]) for entry in payload["approvals"]]
 
 
-# --- the queue: who sees what (criteria 1, 2 and 3) -----------------------------
+# --- the queue: who sees what -----------------------------
 
 
 def test_a_manager_sees_a_pending_row_in_their_department_that_names_them(
@@ -413,7 +413,7 @@ def test_a_manager_sees_a_pending_row_in_their_department_that_names_them(
 def test_the_scope_filter_alone_hides_a_row_whose_seat_names_the_caller(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule. The open seat NAMES the caller, so the eligibility
+    """The open seat NAMES the caller, so the eligibility
     filter admits this row and only the `own_department` scope refuses it:
     the target sits in Sales while the caller manages Production. Deleting
     the scope filter is the one change that flips this case, and both users
@@ -439,12 +439,12 @@ def test_the_scope_filter_alone_hides_a_row_whose_seat_names_the_caller(
 def test_the_seat_filter_alone_hides_a_row_in_the_callers_own_department(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule, the other half: the target IS in the caller's
+    """The other half: the target IS in the caller's
     department, so the scope filter admits the row and only the eligibility
     filter refuses it — the open seat names another Production user.
 
-    Without this case a queue with no eligibility filter (decision G's B
-    option, "everything pending in scope") passes every other queue test and
+    Without this case a queue with no eligibility filter (the
+    "everything pending in scope" option) passes every other queue test and
     shows a manager rows only somebody else can move.
     """
     manager = _seeded(PRODUCTION_MANAGER)
@@ -470,7 +470,7 @@ def test_the_managers_department_comes_from_the_directory_not_the_token(
 ) -> None:
     """Catches the `own_department` filter reading the token's
     `department_id` claim instead of the caller's current directory row
-    (criterion 2).
+    .
 
     The token is minted while the manager is in Production and is NOT
     reissued; the manager's row then moves to Sales. Two rows are planted,
@@ -515,7 +515,7 @@ def test_a_manager_and_system_owner_caller_sees_the_union_of_both_queues(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
     """Catches the handler reading `Authorization.scope` instead of
-    `.scopes` — criterion 3, the narrowing an earlier change recorded and 11a re-owed.
+    `.scopes` — the narrowing to the caller's scope list.
 
     `own_department` is WIDER than `own_systems` in the total order, so a
     caller holding both principals collapses to `own_department` alone and
@@ -553,7 +553,7 @@ def test_a_manager_and_system_owner_caller_sees_the_union_of_both_queues(
 def test_the_queue_is_oldest_first_and_stops_at_the_limit(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Catches a `limit` accepted and ignored — decision H's unbounded
+    """Catches a `limit` accepted and ignored — the unbounded
     response over the wire — and an unordered queue, which starves the oldest
     request. The approver here is named on no other case's seat, so their
     queue is exactly these two rows and the order is an exact list."""
@@ -595,7 +595,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
     limit: int,
     accepted: bool,
 ) -> None:
-    """Catches decision H's bounds being absent or exclusive. Both ends are
+    """Catches the `limit` bounds being absent or exclusive. Both ends are
     asserted in both directions: a one-sided check cannot tell an inclusive
     bound from an exclusive one, and an unbounded `limit` is an unbounded
     response over the wire."""
@@ -631,7 +631,7 @@ def test_the_queue_ignores_an_unknown_argument(
     assert result.is_error is False, result.content
 
 
-# --- the design's denials on the approval row --------------------------------------
+# --- the matrix denials on the approval row --------------------------------------
 
 
 @pytest.mark.parametrize("tool_name", [LIST, APPROVE, REJECT])
@@ -639,13 +639,13 @@ def test_an_hr_officer_reaches_all_three_approval_tools(
     mcp_env: SeededMcp,  # noqa: F811
     tool_name: str,
 ) -> None:
-    """An earlier change decision J / a design note, rewritten from an earlier change's FORBIDDEN
+    """Rewritten from the FORBIDDEN
     expectation. Catches the `hr` cells being dropped
-    again from the design's three approval rows.
+    again from the three approval rows of the matrix.
 
-    §9.3 puts an `hr` seat on a `critical` HRIS chain and §7's approval rows
+    An `hr` seat sits on a `critical` HRIS chain and the approval rows
     gave `hr` no cell, so that seat was fillable by nobody and such a request
-    parked in `pending` for ever; a design note settles it by adding `hr` at
+    parked in `pending` for ever; the fix was adding `hr` at
     `Scope.ANY`, the scope `hr` already holds on every other row it appears
     in. The row stays pinned in BOTH directions rather than deleted: this
     case is the allow direction, and the matrix sweep's denial rows are the
@@ -677,8 +677,8 @@ def test_an_hr_officer_reaches_all_three_approval_tools(
 def test_an_hr_caller_fills_the_hr_seat_of_a_critical_hris_chain_and_it_completes(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """The half of decision J that the matrix cell alone does not prove: the
-    §9.3 seat is now actually fillable, end to end.
+    """The half of the `hr` change that the matrix cell alone does not prove: the
+    HR seat is now actually fillable, end to end.
 
     An `hr` cell on the matrix would still leave the chain stuck if the seat
     rule refused the caller — the case below shows an `it_admin` cannot fill
@@ -725,8 +725,8 @@ def test_an_it_admin_may_not_fill_the_hr_seat_a_critical_hris_chain_names(
 ) -> None:
     """The seat rule, which the matrix cell above cannot reach: catches a
     group seat matched against "any group principal", which would let an
-    `it_admin` fill an `hr` seat and silently shorten the §9.3 chain the seat
-    exists for. Since a design note the `hr` caller reaches these tools, so this
+    `it_admin` fill an `hr` seat and silently shorten the chain the seat
+    exists for. Now the `hr` caller reaches these tools, so this
     refusal is the only thing keeping the seat meaning what it names.
 
     The caller's matrix cell ALLOWS `approve_request` (`it_admin`, scope
@@ -759,13 +759,13 @@ def test_an_it_admin_may_not_fill_the_hr_seat_a_critical_hris_chain_names(
     assert events_after == [*events_before, DENIED_EVENT]
 
 
-# --- approving (criteria 4, 5, 6 and 7) -----------------------------------------
+# --- approving -----------------------------------------
 
 
 def test_approving_one_of_two_open_slots_leaves_the_row_pending_and_grants_nothing(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 7. Catches a handler that executes on the FIRST approval —
+    """Catches a handler that executes on the FIRST approval —
     a two-seat chain reduced to one approver is the control halved — and one
     that marks the row `approved` while a seat is still open.
 
@@ -816,13 +816,13 @@ def test_approving_one_of_two_open_slots_leaves_the_row_pending_and_grants_nothi
 def test_approving_the_last_open_slot_grants_once_with_the_fresh_expiry(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 6. Catches an approval that completes the chain and never
+    """Catches an approval that completes the chain and never
     executes (the request would sit `approved` with no access), one that
     executes twice, and an expiry taken from the request rather than from a
     FRESH classification: the role's own default is 365 days and the request
     asked for 365, but the request classifies `critical`, whose cap is 30.
 
-    The audit delta is the exact ordered list, which is decision I: the
+    The audit delta is the exact ordered list, which matters: the
     pipeline appends the tool's declared event AFTER the body, so
     `grant.executed` lands before `request.approved`. A handler appending
     `request.approved` itself would produce it twice, and a count would not
@@ -881,12 +881,12 @@ def test_approving_the_last_open_slot_grants_once_with_the_fresh_expiry(
 def test_a_conflict_planted_while_the_request_waits_fails_the_row_without_a_grant(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 9 and decision E, the design's "SoD at execution" row.
+    """The SoD re-check at execution.
 
     Catches an approve path that trusts the classification stored on the
     request instead of re-classifying at execution (the conflicting grant is
     written AFTER the row is planted, so it exists only in the state a
-    re-check would see), and catches decision E being implemented as B: the
+    re-check would see), and catches a failed re-check being treated as a refusal: the
     call must SUCCEED carrying `SOD_CONFLICT` with the row marked `failed`,
     because the approval really happened and the audit trail must keep it.
     Raising instead would roll the row back to `pending` and lose it.
@@ -933,9 +933,9 @@ def test_a_conflict_planted_while_the_request_waits_fails_the_row_without_a_gran
 def test_a_replay_of_a_failed_approval_returns_the_stored_response(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """An earlier change §5's last risk, pinned so it cannot later read as a bug.
+    """A known trap, pinned so it cannot later read as a bug.
 
-    Decision E stores a `failed` outcome against the idempotency key, so
+    A failed grant stores a `failed` outcome against the idempotency key, so
     every retry of that key replays `failed` rather than re-attempting the
     decision. Catches a replay rebuilt rather than replayed (the bytes
     differ), a retry that re-runs the body — which would re-classify, and a
@@ -969,7 +969,7 @@ def test_a_replay_of_a_failed_approval_returns_the_stored_response(
 def test_a_caller_matching_no_open_slot_is_refused_and_writes_nothing(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 4's refusal. Catches a handler that records whoever calls
+    """The refusal. Catches a handler that records whoever calls
     against the first open seat: the caller's matrix cell allows the tool
     (`platform_admin`, scope `any`) and the row is pending in their tenant,
     so only the seat rule can refuse — the open seat names a different
@@ -1010,7 +1010,7 @@ def test_a_party_to_the_request_is_refused_even_holding_the_seats_principal(
     mcp_env: SeededMcp,  # noqa: F811
     party: str,
 ) -> None:
-    """Criterion 5, and an earlier change's owed marker discharged end to end: the
+    """The owed marker, end to end: the
     engine cannot see whether the requester is an `it_admin`, so if this
     handler does not exclude the parties, an it_admin files a request for
     themselves and signs their own `critical` chain.
@@ -1089,7 +1089,7 @@ def test_another_tenants_request_and_a_missing_one_answer_the_same_way(
     mcp_env: SeededMcp,  # noqa: F811
     tool_name: str,
 ) -> None:
-    """Criterion 11. Catches a lookup that escapes the tenant guard, and one
+    """Catches a lookup that escapes the tenant guard, and one
     that distinguishes the two absences: if another tenant's id answered
     `FORBIDDEN` (or `POLICY_BLOCKED`) while an unknown id answered
     `NOT_FOUND`, the seam would be an id oracle — an approver could probe
@@ -1123,7 +1123,7 @@ def test_a_row_that_is_not_pending_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
     tool_name: str,
 ) -> None:
-    """Decision J, pinned by code. Catches `FORBIDDEN` (which would tell an
+    """Catches `FORBIDDEN` (which would tell an
     approver who simply arrived second that they lack permission, filing a
     race as a denial in the audit log) and `NOT_FOUND` (a lie about a row the
     caller can see in their own queue).
@@ -1152,7 +1152,7 @@ def test_a_row_that_is_not_pending_is_refused_policy_blocked(
 def test_two_approvers_racing_the_last_slot_produce_exactly_one_grant(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 10 and decision F, the failure the design names explicitly.
+    """The double-approval race, named explicitly.
 
     Two different approvers send two different idempotency keys, so the
     idempotency guard cannot serialise them at all; only the `SELECT … FOR
@@ -1196,15 +1196,15 @@ def test_two_approvers_racing_the_last_slot_produce_exactly_one_grant(
     assert len(_grants_for_request(mcp_env.database_url, request_id)) == 1
 
 
-# --- rejecting (criterion 8) ----------------------------------------------------
+# --- rejecting ----------------------------------------------------
 
 
 def test_rejecting_stores_the_reason_on_the_slot_and_grants_nothing(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 8. Catches a rejection that executes anyway (any grant here
+    """Catches a rejection that executes anyway (any grant here
     is the LLM-free mutation guarantee broken), one that loses the reason —
-    the only record of WHY access was refused, which the design keeps for the
+    the only record of WHY access was refused, which the audit keeps for the
     audit — and one that writes `request.approved` for a rejection, which the
     exact audit delta catches where a count would not."""
     manager = _seeded(PRODUCTION_MANAGER)
@@ -1249,7 +1249,7 @@ def test_rejecting_stores_the_reason_on_the_slot_and_grants_nothing(
 def test_one_rejection_ends_the_chain_for_a_later_approver(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 8's second half. Catches a chain-complete predicate reading
+    """The second half. Catches a chain-complete predicate reading
     "no open seats" without looking at the decisions: the `it_admin` seat is
     still open after the rejection, so an approver arriving second must be
     refused typed rather than allowed to finish (and execute) a request that
@@ -1309,7 +1309,7 @@ def test_the_comment_boundary_is_inclusive_at_2000(
     """Catches the bound being absent or off by one. The comment lands in the
     unbounded `approvals` JSONB, so nothing downstream refuses an oversized
     one: without this check 2001 characters are stored, not rejected, and the
-    cap exists only in the plan. The refused side asserts
+    cap exists only on paper. The refused side asserts
     the row is untouched, so the check runs BEFORE any effect."""
     manager = _seeded(PRODUCTION_MANAGER)
     comment = "c" * length
@@ -1492,7 +1492,7 @@ def test_one_person_cannot_fill_two_seats_of_the_same_chain(
 def test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """The seat and the design's scope are two obligations, not one.
+    """The seat and the matrix scope are two checks, not one.
 
     The seat NAMES this caller, the row is pending, they are no party and the
     matrix allows the tool, so every other guard admits the call: only the
@@ -1543,7 +1543,7 @@ def test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department
 def test_the_decision_event_names_the_request_and_the_seat(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision I's whole reason. Catches the domain event being dropped in
+    """The reason the handler writes its own domain event. Catches the domain event being dropped in
     favour of the pipeline's declared one, whose payload is `{"tool",
     "scope"}` and whose subject is the TOOL name: the audit log would record
     that somebody called `approve_request` and never which request they
@@ -1590,7 +1590,7 @@ def test_the_decision_event_names_the_request_and_the_seat(
     assert payload["chain_complete"] is False
 
 
-# --- an earlier change: the widened queue row (§1 criteria 1, 2 and 3) ------------------
+# --- the widened queue row ------------------
 #
 # Surface under test (written before it exists; every case below is red on one
 # of these names until step 1 lands):
@@ -1604,21 +1604,20 @@ def test_the_decision_event_names_the_request_and_the_seat(
 #     the same read, joined to role, system, target and requester, so the
 #     names arrive WITH each request row rather than being looked up per row.
 #
-# Shapes this file fixes that the plan left open (a project rule and 55;
-# these belong in 23c's Deviations):
+# Shapes this file fixes that the plan left open:
 # - the five name fields are STRINGS, and ``decision_reasons`` / ``citations``
 #   come back as the JSONB columns hold them (a list of strings and a list of
-#   objects), exactly as 23a's widening of ``AccessRequestSummary`` renders
+#   objects), exactly as the widening of ``AccessRequestSummary`` renders
 #   them in ``test_mcp_access_read_tools.py``.
 # - nothing about ``approvals``, ``my_slot`` or the twelve existing fields
-#   changes: the widening is additive, which is why §3 keeps
-#   ``test_mcp_rbac_matrix.py`` and ``test_agent_gates.py`` out of the diff.
+#   changes: the widening is additive, so the matrix and gate tests
+#   need no edit.
 #
 # Isolation is the existing namespace: the session-scoped
 # ``mcp_env`` schema, an approver named on no other case's seat, and rows
 # planted through this module's own helpers. No new fixture.
 
-# The twenty fields of §1, written out rather than derived: a set built by
+# The twenty fields, written out rather than derived: a set built by
 # comprehension over the model would agree with any implementation.
 EXPECTED_PENDING_FIELDS = frozenset(
     {
@@ -1645,7 +1644,7 @@ EXPECTED_PENDING_FIELDS = frozenset(
     }
 )
 
-# The stored engine trace the design asks the queue to show. Obviously fake
+# The stored engine trace the queue shows. Obviously fake
 # and shaped like `mcp_server.tools.access.Citation` as WRITTEN:
 # five fields, `heading_path` a string.
 QUEUED_REASONS = ["NOT_IN_TEMPLATE", "SOD_CLEAR", "APPROVAL_REQUIRED"]
@@ -1744,7 +1743,7 @@ def _pending_row(payload: dict[str, Any], request_id: uuid.UUID) -> dict[str, An
 def test_the_widened_queue_row_carries_exactly_the_twenty_planned_fields(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Catches a widening that drops one of §1's eight new fields AND one that
+    """Catches a widening that drops one of the eight new fields AND one that
     carries a spare (a `system_id`, the raw `approver_user_ids`, a
     `requester_email`): the key set is asserted as an exact set, so both
     directions fail.
@@ -1771,7 +1770,7 @@ def test_the_widened_queue_row_carries_exactly_the_twenty_planned_fields(
 def test_the_queue_names_come_from_the_directory_rows_the_ids_point_at(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 2. Catches the five name fields being filled from anything
+    """Catches the five name fields being filled from anything
     but the rows their ids point at.
 
     Four kills in one shape, none of them decidable by another guard:
@@ -1823,7 +1822,7 @@ def test_the_queue_names_come_from_the_directory_rows_the_ids_point_at(
 def test_the_queue_row_carries_the_stored_decision_trace(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 3, the design's "full decision trace" on the row. Catches
+    """The full decision trace on the row. Catches
     `decision_reasons` and `citations` rendered as empty lists — the shape an
     implementer gets for free by defaulting the two new fields — which would
     show an approver a risk class with no reasons and no sources behind it,
@@ -1856,7 +1855,7 @@ def test_the_queue_row_carries_the_stored_decision_trace(
 def test_several_pending_seats_come_back_once_each_despite_the_joins(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """§5's second risk: one statement with four joins that multiplies rows.
+    """A join risk: one statement with four joins that multiplies rows.
 
     Catches a join to `users` written without its `ON` clause narrowing to the
     request's own two people — the shape that returns one copy of the request
@@ -1872,7 +1871,8 @@ def test_several_pending_seats_come_back_once_each_despite_the_joins(
 
     The approver holds `it_admin`, whose scope is `any`, so the queue is every
     pending request the TENANT carries and not only the three planted here -
-    the other cases in this module plant into the same session-scoped database. What is asserted is therefore the two things a bad join
+    the other cases in this module plant into the same session-scoped database
+    . What is asserted is therefore the two things a bad join
     breaks: no request appears twice anywhere in the queue, and the three
     planted ones are all present, in the order they were filed.
     """

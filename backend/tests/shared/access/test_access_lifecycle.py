@@ -1,29 +1,29 @@
-"""An earlier change, sections 1 and 6: `onboard_user`, called directly over the seed.
+"""`onboard_user`, called directly over the seed.
 
 Surface under test (written before it exists):
 
 ``helpdesk.access.lifecycle``
-    ``USER_ONBOARDED_EVENT_TYPE = "user.onboarded"`` (the design).
+    ``USER_ONBOARDED_EVENT_TYPE = "user.onboarded"``.
     ``UNUSABLE_PASSWORD_HASH`` — the sentinel written into the NOT NULL
-    `users.password_hash` of a joiner who has no credential yet (decision C).
+    `users.password_hash` of a joiner who has no credential yet.
     ``JOINER_PRINCIPALS = ("employee",)`` — a fixed constant, never an input
-    (decision D).
-    ``DuplicateEmailError(ToolError)`` — `code = POLICY_BLOCKED` (decision G).
+.
+    ``DuplicateEmailError(ToolError)`` — `code = POLICY_BLOCKED`.
     ``async def onboard_user(session, directory, *, email, display_name,
     department_id, start_date, manager_user_id, created_by_user_id,
     actor_ref=None, session_id=None, now) -> OnboardResult`` — creates one
     `users` row in the BOUND tenant, applies every role of that department's
-    `role_templates` set through `helpdesk.access.execute_grant` (decision A),
-    and appends one `user.onboarded` naming the NEW USER (decision F), all in
+    `role_templates` set through `helpdesk.access.execute_grant`,
+    and appends one `user.onboarded` naming the NEW USER, all in
     the caller's transaction. ``OnboardResult`` carries ``user``, ``applied``
     (the grants written) and ``skipped`` (records of ``role_id`` and
-    ``reason_code`` for the template roles the engine refused, decision B).
+    ``reason_code`` for the template roles the engine refused).
 
 ``helpdesk.access.directory``
     ``DirectoryProvider.create_user(...)`` and
     ``DirectoryProvider.list_department_role_ids(department_id)``.
 
-a project rule: the seeded database is `test_access_snapshot.py`'s
+The seeded database is `test_access_snapshot.py`'s
 session-scoped `access_db_url` fixture, imported rather than rebuilt (argon2
 seeding is the slow part of this suite). Per-test isolation inside it is a
 namespace: each case creates its OWN department (a fresh uuid name) with its
@@ -100,8 +100,8 @@ TEMPLATE_ROLES = (HRIS_VIEWER, WIKI_VIEWER, PLM_ENGINEER)
 EXPECTED_EXPIRY_DAYS = {HRIS_VIEWER: 30, WIKI_VIEWER: 180, PLM_ENGINEER: 180}
 ROLE_DEFAULT_EXPIRY_DAYS = {HRIS_VIEWER: 365, WIKI_VIEWER: 365, PLM_ENGINEER: 180}
 
-# The seeded SoD pair (rule SoD-STD §2.1). A department template naming BOTH
-# is a data defect, and decision B says it costs the joiner one role, not the
+# The seeded SoD pair (the standard separation-of-duties rule). A department template naming BOTH
+# is a data defect, and the design says it costs the joiner one role, not the
 # whole onboarding.
 SOD_ROLE_A = ROWS.role_ids[("payments", "initiator")]
 SOD_ROLE_B = ROWS.role_ids[("payments", "approver")]
@@ -205,7 +205,7 @@ def _onboard(
     Every fact is copied out INSIDE the transaction that wrote it, which is
     also what proves the transaction survived a skipped role: a refusal raised
     after a statement had been issued would poison it, and both this read and
-    the commit at the end of the block would fail (plan §5).
+    the commit at the end of the block would fail.
     """
 
     async def scenario() -> OnboardFacts:
@@ -413,13 +413,13 @@ def _user_count(url: str) -> int:
     return asyncio.run(scenario())
 
 
-# --- the template, applied through the engine (criteria 1 and 2) ----------------
+# --- the template, applied through the engine ----------------
 
 
 def test_the_whole_template_is_applied_with_the_engines_expiry_not_the_roles(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Catches decision A regressing to `apply_grant` with the role's own
+    """Catches a regression to `apply_grant` with the role's own
     `default_expiry_days`.
 
     Two of the three template roles have an engine number BELOW their column
@@ -432,9 +432,9 @@ def test_the_whole_template_is_applied_with_the_engines_expiry_not_the_roles(
     fails the premise rather than silently rewriting the expectation.
 
     Also catches a joiner row that carries the caller's principals instead of
-    the fixed `("employee",)` (decision D — an HR caller minting an `it_admin`
+    the fixed `("employee",)` (an HR caller minting an `it_admin`
     is a privilege-escalation path), a real credential instead of the
-    unusable sentinel (decision C), and a template applied by fewer grants or
+    unusable sentinel, and a template applied by fewer grants or
     fewer `grant.executed` events than roles.
     """
     department_id = _make_department(access_db_url, TEMPLATE_ROLES)
@@ -490,7 +490,7 @@ def test_an_empty_template_creates_the_user_and_applies_nothing(
     falls back to some default role set when the department names none.
 
     A department with no `role_templates` row is a valid directory state, and
-    §1 says `applied` is `[]` — not a refusal, and not "every role in the
+    the contract says `applied` is `[]` — not a refusal, and not "every role in the
     tenant". The grant table is re-read for the new user, so an implementation
     that returned `[]` while writing a grant anyway fails here, and the
     `grant.executed` count is asserted unchanged so no event can claim access
@@ -513,11 +513,11 @@ def test_an_empty_template_creates_the_user_and_applies_nothing(
 def test_a_template_role_in_sod_conflict_is_skipped_and_the_rest_stand(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision B, and the whole reason decision A routes through the engine.
+    """The whole reason the onboarding routes through the engine.
 
-    The department's template names both halves of seeded rule SoD-STD §2.1,
+    The department's template names both halves of the seeded standard separation-of-duties rule,
     so whichever of the pair is applied second is refused by `execute_grant`'s
-    §9.5 re-check. Catches three wrong implementations at once: one that fails
+    re-check. Catches three wrong implementations at once: one that fails
     the entire onboarding on a refused role (the joiner would be left with
     nothing because of one bad template row), one that swallows the refusal
     silently (`skipped` empty, so nobody ever learns the template is broken),
@@ -527,8 +527,8 @@ def test_a_template_role_in_sod_conflict_is_skipped_and_the_rest_stand(
 
     The neighbouring role and the surviving half of the pair are asserted LIVE
     after the refusal, which is the "every other applied grant still stands"
-    half of §1: a refusal raised after a statement had been issued would
-    poison the transaction and take them with it (plan §5).
+    half of the contract: a refusal raised after a statement had been issued would
+    poison the transaction and take them with it.
 
     Order-agnostic on purpose: which half of the pair loses depends on the
     order `list_department_role_ids` answers in, and pinning that order here
@@ -554,13 +554,13 @@ def test_a_template_role_in_sod_conflict_is_skipped_and_the_rest_stand(
     }, "a refused role writes no grants row at all, not even a dead one"
 
 
-# --- the duplicate email (decision G) ------------------------------------------
+# --- the duplicate email ------------------------------------------
 
 
 def test_a_duplicate_email_is_refused_before_any_write(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Catches decision G's alternative: letting the unique index raise.
+    """Catches the alternative: letting the unique index raise.
 
     An `IntegrityError` reaches the caller as `INTERNAL` — a caller-caused
     condition reported as a server fault — and by then the pre-check's other
@@ -610,7 +610,7 @@ def test_the_onboard_constants_and_error_code_are_exactly_the_spec_values() -> N
 
 
 def test_the_unusable_password_hash_verifies_against_nothing() -> None:
-    """Decision C: catches a joiner sentinel that some input can match.
+    """Catches a joiner sentinel that some input can match.
 
     `verify_password` answers False for a malformed hash and False for a
     mismatch, so the empty password and an arbitrary one are both asked: an
@@ -627,20 +627,20 @@ def test_the_unusable_password_hash_verifies_against_nothing() -> None:
     assert verify_password(UNUSABLE_PASSWORD_HASH, UNUSABLE_PASSWORD_HASH) is False
 
 
-# --- the audit record (criterion 3, a project rule) ---------------------------
+# --- the audit record ---------------------------
 
 
 def test_user_onboarded_names_the_new_user_and_carries_exactly_six_keys(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """a project rule and decision F: catches an event whose subject is the
+    """Catches an event whose subject is the
     department, the caller or the tool rather than the NEW USER, and one whose
     payload has drifted.
 
     An auditor asking "how did this person get their access" queries
     `subject_id`; an event subject naming anything else answers that question
     for nobody, while a count-only assertion still passes. The payload keys are
-    compared as an exact set, so a dropped `manager_user_id` (decision E's only
+    compared as an exact set, so a dropped `manager_user_id` (the only
     record of who the joiner reports to — there is no column for it) or a
     dropped `skipped_role_ids` (the only record that the template was not fully
     applied) fails here. Both role lists are compared by value against what the

@@ -5,9 +5,7 @@ import { proxyAgentApi } from "@/lib/agent-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change §1's second unhappy path: "a proxied call that answers 401 clears
- * the cookie and redirects to /login". §6 named no case for it (recorded in
- * 22a's Deviations, along with the fact that its first caller is an earlier change).
+ * A proxied call that answers 401 clears the cookie and redirects to /login.
  *
  * `next/headers`' `cookies()` only exists inside a request scope, so it is
  * mocked here — the module under test is the proxy, not Next's store.
@@ -44,7 +42,7 @@ afterEach(() => {
 describe("proxyAgentApi", () => {
   it("sends the bearer from the cookie and never in the URL", async () => {
     // Kills a proxy that puts the token in a query string, where it lands in
-    // every access log and browser history entry (§1, criterion 3).
+    // every access log and browser history entry.
     fetchStub.mockResolvedValue(new Response("{}", { status: 200 }));
     await proxyAgentApi("/me");
     const call = fetchStub.mock.calls[0];
@@ -59,7 +57,9 @@ describe("proxyAgentApi", () => {
   it("clears the cookie and redirects to /login on a 401", async () => {
     // Kills a proxy that passes the 401 through: the stale cookie survives, so
     // every later call fails the same way with nothing telling the user why.
-    fetchStub.mockResolvedValue(new Response(JSON.stringify({ code: "FORBIDDEN" }), { status: 401 }));
+    fetchStub.mockResolvedValue(
+      new Response(JSON.stringify({ code: "FORBIDDEN" }), { status: 401 }),
+    );
     const response = await proxyAgentApi("/me");
     expect(response.headers.get("location")?.endsWith("/login")).toBe(true);
     const cookies = response.headers.getSetCookie();

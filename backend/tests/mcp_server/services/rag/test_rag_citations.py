@@ -1,21 +1,21 @@
-"""An earlier change §6: the citation shape and its single title query (§1, decision E).
+"""The citation shape and its single title query.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``helpdesk.rag.retrieval``
     ``@dataclass(frozen=True) class Citation`` — EXACTLY ``document_slug``,
         ``title``, ``version``, ``heading_path``, ``chunk_id``, ``text``,
-        ``score`` (§1). ``chunk_id`` is the Qdrant point id, so it joins one
+        ``score``. ``chunk_id`` is the Qdrant point id, so it joins one
         ``policy_chunks`` row through ``qdrant_point_id``.
     ``async def search_policy_chunks(session, client, *, tenant_slug: str,
         query: str, embedder: Embedder, top_k: int = TOP_K_DEFAULT)
         -> list[Citation]`` — the two arms, fused, with ``title`` resolved
         from ``policy_documents`` in ONE query for the whole page and never
-        from the point payload (which carries no title, decision E).
+        from the point payload (which carries no title).
     A hit whose ``document_id`` has no ``policy_documents`` row raises a
-    typed ``ToolError`` rather than returning a blank title (§1). The code is
-    the implementer's to choose: the plan fixes "raises", not which of SPEC
-    §8.1's codes, so nothing here pins one.
+    typed ``ToolError`` rather than returning a blank title. The code is
+    the implementer's to choose: the contract fixes "raises", not which of
+    the contract's codes, so nothing here pins one.
 
     The store call these cases stand in for is
     ``client.query_points(name, query=..., using=..., limit=...,
@@ -24,12 +24,12 @@ Expected implementation surface (the implementer must provide exactly this):
     come back as STRINGS, as the real store returns them for the string ids
     ``vectors.upsert_chunks`` writes.
 
-Postgres only (plan §6): the store is a stub whose two arms are canned, so
+Postgres only: the store is a stub whose two arms are canned, so
 the title resolution is exercised with the page the case chose and no
 collection is touched. The embedder is a fake for the same reason
-`test_rag_chunking.py` uses one — no file in this plan loads a model.
+`test_rag_chunking.py` uses one — no file in this change loads a model.
 
-a project rule: the database is `test_policy_models.py`'s session-scoped
+The database is `test_policy_models.py`'s session-scoped
 `policy_db_url`, imported rather than rebuilt, and the tenant is the one it
 seeds. Per-test isolation is a namespace: every case registers its own
 uuid-suffixed document slugs.
@@ -71,7 +71,7 @@ from tests.shared.models.test_policy_models import (
 
 INGESTED_AT = datetime(2026, 5, 4, 9, 30, tzinfo=UTC)
 
-# §1's citation fields, as an exact set: an eighth field is the internal dense
+# The contract's citation fields, as an exact set: an eighth field is the internal dense
 # score leaking to the model, a missing one is a citation that cannot be
 # rendered.
 CITATION_FIELDS = frozenset(
@@ -281,7 +281,7 @@ async def _tenant_id(factory: async_sessionmaker[AsyncSession], slug: str) -> uu
 def test_the_citation_carries_exactly_the_seven_spec_fields() -> None:
     """Catches a `Citation` that forwards the internal dense cosine or the
     `document_id` to the model, and one that drops `title` back onto the
-    payload: §1 fixes the set exactly, so both directions fail here."""
+    payload: the contract fixes the set exactly, so both directions fail here."""
     assert frozenset(field.name for field in fields(Citation)) == CITATION_FIELDS
 
 
@@ -289,7 +289,7 @@ def test_the_citation_carries_exactly_the_seven_spec_fields() -> None:
 
 
 def test_the_title_is_the_documents_own_row(policy_db_url: str) -> None:  # noqa: F811
-    """Catches a title read from the point payload (decision E: there is no
+    """Catches a title read from the point payload (there is no
     title key there, so it arrives blank) or synthesised from the document
     slug: the planted row's title is prose the slug cannot produce."""
     title = "Fake Physical Access Policy"
@@ -376,7 +376,7 @@ def test_every_returned_chunk_id_selects_exactly_one_chunk_row(
 def test_a_page_over_three_documents_issues_one_title_query(
     policy_db_url: str,  # noqa: F811
 ) -> None:
-    """Catches a title resolved per hit (§1, decision E): six hits over three
+    """Catches a title resolved per hit: six hits over three
     documents would then issue three to six reads of `policy_documents` and
     return exactly the same citations, so only the statement count separates
     the two. Recording starts after the planting, so the registrations'
@@ -480,8 +480,7 @@ def test_a_hit_whose_document_row_is_gone_raises_instead_of_a_blank_title(
 
     The hit's `chunk_id` is a chunk row that DOES exist, planted under
     another document, so a missing-chunk guard cannot be what refuses this
-    page — only the title lookup can (the arranged case a project rule
-    asks for)."""
+    page — only the title lookup can (the arranged case that is needed)."""
 
     async def work(
         factory: async_sessionmaker[AsyncSession], recorder: QueryRecorder
@@ -499,7 +498,7 @@ def test_a_hit_whose_document_row_is_gone_raises_instead_of_a_blank_title(
         assert deleted, "the doomed document row was not deleted"
 
         # A point whose payload names the deleted document while its id is the
-        # surviving chunk's: exactly §1's "document_id has no row".
+        # surviving chunk's: exactly the contract's "document_id has no row".
         orphan = StubPoint(
             id=str(live.point_ids[0]),
             score=0.88,

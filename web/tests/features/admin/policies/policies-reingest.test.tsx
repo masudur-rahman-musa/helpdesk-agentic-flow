@@ -15,39 +15,38 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { NOT_LIVE_VERSION_TEXT } from "@/features/admin/policies/format";
 
 /**
- * An earlier change §6, `policies-reingest.test.tsx`: the per-version re-ingest control —
+ * `policies-reingest.test.tsx`: the per-version re-ingest control —
  * one control per distinct version, an arming on the dangerous direction, one
  * POST — against a stubbed `fetch`. jsdom, no agent-api, no backing service.
- * (No basename collision in the tree, a project rule: the neighbours are
+ * (The neighbours are
  * `policies-board.test.tsx`, `policies-format.test.ts`,
  * `policies-schema.test.ts` and `policies-proxy-routes.test.ts`.)
  *
  * The control is NOT rendered standalone: it holds `useMutation` and is a child
  * of `PoliciesBoard`, so every case here renders `<PoliciesBoard />` inside
- * `QueryProvider` (§6, a project rule) against a stub that answers the board
+ * `QueryProvider` against a stub that answers the board
  * on `GET /api/admin/policies` and the control on
  * `POST /api/admin/policies/reingest`. The reingest path CONTAINS the board
  * path, so every call assertion in this file discriminates on the exact
  * `pathname` and never on `includes`.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 31b's Deviations):
+ * Shapes this file fixes:
  * - the component is `PoliciesReingest` from
  *   `web/src/features/admin/policies/components/policies-reingest.tsx`. No case imports it: the board
  *   is the only renderer, exactly as `killswitch-toggle.test.tsx` never imports
  *   `KillSwitchToggle`, so its PROP SHAPE stays the implementation's business
- *   and the SENTENCES are what this file imports. §2's division — the arming
+ *   and the SENTENCES are what this file imports. The division of state — the arming
  *   and the in-flight flag per version, the query key private to the board — is
  *   therefore pinned by BEHAVIOUR here (the disarm case and the in-flight case)
  *   rather than by a signature, which is the only form in which "an arming that
  *   survived an unrelated click" is even expressible.
  * - `onChanged` is observed as the board's second `GET /api/admin/policies`
  *   rather than as a spy, for the same reason: the callback is the board's and
- *   this file renders the board. §6's "`onChanged` called exactly once" reads
+ *   this file renders the board. "`onChanged` called exactly once" reads
  *   here as "exactly two board reads, the paint and the invalidation", and a
  *   control that never invalidated makes exactly one.
  * - `REINGEST_CREATED_TEXT` is a FUNCTION `(chunkCount: number, isCurrent:
- *   boolean) => string`: §1 wants the exact `chunk_count` AND whether the
+ *   boolean) => string`: the line needs the exact `chunk_count` AND whether the
  *   version is now live in that line, and both are runtime values.
  *   `REINGEST_UNCHANGED_TEXT` is a plain string: an unchanged source has no
  *   number worth printing (`chunk_count` is 0 because nothing was written).
@@ -61,7 +60,7 @@ import { NOT_LIVE_VERSION_TEXT } from "@/features/admin/policies/format";
  *   fixed; the pathname is.
  * - the control is located by its accessible name, `Re-ingest {slug}
  *   {version}`, and the armed form is `Confirm re-ingest {slug} {version},
- *   replacing the live version` (§1). Both are looked up `within` the version's
+ *   replacing the live version`. Both are looked up `within` the version's
  *   own row, which is found by its `Version` cell the way
  *   `policies-board.test.tsx` finds one.
  * - a refusal's sentence is a `role="alert"` and a result line a `role="status"`,
@@ -70,11 +69,11 @@ import { NOT_LIVE_VERSION_TEXT } from "@/features/admin/policies/format";
  * - an expired session at the click is `response.redirected` with `url` on the
  *   INSTANCE and `location` stubbed through `vi.stubGlobal`.
  * - the parametrised refusal table carries a FOURTH row, `VALIDATION`, beyond
- *   §6's three. §1 names it as one of this surface's two overrides, so the
+ *   the other three. It is one of this surface's two overrides, so the
  *   exported string would otherwise be pinned verbatim and wired to nothing.
  *
- * Every board fixture parses under `web/src/features/admin/policies/schema.ts` as 24g built
- * it, and every success answers `policyReingestResultSchema`'s eight fields.
+ * Every board fixture parses under `web/src/features/admin/policies/schema.ts`,
+ * and every success answers `policyReingestResultSchema`'s eight fields.
  * Both parsers are pinned by `tests/policies-schema.test.ts` and only CONSUMED
  * here. Obviously fake slugs, titles and paths throughout.
  */
@@ -88,7 +87,7 @@ const LOGIN_URL = "http://localhost:3000/login";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_LENGTH = 36;
 
-/** The six columns 24h fixed; this plan appends `Actions` at index 6. */
+/** The six board columns; `Actions` is appended at index 6. */
 const CHUNKS_CELL = 3;
 const STATUS_CELL = 1;
 
@@ -251,7 +250,7 @@ function at<T>(values: readonly T[], index: number): T {
   return value;
 }
 
-/** The two control names §1 fixes, per document and version. */
+/** The two control names, per document and version. */
 function controlName(slug: string, versionName: string): string {
   return `Re-ingest ${slug} ${versionName}`;
 }
@@ -338,9 +337,9 @@ afterEach(() => {
 
 describe("PoliciesReingest — the body one click puts on the wire", () => {
   it("posts its exact three-key body", async () => {
-    // §1's fourth criterion, as the call's whole argument list. Asserted as a
+    // As the call's whole argument list. Asserted as a
     // WHOLE object, so a fourth key is red: a page sending `tenant_id` would be
-    // a project rule written into the browser (the tenant is the token's, decided
+    // trusting the caller's tenant in the browser (the tenant is the token's, decided
     // behind the MCP boundary), and a page sending the row's `sha256` would
     // hand the tool a digest it never asked for — the tool reads a version
     // DIRECTORY and re-computes the digest itself, so a stale one from a board
@@ -369,7 +368,7 @@ describe("PoliciesReingest — the body one click puts on the wire", () => {
   });
 
   it("mints a fresh idempotency key on every click", async () => {
-    // §1's fifth criterion and decision B. Kills a key DERIVED from the row —
+    // Kills a key DERIVED from the row —
     // from `slug`, `version` and `sha256`, the obvious stable choice — which
     // replays forever: an admin who edits one policy file twice would get the
     // first answer handed back and the second edit would never reach the
@@ -378,7 +377,7 @@ describe("PoliciesReingest — the body one click puts on the wire", () => {
     // matched against the canonical shape AND its exact length, so a page
     // sending `undefined`, an empty string or a counter is red rather than
     // posting a value the guard's own length check refuses at the far end
-    // (§1's input-validation criterion: the 36 characters reach the proxy
+    // (input validation: the 36 characters reach the proxy
     // whole).
     const user = userEvent.setup();
     renderBoard();
@@ -403,11 +402,11 @@ describe("PoliciesReingest — the body one click puts on the wire", () => {
 
 describe("PoliciesReingest — the misclick guard on a version that is not live", () => {
   it("posts on the first click for a version that is already live", async () => {
-    // §1's seventh criterion: the arming is for the VERSION CHANGE alone.
+    // The arming is for the VERSION CHANGE alone.
     // Kills a guard written over every control rather than over the dangerous
     // direction — refreshing the file that is already live changes nothing
     // about which version answers, so a second confirmation taxes the ordinary
-    // act for the rare one (decision C, 24db's precedent). The kill is
+    // act for the rare one (the precedent). The kill is
     // specifically the single click: the body case above clicks this control
     // once too, but it only asserts WHAT was posted, so a control that armed
     // everything would fail it for a reason that reads as a body fault. The
@@ -429,8 +428,8 @@ describe("PoliciesReingest — the misclick guard on a version that is not live"
   });
 
   it("arms before posting for a version that is not live", async () => {
-    // §1's sixth criterion and decision C, both halves. Re-ingesting an older
-    // version MAKES it live (31a decision E), which is the one act on this page
+    // Both halves. Re-ingesting an older
+    // version MAKES it live, which is the one act on this page
     // an admin can be surprised by: a click meant to refresh an edited draft
     // would demote the version the retriever is answering from, with no
     // warning. The kill is the ABSENT call on the first click — a control with
@@ -461,7 +460,7 @@ describe("PoliciesReingest — the misclick guard on a version that is not live"
   });
 
   it("disarms when another control in the same document is clicked", async () => {
-    // §1's seventh criterion, last sentence. Kills an armed flag that survives
+    // Last sentence. Kills an armed flag that survives
     // an unrelated click: the admin arms the superseded version, changes their
     // mind, refreshes the LIVE version instead, and the next click on the older
     // version's control — which still reads `Confirm` — promotes it to live in
@@ -491,12 +490,12 @@ describe("PoliciesReingest — the misclick guard on a version that is not live"
 
 describe("PoliciesReingest — what a re-ingest in flight does to the board", () => {
   it("disables only the acting control while its re-ingest is in flight", async () => {
-    // §1's eighth criterion and §2's reason for one component instance per
+    // One component instance per
     // control. Kills a board holding ONE in-flight flag for every control: a
-    // re-ingest is a redaction call plus an embed pass (decision E's 35
+    // re-ingest is a redaction call plus an embed pass (about 35
     // seconds), so a single flag would grey out every other version and every
     // other document for most of a minute while one file is read. Kills a page
-    // with no flag at all too — the control is what §5's first risk leans on,
+    // with no flag at all too — the control is what the main risk leans on,
     // because a repeated click during a slow embed is a second ingest of the
     // same directory under a second minted key. The POST is held open by an
     // unresolved promise, so the in-flight moment is observable rather than
@@ -536,7 +535,7 @@ describe("PoliciesReingest — what a re-ingest in flight does to the board", ()
   });
 
   it("invalidates the board on success and rewrites no row itself", async () => {
-    // §1's ninth criterion and decision D's invalidation half. The second read
+    // The invalidation half. The second read
     // is held open, so the moment AFTER the re-ingest succeeded and BEFORE the
     // refetch answered is observable: a control that rewrote its own row
     // optimistically would show an ingest that has not landed on the one screen
@@ -596,7 +595,7 @@ describe("PoliciesReingest — what a re-ingest in flight does to the board", ()
 
 describe("PoliciesReingest — the line a successful re-ingest renders", () => {
   it("renders the created line with the exact chunk count", async () => {
-    // §1's tenth criterion and decision D's status half. The board's own rows
+    // The status half. The board's own rows
     // are re-read from the tool, so the only thing that says what THIS click
     // did is this line. Kills a control rendering a fixed "done" sentence: the
     // count is what tells an admin whether the edited file ingested as spans or
@@ -626,7 +625,7 @@ describe("PoliciesReingest — the line a successful re-ingest renders", () => {
   });
 
   it("renders the unchanged line for a source that did not differ", async () => {
-    // §1's tenth criterion, the other branch, and the reason 31a shaped
+    // The other branch, and the reason the tool shapes
     // `ReingestPolicyDocumentOutput` around the `created` / `chunk_count` pair.
     // An unchanged source writes NOTHING, so no row on the board moves and an
     // invalidate-only control would be indistinguishable from a click that did
@@ -695,7 +694,7 @@ describe("PoliciesReingest — a refused re-ingest", () => {
   it.each(REFUSALS)(
     "$name renders its own sentence in an alert beside the control",
     async ({ status, code, sentence, shared }) => {
-      // §1's first unhappy path, one case per pinned code. Kills a page
+      // One case per pinned code. Kills a page
       // rendering the CODE at the admin ("TOOL_DISABLED" means nothing to the
       // person reading it), and kills one answering every refusal with
       // `REINGEST_FAILED_MESSAGE` — a principal who is neither `it_admin` nor
@@ -703,9 +702,9 @@ describe("PoliciesReingest — a refused re-ingest", () => {
       // no retry fixes, and a tool held down by a kill switch would read as a
       // broken page rather than as the deliberate stop it is. The FORBIDDEN and
       // TOOL_DISABLED sentences are READ from `FAILURE_MESSAGES`, so a page
-      // inventing its own wording is red without widening 22b's pinned map; the
+      // inventing its own wording is red without widening the pinned map; the
       // two override rows assert this file's constant AND the absence of the
-      // shared string, which is the whole of §1's override clause — the shared
+      // shared string, which is the whole override clause — the shared
       // `NOT_FOUND` ("That could not be found.") says nothing about WHICH
       // thing, when the only useful fact is that the corpus file is missing on
       // the ingest host, and the shared `VALIDATION` is about a chat message.
@@ -760,18 +759,18 @@ describe("PoliciesReingest — a refused re-ingest", () => {
   ];
 
   it.each(BROKEN)("$name renders the failure sentence and re-reads nothing", async ({ answer }) => {
-    // §1's second unhappy path, from three directions, all killing ONE
+    // From three directions, all killing ONE
     // implementation: a control that treats any answer it did not understand as
     // a success, invalidates the board and prints a status line. The admin
     // would then be shown a freshly re-read board as evidence that an ingest
     // landed, on the strength of a reply that never said so — over a corpus the
-    // retriever answers from. Row 1 kills an unguarded `response.json()`, where
+    // retriever answers from. The first row kills an unguarded `response.json()`, where
     // the parse error escapes as an unhandled rejection instead of a sentence.
-    // Row 2 is a result missing `chunk_count` ALONE, so it kills a control that
+    // The second row is a result missing `chunk_count` ALONE, so it kills a control that
     // CASTS the body instead of running `policyReingestResultSchema.safeParse`
-    // — the status line would render an ingest of `undefined` chunks. Row 3 is
-    // the a project rule discriminator: `UPSTREAM_UNAVAILABLE` is not one of
-    // the design's eight codes, so it is a failed call and not a typed refusal,
+    // — the status line would render an ingest of `undefined` chunks. The third row is
+    // the refusal-versus-failure discriminator: `UPSTREAM_UNAVAILABLE` is not one of
+    // the eight typed error codes, so it is a failed call and not a typed refusal,
     // and a page answering `failureMessage(code)` here shows "Something went
     // wrong. Nothing was changed." — red against this constant. The absent
     // status line and the single board read are what separate this path from a
@@ -792,7 +791,7 @@ describe("PoliciesReingest — a refused re-ingest", () => {
 
 describe("PoliciesReingest — an expired session at the click", () => {
   it("follows the proxy's redirect to /login, with no alert and no re-read", async () => {
-    // §1's third unhappy path, and the half a fetcher fixed only at the read
+    // And the half a fetcher fixed only at the read
     // misses: a board sits open on a screen for minutes, so a session expiring
     // BETWEEN the paint and the click is the common case. The read here
     // SUCCEEDS, so only the POST path can make the assignment happen and no
@@ -821,7 +820,7 @@ describe("PoliciesReingest — an expired session at the click", () => {
 
 describe("PoliciesReingest — the three sentences this surface owns", () => {
   it("pins the failure and the two override sentences exactly", async () => {
-    // a project rule on the three strings this plan introduces. The cases
+    // The exact literals for the three new strings. The cases
     // above read the CONSTANTS, so they stay green for whatever value the
     // module chooses; only these literals fix them. Kills an implementation
     // that exports the names and fills them with a reworded variant, and the

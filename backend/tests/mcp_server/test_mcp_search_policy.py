@@ -1,4 +1,4 @@
-"""An earlier change §1 and §6: the `search_policy` MCP tool, driven over the real transport.
+"""The `search_policy` MCP tool, driven over the real transport.
 
 Surface under test (written before it exists; the implementer must provide
 exactly this):
@@ -37,7 +37,7 @@ exactly this):
 
 ``helpdesk.core.repository.find_tenant_by_id(session, tenant_id) -> Tenant | None``
 
-a project rule: Postgres, Redis and Qdrant are `mcp_fixtures`' session-scoped
+Postgres, Redis and Qdrant are `mcp_fixtures`' session-scoped
 ones, none of them rebuilt. Per-test isolation is a namespace — a
 uuid-suffixed document slug inside the session's collections, and a fresh
 `sid` claim per call so the audit rows one case wrote are the only ones it
@@ -98,13 +98,13 @@ SEARCH = "search_policy"
 SUCCEEDED_EVENT = "tool.succeeded"
 FAILED_EVENT = "tool.failed"
 
-# the design gives `search_policy` every principal at `Scope.ANY` (seven cells,
+# The permission matrix gives `search_policy` every principal at `Scope.ANY` (seven cells,
 # counted off `rbac.Principal` below rather than carried over from another
-# plan's row, a project rule).
+# another tool's row).
 PRINCIPALS = tuple(principal.value for principal in rbac.Principal)
 
-# Exactly the seven fields plan §1 fixes for a citation on the wire. An eighth
-# is 15a's internal dense cosine reaching a prompt; a missing one is a citation
+# Exactly the seven fields the contract fixes for a citation on the wire. An eighth
+# is the retrieval layer's internal dense cosine reaching a prompt; a missing one is a citation
 # the UI cannot render.
 CITATION_FIELDS = frozenset(
     {"document", "title", "version", "heading_path", "chunk_id", "text", "score"}
@@ -199,14 +199,14 @@ def _call(
     return call_tool(bearer(token), SEARCH, arguments)
 
 
-# --- registration (criterion 1) ------------------------------------------------
+# --- registration ------------------------------------------------
 
 
 def test_the_registry_row_is_the_matrix_tool_and_is_not_mutating() -> None:
     """Catches a row registered under a different matrix member — which would
     silently give the tool another row's principals — and one marked
     `mutating=True`, which would push a read through `run_once` and demand an
-    idempotency key the design does not give it."""
+    idempotency key the tool list does not give it."""
     spec = REGISTRY[SEARCH]
 
     assert spec.name == rbac.Tool.SEARCH_POLICY.value
@@ -237,7 +237,7 @@ def test_every_principal_may_search_policy(
     monkeypatch: pytest.MonkeyPatch,
     principal: str,
 ) -> None:
-    """Catches a registry row pointing at a narrower matrix member: the design
+    """Catches a registry row pointing at a narrower matrix member: the permission matrix
     gives this row all seven principals at `Scope.ANY`, so a single
     `FORBIDDEN` here is a tool an employee cannot use to read policy.
 
@@ -253,7 +253,7 @@ def test_every_principal_may_search_policy(
     assert result.is_error is False, error_code(result)
 
 
-# --- the page (criteria 3 and 4) -----------------------------------------------
+# --- the page -----------------------------------------------
 
 
 def test_a_page_carries_exactly_the_seven_citation_fields_in_fused_order(
@@ -262,9 +262,9 @@ def test_a_page_carries_exactly_the_seven_citation_fields_in_fused_order(
 ) -> None:
     """Catches three wrong implementations at once.
 
-    A citation set that is not exactly the seven fields (an eighth is 15a's
+    A citation set that is not exactly the seven fields (an eighth is the retrieval layer's
     internal `dense_score` reaching a prompt; a `document_slug` key instead of
-    `document` is 15a's dataclass forwarded unrenamed).
+    `document` is the retrieval layer's dataclass forwarded unrenamed).
 
     A page in the DENSE arm's order — that is, a tool that issues one arm or
     lets the store fuse: the two arms are programmed so the fused order
@@ -355,7 +355,7 @@ def test_the_page_is_never_longer_than_top_k(
     assert len(payload["citations"]) == expected
 
 
-# --- the collection comes from the token (criterion 2) -------------------------
+# --- the collection comes from the token -------------------------
 
 
 def test_the_collection_searched_is_the_tokens_and_an_extra_tenant_id_is_dropped(
@@ -364,15 +364,17 @@ def test_the_collection_searched_is_the_tokens_and_an_extra_tenant_id_is_dropped
 ) -> None:
     """Catches a handler that names the collection from an ARGUMENT.
 
-    a project rule with no second guard behind it: one collection per tenant IS
-    the isolation (the design), so nothing downstream would catch a search of
-    the collection the argument named — the points would simply come back. The
-    recorded collection name is therefore asserted directly, on both arms.
+        The tenant comes from the token alone, with no second guard behind it: one collection per
+        tenant IS
+        the isolation, so nothing downstream would catch a search of
+        the collection the argument named — the points would simply come back. The
+        recorded collection name is therefore asserted directly, on both arms.
 
-    It also catches an input model with `extra="forbid"`: a dropped `tenant_id`
-    must leave the call SUCCEEDING, not turn into `VALIDATION`.
+        It also catches an input model with `extra="forbid"`: a dropped `tenant_id`
+        must leave the call SUCCEEDING, not turn into `VALIDATION`.
 
-    Both slugs are resolved from the handles the seeding fixture read back, never from a slug pinned by name here.
+        Both slugs are resolved from the handles the seeding fixture read back,
+    never from a slug pinned by name here.
     """
     caller = mcp_env.tenant_a
     other = mcp_env.tenant_b
@@ -390,7 +392,7 @@ def test_the_collection_searched_is_the_tokens_and_an_extra_tenant_id_is_dropped
     assert collection_name(other.tenant_slug) not in store.collections
 
 
-# --- input validation (criterion 5, a project rule and 2) --------------------
+# --- input validation --------------------
 
 
 def test_the_search_bounds_are_exactly_their_planned_values() -> None:
@@ -456,8 +458,8 @@ def test_a_refused_argument_reaches_neither_the_embedder_nor_the_store(
     The zero-call assertions are what distinguish "refused" from "refused
     before any effect" — an exception alone proves only the first.
 
-    Rule 20, stated rather than claimed: where the input model also declares
-    the same bound, that guard and 15a's `check_top_k`/`check_query` refuse the
+    Stated rather than claimed: where the input model also declares
+    the same bound, that guard and the retrieval layer's `check_top_k`/`check_query` refuse the
     same row and neither is separately killable. What this case pins is the
     PAIR and the zero calls, which no single guard's deletion leaves standing.
     """
@@ -471,7 +473,7 @@ def test_a_refused_argument_reaches_neither_the_embedder_nor_the_store(
     assert model.calls == [], "the refused call reached the embedder"
 
 
-# --- the refusal (criterion 4, plan §5) ----------------------------------------
+# --- the refusal ----------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -488,13 +490,13 @@ def test_the_refusal_decision_table_at_the_tool_boundary(
     refused: bool,
 ) -> None:
     """Catches a threshold read the wrong way round at the boundary (`>` where
-    the design is inclusive on the ANSWERING side) and a `refused` flag set
+    the policy answering rule is inclusive on the ANSWERING side) and a `refused` flag set
     from anything but `should_refuse` over the fused page.
 
     The pair straddles 0.35 by a ten-thousandth, so a one-sided case cannot
     tell `>=` from `>`; and the refusing row must carry NO citations, which is
-    the failure requirement #14 exists to prevent — a page below the floor that
-    row 17 could still answer from.
+    the failure the refusal exists to prevent — a page below the floor that
+    the answering step could still answer from.
     """
     planted = _plant(
         mcp_env, mcp_env.tenant_a, ("Fake chunk about badges.",), title="Fake Threshold Policy"
@@ -561,7 +563,7 @@ def test_a_refused_page_never_pays_the_title_query(
     )
 
 
-# --- the store is down (criterion 6) -------------------------------------------
+# --- the store is down -------------------------------------------
 
 
 def test_an_unreachable_store_is_one_typed_internal(
@@ -594,7 +596,7 @@ def test_an_unreachable_store_is_one_typed_internal(
     assert error_code(result) == "INTERNAL"
 
 
-# --- the audit events (criterion 1, a project rule) --------------------------
+# --- the audit events --------------------------
 
 
 def test_a_successful_search_writes_exactly_one_audit_event(
@@ -602,11 +604,12 @@ def test_a_successful_search_writes_exactly_one_audit_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a handler that appends a domain event of its own beside the
-    pipeline's (a read that changed nothing has nothing to record twice) and
-    one registered with an event type other than `tool.succeeded`.
+        pipeline's (a read that changed nothing has nothing to record twice) and
+        one registered with an event type other than `tool.succeeded`.
 
-    The subject and the payload keys are named, not just the count: an event
-    filed under the wrong subject answers no question an auditor asks.
+        The subject and the payload keys are named, not just the count: an event
+        filed under the wrong subject answers no question an auditor asks
+    .
     """
     _install(monkeypatch, RecordingQdrant())
     session_id = uuid.uuid4()
@@ -644,7 +647,7 @@ def test_a_refused_argument_writes_exactly_one_failure_event(
     assert rows[0].payload["code"] == "VALIDATION"
 
 
-# --- the two lifetimes (plan §5, decision E) -----------------------------------
+# --- the two lifetimes -----------------------------------
 
 
 class _CountingFactory:
@@ -662,7 +665,7 @@ def test_the_qdrant_client_is_one_per_loop_and_the_embedder_one_per_process(
     mcp_env: SeededMcp,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Catches the two lifetimes swapped, which is the risk plan §5 names.
+    """Catches the two lifetimes swapped, which is the risk the design names.
 
     A client cached per PROCESS is a pooled connection belonging to a loop that
     has died — the failure `redis_client` exists to avoid — so two

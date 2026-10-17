@@ -3,18 +3,17 @@ import { describe, expect, it } from "vitest";
 import { pendingApprovalsSchema } from "@/features/approvals/schema";
 
 /**
- * An earlier change §6, `approvals-schema.test.ts`: the parser 23d's `/approvals` page
+ * `approvals-schema.test.ts`: the parser the `/approvals` page
  * reads, over the payload `/api/me/approvals` returns.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23c's Deviations):
+ * Shapes this file fixes:
  * - `web/src/features/approvals/schema.ts` exports `pendingApprovalsSchema`, a Zod
  *   object over the whole `{ approvals: [...] }` ENVELOPE rather than over a
  *   bare row, so the page runs ONE `safeParse` on what the proxy returned —
  *   the shape `access-schema.ts` already has for `/api/me/requests`.
  * - every one of the twenty fields is REQUIRED, and nullable only where the
  *   tool can answer null (`requested_expiry_days`, and an unresolved seat's
- *   `user_id`), never `.optional()`: §6 says a payload missing one of the
+ *   `user_id`), never `.optional()`: a payload missing one of the
  *   twenty is rejected, and an optional field would be silently absent on
  *   every row and render as a blank cell instead.
  * - the schema is NOT `.strict()`: an unknown extra key is accepted, because
@@ -62,7 +61,7 @@ const APPROVAL_ROW: Record<string, unknown> = {
   ],
 };
 
-/** The twenty field names of §1, written out rather than derived from the row. */
+/** The twenty field names, written out rather than derived from the row. */
 const APPROVAL_FIELDS = [
   "request_id",
   "requester_user_id",
@@ -106,15 +105,15 @@ describe("pendingApprovalsSchema", () => {
     // altogether): the page then renders `undefined` for a column the tool
     // promised, and the failure surfaces as a blank cell rather than as a
     // refused payload. One row per field, because a single missing-field case
-    // pins only the field it happened to pick — and the eight fields 23c adds
-    // are exactly the ones an implementer copying 23a's parser leaves out.
+    // pins only the field it happened to pick — and the eight later fields
+    // are exactly the ones an implementer copying the parser leaves out.
     expect(pendingApprovalsSchema.safeParse({ approvals: [withoutField(field)] }).success).toBe(
       false,
     );
   });
 
   it("accepts a row carrying an unknown extra field", () => {
-    // Catches a `.strict()` schema: the wire may grow (this plan is itself a
+    // Catches a `.strict()` schema: the wire may grow (the schema is itself a
     // widening of the same tool), and a page that refuses a payload with one
     // new key breaks on a deploy that changed nothing it reads.
     const widened = { ...APPROVAL_ROW, something_new: "a field 23e adds" };
@@ -159,7 +158,7 @@ describe("pendingApprovalsSchema", () => {
   });
 
   it("rejects a citation with no title and accepts one with a sixth key", () => {
-    // The decision trace is what the design puts on the row, and `title` is what
+    // The decision trace is what the row shows, and `title` is what
     // the queue NAMES per source. Catches `citations: z.array(z.unknown())`,
     // under which a source with no title reaches the page as a blank line;
     // and catches a `.strict()` element, which would refuse a stored citation

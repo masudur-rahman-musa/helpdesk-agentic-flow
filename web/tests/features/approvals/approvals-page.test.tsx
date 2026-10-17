@@ -11,26 +11,25 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { reasonSentence } from "@/lib/decision-labels";
 
 /**
- * An earlier change §6, `approvals-page.test.tsx`: the `/approvals` queue and its two
+ * `approvals-page.test.tsx`: the `/approvals` queue and its two
  * decisions against a stubbed `fetch`. jsdom, no agent-api, no backing
- * service. (No basename collision in the tree — a project rule.)
+ * service. (No other test file shares this name.)
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23d's Deviations):
+ * Shapes this file fixes:
  * - the unit under test is `ApprovalQueue` from
  *   `web/src/features/approvals/components/approval-queue.tsx`, taking **no props** and
  *   doing its own read of `/api/me/approvals` and its own two posts through
- *   TanStack Query (decision A) — `RequestList`'s shape, so
+ *   TanStack Query — `RequestList`'s shape, so
  *   `app/approvals/page.tsx` stays a thin wrapper a test never has to await.
- * - the `VALIDATION` override of decision B is exported from that same module
- *   as `DECISION_VALIDATION_MESSAGE`, and its value is §6's sentence,
+ * - the `VALIDATION` override is exported from that same module
+ *   as `DECISION_VALIDATION_MESSAGE`, and its value is the sentence
  *   `That decision could not be filed. Check the comment and try again.`
  *   It is declared beside the component precisely so this file can import it
  *   rather than repeat it, and so no second opinion about any OTHER code can
  *   appear: every other sentence is read out of `FAILURE_MESSAGES`.
  * - accessible names: region `Approvals`, the row list `Pending approvals`,
  *   and inside a row the three nested lists `Reasons`, `Approvers` and
- *   `Sources` (§6). A row holding three lists is otherwise not countable.
+ *   `Sources`. A row holding three lists is otherwise not countable.
  * - a row's listitems are its DIRECT children of the `Pending approvals` list
  *   (`rowsOf`), because `getAllByRole("listitem")` inside a list also returns
  *   every nested list's items.
@@ -42,7 +41,7 @@ import { reasonSentence } from "@/lib/decision-labels";
  *   differently on purpose.
  * - dates are the ISO prefix (`2026-06-02`), never `toLocaleDateString`.
  *
- * The wire shape is 23c's as BUILT: twenty fields per row inside
+ * The wire shape is the as BUILT: twenty fields per row inside
  * `{ approvals: [...] }` (parsed by `web/src/features/approvals/schema.ts`), a citation
  * being `{document_slug, title, version, heading_path, chunk_id}` with
  * `heading_path` a STRING, a seat being `{slot, user_id}` with `user_id` null
@@ -54,7 +53,7 @@ const EMPTY_QUEUE = "Nothing is waiting for your decision.";
 const READ_ALERT = "The approval queue could not be read. Try again in a moment.";
 const LOGIN_URL = "http://localhost:3000/login";
 
-/** The tool's cap (23c decision E). The page declares no bound of its own. */
+/** The tool's cap. The page declares no bound of its own. */
 const COMMENT_MAX_LENGTH = 2000;
 
 const REQUEST_ONE = "66666666-6666-5666-8666-666666666666";
@@ -290,7 +289,7 @@ describe("ApprovalQueue — the decision trace on a row", () => {
     // four separate wrong implementations: one that prints the engine's
     // vocabulary at the user (`approval`, `elevated`, `pending` are wire
     // values, not sentences); one that identifies the requester or the target
-    // by uuid, which the design asks for by display name because a uuid tells an
+    // by uuid, which the page shows by display name because a uuid tells an
     // approver nothing about who they are granting access to; one that prints
     // the raw reason codes or interpolates the SoD rule id back in; and one
     // that drops a citation's VERSION, after which two versions of one policy
@@ -338,7 +337,7 @@ describe("ApprovalQueue — the decision trace on a row", () => {
   });
 
   it("marks exactly the seat whose slot equals my_slot, and no other seat", async () => {
-    // §1's third criterion, arranged so that only reading `my_slot` passes.
+    // Arranged so that only reading `my_slot` passes.
     // The caller's seat is the SECOND of the two and the RESOLVED one, so this
     // kills a row marking the first seat, a row marking every seat, and a row
     // marking the seat with no `user_id` — each of which marks seat one here.
@@ -364,7 +363,7 @@ describe("ApprovalQueue — nothing to show, and a read that fails", () => {
   it("renders the named empty state with no list and no alert", async () => {
     // Kills a page that renders an empty list under its heading: "nothing is
     // waiting" then looks exactly like a read that returned nothing because it
-    // broke. The absent alert is the other half of §1's mutual exclusion — a
+    // broke. The absent alert is the other half of the mutual exclusion — a
     // page showing both says two contradictory things at once.
     answer = () => jsonResponse({ approvals: [] }, 200);
     renderQueue();
@@ -462,7 +461,7 @@ describe("ApprovalQueue — filing a decision", () => {
   );
 
   it("sends a 2000 character comment whole, with no maxLength on the field", async () => {
-    // §1's input-validation criterion and §5's second risk. Kills a comment box
+    // Kills a comment box
     // carrying `maxLength={2000}` or any lower bound of its own: the browser
     // would silently hand the tool a truncated comment with no error anywhere,
     // and the audit trail would carry a sentence the approver did not write.
@@ -498,7 +497,7 @@ describe("ApprovalQueue — filing a decision", () => {
   ] as const;
 
   it.each(BLANK_REASONS)("$name makes no call at all", async (row) => {
-    // §1's floor, and the only refusal the page can answer without spending a
+    // The floor, and the only refusal the page can answer without spending a
     // round trip and a rate-limit slot. Kills a Reject that posts whatever is
     // in the box: the tool would answer `VALIDATION`, the approver would read
     // an error for something the page knew was wrong before it asked, and the
@@ -526,9 +525,9 @@ describe("ApprovalQueue — filing a decision", () => {
   });
 
   it("disables both controls of the deciding row while its decision is in flight, and no other row's", async () => {
-    // §5's first risk, and the case says plainly what it is: the guarantee
-    // against a double-filed decision is the server-derived idempotency key
-    // (23c decision B), and these disabled controls are a courtesy on top of
+    // And the case says plainly what it is: the guarantee
+    // against a double-filed decision is the server-derived idempotency key, and these disabled
+    // controls are a courtesy on top of
     // it. What this kills is a page holding ONE in-flight flag for the whole
     // queue — every Approve in the list would grey out while one row is being
     // decided, so an approver with ten items waits for each — and a page with
@@ -573,7 +572,7 @@ describe("ApprovalQueue — filing a decision", () => {
   });
 
   it("refetches the queue after a successful decision and removes nothing before the answer", async () => {
-    // §1's invalidation criterion and decision E, both halves. The second read
+    // Both halves. The second read
     // is held open, so the moment AFTER the decision succeeded and BEFORE the
     // refetch answered is observable: a page removing the row optimistically
     // shows a decision as done that the tool may have answered `failed` with a
@@ -645,12 +644,12 @@ describe("ApprovalQueue — a refused decision", () => {
       // ("TOOL_DISABLED" means nothing to the person reading it) — the
       // sentences are read out of `FAILURE_MESSAGES` rather than retyped, so a
       // page inventing its own wording for `FORBIDDEN` is red without widening
-      // 22b's pinned map. A page whose mutation error clears the rows the read
-      // answered (§5's fourth risk): the count assertion after the refusal is
+      // the pinned map. A page whose mutation error clears the rows the read
+      // answered (a real risk): the count assertion after the refusal is
       // what catches a queue emptied by a 403. And, on the VALIDATION row, a
       // page that used the SHARED sentence for it — "That message could not be
       // sent." is about a chat message and says nothing true about a comment
-      // the tool refused, which is the whole of decision B; that row asserts
+      // the tool refused, which is the whole point; that row asserts
       // the override's value AND the absence of the shared string, so reusing
       // the map is red in both directions.
       answer = () => jsonResponse({ approvals: [ROW_ONE, ROW_TWO] }, 200);
@@ -678,7 +677,7 @@ describe("ApprovalQueue — a refused decision", () => {
   );
 
   it("pins the VALIDATION override sentence exactly", async () => {
-    // a project rule on the one string this plan introduces. Kills an
+    // The exact literal for the one new string. Kills an
     // implementation that exports the constant but fills it with the shared
     // map's sentence, or with a reworded variant: the parametrised row above
     // reads the constant, so it stays green for any value the module chooses,
@@ -693,8 +692,8 @@ describe("ApprovalQueue — a refused decision", () => {
 
 describe("ApprovalQueue — an expired session", () => {
   it("follows the proxy's redirect to /login instead of rendering the queue", async () => {
-    // §1's unhappy path at the READ, and the reason it is `response.redirected`
-    // and never a status (22b decision E, a project rule): the browser has
+    // The unhappy path at the READ, and the reason it is `response.redirected`
+    // and never a status: the browser has
     // ALREADY followed the proxy's 307, so what arrives is a 200 carrying the
     // login page. Kills a fetcher checking `response.ok` or `response.status
     // === 401` — both see a successful response, so the parser refuses the HTML
@@ -734,7 +733,7 @@ describe("ApprovalQueue — an expired session", () => {
 });
 
 /**
- * An earlier change §6, added to 23d's file and rewriting none of it (§8): the three
+ * Cases added to the file, rewriting none of it: the three
  * cases that hold the QUEUE read still, after its four private lines become
  * `readWire("/api/me/approvals", pendingApprovalsSchema)`. The two POSTs are
  * not reads and are untouched by that plan, which is why no case here stages a
@@ -757,7 +756,7 @@ describe("ApprovalQueue — the queue read through the shared wire reader", () =
   }
 
   it("a 403 FORBIDDEN on the queue renders the read alert, not the code's sentence", async () => {
-    // Decision B, and the page where it is easiest to get wrong: this file
+    // The page where it is easiest to get wrong: this file
     // ALREADY renders `FAILURE_MESSAGES` sentences for a refused DECISION, so a
     // migration that reuses that dressing for the READ is one import away. Kills
     // exactly that — "You are not allowed to do that." in the region alert would
@@ -784,8 +783,8 @@ describe("ApprovalQueue — the queue read through the shared wire reader", () =
     // and a route that takes a request id — and kills one that gains a filter
     // (`?slot=`, `?status=pending`) while being rewritten: which items wait on
     // this approver is decided behind the MCP boundary off the token, and a page
-    // naming a seat or a principal is a project rule in the browser. Arithmetic
-    //: the staged answer is the default empty 200, so queue
+    // naming a seat or a principal is trusting the caller in the browser. Arithmetic: the staged
+    // answer is the default empty 200, so queue
     // reads = 1 on mount and decision calls = 0, and the empty state is what
     // says the read settled before the count is taken.
     answer = () => jsonResponse({ approvals: [] }, 200);
@@ -799,7 +798,7 @@ describe("ApprovalQueue — the queue read through the shared wire reader", () =
   });
 
   it("a bodyless 500 on the queue renders the same read alert", async () => {
-    // §5's second risk on this page: `readWire` reads the body of every non-ok
+    // This page: `readWire` reads the body of every non-ok
     // response looking for a typed code, and `fetchApprovals` reads it for none.
     // Kills a refusal branch awaiting an unguarded `json()` (an outage would
     // then surface as a parser message, or as no alert at all), and kills one

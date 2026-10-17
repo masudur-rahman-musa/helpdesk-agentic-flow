@@ -1,8 +1,8 @@
-"""Deterministic policy engine (the design, an earlier change).
+"""Deterministic policy engine.
 
-Pure by construction: no I/O, no clock, no LLM, and no import of `models`,
-`core` or any service. `engine.classify` takes a snapshot the caller has
-already loaded and returns a `Classification`.
+Pure: no I/O, no clock, no LLM, no service imports. The caller loads a
+snapshot and `classify` returns a `Classification`, so the rules are easy to
+test and replay.
 """
 
 from helpdesk.shared.policy.engine import classify

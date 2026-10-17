@@ -48,7 +48,7 @@ def test_rejects_wrong_password(wrong: str) -> None:
         "",
         "not-a-hash",
         "$argon2id$garbage",
-        "argon2id$obviously-fake-test-hash",  # the plan-03 fixture placeholder
+        "argon2id$obviously-fake-test-hash",  # the fixture placeholder
         "$2b$12$abcdefghijklmnopqrstuv",  # bcrypt-shaped, not argon2
     ],
 )

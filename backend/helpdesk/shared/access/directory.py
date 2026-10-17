@@ -1,20 +1,10 @@
-"""The directory port (the design, an earlier change decision A; mutation half, 11b).
+"""The directory: who people are, what their department should hold, what they hold.
 
-Every read of directory state — who a user is, what their department
-template says they should hold, what access they actually hold — and every
-change to it goes through `DirectoryProvider`, so a future Entra/SCIM/LDAP
-adapter is one new implementation of this Protocol, not a refactor.
-`SimulatedDirectory` is the only v1 implementation: the seeded directory
-tables themselves. An earlier change added `apply_grant`, the half `execute_grant`
-writes through, and an earlier change `revoke_grant`, the half
-`helpdesk.access.revoke.revoke_role_access` writes through. An earlier change added
-the person half, `create_user`, and `list_department_role_ids` beside it.
-
-Sessions here come from `tenant_session`, so the guard in `helpdesk.core.db`
-filters every query to the bound tenant; a user id from another tenant reads
-as absent, never as the row. Writes go through `Repository`, which stamps
-the bound tenant and refuses `tenant_id` as a field, so nothing here can
-place a row in another tenant either.
+Every read and change of directory state goes through `DirectoryProvider`,
+so a real Entra, SCIM or LDAP adapter is one new class, not a rewrite.
+`SimulatedDirectory` uses the seeded tables. Sessions are bound to one
+tenant: another tenant's user reads as absent, and writes stamp the bound
+tenant, so nothing here can touch another tenant's rows.
 """
 
 import uuid
@@ -34,28 +24,14 @@ from helpdesk.shared.models import Grant, User
 
 
 class DirectoryReader(Protocol):
-    """What the snapshot builder may ask the directory (and nothing more).
-
-    Split out from `DirectoryProvider` by an earlier change so that a caller which
-    only READS can be typed as one. `helpdesk.access.lifecycle`'s deciding
-    pass is that caller: it needs the directory's answers with this
-    onboarding's already-decided roles folded in, and typing it as the full
-    provider would have meant giving a read-only view mutation methods it
-    must never have. Nothing here writes.
-    """
+    """The read-only half, for callers that must never write."""
 
     async def lookup_user(self, user_id: uuid.UUID) -> User | None:
         """The bound tenant's user with this id, or None."""
         ...
 
     async def list_membership_role_ids(self, user_id: uuid.UUID) -> frozenset[uuid.UUID]:
-        """Role ids of the user's department template.
-
-        Empty frozenset for an unknown user or one with no department — a
-        user outside every template is a valid directory answer, not an
-        error (pinned by `test_access_snapshot.py::
-        test_a_user_with_no_department_has_no_membership_roles`).
-        """
+        """Role ids of the user's department template; empty if no user or department."""
         ...
 
     async def list_account_role_ids(
@@ -66,24 +42,10 @@ class DirectoryReader(Protocol):
 
 
 class DirectoryProvider(DirectoryReader, Protocol):
-    """The whole port: every read above, plus every change to directory state.
-
-    `list_department_role_ids` sits here rather than on `DirectoryReader`
-    because the reader is exactly what `build_request_snapshot` may ask, and
-    a snapshot is always about a USER. Asking by department is onboarding's
-    question, and onboarding holds the whole provider anyway.
-    """
+    """The whole port: every read above, plus every change to directory state."""
 
     async def list_department_role_ids(self, department_id: uuid.UUID) -> frozenset[uuid.UUID]:
-        """Role ids of a DEPARTMENT's template, asked by department.
-
-        Distinct from `list_membership_role_ids`, which asks the same question
-        by USER: onboarding has to read the template before the joiner exists,
-        so there is no user to ask about yet. Pinned by
-        `test_access_lifecycle.py::test_the_directory_port_answers_the_departments_template`,
-        which asks two departments whose templates differ, so an
-        implementation delegating to the per-user half cannot pass.
-        """
+        """Role ids of a department's template. Onboarding asks before the person exists."""
         ...
 
     async def create_user(
@@ -97,15 +59,7 @@ class DirectoryProvider(DirectoryReader, Protocol):
         password_hash: str,
         status: str,
     ) -> User:
-        """Put one person into the directory (the design's joiner half).
-
-        The mutation half for people, as `apply_grant` is for access: a real
-        Entra/SCIM adapter creates the account here, and nothing outside this
-        Protocol has to change. No decision is taken in this method — the
-        caller (`helpdesk.access.lifecycle.onboard_user`) has already refused a
-        duplicate address and resolved the department, and this only records
-        the person.
-        """
+        """Put one person into the directory. The caller has already checked the input."""
         ...
 
     async def apply_grant(
@@ -118,31 +72,21 @@ class DirectoryProvider(DirectoryReader, Protocol):
         granted_at: datetime,
         expires_at: datetime | None,
     ) -> Grant:
-        """Give the user this role, live from `granted_at`.
-
-        The mutation half of the port (the design): whether "the directory"
-        is these tables or a remote IdP, nothing outside this Protocol
-        changes access. The decision to grant is NOT taken here — the caller
-        (`helpdesk.access.execute.execute_grant`) has already re-classified
-        and refused a conflict or a block, and this method only records it.
-        """
+        """Give the user this role. The caller has already re-checked policy."""
         ...
 
     async def revoke_grant(self, *, grant: Grant, reason: str, revoked_at: datetime) -> Grant:
-        """Take this ONE grant away, as of `revoked_at`.
+        """Take this one grant away, as of `revoked_at`.
 
-        Singular on purpose, matching `apply_grant`: a
-        real Entra/SCIM adapter removes one assignment at a time and must not
-        carry the policy that decides which assignments those are. WHICH rows
-        a revocation covers is `helpdesk.access.revoke.revoke_role_access`'s
-        decision, and an implementation of this method that widened the write
-        past the grant it was handed would revoke rows nothing audited.
+        One grant at a time, like a real directory adapter. Which grants a
+        revoke covers is the caller's choice; widening the write here would
+        revoke rows nothing audited.
         """
         ...
 
 
 class SimulatedDirectory:
-    """The seeded directory tables as a `DirectoryProvider` (the design)."""
+    """The seeded directory tables as a `DirectoryProvider`."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -159,21 +103,11 @@ class SimulatedDirectory:
     async def list_account_role_ids(
         self, user_id: uuid.UUID, now: datetime
     ) -> frozenset[uuid.UUID]:
-        """Live means the same three conjuncts as `list_active_grants_for_user`:
-        status `active`, nothing revoked it, and expiry (if any) still ahead —
-        `expires_at` names the first instant the grant is gone, so strict `>`.
-        """
+        """Live: status `active`, not revoked, and expiry (if any) still ahead."""
         return await fetch_live_role_ids_for_user(self._session, user_id, now)
 
     async def list_department_role_ids(self, department_id: uuid.UUID) -> frozenset[uuid.UUID]:
-        """The `role_templates` rows of ONE department, read by department id.
-
-        The bound session filters by tenant, so another tenant's department id
-        answers the empty set rather than its template — an onboarding cannot
-        import a foreign department's roles even if the id were guessed. The
-        caller resolves the department first and refuses an unknown one
-        `NOT_FOUND`, so an empty answer here means an empty template.
-        """
+        """One department's template. Another tenant's department id gives an empty set."""
         return await fetch_role_templates_for_department(self._session, department_id)
 
     async def create_user(
@@ -187,20 +121,7 @@ class SimulatedDirectory:
         password_hash: str,
         status: str,
     ) -> User:
-        """Insert one `users` row through the tenant-scoped repository.
-
-        Flushed, not committed, exactly like `apply_grant`: the caller's
-        transaction owns the person, their template grants and their
-        `user.onboarded` event together, so a refusal anywhere in the
-        onboarding takes all three (pinned by
-        `test_access_lifecycle.py::test_a_duplicate_email_is_refused_before_any_write`).
-
-        `end_date` and both self-service flags are written explicitly as None,
-        so a joiner can never inherit a leaver's departure date or another
-        account's reset stamp. `tenant_id` is NOT a parameter: `Repository`
-        stamps the bound tenant and refuses the field, which is what keeps this
-        method from placing a person in another tenant.
-        """
+        """Insert one `users` row; flushed, so it commits with the grants and event."""
         return await Repository(self._session, User).create(
             email=email,
             display_name=display_name,
@@ -224,15 +145,7 @@ class SimulatedDirectory:
         granted_at: datetime,
         expires_at: datetime | None,
     ) -> Grant:
-        """Insert one live `grants` row through the tenant-scoped repository.
-
-        Flushed, not committed: the caller's transaction owns it, which is
-        what lets `execute_grant`'s grant and its `grant.executed` event
-        commit or roll back together (pinned by
-        `test_access_execute.py::test_the_grant_and_its_event_roll_back_together`).
-        `revoked_at` and `revoke_reason` are written explicitly as None so a
-        new grant can never inherit a revocation.
-        """
+        """Insert one live `grants` row; flushed, so it commits with its audit event."""
         return await Repository(self._session, Grant).create(
             user_id=user_id,
             role_id=role_id,
@@ -246,21 +159,10 @@ class SimulatedDirectory:
         )
 
     async def revoke_grant(self, *, grant: Grant, reason: str, revoked_at: datetime) -> Grant:
-        """End one live `grants` row through the tenant-scoped repository.
+        """End one live `grants` row; flushed, so it commits with its audit event.
 
-        All THREE columns are written, not just `revoked_at`: `status` is what
-        every liveness filter reads first, so a row stamped with a timestamp
-        and left `active` still answers `list_my_access`. Pinned by
-        `test_access_revoke.py::test_revoking_marks_the_row_revoked_with_the_reason_and_timestamp`.
-
-        Flushed, not committed, exactly like `apply_grant`: the caller's
-        transaction owns the row and its `grant.revoked` event, so a failure
-        afterwards takes both (pinned by
-        `test_access_revoke.py::test_the_revocations_and_their_events_roll_back_together`).
-
-        `update` answers None for an id in another tenant, which cannot happen
-        here — the grant was read through this same bound session — so a None
-        is a wiring bug and is raised rather than swallowed.
+        `status` is set too, not just `revoked_at`: every liveness filter
+        reads `status` first.
         """
         revoked = await Repository(self._session, Grant).update(
             grant.id,

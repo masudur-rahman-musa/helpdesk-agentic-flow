@@ -1,22 +1,8 @@
-"""The two embedding models and the seam that lets the merge be tested.
+"""The two embedding models, behind a protocol so the merge can be tested.
 
-`Embedder` is a Protocol and `chunking.chunk_document` takes one; it never
-constructs a model. Real embeddings do not land on 0.75
-on demand, so the only way to test "merge while similarity >= 0.75" at its
-boundary at all is against a fake whose similarities the case chooses. This
-module holds the real implementation and the tests that exercise it live
-alone in `test_rag_embedding.py`.
-
-Both vectors are produced here, dense and sparse, though only the dense one
-decides a merge (decision I). One module owns model loading, and 14c's Qdrant
-upsert needs both vectors for the same chunk; splitting them would mean two
-places that know where the cache lives and two chances to load a model twice.
-
-`count_tokens` is on the protocol because the 400-token cap is measured by the
-dense model's OWN tokenizer (decision C). The model truncates its input at 512
-tokens, so a cap counted in characters or words would not control what the
-model actually sees, and the fake used by the merge tests counts by the same
-call the real one does.
+Real embeddings never land on 0.75 on demand, so the chunker takes an
+`Embedder` and tests pass a fake. One module loads both models, so the
+cache path and model loading live in one place.
 """
 
 import math
@@ -26,39 +12,28 @@ from pathlib import Path
 from typing import Protocol
 
 DENSE_MODEL = "BAAI/bge-small-en-v1.5"
-"""the design's dense model. Pinned by
-`test_rag_embedding.py::test_the_model_names_and_dimension_are_exactly_the_spec_values`."""
+"""The dense model."""
 
 SPARSE_MODEL = "Qdrant/bm25"
-"""the design's sparse model, for the lexical half of row 15's hybrid search."""
+"""The sparse model, for the keyword half of hybrid search."""
 
 DENSE_DIMENSION = 384
-"""`BAAI/bge-small-en-v1.5`'s output width. Pinned against the model itself by
-`test_rag_embedding.py::test_the_dense_vector_has_the_models_dimension`, so a
-model swap that changes the width fails here rather than in Qdrant."""
+"""The dense model's output width. A model swap that changes it should
+fail here, not in the vector store."""
 
 
 @dataclass(frozen=True)
 class SparseVector:
-    """A sparse embedding as Qdrant takes it: parallel indices and values.
-
-    The two tuples are the same length by construction. 14c writes them into a
-    named sparse vector on the point, so a pair of different lengths would be
-    rejected by Qdrant on upsert with nothing here to explain it; pinned by
-    `test_rag_embedding.py::test_the_sparse_vector_has_paired_indices_and_values`.
-    """
+    """A sparse embedding as Qdrant takes it: parallel indices and values of
+    the same length."""
 
     indices: tuple[int, ...]
     values: tuple[float, ...]
 
 
 class Embedder(Protocol):
-    """What `chunk_document` needs from a model, and nothing more.
-
-    Three methods, batched: the merge asks for one embedding per sentence of a
-    section at a time, and a per-sentence call would pay the model's fixed
-    cost once per sentence of the corpus.
-    """
+    """What `chunk_document` needs from a model. Batched, since each model
+    call has a fixed cost."""
 
     def embed_dense(self, texts: Sequence[str]) -> list[tuple[float, ...]]: ...
 
@@ -68,12 +43,9 @@ class Embedder(Protocol):
 
 
 def cosine(a: Sequence[float], b: Sequence[float]) -> float:
-    """Cosine similarity of two dense vectors.
+    """Cosine similarity of two dense vectors; 0.0 when either is all zeros.
 
-    Returns 0.0 when either vector has no magnitude, rather than dividing by
-    zero: a zero vector is what an empty string embeds to, and the merge would
-    otherwise raise on a document nobody would think of as malformed. Pinned
-    by `test_rag_embedding.py::test_cosine_of_a_zero_vector_is_zero`.
+    An empty string embeds to zeros, and that must not divide by zero.
     """
     dot = sum(x * y for x, y in zip(a, b, strict=True))
     magnitude = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
@@ -85,14 +57,8 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
 class FastEmbedEmbedder:
     """The real models, loaded from a cache directory inside this repo.
 
-    `cache_dir` is passed explicitly rather than left to fastembed's default
-    of `~/.cache` (decision E): a project rule says this project writes nothing
-    outside its own folder. The directory is created if it is missing, because
-    fastembed's download does not create its parent.
-
-    Both models load on construction, which is why the suite builds this once
-    in a session-scoped fixture: a cold cache downloads
-    about 130 MB, and a warm one still costs seconds of ONNX session setup.
+    The cache is passed in so nothing is written outside the project.
+    Loading is slow (a download, then ONNX setup), so build this once.
     """
 
     def __init__(self, cache_dir: Path | str) -> None:
@@ -120,12 +86,10 @@ class FastEmbedEmbedder:
         ]
 
     def count_tokens(self, text: str) -> int:
-        """How many tokens the DENSE model will see in `text`.
+        """How many tokens the dense model will see in `text`.
 
-        The model's own tokenizer, through fastembed's `token_count`, not a
-        character or word heuristic (decision C): 400 is a cap on what reaches
-        a model that truncates at 512, and a count measured in anything else
-        does not bound that.
+        Counted by the model's own tokenizer, since the cap must bound what the
+        model reads.
         """
         texts: Iterable[str] = [text]
         return int(self._dense.token_count(texts))

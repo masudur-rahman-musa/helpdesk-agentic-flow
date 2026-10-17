@@ -2,29 +2,11 @@
 
     uv run python -m helpdesk.mcp_server.cli --tenant <slug> --version v1
 
-Argument parsing, the corpus root, one line of output per document and the
-exit code — nothing else. Every effect lives in `helpdesk.mcp_server.services.rag.pipeline`: the design calls ingestion "also an admin API", and a
-later row's admin route can only call the same function this script does if
-the script holds no logic of its own. That is also why almost nothing here is
-tested directly - there is no behaviour to reach that `test_rag_pipeline.py`
-does not already pin. The exception is the corpus root: `_corpus_root` and
-`--corpus-root`'s default are the whole of what `test_ingest_script.py`
-covers.
-
-The root is `POLICY_DIR` (SPEC section 12.1, an earlier change) so the repository works
-as a template: an adopter points that variable at their own folder and runs
-`make ingest`. An explicit `--corpus-root` still wins. A walk that silently
-found nothing would be worse than one that refuses, and `ingest_version`
-refuses a missing directory rather than reporting zero.
-
-This is the ONE place the real redaction client and the real embedding models
-are constructed (decisions E and F), so every test runs against fakes with no
-gateway reachable and no model loaded.
-
-Exits 1 on the first typed refusal, printing its code and message. The
-document it refused is not half-written: `ingest_version` opens one
-transaction per document, so the files already ingested stay and the refused
-one landed nothing.
+All the work lives in the ingest pipeline, so an admin route can do the same.
+The corpus root is the `POLICY_DIR` setting unless `--corpus-root` is given.
+This is the one place the real redaction client and embedding model are built,
+so tests use fakes. Exits 1 on the first typed refusal; each document has its
+own transaction, so the refused one writes nothing.
 """
 
 import argparse
@@ -44,15 +26,9 @@ from helpdesk.shared.crud.tenants import find_tenant_by_slug
 
 
 def _corpus_root(flag: Path | None, configured: Path) -> Path:
-    """The corpus root to walk: the explicit flag, else `POLICY_DIR`.
+    """The explicit flag, else `POLICY_DIR`.
 
-    A function rather than an argparse default so the fallback is reachable
-    without a loaded `Settings`, and so `--help` keeps
-    working in an environment with no `DATABASE_URL`: the flag's default stays
-    `None` and settings are read inside `_run`. Pinned by
-    `test_ingest_script.py::test_the_corpus_root_falls_back_to_the_settings_value`,
-    `::test_an_explicit_corpus_root_flag_wins_over_the_settings_value` and
-    `::test_the_corpus_root_flag_defaults_to_none`.
+    Not an argparse default, so `--help` works without database settings.
     """
     return configured if flag is None else flag
 
@@ -95,8 +71,7 @@ async def _run(args: argparse.Namespace) -> int:
             version=args.version,
             redactor=redactor,
             embedder=embedder,
-            # One instant for the whole walk, so a run is one timestamp and a
-            # skipped file keeps the instant it was actually last read.
+            # One time for the whole run; a skipped file keeps its old one.
             ingested_at=datetime.now(UTC),
         )
     except ToolError as exc:

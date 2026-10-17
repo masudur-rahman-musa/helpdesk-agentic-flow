@@ -1,4 +1,7 @@
-"""The two leaf functions that read from the audit tables: `latest_chain_anchor` reads the tenant's stored chain head, and `verify_tenant_chain` walks the events and checks them against it. Both are here so `anchor.py` can import from a leaf module with no cycle."""
+"""Reading the audit tables: the tenant's chain head and a full chain check.
+
+Kept in a leaf module so `anchor.py` can import it without a cycle.
+"""
 
 import uuid
 from collections.abc import Mapping
@@ -29,11 +32,8 @@ _HASHED_COLUMNS = (
 async def latest_chain_anchor(session: AsyncSession, tenant_id: uuid.UUID) -> ChainAnchor | None:
     """The tenant's current head: the anchor with the HIGHEST `audit_seq`.
 
-    By seq, never by `anchored_at` or by insertion order. The two orderings
-    agree on every row this module writes and disagree on a row planted around
-    it, and the wrong one verifies a truncated log against a head BELOW the
-    truncation, which reads as perfectly intact. Pinned by
-    `test_audit_anchor.py::test_latest_chain_anchor_reads_the_highest_seq_not_the_newest_row`.
+    Never by `anchored_at` or insert order: a planted row could then make a
+    cut-short log check out against a head below the cut.
     """
     row = await fetch_latest_chain_anchor(session, tenant_id)
     if row is None:
@@ -44,9 +44,8 @@ async def latest_chain_anchor(session: AsyncSession, tenant_id: uuid.UUID) -> Ch
 def as_chain_event(row: AuditEvent) -> Mapping[str, Any]:
     """One stored row in the shape `chain.verify_chain` walks.
 
-    These are the writer's hashed fields read back: the two lists must stay
-    identical, and a drift either way surfaces as a false break rather than
-    a silent pass.
+    The columns must match the writer's hashed fields; a drift shows up as a
+    false break, never a silent pass.
     """
     event: dict[str, Any] = {name: getattr(row, name) for name in _HASHED_COLUMNS}
     event["seq"] = row.seq
@@ -58,8 +57,7 @@ def as_chain_event(row: AuditEvent) -> Mapping[str, Any]:
 async def verify_tenant_chain(session: AsyncSession, tenant_id: uuid.UUID) -> VerifyResult:
     """Walk `tenant_id`'s events in `seq` order and hold them to its anchor.
 
-    A tenant that has never been anchored gets exactly the verdict it got
-    before an earlier change, with `anchored_seq` None to say so.
+    A tenant never anchored gets `anchored_seq` None.
     """
     anchor = await latest_chain_anchor(session, tenant_id)
     rows = await fetch_events_ordered(session, tenant_id)

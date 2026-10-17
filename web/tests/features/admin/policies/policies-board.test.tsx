@@ -15,24 +15,24 @@ import {
 } from "@/features/admin/policies/format";
 
 /**
- * An earlier change §6, `policies-board.test.tsx`: the read-only `/admin/policies` board
+ * `policies-board.test.tsx`: the read-only `/admin/policies` board
  * — one region per ingested document, one row per version — against a stubbed
- * `fetch`. jsdom, no agent-api, no backing service. (No basename collision in
- * the tree, a project rule: the neighbours are `policies-schema.test.ts` and
- * `policies-proxy-routes.test.ts`, both 24g's.)
+ * `fetch`. jsdom, no agent-api, no backing service. (The neighbours are `policies-schema.test.ts`
+ * and
+ * `policies-proxy-routes.test.ts`, same folder.)
  *
  * The unit under test is `PoliciesBoard` from
  * `web/src/features/admin/policies/components/policies-board.tsx`, taking NO props and doing its own
- * read through TanStack Query (§2, decision A), so `app/admin/policies/page.tsx`
+ * read through TanStack Query, so `app/admin/policies/page.tsx`
  * stays a thin `AppShell` wrapper no case here renders. The surface is a READ
- * plus ONE control: an earlier change appended an `Actions` column carrying a re-ingest
+ * plus ONE control: an `Actions` column carrying a re-ingest
  * per distinct version, and three cases below click it. Everything else here is
  * still a read, and the control's own behaviour — the arming, the body, the
  * alerts, the redirect — belongs to `tests/policies-reingest.test.tsx`; what
  * this file owes is WHICH rows carry a control and what the board does with the
  * callback it passes down.
  *
- * The accessible names are the plans' own (24h §1, §6; 31b §1, §6): the board
+ * The accessible names are fixed: the board
  * region `Policies`, the heading `Policy documents`, one region per document
  * named by its `slug`, each holding a table named `Versions of <slug>`, whose
  * seven column headers are `Version`, `Status`, `Ingested`, `Chunks`, `Source`,
@@ -41,15 +41,14 @@ import {
  * The implementation owes each `<section>` and each `<table>` an `aria-label`,
  * because neither role takes its name from its contents.
  *
- * Shapes this file fixes that the plan left open (a project rule, 55, 62 and
- * 68; these belong in 24h's Deviations):
- * - the component's exported name is `PoliciesBoard`, §3 naming only the file.
+ * Shapes this file fixes:
+ * - the component's exported name is `PoliciesBoard`; only the file name was fixed.
  * - "no query string and no body" is asserted as: exactly one call, whose
  *   pathname is `/api/admin/policies`, whose `search` is empty, whose method is
  *   `GET` (absent counts, `fetch`'s own default) and whose `body` is
  *   `undefined`. The relative-versus-absolute form of the URL is NOT fixed.
  * - a version row's first six cells are read BY POSITION in the header order
- *   above, which 31b's appended seventh leaves exactly where they were:
+ *   above, which the appended seventh leaves exactly where they were:
  *   `role="cell"` carries no name of its own, so `within(row)` alone cannot tell
  *   the `Chunks` cell from the `Version` one — which is the swap several of
  *   these cases exist to catch.
@@ -60,7 +59,7 @@ import {
  * - rows are identified by their `Version` cell, the one value every fixture
  *   here gives a distinct string to inside its document.
  * - `No live version` is asserted anywhere inside its DOCUMENT region rather
- *   than in a named element: §1 says the document shows the line and does not
+ *   than in a named element: the document shows the line and nothing says what
  *   say what holds it.
  * - the digest cell is located by its `title`, the way `audit-search-page.test
  *   .tsx::renders the hash as a 12-character prefix ...` locates the hash cell,
@@ -68,14 +67,14 @@ import {
  *   characters CONTAINS the 12.
  * - an expired session is `response.redirected` with `url` on the INSTANCE and
  *   `location` stubbed through `vi.stubGlobal`.
- * - §1's two sentences about a document with NO current version disagree for a
+ * - two rules about a document with NO current version disagree for a
  *   document whose `versions` is EMPTY: such a document has no current version
- *   (so the first asks for `No live version`) and decision G says it renders no
- *   extra sentence at all. Decision G wins here — it is the criterion written
+ *   (so one rule asks for `No live version`) and another says it renders no
+ *   extra sentence at all. The second wins here — it is the rule written
  *   FOR that document — and `::renders a document with no versions as its
- *   heading alone` pins the absence. Recorded in 24h's Deviations.
+ *   heading alone` pins the absence.
  *
- * Every fixture parses under `web/src/features/admin/policies/schema.ts` as 24g built it: the
+ * Every fixture parses under `web/src/features/admin/policies/schema.ts`: the
  * three `PolicyDocumentRow` fields inside `{ documents: [...] }`, with the six
  * `PolicyVersionRow` fields nested and nothing nullable. That parser is pinned
  * by `tests/policies-schema.test.ts` and only CONSUMED here. All names are
@@ -84,12 +83,12 @@ import {
 
 const ORIGIN = "http://localhost:3000";
 const BOARD_PATH = "/api/admin/policies";
-/** 31b's control posts here. It CONTAINS `BOARD_PATH`, so paths are compared
+/** the control posts here. It CONTAINS `BOARD_PATH`, so paths are compared
  * exactly and never with `includes`. */
 const REINGEST_PATH = "/api/admin/policies/reingest";
 const LOGIN_URL = "http://localhost:3000/login";
 
-/** The six READ columns, in the order 24h §1 fixes them; 31b appends a seventh. */
+/** The six READ columns, in header order; the control column is a seventh. */
 const VERSION_CELL = 0;
 const STATUS_CELL = 1;
 const INGESTED_CELL = 2;
@@ -138,7 +137,7 @@ type BoardAnswer = () => Response | Promise<Response>;
 
 let boardAnswer: BoardAnswer = () => board([document({})]);
 
-/** What 31b's control gets back, for the three cases below that click it. */
+/** What the control gets back, for the three cases below that click it. */
 let reingestAnswer: BoardAnswer = () => reingestResult();
 
 function jsonResponse(body: unknown, status: number): Response {
@@ -153,7 +152,7 @@ function board(documents: Record<string, unknown>[]): Response {
   return jsonResponse({ documents }, 200);
 }
 
-/** A re-ingest answer in `policyReingestResultSchema`'s shape: all eight (31a). */
+/** A re-ingest answer in `policyReingestResultSchema`'s shape: all eight. */
 function reingestResult(overrides: Record<string, unknown> = {}): Response {
   return jsonResponse(
     {
@@ -205,7 +204,7 @@ function boardCalls(): Parameters<typeof fetch>[] {
   return fetchStub.mock.calls.filter(([input]) => pathOf(input) === BOARD_PATH);
 }
 
-/** Every POST 31b's control made, read the same exact way. */
+/** Every POST the control made, read the same exact way. */
 function reingestCalls(): Parameters<typeof fetch>[] {
   return fetchStub.mock.calls.filter(([input]) => pathOf(input) === REINGEST_PATH);
 }
@@ -310,10 +309,10 @@ afterEach(() => {
 
 describe("PoliciesBoard — the read it makes", () => {
   it("reads the proxy once on paint, as a GET with no query and no body", async () => {
-    // §1's first criterion and decision A, as the call's whole argument list.
+    // As the call's whole argument list.
     // Kills a board that sends the tenant, the principal or a slug filter along
     // (`?tenant=...`): which corpus this caller sees is the token's tenant,
-    // decided behind the MCP boundary, and a page that names one is a project rule
+    // decided behind the MCP boundary, and a page that names one is trusting the caller's tenant
     // written into the browser. Kills a POST — this surface holds no control at
     // all, so nothing here may write. Kills a board that reads on a click
     // instead of on paint (no call at all by the time the table exists), and one
@@ -350,13 +349,13 @@ describe("PoliciesBoard — the shape of the board", () => {
   });
 
   it("renders the board region and its heading", async () => {
-    // §1's second criterion, the container half, and the anchor every other
+    // The container half, and the anchor every other
     // case in this file scopes itself to. Kills a board that paints its
     // documents as loose sections with no landmark at all, where a screen
     // reader user has no way to jump to the corpus and where `within(board)`
     // below would be scoping to the whole page. The heading is asserted
     // separately from the region's name because they are different strings by
-    // §1's own wording — `Policies` names the region, `Policy documents` is the
+    // the wording — `Policies` names the region, `Policy documents` is the
     // visible heading — and a board reusing one for both is red here.
     renderBoard();
 
@@ -374,15 +373,15 @@ describe("PoliciesBoard — the shape of the board", () => {
   it.each(ORDERS)(
     "renders a payload in $name order exactly as it arrived",
     async ({ documents }) => {
-      // §1's second criterion, with two payload orders because ONE proves
+      // With two payload orders because ONE proves
       // nothing: a board sorting ascending would pass a payload that happened to
-      // arrive sorted. Row 1 kills an ascending re-sort by slug, row 2 kills a
+      // arrive sorted. The first row kills an ascending re-sort by slug, the second row kills a
       // descending one and any "group by prefix" arrangement — its three slugs
       // are in neither alphabetical direction. The order on the wire is the
-      // tool's own (`slug` ascending, 24g decision C), and this component is not
+      // tool's own (`slug` ascending), and this component is not
       // the place that decides what the board contains or in what order: a
       // document ingested by a later plan must not be able to land somewhere an
-      // admin does not look (§1's second criterion, last sentence).
+      // admin does not look.
       boardAnswer = () => board(documents);
       renderBoard();
 
@@ -395,13 +394,13 @@ describe("PoliciesBoard — the shape of the board", () => {
   );
 
   it("names each document's region by its slug and its table by that slug too", async () => {
-    // §1's second and third criteria, on the two names a document owes. Kills a
+    // On the two names a document owes. Kills a
     // board that names every document region the same thing (`Document`), which
     // leaves three identically named regions a screen reader user cannot tell
     // apart, and kills one whose tables are all named `Versions` — with three
     // documents on screen, the versions of the wrong policy are then
     // indistinguishable from the right one's. The title is asserted as the
-    // region's HEADING rather than as its name, which is §1's split: the slug
+    // region's HEADING rather than as its name, which is the split: the slug
     // names the region, the title is what a person reads.
     boardAnswer = () => board([ZETA, ALPHA]);
     renderBoard();
@@ -418,17 +417,17 @@ describe("PoliciesBoard — the shape of the board", () => {
   });
 
   it("renders the seven column headers in order", async () => {
-    // 24h §1's fourth criterion and 31b §1's first, as one exact sequence, and
+    // As one exact sequence, and
     // the guard every cell case below leans on: those are positional, so a
     // column inserted anywhere must be red HERE rather than silently making six
     // cell cases read the wrong column. Kills a board that folds the live
-    // marker into the version cell (24h decision B's rejected shape), which
+    // marker into the version cell (a rejected shape), which
     // leaves no cell that can say whether a version is live without re-reading
     // the version string, and kills one that reorders `Source` and `Digest` so
     // the two 12-character strings in the last columns are swapped past
     // noticing.
     //
-    // `Actions` is asserted LAST, which is 31b §1's "appended": a board putting
+    // `Actions` is asserted LAST, which is why it is "appended": a board putting
     // the new column anywhere else keeps seven headers and shifts every one of
     // the six positional cell assertions in this file onto its neighbour, so a
     // digest would be read where a source path is. That is the kill this
@@ -450,13 +449,13 @@ describe("PoliciesBoard — the shape of the board", () => {
   });
 
   it("renders a document's versions in the payload's own order", async () => {
-    // §1's third criterion, over version strings that sort DIFFERENTLY as
+    // Over version strings that sort DIFFERENTLY as
     // strings than as versions: `v2`, `v10`, `v9` on the wire is neither
     // `["v10", "v2", "v9"]` (string ascending), nor `["v9", "v2", "v10"]`
     // (string descending), nor `["v10", "v9", "v2"]` (the tool's own order,
     // recomputed here), so every re-sort a component could plausibly apply is
-    // red. The wire order is `ingested_at` descending then `version` descending
-    // (24g decision C) and is decided behind the MCP boundary; a board that
+    // red. The wire order is `ingested_at` descending then `version` descending and is decided
+    // behind the MCP boundary; a board that
     // re-derives it from the version STRING reports `v9` as newer than `v10`,
     // which is exactly the two-digit release this page will meet first.
     boardAnswer = () =>
@@ -493,9 +492,9 @@ describe("PoliciesBoard — what a version row shows", () => {
   });
 
   it("renders Live on the current version and Not live on the others", async () => {
-    // §1's fifth criterion and decision C's per-row half. Kills a board written
+    // The per-row half. Kills a board written
     // `row.is_current && LIVE_VERSION_TEXT`, which paints a BLANK cell for every
-    // superseded version — decision C's "never a blank cell", and the reading an
+    // superseded version — "never a blank cell", and the reading an
     // admin cannot tell from a cell that failed to draw. Kills the swap, which
     // would report a superseded version as the one the retriever answers from.
     // Asserted with `toBe` and not containment, because "Live" is a substring of
@@ -512,7 +511,7 @@ describe("PoliciesBoard — what a version row shows", () => {
   });
 
   it("renders the ingested instant as its date and minute in UTC", async () => {
-    // §1's sixth criterion and decision F: the cell goes through the EXISTING
+    // The cell goes through the EXISTING
     // `formatSwitchInstant`, so the literal here is that function's contract
     // written out. Kills a board interpolating `ingested_at` raw, which shows
     // `2026-09-13T14:05:09+00:00` — the `T`, the seconds and an offset — in a
@@ -521,7 +520,7 @@ describe("PoliciesBoard — what a version row shows", () => {
     // a non-UTC browser, so two admins comparing the same ingest disagree about
     // when it landed. Kills a second copy of the slice written into
     // `lib/policies-format.ts` only if that copy is wrong; the ONE
-    // implementation is decision F's point and is stated in §2 rather than
+    // implementation is the point and is not
     // observable here.
     boardAnswer = () => board([document({})]);
     renderBoard();
@@ -532,7 +531,7 @@ describe("PoliciesBoard — what a version row shows", () => {
   });
 
   it("renders a chunk_count of zero with its marker and a non-zero count without one", async () => {
-    // §1's seventh criterion and decision D, both directions in one payload.
+    // Both directions in one payload.
     // The zero row kills a board that renders the bare number: a `0` in a column
     // of numbers reads as "small", when it is the one value on this surface that
     // means the ingest registered a document and wrote no span — a version the
@@ -558,11 +557,11 @@ describe("PoliciesBoard — what a version row shows", () => {
   });
 
   it("renders source_path verbatim", async () => {
-    // §1's ninth criterion. The value is corpus-relative by 24g decision G, and
+    // The value is corpus-relative, and
     // this cell prints what the tool sent and nothing else. Kills a board that
     // prettifies the path — a basename alone (`v1.md`) loses which corpus
-    // directory the version came from, which is the only handle a re-ingest in
-    // row 31 will have — and kills one that prefixes a host or a mount point of
+    // directory the version came from, which is the only handle a re-ingest
+    // will have — and kills one that prefixes a host or a mount point of
     // its own, which would put a fact about the ingest machine in the browser.
     // `toBe` and not containment, so an added prefix or suffix is red.
     boardAnswer = () => board([TWO_VERSIONS]);
@@ -577,11 +576,10 @@ describe("PoliciesBoard — what a version row shows", () => {
   });
 
   it("renders the digest as twelve characters carrying the whole sha256 as its title", async () => {
-    // §1's eighth criterion at its two exact numbers (a project rule, decision
-    // E). Kills a row printing all 64 characters, which costs the other five
+    // The two exact numbers. Kills a row printing all 64 characters, which costs the other five
     // columns their width on every version row. Kills a truncated cell with NO
     // `title`, where the one value an admin compares against an ingest log is
-    // unreachable — the hover being what decision E traded the 64 characters
+    // unreachable — the hover being what the 64 characters were traded for
     // for. The cell is LOCATED by the full digest, so a board that puts the
     // prefix in the attribute and the whole value in the text fails to find it
     // at all, and its text is asserted with `toBe`, because a cell rendering the
@@ -616,9 +614,9 @@ describe("PoliciesBoard — a document with no live version", () => {
   });
 
   it("shows the line on a document whose versions are all superseded, and not on one that is live", async () => {
-    // §1's fifth criterion, second half, and decision C's document-level half —
+    // Second half, the document-level half —
     // the state this page exists to show. Kills a board that marks only the LIVE
-    // row (decision C's rejected badge), which says nothing at all when there is
+    // row (a rejected badge), which says nothing at all when there is
     // no live row: the half-landed ingest then reads as an ordinary document
     // with a few versions, and the retriever answering from nothing is invisible
     // here.
@@ -638,7 +636,7 @@ describe("PoliciesBoard — a document with no live version", () => {
 
 describe("PoliciesBoard — nothing to show", () => {
   it("renders the named empty state with no table and no alert", async () => {
-    // §1's tenth criterion and §5's first risk, the successful half. Kills a
+    // The successful half. Kills a
     // board rendering empty headers, where "no documents ingested" looks exactly
     // like a read that broke. The absent ALERT is the mutual exclusion: a page
     // showing both says two contradictory things about one answer, and an admin
@@ -654,7 +652,7 @@ describe("PoliciesBoard — nothing to show", () => {
   });
 
   it("renders a document with no versions as its region and heading alone", async () => {
-    // §1's eleventh criterion and decision G. Unreachable through 24g's tool —
+    // Unreachable through the tool —
     // every `policy_documents` row IS a version — and pinned so the shape is
     // decided rather than discovered at runtime. Kills a board that maps
     // `versions[0]` without checking, which throws on `undefined.version` and
@@ -663,8 +661,8 @@ describe("PoliciesBoard — nothing to show", () => {
     // of column names with nothing beneath.
     //
     // The absent `No live version` is this file's reading of a contradiction in
-    // §1 (see the header): such a document has no current version, so §1's fifth
-    // criterion asks for the line while decision G says no extra sentence. The
+    // the spec (see the header): such a document has no current version, so one rule
+    // asks for the line while another says no extra sentence. The
     // criterion written for THIS document wins, and this assertion is what makes
     // the choice checkable rather than accidental. The absent empty state is the
     // other half: a corpus of one document is not an empty corpus.
@@ -725,21 +723,22 @@ describe("PoliciesBoard — reads that fail", () => {
   it.each(FAILURES)(
     "$name renders the read message, no table and no empty state",
     async ({ answer }) => {
-      // §1's first unhappy path's LAST sentence — a project rule's
-      // discriminator — from three directions, all killing one implementation: a
+      // The LAST sentence of the failure path, the
+      // refusal-versus-failure discriminator, from three directions, all killing one
+      // implementation: a
       // board that answers an EMPTY CORPUS when the read fails. It would print
       // "No policy documents have been ingested." over a tenant whose corpus
-      // nobody could read, which is §5's first risk and the one sentence on this
+      // nobody could read, which is the main risk and the one sentence on this
       // page an admin acts on by concluding the ingest never ran.
       //
-      // Row 1 is a version missing `chunk_count` alone, so it also kills a page
+      // The first row is a version missing `chunk_count` alone, so it also kills a page
       // that CASTS the body instead of running `safeParse`: the row would draw
       // with an undefined count, a version on screen whose span total — the one
       // fact separating an ingest from a registration — is silently blank.
-      // Row 2 kills one calling `response.json()` unguarded, where the parse
+      // The second row kills one calling `response.json()` unguarded, where the parse
       // error escapes as an unhandled rejection instead of a sentence.
-      // Row 3 is the discriminator itself: `UPSTREAM_UNAVAILABLE` is NOT one of
-      // the design's eight codes, so it is a failed read and not a typed refusal,
+      // The third row is the discriminator itself: `UPSTREAM_UNAVAILABLE` is NOT one of
+      // the eight typed error codes, so it is a failed read and not a typed refusal,
       // and a board answering `failureMessage(code)` here shows "Something went
       // wrong. Nothing was changed.", which is red against this constant. It
       // also kills a board reading the body without checking the status, a 502
@@ -775,7 +774,7 @@ describe("PoliciesBoard — a refused read", () => {
   it.each(REFUSALS)(
     "$name renders its own sentence in an alert, with no table",
     async ({ status, code, sentence }) => {
-      // §1's first unhappy path, one case per REACHABLE code. Kills a board
+      // One case per REACHABLE code. Kills a board
       // rendering the CODE at the admin ("TOOL_DISABLED" means nothing to the
       // person reading it), and kills one answering every failure with
       // `POLICIES_READ_MESSAGE` — a caller who is neither `it_admin` nor
@@ -784,7 +783,7 @@ describe("PoliciesBoard — a refused read", () => {
       // switch would read as a broken proxy rather than as the deliberate stop
       // it is. Both sentences are READ from `FAILURE_MESSAGES` rather than
       // retyped, so a board inventing its own wording is red without widening
-      // 22b's pinned map. The absent read message is what separates this path
+      // the pinned map. The absent read message is what separates this path
       // from the three failures above: a board mapping every
       // thrown error to one sentence is green on that file and red here.
       boardAnswer = () => jsonResponse({ code }, status);
@@ -802,9 +801,9 @@ describe("PoliciesBoard — a refused read", () => {
 
 describe("PoliciesBoard — an expired session", () => {
   it("follows the proxy's redirect to /login instead of rendering a board", async () => {
-    // §1's last unhappy path, §5's second risk, and the reason it is
-    // `response.redirected` and never a status (22b decision E, standing rule
-    // 59): the browser has ALREADY followed the proxy's redirect, so what
+    // And the reason it is
+    // `response.redirected` and never a status: the browser has ALREADY followed the proxy's
+    // redirect, so what
     // arrives is a 200 carrying the login page. Kills a fetcher checking
     // `response.ok` or `response.status === 401` — both see a successful
     // response, the parser then refuses the HTML, and the admin sits on
@@ -812,7 +811,7 @@ describe("PoliciesBoard — an expired session", () => {
     // session that merely expired.
     //
     // The absent EMPTY STATE is the worse half and the one a copied shape gets
-    // wrong (a project rule's fourth half): `readWire` answers `null` here,
+    // wrong (a wrong copy of the shape): `readWire` answers `null` here,
     // and a board mapping that `null` to `{ documents: [] }` would tell somebody
     // who is not signed in that this tenant has ingested no policy at all. All
     // three absences are asserted because the third answer is exactly what this
@@ -833,7 +832,7 @@ describe("PoliciesBoard — the re-ingest control it carries (plan 31b §6)", ()
   /**
    * A third fake digest, so the document below holds TWO `v1` rows that differ
    * only in their bytes — the state `register_document_version` writes when an
-   * edited file is re-ingested under the same version string (31b decision F),
+   * edited file is re-ingested under the same version string,
    * and the state criteria 2 and 12 both read.
    */
   const SHA_OTHER = `3333333333ee${"f".repeat(52)}`;
@@ -861,7 +860,7 @@ describe("PoliciesBoard — the re-ingest control it carries (plan 31b §6)", ()
   }
 
   it("renders one re-ingest control per distinct version of a document", async () => {
-    // 31b §1's second criterion and decision A. The tool re-ingests a version
+    // The tool re-ingests a version
     // DIRECTORY, so two registered rows sharing a version string are one
     // re-ingestable thing: a control on each is a duplicate accessible name
     // doing an identical act, which a screen reader user cannot tell apart and
@@ -874,7 +873,7 @@ describe("PoliciesBoard — the re-ingest control it carries (plan 31b §6)", ()
     //
     // WHICH `v1` row carries it is the other half: the control sits on the
     // FIRST occurrence in the payload's own order, the newest row of that
-    // version (24g decision C orders versions `ingested_at` descending). The
+    // version (versions arrive `ingested_at` descending). The
     // fixture puts that occurrence at index 1 rather than at the top of the
     // table, so a board that special-cases the first ROW of the table passes
     // nothing here.
@@ -901,9 +900,9 @@ describe("PoliciesBoard — the re-ingest control it carries (plan 31b §6)", ()
   });
 
   it("renders both rows of a repeated version string", async () => {
-    // 31b §1's twelfth criterion and decision F. `register_document_version`
+    // `register_document_version`
     // matches on the DIGEST, so a changed re-ingest writes a SECOND row under
-    // the same version string and 24g's read answers both. Keyed by the bare
+    // the same version string and the read answers both. Keyed by the bare
     // `version`, React sees two children under one key: it warns, and — the
     // part no warning describes — it carries one row's component state onto the
     // other, so the `v1` control's armed flag and in-flight flag would land on
@@ -911,8 +910,8 @@ describe("PoliciesBoard — the re-ingest control it carries (plan 31b §6)", ()
     // rows still rendered (a board that deduplicated by version would show
     // two, hiding the row whose digest is the one on disk) and no `key`
     // complaint on `console.error`, which is the only place React says it.
-    // This plan's mutation is what makes the state reachable, which is why the
-    // case lives with it and not with 24h's read.
+    // The mutation is what makes the state reachable, which is why the
+    // case lives with it and not with the read.
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     boardAnswer = () => board([REPEATED]);
     renderBoard();
@@ -929,7 +928,7 @@ describe("PoliciesBoard — the re-ingest control it carries (plan 31b §6)", ()
   });
 
   it("passes the board's invalidation down rather than exposing its query key", async () => {
-    // 31b §1's ninth criterion, from the board's side, and 24db decision G's
+    // From the board's side, and the
     // division. The control holds no knowledge of the cache at all: the board
     // owns `BOARD_KEY` and hands down an `onChanged`, so the two modules do not
     // import each other and a later change to the key cannot leave a control

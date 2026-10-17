@@ -3,24 +3,23 @@ import { describe, expect, it } from "vitest";
 import { myAccessSchema, myRequestsSchema } from "@/features/access/schema";
 
 /**
- * An earlier change §6, `access-schema.test.ts`: the parsers 23b's pages read, over the
+ * The parsers the access pages read, over the
  * two payloads `/api/me/requests` and `/api/me/access` return.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23a's Deviations):
+ * Shapes this file fixes:
  * - `web/src/features/access/schema.ts` exports `myRequestsSchema` (the whole
  *   `{ requests: [...] }` envelope) and `myAccessSchema` (`{ grants: [...] }`),
  *   Zod objects over the WIRE bodies rather than bare row schemas, so a page
  *   runs ONE `safeParse` on what the proxy returned.
  * - every one of the nineteen fields is REQUIRED and nullable where the tool
  *   can answer null (`requested_expiry_days`, `grant_id`, `expires_at`), never
- *   `.optional()`: §6 says a payload missing one of the nineteen is rejected,
+ *   `.optional()`: a payload missing one of the nineteen is rejected,
  *   and an optional field would be silently absent on every row instead.
  * - the schemas are NOT `.strict()`: an unknown extra key is accepted, because
  *   the wire may grow and a page that refuses a widened payload breaks on a
  *   deploy that changed nothing it reads.
  * - `approvals` entries expose at least `slot` and `user_id` as their own
- *   fields (decision D renders the chain by slot), which is what the last case
+ *   fields (the page renders the chain by slot), which is what the last case
  *   reads off the parsed value rather than off the input.
  *
  * No backing service, no route, no page: this is the parser alone.
@@ -60,7 +59,7 @@ const GRANT_ROW: Record<string, unknown> = {
   expires_at: "2099-03-01T12:00:00Z",
 };
 
-/** The nineteen field names of §1, written out rather than derived from the row. */
+/** The nineteen field names, written out rather than derived from the row. */
 const REQUEST_FIELDS = [
   "request_id",
   "target_user_id",
@@ -110,7 +109,7 @@ describe("myRequestsSchema", () => {
   });
 
   it("accepts a row carrying an unknown extra field", () => {
-    // Catches a `.strict()` schema: the wire may grow (this plan is itself a
+    // Catches a `.strict()` schema: the wire may grow (the schema is itself a
     // widening of the same tool), and a page that refuses a payload with one
     // new key breaks on a deploy that changed nothing it reads.
     const widened = { ...REQUEST_ROW, something_new: "a field 23c adds" };
@@ -129,7 +128,7 @@ describe("myRequestsSchema", () => {
 
   it("exposes each approval seat's slot on the parsed value", () => {
     // Catches `approvals` typed as an opaque array (`z.array(z.unknown())`):
-    // decision D renders the chain BY SLOT, so a parsed value with no `slot`
+    // the page renders the chain BY SLOT, so a parsed value with no `slot`
     // to read leaves the page with a row it cannot draw — and under
     // TypeScript's strict mode this case does not compile at all, which is the
     // earliest the failure can be caught.
@@ -165,9 +164,8 @@ describe("myAccessSchema", () => {
 });
 
 /**
- * An earlier change §6 additions: `citations` as the typed five-field object rather than
- * `z.array(z.unknown())`. Additions only — nothing above this comment is
- * edited, and the existing request fixture's `citations: []` still parses.
+ * `citations` as the typed five-field object rather than
+ * `z.array(z.unknown())`. The existing request fixture's `citations: []` still parses.
  *
  * The element shape is `mcp_server.tools.access.Citation` as STORED:
  * `{document_slug, title, version, heading_path, chunk_id}`, five fields, with
@@ -198,9 +196,9 @@ describe("myRequestSchema — citations", () => {
   const MISSING = ["document_slug", "title", "version", "heading_path", "chunk_id"] as const;
 
   it.each(MISSING)("rejects a citation with no %s", (field) => {
-    // Catches the `z.array(z.unknown())` this plan replaces: every row here
+    // Catches the `z.array(z.unknown())` this replaces: every row here
     // passes under it, and `/requests` then renders a source with a blank
-    // title or a version it cannot show — the two fields §6 requires it to
+    // title or a version it cannot show — the two fields it must
     // name. `chunk_id` in particular is the field a hand-written citation
     // forgets, and it is what ties a source back to the text it came from.
     const citation = { ...CITATION };
@@ -210,7 +208,7 @@ describe("myRequestSchema — citations", () => {
   });
 
   it("rejects a citation whose heading_path is a list", () => {
-    // Decision B, pinned on the field the two citation shapes disagree about.
+    // Pinned on the field the two citation shapes disagree about.
     // Catches a schema copied from the CHAT citation (`heading_path:
     // z.array(z.string())`, plus `text` and `score`): it would refuse every
     // stored request citation on the wire, so the page would alert on a row the

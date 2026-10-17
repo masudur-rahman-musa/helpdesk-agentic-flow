@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `search_audit`, through the transport.
+"""`search_audit`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -8,7 +8,7 @@ Surface under test (written before it exists):
     ``audit_events`` columns they filter:
     ``EVENT_TYPE_MAX_LENGTH``, ``SUBJECT_TYPE_MAX_LENGTH``,
     ``SUBJECT_ID_MAX_LENGTH``, ``ACTOR_REF_MAX_LENGTH``.
-    ``SearchAuditInput`` — decision D's eight optional fields:
+    ``SearchAuditInput`` — eight optional fields:
     ``event_type``, ``subject_type``, ``subject_id``, ``actor_ref``,
     ``occurred_from``, ``occurred_to``, ``before_seq`` (``ge=1``) and
     ``limit`` (``ge=SEARCH_LIMIT_MIN``, ``le=SEARCH_LIMIT_MAX``, defaulting
@@ -16,27 +16,27 @@ Surface under test (written before it exists):
     from the token.
     ``AuditEventRow`` — ``seq``, ``occurred_at``, ``actor_kind``,
     ``actor_ref``, ``event_type``, ``subject_type``, ``subject_id``,
-    ``payload`` and ``hash`` (criterion 2, decision E).
+    ``payload`` and ``hash``.
     ``SearchAuditOutput`` — ``events`` and ``next_before_seq`` (``None`` when
     the scan reached the end).
     ``search_audit`` — a registered READ tool (``mutating=False``, no
     idempotency key) whose registry ``event_type`` is the generic
     ``tool.succeeded``.
 
-Scope (plan §2): the handler asks `rbac.authorize` for the caller's
+Scope: the handler asks `rbac.authorize` for the caller's
 `Authorization.scopes`, reads the caller's department from
 `SimulatedDirectory` rather than from the token's `department_id` claim, and
 keeps a row only if `helpdesk.access.approvals.request_in_scope` reaches the
 (department, system owner) pair the row's subject resolves to. `Scope.ANY`
 short-circuits the resolution entirely. A subject that resolves to neither —
-`subject_type="tool"`, a null `subject_id`, or a type outside plan §2's table
+`subject_type="tool"`, a null `subject_id`, or a type outside the subject table
 — is withheld from a narrow caller and returned to an ANY caller, which is
 the fail-closed direction.
 
-the design's `search_audit` row gives a cell to `manager`, `system_owner`, `hr`,
+The matrix's `search_audit` row gives a cell to `manager`, `system_owner`, `hr`,
 `it_admin`, `auditor` AND `platform_admin`, so exactly ONE principal holds no
-cell: `employee`. (An earlier change §1 says "the five principals"; that numeral is
-carried over from an earlier change's `rollback_request` row and is wrong for this
+cell: `employee`. (Do not copy "the five principals"; that numeral is
+carried over from the `rollback_request` row and is wrong for this
 one — `search_audit` is the widest row in the matrix.)
 
 Every scope case below is called by a principal the matrix ADMITS, over rows
@@ -47,7 +47,7 @@ here is claimed from a watched deletion — nothing was run when this file was
 written — so each docstring states the reasoning that
 isolates the control rather than asserting a verified deletion.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: every case plants its OWN departments, systems, roles, people and
@@ -56,7 +56,7 @@ grants (uuid4-suffixed) and files its audit events under its OWN
 own ``tool.succeeded`` events therefore never appear in a result set.
 
 Every raw-SQL fixture binds `date` and `datetime` OBJECTS, never strings:
-asyncpg binds by type and does not coerce (the project notes, an earlier change).
+asyncpg binds by type and does not coerce.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
@@ -88,7 +88,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     token_for,
 )
 
-# An earlier change reading: most of this file's tests run 2.0-3.7s (each plants audit
+# Most of this file's tests run 2.0-3.7s (each plants audit
 # events in a seeded database and queries them back), so it is slow as a whole
 # and `make test-fast` skips it.
 pytestmark = pytest.mark.slow
@@ -100,7 +100,7 @@ SEARCH = "search_audit"
 SUCCEEDED_EVENT = "tool.succeeded"
 DENIED_EVENT = "tool.denied"
 
-# the design's `search_audit` row. Six principals hold a cell and exactly one
+# The matrix's `search_audit` row. Six principals hold a cell and exactly one
 # does not; four of the six hold `Scope.ANY`.
 ANY_SCOPE_PRINCIPALS = ("hr", "it_admin", "auditor", "platform_admin")
 UNCELLED_PRINCIPAL = "employee"
@@ -108,7 +108,7 @@ UNCELLED_PRINCIPAL = "employee"
 # The scope string the pipeline records on a `Scope.ANY` caller's event.
 ANY_SCOPE_VALUE = "any"
 
-# Decision D's numbers, written out here and compared against the module's own
+# The numbers, written out here and compared against the module's own
 # constants inside the bounds case, so the values are pinned by this test file
 # rather than borrowed from the code.
 EXPECTED_LIMIT_MIN = 1
@@ -142,11 +142,11 @@ FAR_EXPIRY = datetime(2099, 6, 1, 12, 0, tzinfo=UTC)
 OCCURRED_AT = datetime(2026, 5, 1, 9, 0, tzinfo=UTC)
 
 # `search_audit` itself is the unresolvable subject the pipeline files its own
-# events against (`subject_type="tool"`), which is what plan §2's last row
+# events against (`subject_type="tool"`), which is what the last row of the subject table
 # describes.
 TOOL_SUBJECT_TYPE = "tool"
 
-# The nine fields criterion 2 says every returned row carries.
+# The nine fields every returned row carries.
 ROW_FIELDS = frozenset(
     {
         "seq",
@@ -470,7 +470,7 @@ def _subjects(payload: dict[str, Any]) -> list[tuple[str, str | None]]:
     return [(str(row["subject_type"]), row["subject_id"]) for row in events]
 
 
-# --- the four `Scope.ANY` principals (criterion 4) -------------------------------
+# --- the four `Scope.ANY` principals -------------------------------
 
 
 @pytest.mark.parametrize("principal", ANY_SCOPE_PRINCIPALS)
@@ -478,16 +478,16 @@ def test_each_any_scope_principal_reads_every_planted_event(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """Criterion 4's wide half, one the design cell at a time, plus criterion 2's
+    """The wide half, one the matrix cell at a time, plus the
     row shape.
 
     KILL (reasoned, not watched): the `Scope.ANY` short-circuit. The caller is
     an `outsider` — a third department, no system owned, nobody managed — so
     the three planted rows resolve to a department they are not in, a system
-    they do not own, and nothing at all. A handler that ran plan §2's
+    they do not own, and nothing at all. A handler that ran the subject
     resolution for every caller instead of short-circuiting `Scope.ANY`
     returns an EMPTY page here while still passing both narrow cases below,
-    and `auditor`, the principal the design puts on the audit trail, could read
+    and `auditor`, the principal meant for the audit trail, could read
     nothing.
 
     A second kill for the parametrisation: a registry entry wired to a
@@ -497,10 +497,10 @@ def test_each_any_scope_principal_reads_every_planted_event(
     or the `employee` case below. The token carries exactly ONE principal, so
     nothing but that principal's own cell can admit the call.
 
-    The row shape (criterion 2) is asserted here rather than in its own case:
+    The row shape is asserted here rather than in its own case:
     this is the only case that sees every planted row, so it is the only one
     that can show `payload` and `hash` present on rows of all three subject
-    kinds (decision E — an audit search without the payload answers no
+    kinds (an audit search without the payload answers no
     question an auditor asks).
     """
     realm = plant_realm(mcp_env)
@@ -537,19 +537,19 @@ def test_each_any_scope_principal_reads_every_planted_event(
         assert len(str(row["hash"])) == _column_length("hash")
 
 
-# --- the two narrow scopes (criterion 4, a project rule) -----------------------
+# --- the two narrow scopes -----------------------
 
 
 def test_a_manager_reads_only_the_events_of_their_own_department(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 4's `own_department` half.
+    """The `own_department` half.
 
     KILL (reasoned, not watched): the department comparison inside the scope
     filter. `manager` holds a cell on this row, so the pipeline's RBAC stage
     admits the call; both events are in the caller's OWN tenant, so the
     tenant-bound session cannot hide either; both subjects resolve through
-    plan §2's `user` row, so the fail-closed default cannot hide either. The
+    the `user` row of the subject table, so the fail-closed default cannot hide either. The
     only thing left that can tell the two rows apart is whose department the
     subject is in.
 
@@ -580,7 +580,7 @@ def test_a_manager_reads_only_the_events_of_their_own_department(
 def test_a_system_owner_reads_only_the_events_of_a_system_they_own(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 4's `own_systems` half, which the department case cannot reach.
+    """The `own_systems` half, which the department case cannot reach.
 
     KILL (reasoned, not watched): the system-owner comparison. A handler that
     implemented `own_department` and left `own_systems` answering True for
@@ -589,8 +589,8 @@ def test_a_system_owner_reads_only_the_events_of_a_system_they_own(
     present in the same call.
 
     `system_owner` holds a cell on this row, so RBAC admits the call, and both
-    grants are in the caller's OWN tenant and resolve cleanly through plan
-    §2's `grant` row — so, again, only the owner comparison can separate them.
+    grants are in the caller's OWN tenant and resolve cleanly through the
+    `grant` row of the subject table — so, again, only the owner comparison can separate them.
     The caller's own department is `department_b`, which is where the
     OUT-of-scope grant's holder sits: a handler that compared departments
     instead of owners would return exactly the wrong one of the two rows,
@@ -611,13 +611,13 @@ def test_a_system_owner_reads_only_the_events_of_a_system_they_own(
     assert _subjects(payload) == [("grant", str(realm.grant_owned))]
 
 
-# --- the unresolvable subject (criterion 6) --------------------------------------
+# --- the unresolvable subject --------------------------------------
 
 
 def test_an_unresolvable_subject_is_withheld_from_a_manager_and_returned_to_an_auditor(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 6, both directions of plan §2's last row.
+    """Both directions of the subject table's last row.
 
     KILL (reasoned, not watched), manager half: the fail-closed default. The
     `tool` subject resolves to no department and no system, so a resolution
@@ -629,8 +629,8 @@ def test_an_unresolvable_subject_is_withheld_from_a_manager_and_returned_to_an_a
 
     KILL, auditor half: running the resolution for an `Scope.ANY` caller. The
     same unresolvable row must come back, because an `auditor` who cannot see
-    `tool.*` events cannot see who called what — which is most of SPEC
-    §13.1's log.
+    `tool.*` events cannot see who called what — which is most of the
+    log.
 
     Both events are in the caller's own tenant and both callers hold a cell on
     this row, so no other guard can decide either half.
@@ -660,13 +660,13 @@ def test_an_unresolvable_subject_is_withheld_from_a_manager_and_returned_to_an_a
     )
 
 
-# --- the directory, not the token (criterion 5) ----------------------------------
+# --- the directory, not the token ----------------------------------
 
 
 def test_the_managers_department_comes_from_the_directory_not_the_token(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 5, and a project rule on the department comparison itself.
+    """The department comparison itself.
 
     KILL (reasoned, not watched): reading `department_id` off the token's
     claims instead of `SimulatedDirectory`. The token is minted BEFORE the
@@ -706,29 +706,29 @@ def test_the_managers_department_comes_from_the_directory_not_the_token(
     assert _subjects(payload) == [("user", str(realm.member_b))]
 
 
-# --- the design's one empty cell (criterion 7) --------------------------------------
+# --- the matrix's one empty cell --------------------------------------
 
 
 def test_the_employee_principal_reads_forbidden_and_no_data(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 7. the design gives `search_audit` a cell to six of the seven
-    principals, so `employee` is the ONLY one with none — an earlier change §1's "five
-    principals" is `rollback_request`'s number, not this row's.
+    """The matrix gives `search_audit` a cell to six of the seven
+    principals, so `employee` is the ONLY one with none — the "five
+    principals" of the rollback row is not this row's number.
 
     KILL (reasoned, not watched): adding `employee` to the `search_audit` cell
     of the RBAC matrix. Every argument is valid, the filter names events that
     really exist in the caller's OWN tenant, and the caller is a real active
     user, so nothing but a permission decision can produce this answer.
 
-    This does NOT claim the pipeline's RBAC stage alone as its kill (standing
-    rule 20): the handler re-runs `rbac.authorize` to obtain
+    This does NOT claim the pipeline's RBAC stage alone as its kill:
+    the handler re-runs `rbac.authorize` to obtain
     `Authorization.scopes`, so an `employee` is refused twice by two copies of
     one decision and neither copy can be killed separately.
 
     `tool.denied` rather than `tool.failed`: a permission decision filed as an
     outage is a false record, and a count-only assertion cannot tell them
-    apart. The refusal carries the code and no rows at all (the design).
+    apart. The refusal carries the code and no rows at all.
     """
     realm = plant_realm(mcp_env)
     _plant_event(
@@ -750,13 +750,13 @@ def test_the_employee_principal_reads_forbidden_and_no_data(
     ]
 
 
-# --- the other tenant (criterion 8) ----------------------------------------------
+# --- the other tenant ----------------------------------------------
 
 
 def test_another_tenants_subject_id_returns_an_empty_page_not_an_error(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 8: an empty page, never a row and never an existence signal.
+    """An empty page, never a row and never an existence signal.
 
     KILL (reasoned, not watched): a search that escapes the tenant-bound
     session. The subject named is a REAL user with a REAL audit row in the
@@ -795,11 +795,11 @@ def test_another_tenants_subject_id_returns_an_empty_page_not_an_error(
     assert payload["next_before_seq"] is None
 
 
-# --- the bounds (criterion 9, a project rule and 2) ----------------------------
+# --- the bounds ----------------------------
 
 
 def test_the_search_bounds_and_column_caps_are_exactly_their_values() -> None:
-    """Decision D's numbers, pinned exactly.
+    """The numbers, pinned exactly.
 
     Catches a widened `limit` (an unbounded response over the wire), a drifted
     default (every caller who omits `limit` silently receives a different
@@ -829,7 +829,7 @@ def test_the_default_limit_is_read_off_the_input_model() -> None:
     """Catches the constant and the model disagreeing: a `Field(default=100)`
     beside a `SEARCH_LIMIT_DEFAULT` of 50 leaves the case above green while
     every real caller who omits `limit` receives a different page size than
-    the plan says. All eight fields are optional, so the model constructs with
+    the default says. All eight fields are optional, so the model constructs with
     no arguments at all — which is also what pins that a filterless search is
     a legal call."""
     assert read.SearchAuditInput().limit == read.SEARCH_LIMIT_DEFAULT
@@ -853,7 +853,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
     limit: int,
     accepted: bool,
 ) -> None:
-    """Criterion 9's `limit`, both sides of both ends.
+    """The `limit`, both sides of both ends.
 
     A one-sided assertion cannot tell an inclusive bound from an exclusive
     one: `gt=1` accepts 200 and refuses 1, and `lt=200` accepts 1 and refuses
@@ -861,7 +861,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
     missing lower bound, which would let a caller ask for an empty page and
     read it as "this tenant has no such events"; 201 catches a missing upper
     bound, which is an unbounded response over the wire against the one table
-    the design never prunes.
+    the audit log never prunes.
 
     Two events are planted and `limit=1` must return exactly one of them, so
     the bound is proved to be APPLIED and not merely accepted — a model that
@@ -909,7 +909,7 @@ def test_before_seq_is_accepted_at_1_and_refused_at_0(
     before_seq: int,
     accepted: bool,
 ) -> None:
-    """Criterion 9's `before_seq >= 1`, at the boundary and one below it.
+    """The `before_seq >= 1`, at the boundary and one below it.
 
     `seq` is a Postgres `Identity` column starting at 1, so 1 is the lowest
     cursor that can ever name a row and 0 is the first value that cannot. A
@@ -961,7 +961,7 @@ def test_each_string_filter_is_inclusive_at_its_column_cap_and_refused_one_over(
     cap: int,
     over: bool,
 ) -> None:
-    """Criterion 9's four filter caps, at the cap and at cap+1, per field.
+    """The four filter caps, at the cap and at cap+1, per field.
 
     Every length here is computed off the `audit_events` column the filter
     reads (`_column_length`), never typed as a literal: a
@@ -976,7 +976,7 @@ def test_each_string_filter_is_inclusive_at_its_column_cap_and_refused_one_over(
     The over-cap row must be `VALIDATION` and not a database error surfacing
     as `INTERNAL`: a filter longer than the column can hold is the caller's
     mistake, and Postgres would otherwise refuse it in words no boundary may
-    forward (the design).
+    forward.
     """
     realm = plant_realm(mcp_env)
     _plant_event(
@@ -1000,13 +1000,13 @@ def test_each_string_filter_is_inclusive_at_its_column_cap_and_refused_one_over(
         assert _structured(result)["events"] == []
 
 
-# --- the audit record of the call itself (criterion 10) --------------------------
+# --- the audit record of the call itself --------------------------
 
 
 def test_one_search_writes_exactly_one_tool_succeeded_naming_the_tool(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 10, as an exact ordered delta rather than a count.
+    """As an exact ordered delta rather than a count.
 
     KILL (reasoned, not watched): a registry entry that declared a
     domain-specific `event_type` for this tool, or a handler that appended an
@@ -1015,12 +1015,12 @@ def test_one_search_writes_exactly_one_tool_succeeded_naming_the_tool(
     put a read into the log twice, and a search that recorded a domain event
     would claim something happened that did not.
 
-    a project rule: the event's subject and payload keys are asserted, not
+    The event's subject and payload keys are asserted, not
     just its type. This event's subject IS the tool — which is exactly why
-    plan §2's table gives `subject_type="tool"` no department and no system,
+    the subject table gives `subject_type="tool"` no department and no system,
     and why the manager case above cannot see it.
 
-    A second identical search is run first (criterion 10's "a second identical
+    A second identical search is run first ("a second identical
     search returns the same rows"), so the delta proves both that a read is
     repeatable and that each call files exactly one event, never zero and
     never two.

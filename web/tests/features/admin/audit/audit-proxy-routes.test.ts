@@ -6,7 +6,7 @@ import { GET as verifyGET } from "@/app/api/admin/audit/verify/route";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change §6, `audit-proxy-routes.test.ts`: the audit search and the chain
+ * `audit-proxy-routes.test.ts`: the audit search and the chain
  * verification, proxied, against a stubbed `fetch`. Node environment, because
  * both handlers are server-side and `NextResponse.redirect` needs the real
  * `Response`.
@@ -15,23 +15,22 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  * mocked exactly as `tests/reviews-proxy-routes.test.ts` mocks it — the
  * modules under test are the two routes, not Next's store.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24a's Deviations):
+ * Shapes this file fixes:
  * - the search handler is `export async function GET(request: Request):
- *   Promise<Response>` — it takes a `Request` because decision D has it
- *   forwarding all eight filters off its OWN url — and the verify handler is
- *   `export async function GET(): Promise<Response>`, 23b's zero-argument
- *   shape, because an earlier change's route takes no parameter at all.
+ *   Promise<Response>` — it takes a `Request` because it
+ *   forwards all eight filters off its OWN url — and the verify handler is
+ *   `export async function GET(): Promise<Response>`, the zero-argument
+ *   shape, because the route takes no parameter at all.
  * - the upstream paths are agent-api's own, `/admin/audit/search` and
  *   `/admin/audit/verify`, never the browser-facing `/api/...` prefix.
  * - the transport-failure envelope is `502 { code: "UPSTREAM_UNAVAILABLE" }`,
  *   `proxyAgentApi`'s own body, and the 401 answer is a **307** to `/login`,
  *   read off `NextResponse.redirect`'s default status the same way
- *   `tests/reviews-proxy-routes.test.ts` reads it (a project rule: the
+ *   `tests/reviews-proxy-routes.test.ts` reads it (the
  *   redirect is observed on the response's status and `location` header,
  *   never through `window.location`).
- * - the eight forwarded parameter names are the tool's own, in the order §1
- *   lists them, and each is sent only when present.
+ * - the eight forwarded parameter names are the tool's own, in the order the
+ *   tool lists them, and each is sent only when present.
  *
  * No backing service and no page: the only seam is `fetch`.
  */
@@ -43,7 +42,7 @@ const REDIRECT_STATUS = 307;
 const UPSTREAM_UNAVAILABLE_STATUS = 502;
 const FORBIDDEN_STATUS = 403;
 
-/** §1's eight filters, with a value for each. */
+/** The eight filters, with a value for each. */
 const FILTERS: ReadonlyArray<readonly [string, string]> = [
   ["event_type", "access_request.created"],
   ["subject_type", "access_request"],
@@ -125,8 +124,8 @@ describe("the two audit routes — the bearer", () => {
     "$name sends the bearer from the httpOnly cookie and never in the URL",
     async ({ call, upstream }) => {
       // Catches a route that reads a token from a header the browser set or
-      // from the query string — the cookie is the only copy of the bearer
-      // (22a decision A), so anything else means the client was handed one,
+      // from the query string — the cookie is the only copy of the bearer, so anything else means
+      // the client was handed one,
       // and a token in a URL lands in every access log. Also catches a route
       // that calls agent-api directly instead of through `proxyAgentApi`: an
       // unrouted call carries no authorization header at all, and on THIS
@@ -145,7 +144,7 @@ describe("the two audit routes — the bearer", () => {
     // parses the tool's own envelope, so a proxy adding a key of its own
     // leaves `audit-schema.ts` rejecting a payload agent-api answered
     // correctly. On an audit surface a proxy that filtered rows would also be
-    // a second, invisible scope filter over the one 13b already applies.
+    // a second, invisible scope filter over the one the tool already applies.
     const payload = { events: [], next_before_seq: null, ok: true, broken_at: null };
     fetchStub.mockResolvedValue(jsonResponse(payload, 200));
 
@@ -158,8 +157,8 @@ describe("the two audit routes — the bearer", () => {
 
 describe("the search route — its own query parameters (decision D)", () => {
   it("forwards all eight filters from its own request url", async () => {
-    // Decision D. Catches a proxy that drops the query — 13b put these eight
-    // filters on the tool because an audit log is unusable without them, and
+    // Catches a proxy that drops the query. The tool takes these eight
+    // filters because an audit log is unusable without them, and
     // this route is the search box's only caller, so a dropped query leaves
     // the page filtering client-side over one page of fifty rows — and one
     // that renames a parameter on the way through, which agent-api would
@@ -209,8 +208,8 @@ describe("the search route — its own query parameters (decision D)", () => {
 
 describe("the verify route — its own shape", () => {
   it("forwards no query and no body", async () => {
-    // An earlier change's route takes nothing: the tenant comes from the token (hard
-    // rule 6). Catches a proxy that passes a tenant, a user or a filter of its
+    // the route takes nothing: the tenant comes from the token.
+    // Catches a proxy that passes a tenant, a user or a filter of its
     // own along — on the one route in this diff that reads the database
     // directly rather than through a tool, an argument the browser could set
     // is the whole chain answered for somebody else's tenant.
@@ -223,12 +222,12 @@ describe("the verify route — its own shape", () => {
   });
 
   it("forwards a 403 with its typed body instead of flattening it into a 502", async () => {
-    // §1's last criterion and §5's fifth risk. An earlier change's route answers 403 to
+    // the route answers 403 to
     // a VERIFIED token without an audit principal. Catches a proxy that treats
     // every non-200 as a transport failure: an ordinary employee would be told
     // the chain is unreachable — which reads as an outage, or as tampering —
     // rather than that they may not ask. The status and the typed body both
-    // have to survive, because 24b renders one sentence per the design code.
+    // have to survive, because the page renders one sentence per typed error code.
     //
     // Only the non-200 handling can decide this row: the cookie is present,
     // the fetch resolves, and 401 is the sole status `proxyAgentApi` acts on.
@@ -266,7 +265,7 @@ describe("the two audit routes — an expired session", () => {
     async ({ call }) => {
       // Catches a route that passes agent-api's 401 through to the browser: the
       // stale cookie survives, so every later call fails the same way with
-      // nothing telling the user why. This is 22a's `proxyAgentApi` seam, so a
+      // nothing telling the user why. This is the `proxyAgentApi` seam, so a
       // route that opens its own `fetch` is caught here too — an unrouted call
       // answers 401, not a redirect, and clears no cookie.
       fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));

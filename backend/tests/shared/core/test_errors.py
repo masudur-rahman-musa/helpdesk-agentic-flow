@@ -1,10 +1,10 @@
-"""An earlier change section 6: the shared typed-error module, written before it exists.
+"""The shared typed-error module.
 
 Expected implementation surface (`helpdesk/errors.py`, pure: no I/O, no
 imports from models or services):
 
 ``class ErrorCode(StrEnum)``
-    Exactly the eight the design codes, value == name: ``FORBIDDEN``,
+    Exactly the eight error codes, value == name: ``FORBIDDEN``,
     ``NOT_FOUND``, ``SOD_CONFLICT``, ``POLICY_BLOCKED``,
     ``IDEMPOTENCY_CONFLICT``, ``TOOL_DISABLED``, ``VALIDATION``,
     ``INTERNAL``. No ninth member: the MCP boundary maps codes to user
@@ -18,7 +18,7 @@ imports from models or services):
 
 ``class IdempotencyConflictError(ToolError)``
     ``code == ErrorCode.IDEMPOTENCY_CONFLICT`` — same key, different
-    request fingerprint (the design).
+    request fingerprint.
 
 ``helpdesk.auth.rbac.RbacDenied`` is rebased onto ``ToolError`` and keeps
 ``code == "FORBIDDEN"``; the 188-case RBAC suite stays untouched and green.
@@ -40,7 +40,7 @@ from helpdesk.shared.core.errors import (
 )
 from helpdesk.shared.services.killswitch import InvalidSwitchTargetError, SwitchUnavailableError
 
-# the design, written out literally so the test cannot drift with the enum.
+# The code list, written out literally so the test cannot drift with the enum.
 SPEC_CODES: tuple[str, ...] = (
     "FORBIDDEN",
     "NOT_FOUND",
@@ -62,16 +62,16 @@ TYPED_ERRORS: tuple[tuple[type[ToolError], str], ...] = (
     (UnknownToolError, "INTERNAL"),
     (InvalidIdempotencyKeyError, "VALIDATION"),
     (UnstorableResponseError, "INTERNAL"),
-    # An earlier change: an admin tripped the tool's kill switch. Distinct from
+    # An admin tripped the tool's kill switch. Distinct from
     # FORBIDDEN, which is about who is asking, not whether the tool is on.
     (ToolDisabledError, "TOOL_DISABLED"),
-    # An earlier change: Redis was unreachable, so the switch state is unknown. The
+    # Redis was unreachable, so the switch state is unknown. The
     # call is still denied, but the tool is not known to be off, so this is
     # not TOOL_DISABLED — an outage must not read as an admin decision.
     (SwitchUnavailableError, "INTERNAL"),
-    # An earlier change: a scope, tool name, reason or actor this module cannot store.
+    # A scope, tool name, reason or actor this module cannot store.
     (InvalidSwitchTargetError, "VALIDATION"),
-    # An earlier change: the row is not in the caller's tenant. One answer for "another
+    # The row is not in the caller's tenant. One answer for "another
     # tenant owns it" and "nobody owns it", so not-found is not an oracle.
     (NotFoundError, "NOT_FOUND"),
 )
@@ -146,7 +146,7 @@ def test_typed_errors_carry_their_spec_code(
 
 
 def test_rbac_denied_is_a_tool_error_with_forbidden() -> None:
-    """An earlier change acceptance: rbac's errors rebase onto ToolError, unchanged."""
+    """Rbac's errors rebase onto ToolError, unchanged."""
     error = RbacDenied("approve_request")
     assert isinstance(error, ToolError)
     assert error.code == ErrorCode.FORBIDDEN
@@ -155,6 +155,6 @@ def test_rbac_denied_is_a_tool_error_with_forbidden() -> None:
 
 
 def test_rbac_denied_is_still_catchable_as_a_plain_exception() -> None:
-    """Callers written against the closed an earlier change API keep working."""
+    """Callers written against the original RBAC API keep working."""
     with pytest.raises(Exception, match="approve_request"):
         raise RbacDenied("approve_request")

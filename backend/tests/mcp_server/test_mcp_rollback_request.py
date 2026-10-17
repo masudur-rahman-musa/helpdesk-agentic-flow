@@ -1,8 +1,8 @@
-"""An earlier change, sections 1 and 6: `rollback_request`, through the transport.
+"""`rollback_request`, through the transport.
 
 Surface under test (written before it exists):
 
-``mcp_server.tools.rollback`` (new module, the design's Admin group)
+``mcp_server.tools.rollback`` (the Admin group)
     ``RollbackRequestInput(MutatingToolInput)`` — ``request_id: uuid.UUID``
     and ``reason: str`` bounded ``1..REASON_MAX_LENGTH``, the constant
     IMPORTED from ``mcp_server.tools.access`` rather than retyped, plus the
@@ -12,33 +12,33 @@ Surface under test (written before it exists):
     ``revoked_grant_ids`` and ``revoked_count``.
     ``rollback_request`` — a registered MUTATING tool whose registry
     ``event_type`` is ``tool.succeeded``; it writes one ``grant.revoked`` and
-    one ``grant.rolled_back`` per revoked row itself (decision E), so the
+    one ``grant.rolled_back`` per revoked row itself, so the
     pipeline's summary event lands last.
 
 Refusals: ``NOT_FOUND`` for a request that does not exist and for another
 tenant's (identical answers, so the id is not an existence oracle),
-``FORBIDDEN`` (+ ``tool.denied``) for the five principals the design gives no
+``FORBIDDEN`` (+ ``tool.denied``) for the five principals the matrix gives no
 cell on this row, ``POLICY_BLOCKED`` for a request that is not ``executed``,
-for one past the 24h window and for one with no live grant left (decision C),
+for one past the 24h window and for one with no live grant left,
 and ``VALIDATION`` for a reason outside 1..2000.
 
-There is NO scope helper on this tool: the design gives it `it_admin` and
+There is NO scope helper on this tool: the matrix gives it `it_admin` and
 `platform_admin` only, both at `Scope.ANY`, so the pipeline's matrix stage is
 the whole permission check and the denial case below IS its kill (unlike
-`revoke_access`, whose handler re-runs `rbac.authorize` — a project rule).
+`revoke_access`, whose handler re-runs `rbac.authorize`).
 
 The window's exact inclusivity is NOT asserted here: over the wire the handler
 reads its own clock, so an "exactly 24h" case would race it. It is pinned
 purely by
 `test_access_rollback.py::test_the_rollback_window_is_inclusive_at_exactly_24_hours`;
 what this file pins is that the window is applied at all, and to WHICH
-`granted_at` when a request produced more than one grant (decision A).
+`granted_at` when a request produced more than one grant.
 
 Audit deltas are asserted as exact ordered event-type lists against a before
 snapshot, never as counts: a missing domain event, a duplicated one, or a
 denial filed as an outage is invisible to a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: every case plants its OWN department, system, role, people,
@@ -46,7 +46,7 @@ request and grants (uuid4-suffixed names) and sends a fresh idempotency key
 per call, so no two cases can see each other's rows.
 
 Every raw-SQL fixture binds `datetime` OBJECTS, never strings: asyncpg binds
-by type and does not coerce (the project notes, an earlier change).
+by type and does not coerce.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
@@ -80,8 +80,8 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
 
 ROLLBACK = "rollback_request"
 
-# the design's two events, appended per revoked row by the handler (decision
-# E), and the pipeline's own events. Literals rather than imports: these
+# The two events, appended per revoked row by the handler,
+# and the pipeline's own events. Literals rather than imports: these
 # strings are the audit contract, and reading them from the module under test
 # would let a rename pass unnoticed.
 GRANT_REVOKED_EVENT = "grant.revoked"
@@ -96,8 +96,8 @@ FAILED_EVENT = "tool.failed"
 # the boundary case, so the number is pinned in the test rather than borrowed.
 REASON_MAX_LENGTH = 2000
 
-# Decision B's literal, as a literal: `grants.revoke_reason` on a rollback is
-# `rollback` and not the caller's text, which is what row 21's sweeps match on.
+# The literal: `grants.revoke_reason` on a rollback is
+# `rollback` and not the caller's text, which is what the later sweeps match on.
 ROLLBACK_REVOKE_REASON = "rollback"
 
 # Which of the two seeded tenants `mcp_env.tenant_a` is depends on the order
@@ -106,15 +106,15 @@ ROLLBACK_REVOKE_REASON = "rollback"
 # Everything below plants into `tenant_a`, so caller and rows must agree.
 _TENANTS = {CUAN.slug: CUAN, NORDLICHT.slug: NORDLICHT}
 
-# the design's `rollback_request` row: two principals hold a cell, five hold
+# The matrix's `rollback_request` row: two principals hold a cell, five hold
 # none. `hr` and `manager` are denied here (unlike the review rows) and
 # `auditor` too (unlike the audit row), so a row copied from either by habit
 # fails.
 ALLOWED_PRINCIPALS = ("it_admin", "platform_admin")
 DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "hr", "auditor")
 
-# Every `RequestStatus` except `executed`: criterion 5 says the tool answers
-# `POLICY_BLOCKED` for all of them, and `rolled_back` is also the §5 race
+# Every `RequestStatus` except `executed`: the tool answers
+# `POLICY_BLOCKED` for all of them, and `rolled_back` is also the race
 # loser's answer (the winner took the lock and moved the status first).
 NON_EXECUTED_STATUSES = tuple(
     status for status in RequestStatus if status is not RequestStatus.EXECUTED
@@ -476,21 +476,21 @@ def _untouched(database_url: str, planted: Planted, *, status: RequestStatus) ->
         assert _events_for(database_url, grant_id) == [], grant_id
 
 
-# --- the happy path (criteria 1 and 2) -------------------------------------------
+# --- the happy path -------------------------------------------
 
 
 def test_an_it_admin_rolls_back_an_executed_request(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 1 end to end.
+    """End to end.
 
     KILL: dropping the final `set_request_status(..., ROLLED_BACK)`. The grants
     would still die and the response would still name them, so only the
     re-read of the request row catches it — and a request left `executed` can
-    be rolled back a second time, which is the §5 race hole.
+    be rolled back a second time, which is the race hole.
 
     Three grant rows are planted on ONE request: two live and one revoked
-    long ago. The set is the unit (criterion 1 says "every live grant the
+    long ago. The set is the unit (the tool revokes "every live grant the
     request produced"), so a handler that stops at the first row reports one id
     where two died, and one that ignores liveness rewrites a historical
     revocation — erasing who ended that access and why, the one thing the
@@ -499,7 +499,7 @@ def test_an_it_admin_rolls_back_an_executed_request(
     as it was planted.
 
     The audit is asserted per subject and as a tenant delta: each live grant
-    carries exactly `grant.revoked` then `grant.rolled_back` (decision E, in
+    carries exactly `grant.revoked` then `grant.rolled_back` (in
     that order, so a rollback that skips the shared revocation writer fails),
     and the pipeline's single `tool.succeeded` lands LAST — a handler declaring
     `grant.rolled_back` as its registry event would write one event naming the
@@ -563,7 +563,7 @@ def test_an_it_admin_rolls_back_an_executed_request(
 def test_a_platform_admin_also_reaches_the_tool(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """the design's second cell on this row.
+    """The matrix's second cell on this row.
 
     KILL: a matrix entry (or a registry `tool=`) giving the row `it_admin`
     alone. The happy path above passes on an `it_admin`-only wiring, and the
@@ -586,7 +586,7 @@ def test_a_platform_admin_also_reaches_the_tool(
     assert _grant_row(mcp_env.database_url, planted.grant_ids[0]).status == REVOKED_STATUS
 
 
-# --- the design's five empty cells (criterion 7) ------------------------------------
+# --- the matrix's five empty cells ------------------------------------
 
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
@@ -594,14 +594,14 @@ def test_the_five_denied_principals_roll_nothing_back(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """the design's five empty cells on this row, and the record they leave.
+    """The matrix's five empty cells on this row, and the record they leave.
 
     KILL: adding this principal to the `rollback_request` cell of the RBAC
     matrix. Unlike `revoke_access`, this handler runs no scope helper and
-    therefore never re-runs `rbac.authorize` (plan §2), so the pipeline's
+    therefore never re-runs `rbac.authorize`, so the pipeline's
     matrix stage is the only guard that can refuse here and deleting it hands
-    every one of these five the undo button (a project rule does not apply:
-    there is no second copy of the guard).
+    every one of these five the undo button (there is no
+    second copy of the guard).
 
     Every argument is valid, the request is `executed`, its grant is live and
     one hour old, and everything is in the caller's OWN tenant, so no other
@@ -625,13 +625,13 @@ def test_the_five_denied_principals_roll_nothing_back(
     ]
 
 
-# --- the two absences (criterion 4) ----------------------------------------------
+# --- the two absences ----------------------------------------------
 
 
 def test_a_missing_and_another_tenants_request_answer_the_same_not_found(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 4, both absences compared as whole strings.
+    """Both absences compared as whole strings.
 
     KILL: reading the request through anything but the tenant-bound session
     (a `select(AccessRequest).where(id == ...)` on a raw connection, say). The
@@ -641,7 +641,7 @@ def test_a_missing_and_another_tenants_request_answer_the_same_not_found(
     which is why both halves are here. If the two answers differed at all, a
     request id would be a cross-tenant existence oracle.
 
-    The caller holds `platform_admin`, the widest principal the design has, so
+    The caller holds `platform_admin`, the widest principal the matrix has, so
     permission cannot be what refuses either call — the widest cell is still
     confined to its own tenant.
     """
@@ -657,7 +657,7 @@ def test_a_missing_and_another_tenants_request_answer_the_same_not_found(
     _untouched(mcp_env.database_url, theirs, status=RequestStatus.EXECUTED)
 
 
-# --- the status gate (criterion 5) -----------------------------------------------
+# --- the status gate -----------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -667,14 +667,14 @@ def test_a_request_in_any_status_but_executed_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
     status: RequestStatus,
 ) -> None:
-    """Criterion 5, every row of the status column.
+    """Every row of the status column.
 
     KILL: deleting the `status is RequestStatus.EXECUTED` test in the handler.
     Each request here carries a LIVE grant granted one hour ago, so neither
     the window test nor the empty-live-set refusal can answer for it — without
     the status test every one of these rows would be rolled back, including a
     `pending` request whose grant nobody has approved yet and a `rolled_back`
-    one, which is the §5 race loser and must not undo an undo.
+    one, which is the race loser and must not undo an undo.
 
     `POLICY_BLOCKED` and not `VALIDATION`: the arguments are perfectly well
     formed, and calling this a schema problem sends the caller to fix the wrong
@@ -699,13 +699,13 @@ def test_a_request_in_any_status_but_executed_is_refused_policy_blocked(
     ]
 
 
-# --- the window (criterion 3) ----------------------------------------------------
+# --- the window ----------------------------------------------------
 
 
 def test_a_request_granted_twenty_five_hours_ago_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 3's refusal half, at the transport.
+    """The refusal half, at the transport.
 
     KILL: deleting the window test from the handler. The request is `executed`
     and its grant is live, `active` and unexpired, so the status gate and the
@@ -739,7 +739,7 @@ def test_a_request_granted_twenty_five_hours_ago_is_refused_policy_blocked(
 def test_the_window_is_measured_from_the_earliest_grant_of_the_request(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision A's multi-row half.
+    """The multi-row half.
 
     KILL: `max(granted_at)` (or "the first row the query happens to return")
     where the handler must use `min(granted_at)`. Two live grants hang off one
@@ -762,13 +762,13 @@ def test_the_window_is_measured_from_the_earliest_grant_of_the_request(
     _untouched(mcp_env.database_url, planted, status=RequestStatus.EXECUTED)
 
 
-# --- decision C (criterion 6) ----------------------------------------------------
+# --- already-revoked grants ----------------------------------------------------
 
 
 def test_a_request_whose_grants_are_already_revoked_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision C at the transport.
+    """The already-revoked case at the transport.
 
     KILL: dropping the liveness filter from `lock_live_grants_for_request`,
     which would re-revoke a row that died months ago — rewriting the reason and
@@ -801,7 +801,7 @@ def test_a_request_whose_grants_are_already_revoked_is_refused_policy_blocked(
     ]
 
 
-# --- the input surface (criterion 9, a project rule and 2) ---------------------
+# --- the input surface ---------------------
 
 
 @pytest.mark.parametrize(
@@ -818,17 +818,17 @@ def test_the_reason_boundary_is_inclusive_at_1_and_2000(
     length: int,
     accepted: bool,
 ) -> None:
-    """Criterion 9: both ends, both directions, against the exact number.
+    """Both ends, both directions, against the exact number.
 
     KILL: `Field(min_length=1)` with no `max_length` on `RollbackRequestInput`,
-    or a `gt`/`lt` where the plan says inclusive. The caller's reason lands in
+    or a `gt`/`lt` where the bound is inclusive. The caller's reason lands in
     the unbounded `Text` payload of `grant.rolled_back`, so this Pydantic bound
     is the only backstop there is, and a one-sided assertion
     cannot tell an inclusive bound from an exclusive one. The lower bound is 1
     and not 0 because an undo with an empty reason is one nobody can audit.
 
     The bound is read off `mcp_server.tools.access`'s own constant, not retyped
-    in the admin module (criterion 9, a project rule): widening one tool's
+    in the admin module: widening one tool's
     reason without the other's is exactly the drift this import prevents. The
     refused rows are re-read to prove the check runs BEFORE any effect.
     """
@@ -863,13 +863,13 @@ def test_the_reason_boundary_is_inclusive_at_1_and_2000(
         _untouched(mcp_env.database_url, planted, status=RequestStatus.EXECUTED)
 
 
-# --- replay (criterion 8) --------------------------------------------------------
+# --- replay --------------------------------------------------------
 
 
 def test_a_replay_returns_the_stored_response_and_revokes_nothing_further(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 8.
+    """A retry replays the stored answer.
 
     KILL: registering the tool with `mutating=False`, which is what makes the
     pipeline run the body instead of answering from the stored idempotency
@@ -906,7 +906,7 @@ def test_a_replay_returns_the_stored_response_and_revokes_nothing_further(
 def test_two_callers_racing_the_same_rollback_undo_it_once(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """The §5 race, at the outcome. Two different callers send two different
+    """The race, at the outcome. Two different callers send two different
     idempotency keys, so the guard cannot serialise them at all; the locks in
     `lock_request` and `lock_live_grants_for_request` are what must.
 

@@ -1,4 +1,4 @@
-"""An earlier change — health-checks-written-once.
+"""Health checks are written once.
 
 Seven tests, all plain objects and fakes. No running service, no `db` marker.
 

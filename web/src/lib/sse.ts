@@ -1,30 +1,11 @@
 /**
- * The Server-Sent Events frame parser, and nothing else.
- *
- * Hand written rather than a dependency: a browser `EventSource` cannot send a
- * POST or an `Authorization` header (19c decision D1), so the turn is read off
- * a `fetch` body either way and the library's main value does not apply.
- *
- * Pure — strings in, events out. No fetch, no React, no `TextDecoder`: the
- * reader loop decodes, because it is the only thing that can join a multi-byte
- * character split across two network reads, and the parser stays testable with
- * plain strings.
- *
- * **A frame ends at a blank line and its `data` is ONE line.** The buffer is
- * split on the raw frame boundary BEFORE anything is JSON-decoded, which is
- * what makes `agent_api.sse.encode_event`'s escaping load-bearing: a reply
- * containing "\n\nevent: reply" cannot forge a second event here. Pinned by
- * `tests/sse-parser.test.ts`'s "keeps a payload carrying an escaped newline as
- * ONE event".
- *
- * Three things a malformed stream may not do: end the read loop, emit half a
- * frame, or dispatch an event the server does not send. Each is pinned by its
- * own case in `tests/sse-parser.test.ts` ("skips a data line that is not JSON
- * and still parses the next frame", "holds a trailing partial frame instead of
- * emitting it", "skips an event name outside the five the server sends").
+ * The Server-Sent Events frame parser. Hand written: `EventSource` cannot POST
+ * or send an `Authorization` header, so the turn is read off a `fetch` body.
+ * Frames are split before JSON decoding, so a reply holding "\n\nevent: reply"
+ * cannot fake a second event. A bad frame is dropped and never ends the loop.
  */
 
-/** Exactly agent-api's five names (`agent_api/sse.py`). Anything else is dropped. */
+/** The five event names agent-api sends. Anything else is dropped. */
 export const SSE_EVENT_NAMES = ["step", "token", "reply", "error", "done"] as const;
 
 export type SseEventName = (typeof SSE_EVENT_NAMES)[number];
@@ -44,9 +25,8 @@ function isEventName(name: string): name is SseEventName {
 }
 
 /**
- * Reads one raw frame. Returns `null` for every frame the client cannot act
- * on — an unknown name, a missing field, a `data` line that is not JSON — so
- * one bad frame costs its own event and nothing more.
+ * One raw frame, or `null` for anything the client cannot act on, so one bad
+ * frame costs only itself.
  */
 function parseFrame(raw: string): SseEvent | null {
   let name: string | null = null;

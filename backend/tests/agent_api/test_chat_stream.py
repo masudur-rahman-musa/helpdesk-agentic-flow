@@ -1,10 +1,10 @@
-"""An earlier change §6: POST /chat/stream, the app driven in process over ASGI.
+"""POST /chat/stream, the app driven in process over ASGI.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.chat_routes``
     ``POST /chat/stream`` — the same body and the same bearer as ``/chat``
-        (decision D1), the same verification, the same rate limit and the same
+, the same verification, the same rate limit and the same
         tenant-bound session. On success a ``StreamingResponse`` with
         ``media_type="text/event-stream"`` over
         ``agent_api.graph.build.stream_turn``, whose frames are the ones
@@ -25,7 +25,7 @@ decision E1 exists to keep rare.
 A failure AFTER the stream has opened is the other half: one ``error`` event
 carrying ``ErrorCode.INTERNAL`` — ``{"code": "INTERNAL"}``, the body ``/chat``
 answers the same outage with — then ``done``, and never a partial reply as
-tokens (decision E1).
+tokens.
 
 Cost and isolation. The compose Postgres and Redis, and nothing else: no
 Qdrant, no real MCP server (the scripted stub of 17b) and no gateway socket (an
@@ -99,7 +99,7 @@ GATEWAY_API_KEYS = ",".join(f"{slug}:{key}" for slug, key in API_KEYS.items())
 MESSAGE = "Please give me read access to fake payroll."
 
 FORGED_FRAME = "\n\nevent: reply\ndata: {}"
-"""§1's fourth criterion, verbatim: what a reply may not be able to write."""
+"""Verbatim: what a reply may not be able to write."""
 
 COMPOSED_REPLY = (
     f"I have filed the fake payroll read request for you.{FORGED_FRAME} "
@@ -307,8 +307,8 @@ def _test_redis_url() -> str:
 def stream_route_db() -> Iterator[StreamRouteEnv]:
     """One database, its schema, the checkpoint tables and one tenant, once.
 
-    a project rule: nothing per-case is built here, and nothing is flushed.
-    A throwaway database rather than the compose one for an earlier change's reason —
+    nothing per-case is built here, and nothing is flushed.
+    A throwaway database rather than the compose one for the checkpointer's reason —
     `test_models.py` and `test_seed.py` assert on a database's full table list,
     and LangGraph's checkpoint tables are outside `Base.metadata` on purpose.
     """
@@ -531,7 +531,7 @@ def _drive[T](
     The gateway client the lifespan built is CLOSED before being replaced, so a
     case that stages its own leaks neither into the compose stack. The tool
     caller is replaced at the module seam, because a turn's caller is built per
-    turn (17b decision B) and never lives on the app.
+    turn and never lives on the app.
     """
     if tools is not None:
         caller = tools
@@ -604,7 +604,7 @@ def test_one_message_streams_its_steps_its_tokens_and_its_reply(
     """Catches a route that answers the finished turn as one JSON body with the
     frames pasted in, and one that streams the reply without the steps that
     justify it: the event name list is asserted as a sequence, so nothing but
-    §1's order satisfies it.
+    order satisfies it.
 
     The composed reply carries a frame boundary END TO END, so a route that
     joined chunks itself, or that wrote the reply into the frame outside
@@ -813,7 +813,7 @@ def test_a_message_one_character_over_the_cap_is_a_typed_400_and_opens_no_stream
 def test_a_spent_rate_limit_is_a_typed_429_and_opens_no_stream(
     stream_env: StreamRouteEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Catches a streaming route that skipped the design's limit entirely, or
+    """Catches a streaming route that skipped the limit entirely, or
     counted it after the turn — the one control bounding a runaway client, and
     the one a new route is likeliest to forget.
 

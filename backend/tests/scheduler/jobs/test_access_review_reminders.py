@@ -1,4 +1,4 @@
-"""An earlier change §6: `send_review_reminders`, called directly with a fixed `now`.
+"""`send_review_reminders`, called directly with a fixed `now`.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -6,13 +6,13 @@ must provide exactly this):
 ``helpdesk.models.notification``
     ``NotificationKind.REVIEW_OVERDUE = "review_overdue"`` and
     ``NotificationKind.REVIEW_ESCALATED = "review_escalated"``, the third and
-    fourth members of the enum after this plan (§8 widens
+    fourth members of the enum after this change (the model test widens
     `test_notification_models.py`'s set to exactly four).
 
 ``helpdesk.access.review_schedule`` (re-exported from ``helpdesk.access``)
     ``REVIEW_ESCALATION_DAYS = 14`` — how far past `due_at` an open review has
-    to be before the `it_admin` principals hear about it (decision J,
-    INCLUSIVE).
+    to be before the `it_admin` principals hear about it (inclusive
+    at the edge).
     ``_REMINDER_TITLE`` — the fixed title every reminder carries. The scope
     name goes in the BODY, so a 256-character department name can never reach
     `notify`'s 200-character title cap.
@@ -23,18 +23,18 @@ must provide exactly this):
     review id and `read_at` null. A review at or past
     `now - REVIEW_ESCALATION_DAYS` ALSO writes one `review_escalated` row to
     every `active` user of the tenant carrying the `it_admin` principal
-    (decision F: as well as the reminder, never instead of it).
+    (as well as the reminder, never instead of it).
 
-The return value is never asserted here: plan §6 fixes no return shape, and
+The return value is never asserted here: the contract fixes no return shape, and
 every claim below is readable from the `notifications` table.
 
-Decision E is deliberate and is asserted as such: there is no dedupe at all,
-because the daily cadence gate IS the dedupe and the design asks for a DAILY
+The missing dedupe is deliberate and is asserted as such: there is no dedupe at all,
+because the daily cadence gate IS the dedupe and the product spec asks for a DAILY
 reminder. `test_running_the_job_twice_writes_two_reminders_for_one_review`
 states that as the intended behaviour rather than leaving it to be discovered
 as a bug.
 
-a project rule: the session factory is the shared one from `conftest.py` --
+The session factory is the shared one from `conftest.py` --
 one engine for the whole run, schema created once. Per-test isolation is a
 namespace, not a rebuild: this job sweeps a whole tenant, so every case seeds
 a tenant of its OWN with `_seed.seed_tenant`. That seeded tenant holds no
@@ -42,7 +42,7 @@ review at all and its only user carries `["employee"]` — read off `_seed.py`,
 not remembered — so a case that plants no `it_admin` has none, and every "no
 rows" assertion below stays exact.
 
-a project rule: this file, `test_access_review_generation.py` and
+This file, `test_access_review_generation.py` and
 `test_access_reviews.py` are three distinct basenames.
 
 No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
@@ -78,7 +78,7 @@ PERIOD = "2026-Q3"
 the period is only a label on the rows it plants."""
 
 ESCALATION = timedelta(days=14)
-"""Decision J's band, written as a literal here on purpose.
+"""The band, written as a literal here on purpose.
 
 Asserted equal to `REVIEW_ESCALATION_DAYS` by the constants case, so a value
 changed in the module moves the boundary cases only through a test that fails
@@ -89,7 +89,7 @@ OVERDUE = NOW - timedelta(days=1)
 JUST_OVERDUE = NOW - timedelta(microseconds=1)
 """The narrowest value that IS overdue against a strict `<`."""
 AT_ESCALATION = NOW - ESCALATION
-"""The inclusive edge of decision J's escalation band."""
+"""The inclusive edge of the escalation band."""
 JUST_INSIDE_ESCALATION = NOW - ESCALATION + timedelta(microseconds=1)
 """The narrowest value that must NOT escalate."""
 NOT_YET_DUE = NOW + timedelta(days=3)
@@ -107,7 +107,7 @@ TENURED_START = date(2019, 3, 7)
 
 LONG_DEPARTMENT_NAME = "Fake Department " + "x" * (256 - len("Fake Department "))
 """Exactly the `departments.name` column width (256), and above `notify`'s
-200-character TITLE cap. Criterion 13's whole point: this name has to reach a
+200-character TITLE cap. The whole point: this name has to reach a
 stored row, which it can only do from the body."""
 
 
@@ -273,19 +273,19 @@ def _of_kind(
     return [row for row in _notifications(factory, tenant_id) if row.kind == kind]
 
 
-# --- the reminder itself (criterion 13) ---------------------------------------
+# --- the reminder itself ---------------------------------------
 
 
 def test_an_overdue_open_review_reminds_its_reviewer_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 13, as one exact row.
+    """As one exact row.
 
     Catches four wrong implementations at once. One that writes to the
     department's members or to every `it_admin` rather than to the REVIEWER —
-    the only person who can act on the review, and the person the design names.
+    the only person who can act on the review, and the person the product spec names.
     One that writes the kind `review_escalated` for an ordinary overdue
-    review, which would make row 23's bell shout about every review a day
+    review, which would make the notification bell shout about every review a day
     late. One whose `subject_id` is the department, the period or the reviewer
     rather than the review: those two fields are the only thing a link to the
     review queue can be composed from, so a reminder naming anything else
@@ -310,7 +310,7 @@ def test_an_overdue_open_review_reminds_its_reviewer_once(
 def test_the_scope_name_is_in_the_body_and_the_title_is_the_fixed_literal(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 13's second half, at the length that makes it observable.
+    """The second half, at the length that makes it observable.
 
     Catches a reminder that composes the department name into the TITLE.
     `notify` refuses a title over 200 characters with a typed `VALIDATION`
@@ -351,13 +351,13 @@ def test_the_scope_name_is_in_the_body_and_the_title_is_the_fixed_literal(
     assert len(rows[0].title) <= NOTIFICATION_TITLE_MAX_LENGTH
 
 
-# --- the overdue boundary, both halves exactly (criterion 14) -----------------
+# --- the overdue boundary, both halves exactly -----------------
 
 
 def test_a_review_due_at_exactly_now_is_not_overdue(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 14's strict half, at the exact instant.
+    """The strict half, at the exact instant.
 
     Catches `due_at <= now`, or a comparison rounded to a date
     (`due_at::date <= now::date`), either of which nags a reviewer on the
@@ -378,7 +378,7 @@ def test_a_review_due_at_exactly_now_is_not_overdue(
 def test_a_review_one_microsecond_past_its_due_date_is_overdue(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 14's other half, one microsecond out.
+    """The other half, one microsecond out.
 
     Catches a band widened to "a day late" — `due_at < now - 1 day`, or a
     comparison against `now.date()` — which delays every reminder by a full
@@ -395,7 +395,7 @@ def test_a_review_one_microsecond_past_its_due_date_is_overdue(
     assert [row.subject_id for row in rows] == [str(review_id)]
 
 
-# --- the excluded rows, one case per conjunct (criterion 15) ------------------
+# --- the excluded rows, one case per conjunct ------------------
 
 
 def test_a_review_with_no_due_date_is_never_reminded_about(
@@ -467,13 +467,13 @@ def test_another_tenants_overdue_review_is_never_reminded_about(
     assert _notifications(session_factory, neighbour.tenant_id) == []
 
 
-# --- the escalation band, both halves exactly (criteria 16 and 17) ------------
+# --- the escalation band, both halves exactly ------------
 
 
 def test_a_review_exactly_fourteen_days_overdue_escalates_to_every_active_it_admin(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision J's INCLUSIVE edge, at the exact instant, plus criterion 16's
+    """The INCLUSIVE edge, at the exact instant, plus the
     recipient set.
 
     Catches a strict `<` on the escalation bound, which loses the review that
@@ -509,7 +509,7 @@ def test_a_review_one_microsecond_short_of_fourteen_days_does_not_escalate(
 
     Catches an escalation band quietly widened — a `>=` on a rounded date, a
     comparison against `now.date()`, or the constant changed to 7 — which
-    escalates a review a day (or a week) before the design says the reviewer has
+    escalates a review a day (or a week) before the product spec says the reviewer has
     run out of rope, putting every `it_admin` in the tenant on a mailing list
     for reviews that are merely late. The reviewer's own reminder is asserted
     present, so an implementation that simply stopped writing anything for
@@ -532,10 +532,10 @@ def test_a_review_one_microsecond_short_of_fourteen_days_does_not_escalate(
 def test_an_escalating_review_still_writes_the_reviewers_own_reminder(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision F: the escalation is an ADDITION, never a substitution.
+    """The escalation is an ADDITION, never a substitution.
 
     Catches the rejected alternative, an `if escalating: … else: …` that sends
-    the `it_admin` row INSTEAD of the reviewer's. the design reads "reminder to
+    the `it_admin` row INSTEAD of the reviewer's. The product spec reads "reminder to
     reviewer; 14 days overdue → escalate to it_admin", and the reviewer who
     stops being told on day fourteen is the one person who can still decide
     the items. Two kinds, one review, and the recipients are asserted apart:
@@ -562,7 +562,7 @@ def test_an_escalating_review_still_writes_the_reviewers_own_reminder(
 def test_a_tenant_with_no_active_it_admin_escalates_to_nobody_and_still_reminds(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 17's first half.
+    """The first half.
 
     Catches an escalation that falls back to somebody when the principal is
     unheld — every user of the tenant, the reviewer twice, or a crash on an
@@ -589,13 +589,13 @@ def test_a_tenant_with_no_active_it_admin_escalates_to_nobody_and_still_reminds(
 def test_a_leaver_holding_it_admin_is_never_escalated_to(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 17's second half, ISOLATED from the principal test.
+    """The second half, ISOLATED from the principal test.
 
     Both planted admins carry `it_admin`, so only the `status = 'active'`
     conjunct can tell them apart and dropping it fails exactly this case. What
     it catches is a tenant's departed IT lead collecting escalations about
-    reviews they can no longer act on — the design blocks a leaver from asking
-    for anything at all, and 21b's sweep is busy revoking their access in the
+    reviews they can no longer act on — the leaver rule blocks a leaver from asking
+    for anything at all, and the leaver sweep is busy revoking their access in the
     same tick, so a notification to them is the system contradicting itself.
     The active admin's row is asserted present, so a query that escalated to
     nobody fails too.
@@ -618,7 +618,7 @@ def test_a_leaver_holding_it_admin_is_never_escalated_to(
 def test_two_overdue_reviews_for_one_reviewer_write_one_row_each(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 18. Catches a job that writes one row per REVIEWER rather
+    """Catches a job that writes one row per REVIEWER rather
     than one per review — the natural shape if the overdue set is grouped by
     recipient to save a write.
 
@@ -653,10 +653,10 @@ def test_two_overdue_reviews_for_one_reviewer_write_one_row_each(
 def test_running_the_job_twice_writes_two_reminders_for_one_review(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision E, stated as the intended behaviour rather than discovered as a
+    """The missing dedupe, stated as the intended behaviour rather than discovered as a
     bug.
 
-    the design asks for a DAILY reminder and the cadence gate already makes one
+    the product spec asks for a DAILY reminder and the cadence gate already makes one
     run a day, so the anti-join `warn_expiring_grants` uses would turn that
     daily nag into a single notification never repeated — a review left open
     for a quarter would be mentioned once, on the day after it fell due. This
@@ -664,7 +664,7 @@ def test_running_the_job_twice_writes_two_reminders_for_one_review(
     because the two jobs look alike: two runs, two rows, one review.
 
     It is the one case here that would go RED for a change somebody might
-    think is an improvement, which is exactly why decision E is written down.
+    think is an improvement, which is exactly why the missing dedupe is written down.
     """
     tenant = _tenant(session_factory)
     reviewer = _plant_user(session_factory, tenant)
@@ -700,13 +700,14 @@ def test_a_review_that_is_not_yet_due_writes_nothing(
 
 
 def test_the_review_reminder_constants_are_exactly_the_planned_values() -> None:
-    """a project rule on everything this half of the plan introduces.
+    """The constants this half introduces, pinned as literals.
 
     Catches the escalation window quietly moved: every boundary case above is
     written against 14 days, so a module constant of 7 or 30 would leave them
     all green while the service escalated on a different schedule from the one
-    §1 fixes. Catches either enum member's value drifting from the literal row
-    23's route will render — a stored `kind` nothing renders is a bell entry a
+    the contract fixes. Catches either enum member's value drifting from the literal the
+    notification
+    route will render — a stored `kind` nothing renders is a bell entry a
     person sees as blank — and pins the enum's two new members as the values
     `send_review_reminders` writes.
 

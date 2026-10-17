@@ -1,38 +1,8 @@
-"""The three review tools: opening one (12c), reading its items (12c), and
-deciding one of them (12e).
+"""The review tools: open a review, list reviews, read its items, decide one.
 
-`open_access_review` is the design's `open_access_review(department_id |
-system_id, period, idempotency_key)`. Everything it decides lives in
-`helpdesk.access.reviews`; what lives here is the wire contract, the two
-input pre-checks, and the the design scope question the domain deliberately does
-not ask.
-
-Scope goes through an earlier change's `request_in_scope` with review-derived
-arguments — one scope authority for approvals, revocation and now reviews —
-and every department id it compares is read from the DIRECTORY, never from
-the token's `department_id` claim. The user id itself still comes only from
-the token.
-
-The scope check runs BEFORE the scope row's existence is tested, so a caller
-whose the design row does not reach a department or a system learns `FORBIDDEN`
-whether or not that id exists, and the id is neither an existence nor a state
-oracle. For a department the check needs no read at all — it compares the
-caller's own department to the argument. For a system it has to read the
-row to learn its owner, and a missing or foreign system answers with no owner
-and therefore with the same `FORBIDDEN` a system owner gets for somebody
-else's system; only an `any`-scope caller (`hr`, `it_admin`,
-`platform_admin`) reaches the `NOT_FOUND` behind it, which is a caller
-already entitled to know.
-
-`review.opened` is appended by `helpdesk.access.reviews` itself, and the
-registry declares the generic `tool.succeeded` (decision K): the pipeline's
-own event carries a fixed payload and the TOOL as its subject, so as the
-declared type it would record that somebody called a tool and not which scope
-was reviewed. The pipeline's event lands last, as the summary — the same
-shape as an earlier change's `grant.revoked` and 12a/12b/12d's lifecycle events.
-
-No function here opens a session or touches the transport: the pipeline binds
-the session to the token's tenant before the handler is called.
+Scope is checked before existence: a caller whose scope does not reach an id
+gets `FORBIDDEN` whether or not it exists, so ids reveal nothing. The
+caller's department is read from the directory, never the token.
 """
 
 import re
@@ -73,80 +43,33 @@ from helpdesk.shared.access.review_queries import (
 )
 
 PERIOD_PATTERN = re.compile(r"\d{4}-Q[1-4]")
-r"""What a review period may look like (decision H).
-
-Used with `re.fullmatch` and never `match`, `search` or Pydantic's
-`Field(pattern=...)`: all three of those are PARTIAL
-matches, so `"2026-Q1\n"`, `"2026-Q1\r\n"` and `"2026-Q1 "` pass them and the
-control character rides into the column. Those three cases, plus `2026-Q0`,
-`2026-Q5` and an over-length value, are the rejection table in
-`test_mcp_reviews.py::test_the_period_bounds_are_inclusive_and_reject_before_any_write`;
-a non-anchored match accepts the first three, which is what tells `fullmatch`
-apart here.
-
-The shape is deliberately narrower than the column: `access_reviews.period`
-is `String(PERIOD_LENGTH)` so row 21's scheduler can widen the vocabulary
-without a migration, and until it does, a period is one quarter.
-"""
+r"""One quarter, `YYYY-Qn`, used with `fullmatch` so no trailing newline or space gets in."""
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
-"""The read tool's contract: identity arrives on the token, so a spare
-argument is data to discard rather than a reason to fail the call. The
-mutating input below FORBIDS extras instead, through `MutatingToolInput`."""
 
 LIMIT_MIN = 1
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
-"""Bounds on `list_review_items` (decision I), the same as an earlier change's queue.
-
-Items go over the wire and nothing downstream bounds them, so an absent cap
-is an unbounded response. Pinned exactly, and the default read off the input
-model, by
-`test_mcp_reviews.py::test_the_limit_boundary_is_inclusive_at_1_and_200`
-and `::test_the_default_limit_is_exactly_fifty`."""
 
 
 class OpenAccessReviewInput(MutatingToolInput):
-    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`.
-
-    Forbidding extras matters here for the same reason it does on the
-    lifecycle tools: a `tenant_id` or a `reviewer_user_id` in the arguments is
-    a caller who believes they are choosing something they are not, and
-    dropping it silently would open the review under a success they read as
-    something else. The reviewer is never an argument at all (decision F).
-    """
+    """Extras are refused: a stray `reviewer_user_id` must not be quietly dropped."""
 
     department_id: uuid.UUID | None = None
     system_id: uuid.UUID | None = None
     period: str = Field(min_length=1, max_length=PERIOD_LENGTH)
-    """The column's own length, imported rather than retyped (standing rule
-    1), so the pre-check and the storage cannot drift. The shape below is
-    narrower still, so the length bound is a floor under a future vocabulary
-    rather than the thing that refuses today's bad values."""
 
     @field_validator("period")
     @classmethod
     def _period_is_one_quarter(cls, value: str) -> str:
-        """`re.fullmatch`, and deliberately NOT Pydantic's `pattern=` — see
-        `PERIOD_PATTERN`, whose docstring names the cases that tell them apart.
-        """
+        """Checked with `fullmatch`, not `pattern=`; see `PERIOD_PATTERN`."""
         if PERIOD_PATTERN.fullmatch(value) is None:
             raise ValueError("period must be a quarter of the form YYYY-Qn, n in 1..4")
         return value
 
     @model_validator(mode="after")
     def _exactly_one_scope(self) -> "OpenAccessReviewInput":
-        """Exactly one of `department_id` / `system_id`, refused before any effect.
-
-        Neither and both are the same refusal (`VALIDATION`, the pipeline's
-        argument-parse code), and it happens at input parsing, so no row is
-        written and no scope row is even read. A review of "everything" and a
-        review of two different things are both scopes nobody could answer
-        for, and the table's own check constraint would refuse the second
-        with an `IntegrityError` mid-transaction rather than a typed SPEC
-        §8.1 code. Pinned by
-        `test_mcp_reviews.py::test_neither_scope_and_both_scopes_are_each_refused_with_no_row`.
-        """
+        """Exactly one scope, refused as `VALIDATION` before the table constraint could fail."""
         if (self.department_id is None) == (self.system_id is None):
             raise ValueError("exactly one of department_id or system_id must be set")
         return self
@@ -158,14 +81,11 @@ class OpenAccessReviewOutput(BaseModel):
     system_id: uuid.UUID | None
     period: str
     reviewer_user_id: uuid.UUID
-    """Who the review is FOR: the scope's own owner, or the caller when the
-    scope names nobody (decision F). Part of the answer because a caller who
-    opened a review for somebody else has to be told who that is."""
+    """The scope's owner, or the caller when the scope has none."""
 
     status: str
     item_count: int
     flag_counts: dict[str, int]
-    """Every `ReviewFlag`, zeros kept — see `OpenReviewResult.flag_counts`."""
 
 
 class ListReviewItemsInput(BaseModel):
@@ -176,17 +96,7 @@ class ListReviewItemsInput(BaseModel):
 
 
 class ReviewItemOutput(BaseModel):
-    """One item as a reviewer sees it, with the grant behind it named.
-
-    The six context fields arrived with an earlier change (decision B), widened in
-    place rather than added as a second tool: every caller of the item list
-    needs them, because a reviewer cannot decide a `grant_id`, and a second
-    tool would be a second call on every page load and a second scope check to
-    keep in step. Each one is read from the row its id points at, off the same
-    joined read — pinned by
-    `test_mcp_reviews.py::test_list_review_items_answers_eleven_keys_naming_the_grant_behind_the_item`,
-    whose grant holder carries a name no other row in that file has.
-    """
+    """One item, with the grant behind it named, since a reviewer cannot decide a bare id."""
 
     item_id: uuid.UUID
     grant_id: uuid.UUID
@@ -207,43 +117,16 @@ class ListReviewItemsOutput(BaseModel):
 
 
 class ListReviewsInput(BaseModel):
-    """The queue's whole input: a page size and an optional status.
-
-    No user and no tenant argument at all — both are the token's (hard rule
-    6) — so there is nothing here for a caller to name somebody else with.
-    Extras are ignored rather than forbidden, the read tool's contract.
-
-    `status` is the `ReviewStatus` StrEnum itself and not a `str` with a
-    validator (decision E): the enum IS the pre-check, so `"OPEN"`, a member
-    with a trailing newline, one with a trailing space and an unknown word are
-    each refused as `VALIDATION` at argument parsing, before any read. That is
-    why no `re.fullmatch` validator appears here as it does on `period` —
-    there is no pattern to get wrong. An absent `status` answers every status,
-    never an implicit `open`: a completed review is most of the table after
-    two quarters, and a page that cannot ask for one cannot show a reviewer
-    what they already did. Pinned by
-    `test_mcp_reviews.py::test_the_status_filter_is_an_exact_enum_member_or_refused_before_any_read`
-    and `::test_each_status_answers_only_its_own_rows_and_an_absent_status_answers_both`.
-    """
+    """No user or tenant argument. No status means every status, not just open."""
 
     model_config = _IGNORE_EXTRAS
 
     status: ReviewStatus | None = None
     limit: int = Field(default=LIMIT_DEFAULT, ge=LIMIT_MIN, le=LIMIT_MAX)
-    """The same three constants the item list reads, never a second copy of
-    the numbers, so the two page sizes cannot drift apart.
-    Pinned by `::test_the_queue_reads_the_same_three_limit_constants_as_the_item_list`
-    and `::test_the_queue_limit_boundary_is_inclusive_at_1_and_200`."""
 
 
 class ReviewQueueRow(BaseModel):
-    """One review of the queue: its scope, its reviewer, and its progress.
-
-    Exactly one of the two id/name pairs is non-null on any row, because
-    `access_reviews`' own check constraint allows exactly one scope id. The
-    two counts are the design's "progress", carried ON the row so a page of
-    fifty reviews needs no second call per review (decision D).
-    """
+    """One review in the queue. Counts ride on the row so a page needs no extra calls."""
 
     review_id: uuid.UUID
     period: str
@@ -265,23 +148,7 @@ class ListReviewsOutput(BaseModel):
 
 
 class DecideReviewItemInput(MutatingToolInput):
-    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`.
-
-    `decision` is the `ReviewDecision` StrEnum itself, not a `str` with a
-    validator: the enum is the pre-check, so an unknown
-    word, an empty string, a member with a trailing newline and a member with
-    a trailing space are each refused as `VALIDATION` at argument parsing,
-    before any effect runs and with no client string anywhere near the
-    `review_items.decision` column. That is why no `re.fullmatch` validator
-    appears here as it does on `period` above — there is no pattern to get
-    wrong. Pinned, accepted and rejected rows alike, by
-    `test_mcp_reviews.py::test_the_decision_word_is_an_exact_enum_member_or_refused_before_any_write`.
-
-    Forbidding extras matters for the usual reason: a `tenant_id`, a
-    `decided_by_user_id` or a `reason` in the arguments is a caller who
-    believes they are choosing something they are not, and the reason is a
-    module constant nobody may supply (decision E).
-    """
+    """Extras are refused. The revoke reason is fixed in code; no caller supplies it."""
 
     item_id: uuid.UUID
     decision: ReviewDecision
@@ -293,16 +160,10 @@ class DecideReviewItemOutput(BaseModel):
     decision: ReviewDecision
     decided_at: datetime | None
     revoked_grant_count: int
-    """0 for every `keep`, and 0 for decision B's item whose grant was already
-    revoked when the decision landed; 1 for a revocation that ended a row. The
-    caller is told what their decision actually did, rather than being left to
-    assume `revoke` always ends access."""
+    """1 only when this decision ended a grant, so the caller sees what it did."""
 
     review_complete: bool
-    """Whether THIS decision was the review's last undecided item. There is no
-    `review.completed` event and no `complete_review` tool, so this and the
-    same key on `review.item_decided` are the whole record of a review
-    closing (decision F/G)."""
+    """Whether this was the review's last open item; the record of a review closing."""
 
 
 async def _in_scope(
@@ -312,22 +173,10 @@ async def _in_scope(
     department_id: uuid.UUID | None,
     system_owner_user_id: uuid.UUID | None,
 ) -> bool:
-    """Does the design's row on this tool reach this scope?
+    """Does the caller's scope on this tool reach this department or system owner?
 
-    `request_in_scope`'s parameters are already neutral — an actor, the
-    actor's department, the subject's department, the system's owner — so
-    approvals, revocation and reviews cannot answer the scope question
-    differently. A department-scoped
-    review passes the department as the "subject's department" and no system
-    owner, so a `system_owner`-only caller is refused; a system-scoped review
-    passes the owner and no department, so a `manager`-only caller is refused.
-    That is the design's row read literally in both directions.
-
-    The caller's department is read from the DIRECTORY, never from the
-    token's `department_id` claim: a manager transferred after their token was
-    issued must not open reviews in the department they left. Pinned by
-    `test_mcp_reviews.py::test_the_managers_department_comes_from_the_directory_not_the_token`,
-    which moves the caller's row and reuses the token minted before the move.
+    The caller's department comes from the directory, so a manager who moved
+    cannot act on their old team.
     """
     caller = await ctx.directory.lookup_user(ctx.identity.user_id)
     return request_in_scope(
@@ -344,41 +193,14 @@ async def open_access_review(
 ) -> OpenAccessReviewOutput:
     """Open a review over one department or one system for one period.
 
-    Two refusals here, then the domain's own:
-
-    `FORBIDDEN` — the design's scope does not reach the scope row. Raised as
-    `RbacDenied`, which the pipeline records as `tool.denied` rather than
-    `tool.failed`: a permission decision filed as an outage would be a false
-    record. Its own kill is
-    `test_mcp_reviews.py::test_a_manager_may_not_open_a_review_outside_their_department`,
-    whose caller the matrix admits, so only the department comparison can
-    refuse it. As on `revoke_access`, the pipeline's matrix stage has no
-    independent kill on this tool and that is a property of the code, not a
-    gap: `_in_scope` re-runs `rbac.authorize`, which raises for a principal
-    holding no cell on this row, so deleting the pipeline stage changes no
-    answer here.
-
-    `NOT_FOUND` — no such department or system, or one in another tenant.
-    Raised inside `open_review`'s lock, which runs through the tenant-bound
-    session so the two are indistinguishable
-    (`::test_a_missing_and_another_tenants_scope_answer_the_same_not_found`).
-    It is reachable only for a caller whose scope already reaches the id.
-
-    `POLICY_BLOCKED` — a review of this scope for this period is already
-    open, from `ReviewAlreadyOpenError`, refused under the scope row's lock so
-    two concurrent openers leave exactly one review.
-
-    `now` is read once and passed on, so the liveness filter that picked the
-    grants, every staleness comparison and `review.opened` answer for one
-    instant. Everything runs in the transaction the pipeline opened, so the
-    review, its items and its event commit or roll back together.
+    `FORBIDDEN` when out of scope, raised as `RbacDenied` so it is logged as a
+    denial. `POLICY_BLOCKED` when this scope already has an open review for the
+    period; a row lock means two openers leave one review.
     """
     system_owner_user_id = None
     if args.system_id is not None:
-        # Read for the owner alone, and never turned into a `NOT_FOUND` here:
-        # a missing or foreign system answers with no owner, so an out-of-scope
-        # caller gets the same `FORBIDDEN` either way and the id says nothing
-        # about what exists.
+        # Not turned into `NOT_FOUND` here: a missing system just has no owner,
+        # so an out-of-scope caller gets `FORBIDDEN` either way.
         system = await Repository(ctx.session, System).get(args.system_id)
         system_owner_user_id = None if system is None else system.owner_user_id
     if not await _in_scope(
@@ -412,24 +234,10 @@ async def open_access_review(
     )
 
 
-async def list_review_items(
-    ctx: ToolContext, args: ListReviewItemsInput
-) -> ListReviewItemsOutput:
+async def list_review_items(ctx: ToolContext, args: ListReviewItemsInput) -> ListReviewItemsOutput:
     """The items of one review this caller may reach, oldest first.
 
-    Scope is checked BEFORE the review's existence is answered, from the
-    review's OWN scope columns: a review whose id is missing or in another
-    tenant reads as no scope at all, so a `manager` or `system_owner` caller
-    is refused `FORBIDDEN` without learning whether it exists, and only an
-    `any`-scope caller reaches the `NOT_FOUND` behind it. Pinned by
-    `::test_a_missing_and_another_tenants_review_answer_the_same_not_found`
-    for the `any` caller and by
-    `::test_a_manager_may_not_read_a_review_outside_their_department` for the
-    scoped one.
-
-    A system-scoped review's scope is its system's OWNER, re-read now rather
-    than copied onto the review when it was opened: ownership moves, and a
-    former owner holding an old review id must not keep reading it.
+    The system owner is read now, so a former owner loses access.
     """
     review = await find_review(ctx.session, args.review_id)
     if not await _in_scope(
@@ -465,32 +273,10 @@ async def list_review_items(
 
 
 async def list_reviews(ctx: ToolContext, args: ListReviewsInput) -> ListReviewsOutput:
-    """The reviews this caller's the design scope reaches, oldest due first.
+    """The reviews this caller's scope reaches, oldest due first.
 
-    The queue the other three review tools never had: each of them
-    takes an id, and nothing answered which ids a reviewer may act on. What it
-    answers is decided by the design's own row — a `manager` their department's
-    reviews, a `system_owner` those of the systems they own, an `any`-scope
-    principal every one in the tenant — and never by a `reviewer_user_id`
-    filter, because a department's review belongs to the manager who inherited
-    the department as much as to the person named on it (decision A).
-
-    The scope is resolved HERE, from `rbac` and the directory, and handed to
-    `list_reviews_for_scope` already decided: nothing in `helpdesk/access/`
-    reads a token. `rbac.authorize` is what refuses a principal holding no
-    cell on this row, so the pipeline's matrix stage has no independent kill
-    on this tool and that is a property of the code rather than a gap — the same shape 12c's two tools carry.
-
-    The caller's department comes from the DIRECTORY, never from the token's
-    `department_id` claim: a manager transferred after their token was issued
-    must not keep the queue of the department they left.
-
-    There is no `NOT_FOUND` here at all, and that is the point of criterion 11:
-    the queue takes no id, so nothing can be missing, and a scope reaching no
-    review answers an EMPTY list. An empty queue is a fact about the tenant —
-    "nothing is waiting on you" — and a page that read it as a refusal would
-    show a manager a failure instead. Pinned by
-    `::test_a_scope_that_reaches_nothing_answers_an_empty_queue_and_never_not_found`.
+    Filtered by scope, not by named reviewer: a department's review belongs to
+    whoever manages it now. Reaching nothing gives an empty list.
     """
     scopes = rbac.authorize(ctx.identity.claims, rbac.Tool.LIST_REVIEWS).scopes
     caller = await ctx.directory.lookup_user(ctx.identity.user_id)
@@ -538,42 +324,8 @@ async def decide_review_item(
 ) -> DecideReviewItemOutput:
     """Record a reviewer's keep-or-revoke on one item, and act on it.
 
-    Scope is checked BEFORE the item's existence (decision H), from the item's
-    REVIEW, exactly as `list_review_items` above does it: an item id that is
-    missing or in another tenant reads as no scope at all, so a `manager` or
-    `system_owner` caller is refused `FORBIDDEN` without learning whether it
-    exists, and only an `any`-scope caller reaches the `NOT_FOUND` behind it.
-    Forced rather than chosen — 12c's two tools already answer in that order,
-    and one family answering differently for the same id would make this tool
-    the oracle the other two are not. Pinned by
-    `::test_an_out_of_scope_item_is_refused_before_its_existence_is_tested` and
-    `::test_a_missing_and_another_tenants_item_answer_the_same_not_found`.
-
-    Every refusal in order:
-
-    `FORBIDDEN` — the design's scope does not reach the item's review. Its own
-    kills are `::test_a_manager_may_not_decide_an_item_of_another_departments_review`
-    and `::test_a_system_owner_may_not_decide_an_item_of_a_system_they_do_not_own`,
-    whose callers the matrix admits, so only the scope comparison can refuse
-    them. As on 12c's two tools, the pipeline's matrix stage has no independent
-    kill here and that is a property of the code, not a gap: `_in_scope`
-    re-runs `rbac.authorize`, which raises for a principal holding no cell on
-    this row, so deleting the pipeline stage changes no answer (standing rule
-    20).
-
-    `NOT_FOUND` — no such item, or one in another tenant, indistinguishable
-    because `find_item` runs through the tenant-bound session.
-
-    `POLICY_BLOCKED` — the item already carries a decision
-    (`ItemAlreadyDecidedError`), refused under the grant row's lock so two
-    concurrent deciders leave one decided item and one refusal.
-
-    The caller's department is read from the DIRECTORY, never from the token's
-    `department_id` claim, through the same `_in_scope` the other two use
-    (`::test_the_deciders_department_comes_from_the_directory_not_the_token`).
-    Everything runs in the transaction the pipeline opened, so the decision,
-    the revocation, any completion and `review.item_decided` commit or roll
-    back together.
+    Scope is checked before existence, like the other review tools. A row lock
+    means two deciders leave one decision and one `POLICY_BLOCKED`.
     """
     item = await find_item(ctx.session, args.item_id)
     review = None if item is None else await find_review(ctx.session, item.review_id)
@@ -600,9 +352,7 @@ async def decide_review_item(
     return DecideReviewItemOutput(
         item_id=result.item.id,
         review_id=result.item.review_id,
-        # `args.decision` rather than the column read back: they are the same
-        # value — `decide_item` just wrote it — and the column is `str | None`,
-        # so re-parsing it would only add a widening the enum already forbids.
+        # The value just written; the column is typed `str | None`.
         decision=args.decision,
         decided_at=result.item.decided_at,
         revoked_grant_count=result.revoked_grant_count,
@@ -611,11 +361,7 @@ async def decide_review_item(
 
 
 async def _owner_of(session: AsyncSession, review: AccessReview | None) -> uuid.UUID | None:
-    """The owner of a system-scoped review's system, or None.
-
-    None for a department-scoped review and for a review that does not exist,
-    which is what makes those two answer a `system_owner` caller identically.
-    """
+    """The review's system owner, or None, so missing and department reviews look alike."""
     if review is None or review.system_id is None:
         return None
     system = await Repository(session, System).get(review.system_id)

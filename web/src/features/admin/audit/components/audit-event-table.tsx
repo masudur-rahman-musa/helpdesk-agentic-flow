@@ -9,14 +9,8 @@ import {
 } from "@/components/ui/table";
 
 /**
- * The page of events, newest first, in the order the tool answered.
- *
- * Nothing is re-sorted: 13b returns newest first and an ordering imposed here
- * would be a second opinion about the one thing the log exists to show. The
- * timestamp renders as its 19-character ISO prefix, never
- * `toLocaleDateString` (which answers a different day either side of a date
- * line) and never the raw value, whose six digits of microseconds cost a column
- * an auditor scans.
+ * Events in the server's order, never re-sorted. Times show the ISO prefix: a
+ * locale format can show a different day across time zones.
  */
 export function AuditEventTable({ events }: { events: AuditEventRow[] }) {
   return (
@@ -39,9 +33,7 @@ export function AuditEventTable({ events }: { events: AuditEventRow[] }) {
           <TableRow key={event.seq} className="align-top">
             <TableCell>{event.seq}</TableCell>
             <TableCell>{event.occurred_at.slice(0, 19)}</TableCell>
-            {/* The raw `event_type` (decision B): the vocabulary is open, so a
-                hand-kept map would be stale the day a row adds a type, and the
-                literal is what an auditor pastes back into the filter. */}
+            {/* Raw type: the list is open, and it is what goes in the filter. */}
             <TableCell>{event.event_type}</TableCell>
             <TableCell>{event.actor_kind}</TableCell>
             <TableCell>{event.actor_ref ?? "no actor"}</TableCell>
@@ -49,11 +41,7 @@ export function AuditEventTable({ events }: { events: AuditEventRow[] }) {
             <TableCell>{event.subject_id ?? "no subject id"}</TableCell>
             <TableCell title={event.hash}>{event.hash.slice(0, 12)}</TableCell>
             <TableCell>
-              {/* `payload` is an arbitrary object by design (13b decision E),
-                  so it is stringified whole rather than read key by key: a row
-                  reading named keys renders blanks for every event type but
-                  the one it was written for. Collapsed, because a dozen lines
-                  of JSON between every two rows is not a table anyone scans. */}
+              {/* Payload shape differs per event type, so it shows whole. */}
               <details aria-label={`Payload for event ${event.seq}`}>
                 <summary>Payload</summary>
                 <pre className="whitespace-pre-wrap text-xs">

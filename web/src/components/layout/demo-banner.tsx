@@ -1,12 +1,6 @@
 /**
- * Every page says the data is invented. Seed data is obviously fake by rule,
- * and a reader landing on a grant or an approval should not have to guess
- * whether a name is someone's.
- *
- * The text is exported so tests assert the constant rather than a literal:
- * rewording it stays green, dropping it goes red (`tests/shell.test.tsx`,
- * "renders the demo banner text on the shell"). Styled quietly as of an earlier change:
- * a thin muted strip, still `role="note"` and still on every page.
+ * Every page says the data is invented, so a reader never wonders whether a
+ * name is someone's. Exported so tests check the constant, not a literal.
  */
 export const DEMO_BANNER_TEXT =
   "Demo data, invented company. Nothing on this site describes a real organisation or person.";

@@ -1,23 +1,9 @@
-"""Reading a turn back out of its checkpoints, for debugging (the design).
+"""Read a turn back out of its checkpoints, for debugging. Read-only.
 
-Two functions, both READ-ONLY. They answer the question a
-person actually asks of a saved turn — which node did this diverge at, and what
-did the state look like there — and they answer it without running anything: no
-node executes, no row is written, no gateway call is made and no tool is
-called. A checkpoint is a record, and reading a record must not repeat what
-made it.
-
-Re-INVOKING the graph from a checkpoint is deliberately not here. It would
-re-run nodes that write rows and spend gateway calls, and the only caller that
-would justify that blast radius is the eval runner of a later row, which does
-not exist yet.
-
-LangGraph appears in this module the way the design's boundary rule requires:
-not at all. The compiled graph comes from `build.py`, the thread config from
-`checkpointer.py`, and the saver is typed through `build.Saver`. `build_graph`
-is used rather than the saver's own listing because the NODE a checkpoint was
-written before is a property of the graph, not of the store: the saver knows
-what was saved, only the graph knows what was going to run next.
+Nothing runs: no node, no row, no model or tool call. Rerunning the graph is
+left out on purpose, since nodes write rows and spend model calls. The graph
+is used rather than the saver alone because only the graph knows which node
+was about to run.
 """
 
 from typing import Any
@@ -34,17 +20,10 @@ _CHECKPOINT_ID_KEY = "checkpoint_id"
 
 
 class CheckpointEntry(BaseModel):
-    """One saved step of one thread: its id, and what was about to run.
+    """One saved step: its id, and the node that was about to run.
 
-    `next_nodes` is the node or nodes the checkpoint was written BEFORE, never
-    the one just finished. That is the direction a debugger reads: a paused
-    thread's newest entry names `await_approval`, the node that has not run to
-    completion, and reporting the finished node instead would point a reader one
-    step away from the pause every time. Pinned by
-    `test_agent_replay.py::test_checkpoint_history_lists_the_threads_checkpoints_newest_first`.
-
-    Frozen, like everything else this package hands out: a record read for
-    debugging is not something a caller should be able to edit in passing.
+    The next node, not the finished one, so a paused thread's newest entry names
+    `await_approval`.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -54,18 +33,9 @@ class CheckpointEntry(BaseModel):
 
 
 async def checkpoint_history(*, checkpointer: Saver, thread_id: str) -> tuple[CheckpointEntry, ...]:
-    """Every checkpoint of one thread, NEWEST FIRST.
-
-    Newest first because "which node diverged" is answered by walking back from
-    where the turn stopped; an oldest-first list read by a caller that trusts
-    this order points at `load_session` for every turn, the one node that
-    decides nothing.
-
-    An unknown thread answers `()` — never an exception (decision D): a mistyped
-    or already-purged session id is the ordinary case for an operator's "show me
-    this turn", not an incident. Pinned by
-    `test_agent_replay.py::test_an_unknown_thread_has_an_empty_history_and_no_state`.
-    """
+    """Every checkpoint of one thread, newest first, since debugging walks back
+    from where the turn stopped. An unknown thread gives `()`, not an error: a
+    mistyped or purged id is the normal case."""
     graph = build_graph(checkpointer)
     entries: list[CheckpointEntry] = []
     async for snapshot in graph.aget_state_history(thread_config(thread_id)):
@@ -80,18 +50,11 @@ async def checkpoint_history(*, checkpointer: Saver, thread_id: str) -> tuple[Ch
 
 
 async def state_at(*, checkpointer: Saver, thread_id: str, checkpoint_id: str) -> TurnState | None:
-    """One NAMED checkpoint of one thread, as the turn state it holds.
+    """One named checkpoint as the turn state it holds, or `None`.
 
-    The checkpoint id goes into the config, which is what makes this a read of
-    that step rather than of the thread's latest state — the shape a config
-    carrying only the thread id has, and a one-line mistake every "does it
-    return a `TurnState`" assertion would pass. Pinned by
-    `test_agent_replay.py::test_state_at_returns_one_checkpoint_as_a_turn_state`,
-    which reads two steps whose `tool_results` differ.
-
-    `None` for a thread or a checkpoint that does not exist: LangGraph answers a
-    missing one with an empty snapshot rather than by raising, and passing that
-    on as a state with no values would be a record of a turn that never ran.
+    The checkpoint id must go into the config, or this reads the latest state.
+    LangGraph answers a missing checkpoint with an empty snapshot, which becomes
+    `None` here rather than a state for a turn that never ran.
     """
     config = thread_config(thread_id)
     config["configurable"][_CHECKPOINT_ID_KEY] = checkpoint_id

@@ -1,29 +1,9 @@
-"""Registering one version of one corpus document (the design, §12.1.7).
+"""Registering one version of one corpus document in Postgres.
 
-The Postgres half of ingestion. 14b adds the redaction and the embeddings,
-14c the chunk rows and the Qdrant points; this module owns only the question
-"is this file already registered, and which version is current".
-
-Everything runs in the CALLER's transaction: the insert and the `is_current`
-flip commit together or not at all, so no reader ever sees two current rows
-for one (tenant, slug), and none sees a version whose predecessor is still
-current. Pinned from a second concurrent transaction by
-`test_rag_store.py::test_the_flip_is_invisible_until_the_registering_transaction_commits`,
-which fails both for a store that commits the flip itself and for one that
-never flips.
-
-`tenant_slug` is the corpus DIRECTORY name and is only ever a cross-check:
-the row is written through `Repository`, which stamps the tenant the session
-is bound to, so a slug naming another tenant is a refusal
-rather than a write into that tenant. Pinned by
-`test_rag_store.py::test_a_tenant_slug_naming_another_tenant_is_refused`,
-whose two slugs are both valid tenants, so only the cross-check can refuse
-it.
-
-The two `select`s below are the only statements this package makes against
-its own table, and they live here for the reason `audit/search.py` gives:
-the package that owns a table owns the statements against it, so no service
-ever builds one. Every write still goes through `core.repository`.
+Answers "is this file already registered, and which version is current".
+Runs in the caller's transaction, so the insert and the current-flag flip
+commit together and nobody sees two current rows. `tenant_slug` is only a
+cross-check against the session's tenant, never where the row is written.
 """
 
 import hashlib
@@ -49,11 +29,8 @@ from helpdesk.shared.models import PolicyDocument
 class TenantSlugMismatchError(ToolError):
     """`tenant_slug` does not name the tenant this session is bound to.
 
-    Covers a slug naming no tenant at all and a slug naming a different one:
-    both mean the corpus directory being walked is not this session's, and
-    both are the ingest running against the wrong tenant. `VALIDATION` rather
-    than `FORBIDDEN` — nothing was denied to a principal, the caller's own
-    two arguments disagree.
+    Either way the ingest is aimed at the wrong tenant. `VALIDATION`, since
+    the caller's own two arguments disagree.
     """
 
     code = ErrorCode.VALIDATION
@@ -63,9 +40,8 @@ class TenantSlugMismatchError(ToolError):
 class RegistrationResult:
     """The row this version is registered under, and whether it was written.
 
-    `created` is False when the same sha256 was already registered for this
-    (tenant, slug, version): the caller skips the rest of the ingest for that
-    file, which is what the design's idempotence buys.
+    `created` is False when the same bytes were already registered; the
+    caller then skips the rest of the ingest for that file.
     """
 
     document: PolicyDocument
@@ -85,21 +61,9 @@ async def register_document_version(
 ) -> RegistrationResult:
     """Register `source` as this (tenant, slug, version); flip older versions.
 
-    The four `core.naming` pre-checks and the tenant cross-check all run
-    before any statement that writes, so a malformed name never half-lands a
-    registration. Each refusal is pinned to leave `policy_documents`
-    byte-identical by `test_rag_store.py::_assert_refused`, which plants a
-    real row first so "unchanged" compares two populated snapshots rather
-    than two empty ones.
-
-    `ingested_at` is supplied by the caller rather than read from a clock
-    here, so every document of one ingest run carries the same instant and a
-    skipped file keeps the instant it was actually last read. A re-registered
-    unchanged source writes NOTHING — not even a refreshed `ingested_at` —
-    pinned by `test_re_registering_the_same_sha256_writes_nothing`.
-
-    The digest is of the source BYTES (decision D, per file), so
-    re-ingestion skips only the documents that did not change.
+    All checks run before any write. `ingested_at` comes from the caller, so
+    one run shares one instant. An unchanged source writes nothing, not even
+    a new `ingested_at`.
     """
     check_slug(slug)
     check_version(version)
@@ -114,11 +78,8 @@ async def register_document_version(
 
     digest = hashlib.sha256(source).hexdigest()
 
-    # The idempotence question, asked as one statement: is THIS source already
-    # registered under this (tenant, slug, version)? The session guard adds
-    # the tenant filter. Matching on the digest rather than on (slug, version)
-    # alone is what lets a re-cut version below be a second row without this
-    # read ever seeing two.
+    # Match on the digest, not just (slug, version), so a re-cut version can
+    # be a second row.
     unchanged = await find_document_by_digest(session, slug=slug, version=version, sha256=digest)
     if unchanged is not None:
         return RegistrationResult(document=unchanged, created=False)
@@ -134,17 +95,9 @@ async def register_document_version(
         ingested_at=ingested_at,
     )
 
-    # A version directory re-cut with different bytes therefore becomes a
-    # SECOND row for the same (tenant, slug, version) rather than an update:
-    # the design retains superseded content for audit and never deletes it,
-    # and the flip below leaves exactly one of them current either way. The
-    # plan does not name this case; it is decided here so it cannot be a
-    # silent overwrite.
-
-    # Decision E: `is_current` is per (tenant, slug), so every other version
-    # of this document loses it — including one from a version directory this
-    # run did not touch, which is what stops a partial re-ingest leaving a
-    # document with no current copy.
+    # Changed bytes make a new row, never an update: old content stays for
+    # audit. `is_current` is per (tenant, slug), so every other version
+    # loses it, even ones this run did not touch.
     for row in await fetch_current_documents_except(
         session, slug=slug, new_document_id=document.id
     ):

@@ -1,37 +1,11 @@
 """One argument model per tool the agent may call, and one result model.
 
-Decision C, and the reason this file is a copy of something: agent-api and
-mcp-server are separate deployables that talk over HTTP and never import each
-other, so the shapes have to exist on both sides. What makes the copy TRUE is
-`test_agent_tool_catalogue.py`, which reads `tools/list` off the real server
-and compares property names, required sets and `top_k`'s default, once per
-catalogued tool. A rename on the server is a red suite here; runtime
-validation against an advertised schema would instead be a mid-turn failure
-for a user.
-
-NINETEEN entries and no twentieth: the server registers
-twenty-nine tools, of which seven belong to the admin surface rows 24 and 31a
-own (`test_agent_tool_catalogue.py::ADMIN_TOOLS`, the literal that goes red
-when an eighth is registered), `list_reviews` is read through its own route
-and the two notification tools are row 23ga's deliberate omission. A tool with no
-entry here cannot be proposed at all, which is defence in depth BEHIND the
-RBAC matrix rather than a replacement for it — the matrix still refuses what a
-principal may not call. Pinned by
-`test_agent_tool_catalogue.py::test_tool_inputs_holds_exactly_the_nineteen_tools_the_agent_may_reach`.
-
-**Extras are forbidden on every model here, including the read tools whose
-server counterparts ignore them.** The server's rule is about a CALLER that
-might send a stale field; this side's is about a MODEL that invented one, and
-an invented `tenant_id` dropped in silence is a model that believes it is
-acting somewhere it is not. Pinned by
-`test_agent_planning.py::test_a_proposal_carrying_an_unknown_argument_is_rejected`.
-
-**No bound is declared on any string or integer here.** Every cap lives with
-the handler that stores the value (`check_query`, `TITLE_MAX_LENGTH`,
-`JUSTIFICATION_MAX_LENGTH` and the rest), so one length has one home and one
-error message. The drift test compares property names and required sets, which
-is exactly the part a caller must get right; a second copy of every bound would
-be a third thing to keep true.
+A copy of the server's shapes: agent-api and mcp-server are separate apps
+that never import each other. A test compares these against the live server's
+tool list, so a rename fails the suite, not a user's turn. Tools left out here
+(admin tools, for one) can never be proposed, on top of the RBAC check.
+Extra fields are refused everywhere, so a model that invents a `tenant_id`
+is caught. No length caps here: each cap lives once, with its handler.
 """
 
 import uuid
@@ -46,26 +20,15 @@ from helpdesk.agent_api.agent.state import Citation
 from helpdesk.shared.models.access import RequestStatus, ReviewDecision
 
 IDEMPOTENCY_KEY = "idempotency_key"
-"""The field a mutating tool's wire input carries and the planner never sees.
-
-One string, used by the projection below, by `validate_tool_calls` and by the
-mutating-tool test: decision D turns on this field being the AGENT's to write,
-so a second spelling anywhere would be a key the model could name.
-"""
+"""The key field mutating tools carry. The agent fills it; the planner
+never sees it."""
 
 SEARCH_POLICY = "search_policy"
-"""The tool name as the server's registry spells it (the design)."""
+"""The tool name as the server spells it."""
 
 SEARCH_POLICY_TOP_K = 6
-"""How many policy chunks one retrieval asks for.
-
-The corpus default 15a fixes, written out here rather than imported from
-`helpdesk.mcp_server.services.rag.retrieval`: importing that module would pull fastembed and the
-vector store into agent-api, which reaches the corpus only through the tool.
-The copy is held true by
-`test_agent_tool_catalogue.py::test_the_advertised_top_k_default_is_the_catalogues_own`,
-which reads the number off the server's own advertisement.
-"""
+"""How many policy passages one search asks for. A copy of the server's
+default, so agent-api need not import the search code and its vector store."""
 
 _FORBID = ConfigDict(extra="forbid")
 
@@ -77,15 +40,10 @@ class _ToolArgs(BaseModel):
 
 
 class _MutatingToolArgs(BaseModel):
-    """Base for a MUTATING tool's arguments, carrying the key it goes out with.
+    """Base for a mutating tool's arguments, with its required key.
 
-    The key is declared here and REQUIRED, mirroring the server's
-    `MutatingToolInput`, because the wire call cannot be made without it. What
-    the planner is shown is `planner_schema`, which removes it — so the field
-    exists for the agent to fill and for nobody else. Whether a tool needs one
-    is read off this field's presence rather than a fourth hand-kept list
-    (`needs_idempotency_key`), and the twelve mutating models are pinned by
-    `test_agent_tool_catalogue.py::test_every_mutating_tools_wire_model_still_carries_the_idempotency_key`.
+    The planner sees `planner_schema`, which drops the key, so only the agent
+    fills it. Whether a tool needs a key is read off this field, not a list.
     """
 
     model_config = _FORBID
@@ -105,13 +63,7 @@ class ListMyAccessArgs(_ToolArgs):
 
 
 class ListMyRequestsArgs(_ToolArgs):
-    """`limit` is the server's `REQUESTS_LIMIT_DEFAULT`, copied as a literal.
-
-    agent-api never imports mcp-server (the design), so the default is written
-    twice and `test_agent_tool_catalogue.py::
-    test_every_catalogued_schema_agrees_with_the_advertised_one[list_my_requests]`
-    is what keeps the two copies equal. Omitting the field entirely is what that
-    case caught: the model could not ask for a page size at all."""
+    """`limit` copies the server's default. A test keeps the two equal."""
 
     status: RequestStatus | None = Field(
         default=None, description="Only requests in this status, or all of them when absent."
@@ -120,7 +72,7 @@ class ListMyRequestsArgs(_ToolArgs):
 
 
 class ClassifyAccessRequestArgs(_ToolArgs):
-    """A decision asked for, nothing written: the design's risk read, in advance."""
+    """Asks for a risk decision in advance; nothing is written."""
 
     target_user_id: uuid.UUID = Field(description="Who the access would be for.")
     role_id: uuid.UUID = Field(description="The role being asked for.")
@@ -139,16 +91,10 @@ class ListPendingApprovalsArgs(_ToolArgs):
 
 
 class SearchPolicyArgs(_ToolArgs):
-    """A question and a page size. The tenant is NOT an argument.
+    """A question and a page size. The tenant is not an argument.
 
-    No identity of any kind is declared here: the collection
-    searched is derived from the token by the server, and an argument naming a
-    tenant would be dropped there rather than honoured. No bound is declared
-    either — `retrieval.check_query` and `check_top_k` run on the server before
-    any effect, so the cap keeps one home and one error message.
-
-    Never offered to the planner: `search_policy` is `retrieve_policy`'s own
-    call and appears in no `INTENT_TOOLS` row.
+    The server picks the collection from the token. Never offered to the planner:
+    the search runs in its own step.
     """
 
     query: str = Field(description="The policy question, in the user's own words.")
@@ -162,15 +108,8 @@ class SearchPolicyArgs(_ToolArgs):
 
 
 class RequestCitation(BaseModel):
-    """One citation as `create_access_request` stores it (the design).
-
-    Five fields, and NOT `state.Citation`'s seven: what the request row keeps
-    is the reference, not the passage — the text and the score belong to the
-    retrieval that produced them. The drift test compares TOP-LEVEL property
-    names only, so this nested shape is held true by nothing but this
-    docstring and the server's own refusal; it is listed in STATUS's known
-    issues for that reason.
-    """
+    """One citation as `create_access_request` stores it: the reference, not
+    the passage text or score. The drift test does not cover this nested shape."""
 
     model_config = _FORBID
 
@@ -259,13 +198,8 @@ class CreateTicketArgs(_MutatingToolArgs):
 
 
 class SearchPolicyResult(BaseModel):
-    """The page, and whether the tool refused to answer from it.
-
-    `refused` is READ, never recomputed (decision D): the threshold lives with
-    `should_refuse` in 15a, so a tuning change is one number in one place.
-    `citations` is empty whenever `refused` is true, which is the server's
-    guarantee and the reason a refused turn can cite nothing.
-    """
+    """The page, and whether the tool refused to answer from it. `refused` is
+    read, never recomputed; `citations` is empty when refused."""
 
     citations: list[Citation]
     refused: bool
@@ -294,45 +228,23 @@ TOOL_INPUTS: Mapping[str, type[BaseModel]] = MappingProxyType(
         "create_ticket": CreateTicketArgs,
     }
 )
-"""Every tool the agent may call, by name, with the model its arguments take.
-
-A read-only mapping on purpose: it is the set the drift test sweeps, so a tool
-registered at runtime would be a tool nothing compares against the server.
-Pinned by
-`test_agent_tool_catalogue.py::test_tool_inputs_holds_exactly_the_nineteen_tools_the_agent_may_reach`.
-"""
+"""Every tool the agent may call, with its argument model. Read-only, so no
+tool can be added at runtime without the drift test seeing it."""
 
 
 def needs_idempotency_key(name: str) -> bool:
-    """Whether this tool's wire call carries a key the agent must derive.
-
-    Read off the model's own fields rather than a hand-kept list of mutating
-    names: a project rule counts three such allowlists already, and a fourth
-    that disagreed with the models would either leave a mutation keyless or
-    stamp a key onto a read, where the server drops it in silence. Pinned from
-    both sides by
-    `test_agent_planning.py::test_a_validated_mutating_call_carries_the_agents_derived_key`
-    and `::test_a_validated_read_call_carries_no_idempotency_key`.
-    """
+    """Whether this tool's call carries a key the agent must derive. Read off the
+    model's fields, so it cannot disagree with them."""
     return IDEMPOTENCY_KEY in TOOL_INPUTS[name].model_fields
 
 
 def planner_schema(name: str) -> dict[str, Any]:
-    """That tool's JSON schema as the MODEL is shown it: the key removed.
+    """The tool's JSON schema as the model sees it, without the key.
 
-    Decision E. The schema is generated from the same model the arguments are
-    validated against, so the shape offered and the shape accepted cannot
-    drift; the one difference is `idempotency_key`, which is the agent's to
-    derive (decision D). Removing it from `properties` AND from `required` is
-    what makes a model that names one fail as an UNKNOWN argument rather than
-    have its own string honoured — a key the model could reuse across two
-    different requests is `IDEMPOTENCY_CONFLICT` taken by accident. Pinned over
-    every catalogued tool by
-    `test_agent_tool_catalogue.py::test_the_planner_facing_schema_is_the_wire_schema_minus_the_idempotency_key`.
-
-    A copy, never the live schema: `model_json_schema()` returns a fresh dict
-    per call, but the nested `properties` and `required` are rebuilt here so
-    the projection cannot mutate anything a later caller reads.
+    Built from the validating model, so offered and accepted shapes match. With
+    the key gone, a model that names one fails as an unknown argument rather than
+    reusing a key across two requests. Nested parts are copied so nothing shared
+    is changed.
     """
     schema = dict(TOOL_INPUTS[name].model_json_schema())
     properties = dict(schema.get("properties", {}))

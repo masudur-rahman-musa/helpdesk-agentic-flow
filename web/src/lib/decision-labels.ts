@@ -1,37 +1,11 @@
 /**
- * One sentence per reason code, one label per enum member, in one place
- *.
- *
- * The wire carries MACHINE CODES and never a human sentence:
- * `agent_api/decision_card.py` says so in as many words — turning
- * `SOD_CONFLICT:{rule_id}` into a sentence is this app's job, in the language
- * its labels are written in. Every key here is the enum's VALUE as
- * `model_dump(mode="json")` puts it on the wire (`auto`, `it_admin`,
- * `pending`), never the Python member name, which is the failure
- * `tests/decision-labels.test.ts`'s sixteen-row case exists to catch: a map
- * keyed by member name misses on every lookup and the fallback makes it
- * silently green.
- *
- * Six vocabularies, six lookups, all total by construction. A value the map
- * does not know answers THE VALUE ITSELF (decision B): a reason exists to
- * explain, a vague default explains nothing and hides the drift, and the raw
- * code is greppable against `ReasonCode` the moment someone reports it. That
- * is the opposite of `chat-errors.ts`'s `default` on purpose — there a code is
- * all the wire sends and the sentence is the whole message.
- *
- * The maps are a HAND-KEPT mirror of six Python enums: a member
- * added on the Python side renders as its raw code with nothing red, so
- * `tests/decision-labels.test.ts` lists all ten reason codes and every member
- * of the other four as LITERALS. Adding one is a deliberate edit to that list.
- *
- * No sentence names a tenant, a user, a tool or an id. The SoD rule id in
- * particular is dropped rather than rendered (decision C): a raw uuid reads as
- * nothing to the person asking, and it belongs to `/approvals`' full decision
- * trace. Pinned by `::a SOD_CONFLICT carrying a rule id reads as the bare code
- * does`, whose second half fails if the id is interpolated back in.
+ * Sentences for reason codes and labels for policy enums. The server sends
+ * codes, never sentences, so the wording lives here. Keys are wire values. An
+ * unknown value shows its raw code, which is easy to search for. The SoD rule
+ * id is dropped: a raw uuid means nothing to the person asking.
  */
 
-/** the design's ten codes, as `helpdesk.policy.types.ReasonCode` values. */
+/** `helpdesk.policy.types.ReasonCode` values. */
 export const REASON_SENTENCES: Record<string, string> = {
   IN_TEMPLATE: "This access is part of the standard set for your role.",
   NOT_IN_TEMPLATE: "This access is not part of the standard set for your role.",
@@ -88,17 +62,13 @@ export const PRINCIPAL_LABELS: Record<string, string> = {
   platform_admin: "Platform admin",
 };
 
-/** The label for a known member, or the wire value itself for anything else. */
 function labelled(labels: Record<string, string>, value: string): string {
   return labels[value] ?? value;
 }
 
 /**
- * The sentence for one reason, bare code or `SOD_CONFLICT:{rule_id}` alike.
- *
- * `sod_conflict_reason` is the only reason that carries a value, so the lookup
- * is keyed on the part before the colon and the id is never read again. A code
- * the map does not know answers itself, colon and all.
+ * The sentence for one reason. `SOD_CONFLICT:{rule_id}` is looked up by the
+ * part before the colon, so the id is never shown.
  */
 export function reasonSentence(reason: string): string {
   const code = reason.split(":", 1)[0] ?? reason;

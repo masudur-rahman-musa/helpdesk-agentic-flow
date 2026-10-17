@@ -1,14 +1,14 @@
-"""An earlier change §6: the two turn gates, as pure predicates with no graph at all.
+"""The two turn gates, as pure predicates with no graph at all.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.graph.state``
-    ``class Intent(StrEnum)`` — exactly the design's thirteen labels.
+    ``class Intent(StrEnum)`` — exactly thirteen labels.
     ``class IntentEntities(BaseModel)`` (frozen) — ``system``, ``role``,
         ``target_user``, ``department``, ``expiry_days``, ``justification``,
         every one nullable and required.
     ``class IntentExtraction(BaseModel)`` (frozen) — ``intent``, ``entities``,
-        ``confidence``, ``clarifying_question: str | None`` (required since an earlier change).
+        ``confidence``, ``clarifying_question: str | None`` (required).
     ``class TurnOutcome(StrEnum)`` — ``CONTINUE``, ``CLARIFY``,
         ``DISAMBIGUATE``, ``FAILED``.
 
@@ -22,7 +22,7 @@ Expected implementation surface (the implementer must provide exactly this):
     ``def candidate_outcome(candidate_count: int) -> TurnOutcome``
     ``def capped_options[T](candidates: Sequence[T]) -> tuple[T, ...]``
 
-An earlier change extends the same file with the planner's own gates:
+The same file also holds the planner's own gates:
 
 ``agent_api.graph.gates``
     ``INTENT_TOOLS: Mapping[Intent, frozenset[str]]`` — a row for EVERY
@@ -35,7 +35,7 @@ An earlier change extends the same file with the planner's own gates:
         elapsed_seconds: float) -> bool`` — all three bounds INCLUSIVE.
     ``def validation_outcome(accepted: bool) -> TurnOutcome``
 
-An earlier change extends it once more, with the two predicates the execution cycle
+It also holds the two predicates the execution cycle
 reads and the sixth outcome:
 
 ``agent_api.graph.state``
@@ -47,10 +47,11 @@ reads and the sixth outcome:
     ``def execution_outcome(validated_count: int) -> TurnOutcome`` —
         ``CONTINUE`` for a round with calls to make, ``DONE`` for an empty one.
     ``def exhausted_outcome(result_count: int) -> TurnOutcome`` —
-        ``REFUSE`` when the turn has no tool results, ``DONE`` when it has any. Both take a COUNT and are called positionally
+        ``REFUSE`` when the turn has no tool results, ``DONE`` when it has any.
+        Both take a COUNT and are called positionally
         here, so the parameter names are the implementer's to choose.
 
-the design's boundary rule is what makes this file possible: every decision is
+The boundary rule is what makes this file possible: every decision is
 computed by framework-free code and the conditional edge only reads the
 result. Nothing here imports langgraph, opens a socket or touches Postgres.
 """
@@ -104,8 +105,8 @@ SPEC_INTENTS: frozenset[str] = frozenset(
         "other",
     }
 )
-"""the design's closed label set, written out rather than derived: counted from
-the specification's own list, thirteen of them."""
+"""The closed label set, written out rather than derived: counted from
+the list in the design, thirteen of them."""
 
 PLANNED_REQUIREMENTS: dict[str, frozenset[str]] = {
     "reset_password": frozenset(),
@@ -122,7 +123,7 @@ PLANNED_REQUIREMENTS: dict[str, frozenset[str]] = {
     "review": frozenset(),
     "other": frozenset(),
 }
-"""The plan's decision table as a literal, so a requirement quietly dropped
+"""The decision table as a literal, so a requirement quietly dropped
 from the code is a red row here and not a system the agent guesses at."""
 
 PLANNED_RETRIEVAL: dict[str, bool] = {
@@ -140,7 +141,7 @@ PLANNED_RETRIEVAL: dict[str, bool] = {
     "review": False,
     "other": False,
 }
-"""the design step 5 as a literal: retrieval runs for exactly two of the
+"""As a literal: retrieval runs for exactly two of the
 thirteen intents. Written out rather than derived from a `True` set, so a row
 added to `Intent` with no answer here is a red test and not a silent default."""
 
@@ -166,17 +167,17 @@ def _filled(names: frozenset[str]) -> dict[str, Any]:
 
 
 def test_the_gate_constants_are_exactly_the_planned_values() -> None:
-    """a project rule: catches a threshold nudged to make a flaky eval pass.
+    """Catches a threshold nudged to make a flaky eval pass.
     0.65 would let a guess through and 0.75 would ask a clarifying question
     for turns the model got right; four options would put a fourth system in
-    front of a user the design caps at three."""
+    front of a user, and the cap is three."""
     assert CONFIDENCE_THRESHOLD == 0.7
     assert MAX_DISAMBIGUATION_OPTIONS == 3
 
 
 def test_intent_has_exactly_the_thirteen_spec_members() -> None:
-    """Catches plan §5's first risk from the code's side: an intent added,
-    renamed or dropped relative to the design. The value is what the gateway's
+    """Catches an intent added,
+    renamed or dropped relative to the thirteen labels. The value is what the gateway's
     JSON schema encloses, so a renamed member silently changes the closed set
     the model may answer with."""
     assert {intent.value for intent in Intent} == SPEC_INTENTS
@@ -199,7 +200,7 @@ def test_each_intents_required_entity_set_is_the_planned_one(
     intent_value: str, expected: frozenset[str]
 ) -> None:
     """Catches a requirement dropped from one row — most of all
-    `request_access` losing `system`, which is precisely the design's "never
+    `request_access` losing `system`, which is precisely the rule "never
     guess a system or role" turning into a guess."""
     assert REQUIRED_ENTITIES[Intent(intent_value)] == expected
 
@@ -218,7 +219,7 @@ def test_every_required_entity_name_is_a_field_the_extraction_carries() -> None:
 
 def test_confidence_exactly_at_the_threshold_does_not_clarify() -> None:
     """The inclusive half of the boundary: catches a `<=` comparison, which
-    refuses the exact confidence the design accepts and turns a decided turn
+    refuses the exact confidence the rule accepts and turns a decided turn
     into a question. The intent needs no entity, so the entity half of the
     gate cannot be what answers."""
     extraction = _extraction(Intent.ASK_POLICY, confidence=CONFIDENCE_THRESHOLD)
@@ -296,15 +297,15 @@ def test_an_empty_string_entity_does_not_satisfy_a_requirement() -> None:
 def test_candidate_outcome_maps_each_count_to_its_branch(count: int, expected: TurnOutcome) -> None:
     """Catches the two ends being collapsed: zero candidates answered as a
     disambiguation offers a user an empty list of options, and two candidates
-    answered as `CONTINUE` is the agent picking a system for them — SPEC
-    §10.1's "never guess a system or role"."""
+    answered as `CONTINUE` is the agent picking a system for them, which breaks the rule
+    "never guess a system or role"."""
     assert candidate_outcome(count) is expected
 
 
 def test_capped_options_returns_at_most_three_and_keeps_the_order() -> None:
     """Catches a cap applied by slicing a set (order lost, so the same
     question offers different options on a retry) or not applied at all, which
-    puts a fourth option in front of a user the design caps at three."""
+    puts a fourth option in front of a user, and the cap is three."""
     candidates = ("first", "second", "third", "fourth")
     assert capped_options(candidates) == ("first", "second", "third")
 
@@ -316,14 +317,14 @@ def test_capped_options_returns_everything_below_the_cap() -> None:
     assert capped_options([]) == ()
 
 
-# --- the design's boundary rule, statically ------------------------------------
+# --- the boundary rule, statically ------------------------------------
 
 
 def test_the_gates_module_imports_no_framework_and_no_io() -> None:
     """Catches the gate migrating into a conditional edge or a node: an import
     of langgraph, sqlalchemy or httpx here means the decision is no longer
     framework-free code that a test can call without a graph, which is the one
-    property the design's boundary rule asks for."""
+    property the boundary rule asks for."""
     source = Path(str(gates_module.__file__))
     tree = ast.parse(source.read_text())
     imported: set[str] = set()
@@ -337,7 +338,7 @@ def test_the_gates_module_imports_no_framework_and_no_io() -> None:
     assert imported & forbidden == set()
 
 
-# --- an earlier change: the retrieval half ---------------------------------------------
+# --- the retrieval half ---------------------------------------------
 
 
 def test_turn_outcome_carries_the_refusal_branch() -> None:
@@ -369,7 +370,7 @@ def test_retrieves_policy_covers_exactly_every_intent() -> None:
 def test_should_retrieve_is_true_for_exactly_the_two_planned_intents(
     intent_value: str, expected: bool
 ) -> None:
-    """Catches both directions of plan §5's third risk.
+    """Catches both directions of the wrong answer.
 
     A predicate returning True for everything makes eleven intents — a password
     reset, an approvals list — pay a Qdrant round trip they never read, and one
@@ -397,12 +398,12 @@ def test_retrieval_outcome_maps_the_refusal_flag_to_its_branch(
 ) -> None:
     """Catches an inverted read of the tool's `refused` flag, which would send
     every answerable question to the refusal ending and hand every genuinely
-    unanswerable one on to 17c with an empty citation list. Decision D puts the
-    threshold in the tool, so this is the only place the flag is interpreted."""
+    unanswerable one on to planning with an empty citation list. The tool owns the
+    threshold, so this is the only place the flag is interpreted."""
     assert retrieval_outcome(refused) is expected
 
 
-# --- an earlier change: the tool table and loop control --------------------------------
+# --- the tool table and loop control --------------------------------
 
 PLANNER_TOOLS: frozenset[str] = frozenset(
     {
@@ -429,12 +430,12 @@ PLANNER_TOOLS: frozenset[str] = frozenset(
 """The eighteen tools a planner may propose, as a literal.
 
 `TOOL_INPUTS`' nineteen minus `search_policy`, counted from the server's own
-registry: twenty-eight registered, less the six row 24 owns (`search_audit`,
+registry: twenty-eight registered, less the six that belong to the admin tools (`search_audit`,
 `set_kill_switch`, `rollback_request`, `list_kill_switches`,
 `list_sod_rules`, `list_policy_documents`), less
-`list_reviews`, which an earlier change
-deliberately leaves out of the catalogue (decision C), less the two
-notification tools an earlier change leaves out for the same reason (decision E), less
+`list_reviews`, which
+deliberately leaves out of the catalogue, less the two
+notification tools left out for the same reason, less
 the one the agent never plans."""
 
 PLANNED_INTENT_TOOLS: dict[str, frozenset[str]] = {
@@ -460,17 +461,17 @@ PLANNED_INTENT_TOOLS: dict[str, frozenset[str]] = {
     "review": frozenset({"open_access_review", "list_review_items", "decide_review_item"}),
     "other": frozenset(),
 }
-"""Decision A's table as a literal: thirteen rows whose union is the eighteen.
+"""The table as a literal: thirteen rows whose union is the eighteen.
 
 Written out here rather than derived, so a row widened in `gates.py` — an
 approvals turn gaining `offboard_user` — is a red row rather than a tool the
-model may now propose. The plan's §6 fixes the union, the two empty rows and
+model may now propose. The design fixes the union, the two empty rows and
 `search_policy`'s absence; the membership of each remaining row is derived
 from what the design says that intent DOES, and is fixed here."""
 
 
 def test_the_loop_control_constants_are_exactly_the_planned_values() -> None:
-    """a project rule on decision F's four numbers. Catches every one of them
+    """The four numbers. Catches every one of them
     being quietly widened to make a long eval turn finish: eight tool calls is
     a loop nobody budgeted, a per-round cap equal to the per-turn cap makes the
     per-turn cap unreachable, and a deadline under one MCP read timeout
@@ -513,7 +514,7 @@ def test_the_union_of_the_rows_is_exactly_the_eighteen_planner_tools() -> None:
     sorted((key, value) for key, value in PLANNED_INTENT_TOOLS.items()),
 )
 def test_each_intents_row_is_the_planned_one(intent_value: str, expected: frozenset[str]) -> None:
-    """Decision A row by row, which the union test cannot see: a tool moved
+    """Row by row, which the union test cannot see: a tool moved
     from one row to another leaves the union untouched. Catches the case the
     decision exists for — an approvals or a policy turn that can reach a
     lifecycle mutation — and the opposite, a row narrowed until the intent can
@@ -522,7 +523,7 @@ def test_each_intents_row_is_the_planned_one(intent_value: str, expected: frozen
 
 
 def test_the_two_intents_that_plan_nothing_are_offered_nothing() -> None:
-    """Criterion 4's table half. `ask_policy` is answered from the citations
+    """The table half. `ask_policy` is answered from the citations
     alone and `other` is not a request at all, so a row with anything in it
     invites a model call and a mutation for a turn that asked for neither.
     Kept apart from the row table above because this is the pair the planner
@@ -540,7 +541,7 @@ def test_allowed_tools_agrees_with_the_table_it_reads() -> None:
         assert allowed_tools(intent) == INTENT_TOOLS[intent]
 
 
-# --- the design's loop control, as a pure predicate ----------------------------
+# --- the loop control, as a pure predicate ----------------------------
 
 
 @pytest.mark.parametrize(
@@ -600,18 +601,18 @@ def test_validation_outcome_maps_the_rounds_verdict_to_its_branch(
 ) -> None:
     """Catches an inverted read of the round's verdict, which would refuse
     every well-formed plan and hand every malformed one on to 17d for
-    execution — the second half being decision C's exact failure, a half-done
+    execution — the second half being the exact failure, a half-done
     mutation nobody asked for."""
     assert validation_outcome(accepted) is expected
 
 
-# --- an earlier change: the execution cycle's two predicates ----------------------------
+# --- the execution cycle's two predicates ----------------------------
 
 SPEC_OUTCOMES: frozenset[str] = frozenset(
     {"continue", "clarify", "disambiguate", "refuse", "failed", "done", "await_approval"}
 )
 """Every branch a node may record, written out as a literal: SEVEN, counted
-from the five an earlier change fixed, plus an earlier change's `DONE` and an earlier change's
+from the five first fixed, plus the later `DONE` and
 `AWAIT_APPROVAL`."""
 
 
@@ -622,7 +623,7 @@ def test_turn_outcome_has_exactly_the_seven_members() -> None:
     cannot tell apart from a round with calls to execute, so a turn with
     nothing left to do would execute an empty list and plan again forever.
 
-    An earlier change §8: `AWAIT_APPROVAL` is a NEW branch, not a synonym for one of
+    `AWAIT_APPROVAL` is a NEW branch, not a synonym for one of
     the six. Catches a pause expressed by reusing `DONE` — `_after_execution`
     would then route a paused turn to the composition, which would tell the
     user their request was handled while nothing is waiting on the approval.
@@ -661,8 +662,8 @@ def test_execution_outcome_sends_only_a_non_empty_round_to_execution(
 def test_exhausted_outcome_refuses_only_a_turn_that_has_done_nothing(
     result_count: int, expected: TurnOutcome
 ) -> None:
-    """Decision C, and the reason it amends the design. Catches the literal
-    reading of the specification — every exhausted budget to
+    """Catches the literal
+    reading of the original design — every exhausted budget to
     `refuse_and_ticket` — which after a real mutation answers the person who
     made it with the refusal template: "nothing in the current policy covers
     this", said to somebody whose access request was just filed.

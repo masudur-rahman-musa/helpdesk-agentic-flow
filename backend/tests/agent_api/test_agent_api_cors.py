@@ -8,7 +8,7 @@ API under test:
         `allow_methods=["GET", "POST", "OPTIONS"]` and
         `allow_headers=["authorization", "content-type", "accept"]`.
 
-Named for its service per a project rule; no basename collides in the tree.
+Named for its service, so no basename collides in the tree.
 Every case drives the app over `httpx.ASGITransport` against `/healthz`, the
 shape `test_health.py` already uses: no lifespan runs, so no backing service is
 touched and no dependency check is reached.
@@ -124,9 +124,9 @@ def test_a_preflight_allows_exactly_the_planned_headers() -> None:
     Starlette's own `SAFELISTED_HEADERS`, rendered from that constant rather
     than copied. `CORSMiddleware` adds the safelist to
     whatever it is given (`cors.py`: `sorted(SAFELISTED_HEADERS |
-    set(allow_headers))`), so section 1's literal "exactly authorization,
-    content-type and accept" is unreachable through decision A's middleware;
-    this is 27a's one deviation and the plan owes the line. Note the
+    set(allow_headers))`), so the literal "exactly authorization,
+    content-type and accept" is unreachable through the CORS middleware;
+    this is the one place the test departs from the written policy. Note the
     consequence: `accept` and `content-type` are safelisted, so only
     `authorization` is observably granted by the configuration.
     """

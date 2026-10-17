@@ -1,26 +1,27 @@
-"""An earlier change §6: the decision card projected off one turn's tool results.
+"""The decision card projected off one turn's tool results.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.decision_card`` (PURE: no session, no I/O, no clock)
     ``class CardApprover(BaseModel)`` — exactly ``slot`` (an
         ``ApproverSlot``) and ``resolved`` (a bool). No user id: a raw uuid
-        renders nothing a person can read (decision C).
+        renders nothing a person can read.
     ``class DecisionCard(BaseModel)`` — exactly the eight fields
         ``request_id``, ``status``, ``decision``, ``risk_class``, ``reasons``,
         ``approvers``, ``effective_expiry_days``, ``expires_at``.
     ``def decision_card(state: TurnState) -> DecisionCard | None`` — the LAST
         successful ``create_access_request`` result in ``state.tool_results``,
-        falling back to ``classify_access_request`` (decision B), validated
+        falling back to ``classify_access_request``, validated
         against the ``helpdesk.policy.types`` enums; ``None`` for anything it
         cannot read in full, and it raises nothing.
 
 The wire shape these cases assert against is the card's own
 ``model_dump(mode="json")`` — the object ``chat_routes.ChatResponse`` and
-``graph/build.py::_reply_data`` both carry under their fifth key ``decision``. The Python types the model uses are left to the
+``graph/build.py::_reply_data`` both carry under their fifth key ``decision``.
+The Python types the model uses are left to the
 implementer; what is fixed here is the JSON a client reads.
 
-Two facts about the CREATE path are fixed by §1 and worth stating once:
+Two facts about the CREATE path are fixed and worth stating once:
 every one of the eight projected keys must be PRESENT in the payload (a
 missing key is a ``None`` card, not a partial one), and ``expires_at`` may be
 ``null`` but may not be absent. The CLASSIFY path has no ``expires_at`` at all
@@ -61,7 +62,7 @@ CARD_FIELDS = {
     "effective_expiry_days",
     "expires_at",
 }
-"""§1's exact field set for `DecisionCard`, asserted as a set."""
+"""The exact field set for `DecisionCard`, asserted as a set."""
 
 PROJECTED_KEYS = frozenset(
     {
@@ -177,7 +178,7 @@ def _state(*results: ToolResult) -> TurnState:
 
 
 def test_a_created_request_projects_its_eight_fields() -> None:
-    """Catches a card that carries something other than §1's eight fields —
+    """Catches a card that carries something other than eight fields —
     a ninth key such as `approver_user_ids` or `policy_refs` reaching the wire,
     or one of the six spec fields missing — and one that renders a value the
     tool never said: every value is compared against the payload it came from,
@@ -204,7 +205,7 @@ def test_a_created_request_projects_its_eight_fields() -> None:
 
 
 def test_the_projected_keys_are_the_tools_own_output_fields() -> None:
-    """Catches the plan's first risk — a tool-side rename of an output field
+    """Catches a tool-side rename of an output field
     emptying the card silently: the eight names are checked against
     `CreateAccessRequestOutput.model_fields` read off the model, so the rename
     goes red HERE rather than as a blank card in a browser.
@@ -253,8 +254,8 @@ def test_the_last_created_request_of_several_is_the_card() -> None:
 
 
 def test_a_classified_request_projects_a_card_with_no_request_id_and_no_status() -> None:
-    """Catches a projection that refuses every turn which filed nothing
-    (decision B's rejected alternative): a blocked classification is exactly
+    """Catches a projection that refuses every turn which filed nothing:
+    a blocked classification is exactly
     the case a card explains best, and rendering nothing for it leaves the user
     with a refusal and no reason.
 
@@ -312,7 +313,7 @@ def test_a_created_request_wins_over_a_classification(create_first: bool) -> Non
 def test_an_approver_is_resolved_exactly_when_the_engine_filled_an_id() -> None:
     """Catches a `resolved` flag that is really a constant — true for every
     seat, or true only where the slot is a person-shaped one — and, the half
-    decision C exists for, a card that carries the approver's uuid onto the
+    that matters most, a card that carries the approver's uuid onto the
     wire: the two seats differ ONLY in whether `user_id` was filled, so
     nothing but reading that field can tell them apart.
 

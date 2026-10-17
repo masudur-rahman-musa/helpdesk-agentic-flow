@@ -1,10 +1,8 @@
-"""HS256 token issue/verify. Pure: no I/O, no settings access, time injected.
+"""HS256 token issue and check. Pure: no I/O, no settings, time passed in.
 
-This is the single identity boundary every later row trusts: RBAC and the
-MCP server derive tenant and user from a verified `TokenClaims`, never from
-tool arguments. Verification pins the algorithm on decode (an `alg: none`
-or RS/ES header is rejected, not honoured) and checks expiry against the
-caller-supplied clock so tests need no real time.
+Tenant and user always come from a checked token, never from tool
+arguments. The algorithm is pinned on decode, so an `alg: none` or RS/ES
+header is refused.
 """
 
 from collections.abc import Mapping
@@ -48,11 +46,7 @@ def issue_token(claims: Mapping[str, object], secret: str, now: datetime) -> str
 
 
 def verify_token(token: str, secret: str, now: datetime) -> TokenClaims:
-    """Validate signature, algorithm, claim shape, and expiry; return typed claims.
-
-    Expiry is checked here against the injected `now` (decode-time exp
-    verification is disabled because PyJWT would use the real clock).
-    """
+    """Check signature, algorithm, claim shape and expiry; return typed claims."""
     try:
         payload = _pyjwt.decode(
             token,

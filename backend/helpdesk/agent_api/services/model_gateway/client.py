@@ -1,41 +1,7 @@
-"""The model client: the only place in this repo that calls the gateway's chat
-endpoint (a project rule, the design).
+"""The model client: the only code here that calls the gateway's chat endpoint.
 
-The model is named by ALIAS and never by a provider model id. `ModelAlias` is
-a closed StrEnum of exactly the two names the design routes, so mypy refuses a
-bare string where an alias belongs and
-`test_gateway_client.py::test_no_provider_model_name_appears_in_the_repo`
-sweeps the two source trees for the ids that would make "we only use aliases"
-quietly untrue.
-
-Every request carries five headers. `Authorization` and `X-Tenant` come from
-ONE lookup (`gateway/keys.py`, a design note), so the pair the gateway compares can
-never be assembled from different places; `X-Data-Class` is fixed at
-`confidential` (decision F) because chat carries company data the wider
-`internal` class must not route; `traceparent` is the caller's or a fresh one
-(decision C), which is what makes the two services' spans one trace; and
-`X-Session` is present exactly when a session id was given, never present and
-empty, because the console reads its PRESENCE
-(`test_gateway_client.py::test_the_session_header_is_absent_when_no_session_is_given`).
-
-Three pre-checks run BEFORE any request is built — the tenant's slug and key,
-the session id (`check_slug`), the caller's `traceparent`, and for structured
-output the schema name and the schema's strict-mode rules — so a refusal is a
-typed `VALIDATION` with the prompt never put on the wire, rather than a 4xx
-read back from the gateway. Pinned by
-`test_gateway_client.py::test_a_session_id_one_character_over_the_cap_is_refused_before_any_request`,
-`::test_a_schema_name_one_character_over_the_cap_is_refused_before_any_request` and
-`::test_a_malformed_caller_traceparent_is_refused_before_any_request`, each
-asserting the transport was never called.
-
-No gateway wording, no URL and no provider name reaches a caller's message:
-the gateway's body can quote the prompt it was given, which on this path is
-the one string carrying confidential company data, and it names the provider
-and model that served the turn. Pinned by
-`test_gateway_client.py::test_no_gateway_wording_url_or_provider_name_reaches_the_message`.
-
-Non-streaming only (decision B): row 19 owns SSE to the browser, where a
-stream has a consumer, and adds a method rather than rewriting this one.
+Models are named by alias only. Inputs are checked before sending, and no
+gateway text, URL or provider name reaches an error, since it can quote the prompt.
 """
 
 import re
@@ -55,116 +21,55 @@ from helpdesk.shared.core.naming import check_slug
 from helpdesk.shared.gateway.keys import checked_tenant_key
 
 CHAT_PATH = "/chat/completions"
-"""The gateway's OpenAI-shaped chat endpoint, hung off the versioned base URL
-`Settings.gateway_url` already carries."""
+"""The gateway's OpenAI-style chat endpoint, under the configured base URL."""
 
 MAX_SCHEMA_NAME_LENGTH = 128
-"""The gateway's cap on a response-format schema name, copied from
-`opsconsole.providers.base`'s `MAX_TOOL_NAME_LENGTH`.
-
-A COPY, not an import: the console is a separate repository and nothing here
-depends on it at build time, exactly as `MAX_REDACTION_CHARS` copies its
-redaction cap. The value is pinned by
-`test_gateway_client.py::test_the_model_client_constants_are_exactly_the_planned_values`,
-and this docstring names the module it mirrors, so a console change surfaces
-as a 422 whose cause is one grep away rather than a local failure.
-"""
+"""The gateway's schema-name cap, copied from the Ops Console, a separate repo."""
 
 SCHEMA_NAME_PATTERN = re.compile(r"[a-zA-Z0-9_-]{1,128}")
-"""The character set a schema name may use, mirroring the console's
-`TOOL_NAME_PATTERN` and matched with `re.fullmatch`.
-
-The name goes into a JSON body the console re-emits to a provider, so a value
-ending in a newline is refused here rather than travelling. It is the narrower
-of the two gates for a name containing anything outside the class, while
-`MAX_SCHEMA_NAME_LENGTH` decides length alone; both boundaries are pinned by
-`test_gateway_client.py::test_a_schema_name_of_exactly_the_cap_is_accepted`,
-`::test_a_schema_name_one_character_over_the_cap_is_refused_before_any_request`
-and `::test_a_schema_name_outside_the_pattern_is_refused_before_any_request`.
-"""
+"""The console's allowed name characters, matched in full so a trailing newline fails."""
 
 DATA_CLASS = "confidential"
-"""the design's class for chat. Fixed, never a parameter (decision F): a
-parameter is an invitation to send a chat turn under a wider class, which is
-the one routing mistake residency cannot recover from. Policy ingestion's
-`internal` lives one package over in `rag/gateway.py`."""
+"""Chat carries company data, so its class is fixed and never a parameter."""
 
 CONNECT_TIMEOUT_SECONDS = 5.0
-"""Long enough for a TLS handshake on a slow link, short enough that an
-unreachable gateway is an error rather than a hang."""
+"""Enough for a slow TLS handshake; a dead gateway errors instead of hanging."""
 
 READ_TIMEOUT_SECONDS = 60.0
-"""Wider than the redaction client's 30.0: a generation is slower than a scan,
-and a strong alias answering a long turn spends most of it generating. Both
-halves are asserted on the constructed client by
-`test_gateway_client.py::test_the_constructed_client_carries_both_timeout_halves`."""
+"""Generous, since a strong model answering a long turn is slow."""
 
 STRUCTURED_OUTPUT_ATTEMPTS = 2
-"""One call plus exactly one retry (the design step 2, decision D).
-
-The retry is about the model's OUTPUT, never the transport: a 5xx or a timeout
-is raised rather than retried, because the caller that knows whether a turn can
-be re-run is the agent runtime. The count is pinned from both sides by
-`test_gateway_client.py::test_complete_json_retries_exactly_once_and_returns_the_second_answer`
-and `::test_complete_json_gives_up_after_the_second_invalid_answer`, whose
-handler fails the test on a third request."""
+"""One call plus one retry, for bad model output only, never transport errors."""
 
 
 class ModelAlias(StrEnum):
-    """The only routable model names (the design). Exactly two, closed.
-
-    The VALUE is what goes into the request's `model` field, so the hyphen
-    spelling is the contract and not a style choice. Pinned by
-    `test_gateway_client.py::test_model_alias_has_exactly_the_two_spec_members`.
-    """
+    """The only model names this repo may send. The value is the wire name."""
 
     AGENT_DEFAULT = "agent-default"
     AGENT_STRONG = "agent-strong"
 
 
 class ModelForbiddenError(ToolError):
-    """The gateway refused the key, or the key does not own the tenant.
-
-    A 403 here is the control a design note exists for: the tenant in the header
-    and the tenant the key owns disagreed. Neither is something a retry fixes.
-    """
+    """The gateway refused the key, or the key does not own the tenant. Retrying cannot help."""
 
     code = ErrorCode.FORBIDDEN
 
 
 class ModelRequestError(ToolError):
-    """This request is malformed, or would be. Raised for the local pre-checks
-    and for the gateway's own 422 alike, because both say the same thing to a
-    caller: fix the input, retrying unchanged cannot help."""
+    """The request is malformed, found here or by the gateway. Fix the input."""
 
     code = ErrorCode.VALIDATION
 
 
 class ModelUnavailableError(ToolError):
-    """The gateway could not be reached, failed on its side, or answered
-    something this client cannot turn into an answer.
-
-    Deliberately not `VALIDATION`, including for a structured output still
-    invalid after its one retry: the caller's arguments were fine and editing
-    them cannot help, while the same turn run again may well succeed.
-    """
+    """The gateway failed or its answer was unusable. The same turn may work again."""
 
     code = ErrorCode.INTERNAL
 
 
 @dataclass(frozen=True)
 class ModelAnswer:
-    """One completed turn, with the operator facts that trace it.
-
-    `alias` is the one the CALLER named, never the name echoed in the body:
-    the body's `model` is the gateway's own echo, and reading it back would
-    make an answer describe a routing decision this process did not make.
-
-    `gateway_model` and `gateway_trace_id` are operator facts for a log and a
-    trace — they are the only handles tying a turn here to a row in the
-    console's log — and no code path puts either into a prompt. Frozen so a
-    caller cannot rewrite the counts a turn is billed and capped by.
-    """
+    """One completed turn. `alias` is what the caller asked for, not the gateway's echo."""
 
     text: str
     alias: ModelAlias
@@ -180,36 +85,14 @@ M = TypeVar("M", bound=BaseModel)
 
 @dataclass(frozen=True)
 class StructuredAnswer[T: BaseModel]:
-    """A validated structured answer and the usage of the call that produced it.
-
-    `complete_json` returns this rather than the bare model (an earlier change decision
-    A) because the `ModelAnswer` carries the `total_tokens` a caller's budget
-    is spent from: a method that discarded it left the agent's `tokens_used`
-    with nothing to read, so `MAX_TURN_TOKENS` could never bite however long a
-    turn ran. One return shape rather than a second method, so a later caller
-    cannot reach the model without also being handed its bill.
-
-    On a RETRIED call `usage` is the second answer's, never the first's: the
-    first attempt's text was discarded unparsed, and pairing it with the value
-    would describe two different requests in one object. Pinned by
-    `test_gateway_client.py::test_the_usage_of_a_retried_call_is_the_second_answers_not_the_first`.
-
-    Frozen for `ModelAnswer`'s reason: a caller may not rewrite the counts a
-    turn is billed and capped by.
-    """
+    """A checked structured answer, with the usage of the call that made it."""
 
     value: T
     usage: ModelAnswer
 
 
 class ModelClient:
-    """One httpx client, two call shapes, typed refusals.
-
-    Mirrors `helpdesk.mcp_server.services.rag.redaction_client.RedactionClient`
-    deliberately: pre-checks first, one `httpx.AsyncClient` carrying both
-    timeout halves, an injectable transport so the suite opens no socket, and
-    a `_parsed` mapping statuses onto the typed codes.
-    """
+    """One httpx client, two call shapes, typed refusals."""
 
     def __init__(
         self,
@@ -232,21 +115,12 @@ class ModelClient:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "ModelClient":
-        """Build the client from loaded configuration.
-
-        The key map is already parsed and already validated by `Settings`, so
-        a malformed pair has failed at load time rather than here.
-        """
+        """Build the client from loaded settings."""
         return cls(base_url=settings.gateway_url, api_keys=settings.gateway_api_keys)
 
     @property
     def base_url(self) -> str:
-        """The gateway's versioned base URL, as configured.
-
-        Used by the readiness check to derive the service-level health
-        endpoint: `ping_gateway(self.client, self.base_url)` probes the
-        origin of this URL at `/healthz`.
-        """
+        """The gateway's configured base URL, which the readiness check probes."""
         return self._base_url
 
     async def aclose(self) -> None:
@@ -264,12 +138,7 @@ class ModelClient:
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> ModelAnswer:
-        """One non-streaming turn, as a `ModelAnswer`.
-
-        Every pre-check runs before the body is built, so a refusal costs no
-        round trip and never puts the prompt on the wire
-        (`test_gateway_client.py::test_a_session_id_one_character_over_the_cap_is_refused_before_any_request`).
-        """
+        """One non-streaming turn."""
         headers = self._headers(tenant_slug, session_id, traceparent)
         body = self._body(messages, alias, max_tokens, temperature)
         response = await self._post(body, headers)
@@ -287,33 +156,9 @@ class ModelClient:
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> StructuredAnswer[M]:
-        """One turn constrained to `schema_model`, validated here as well.
+        """One turn held to `schema_model`'s shape, in strict mode, and checked here too.
 
-        The schema is the one Pydantic generates, so the shape asked for and
-        the shape validated against cannot drift apart. An answer that is not
-        JSON, or is JSON the model refuses, is retried EXACTLY once (SPEC
-        §10.1 step 2): both failures take the same path, because a well-formed
-        object with the wrong fields is the far more common bad generation.
-        After the second failure the turn is `ModelUnavailableError`. Pinned by
-        `test_gateway_client.py::test_complete_json_retries_exactly_once_and_returns_the_second_answer`,
-        `::test_complete_json_retries_once_when_valid_json_fails_the_models_validation`
-        and `::test_complete_json_gives_up_after_the_second_invalid_answer`.
-
-        The answer comes back as a `StructuredAnswer`: the validated value
-        beside the `ModelAnswer` of the attempt that produced it, so a caller
-        spending a token budget reads the gateway's own count rather than
-        estimating one. Pinned by
-        `::test_complete_json_returns_the_validated_value_beside_the_calls_own_usage`.
-
-        The request asks for strict mode (`"strict": true`), so the provider
-        holds the model to the exact shape rather than only being asked for
-        it, and the schema is refused here first when it breaks strict mode's
-        rules: a typed `VALIDATION` before any request, rather than a 400 for
-        every turn. Pinned by
-        `::test_complete_json_sends_strict_true_inside_json_schema` and
-        `::test_a_non_strict_schema_is_refused_before_any_request`. Our own
-        validation and its one retry stay: strict mode is the provider's
-        promise, `model_validate_json` is ours.
+        A reply that does not fit is retried once, then raised.
         """
         headers = self._headers(tenant_slug, session_id, traceparent)
         body = self._body(messages, alias, max_tokens, temperature)
@@ -342,12 +187,7 @@ class ModelClient:
     def _headers(
         self, tenant_slug: str, session_id: str | None, traceparent: str | None
     ) -> dict[str, str]:
-        """The five headers, every client-supplied part of them pre-checked.
-
-        `X-Session` is added only when a session id was given, so the console
-        never reads a present-but-empty header as a session
-        (`test_gateway_client.py::test_the_session_header_is_absent_when_no_session_is_given`).
-        """
+        """The headers, with caller parts checked. `X-Session` is left out, not sent empty."""
         try:
             slug, key = checked_tenant_key(tenant_slug, self._api_keys)
             checked_session = None if session_id is None else check_slug(session_id)
@@ -372,12 +212,7 @@ class ModelClient:
         max_tokens: int | None,
         temperature: float | None,
     ) -> dict[str, Any]:
-        """The OpenAI-shaped request body, naming the alias and nothing else.
-
-        `stream` is always `false` here (decision B); the two optional fields
-        are omitted rather than sent as null, so the gateway applies its own
-        defaults instead of being told "no limit" explicitly.
-        """
+        """The OpenAI-style body. Unset options are left out so gateway defaults apply."""
         body: dict[str, Any] = {
             "model": alias.value,
             "messages": [dict(message) for message in messages],
@@ -396,21 +231,11 @@ class ModelClient:
                 f"{self._base_url}{CHAT_PATH}", json=dict(body), headers=dict(headers)
             )
         except httpx.HTTPError as exc:
-            # The exception's own message carries the URL, so it stays in the
-            # chained cause where a log line reads it, and never in ours.
+            # The exception text holds the URL; keep it in the cause, not our message.
             raise ModelUnavailableError("the model gateway could not be reached") from exc
 
     def _parsed(self, response: httpx.Response, alias: ModelAlias) -> ModelAnswer:
-        """Map a response onto the typed codes, or onto a `ModelAnswer`.
-
-        401 and 403 are one answer rather than two: both mean the key this
-        process holds cannot call for this tenant. Every other non-200 —
-        including 404 for an alias the gateway does not route and 429 — is
-        `INTERNAL`, because none of them is something the caller's arguments
-        can fix, and a 200 whose body cannot be read is the same answer. The
-        whole table is pinned by
-        `test_gateway_client.py::test_a_gateway_status_maps_to_its_typed_error`.
-        """
+        """A `ModelAnswer`, or a typed error: 401/403 is forbidden, 422 bad input, else internal."""
         if response.status_code in (401, 403):
             raise ModelForbiddenError("the model gateway refused this tenant's API key")
         if response.status_code == 422:
@@ -446,13 +271,7 @@ class ModelClient:
 
 
 def _checked_schema_name(name: str) -> str:
-    """The accepted schema name, or a typed refusal before any request.
-
-    Two gates, and the pattern is the narrower one for a name containing
-    anything outside `[a-zA-Z0-9_-]`; the cap decides length alone. Both are
-    checked because a 129-character name of legal characters passes the
-    pattern's own `{1,128}` only by the cap's comparison being run first.
-    """
+    """The schema name if allowed, else a typed refusal before any request."""
     if len(name) > MAX_SCHEMA_NAME_LENGTH:
         raise ModelRequestError(
             f"a schema name longer than {MAX_SCHEMA_NAME_LENGTH} characters cannot be sent: "
@@ -464,13 +283,7 @@ def _checked_schema_name(name: str) -> str:
 
 
 def _checked_strict_schema(schema_model: type[BaseModel]) -> dict[str, Any]:
-    """The model's JSON schema, or a typed refusal when it breaks strict mode.
-
-    The schema is built from this repo's own models, never from client input,
-    so a problem here is a code defect: it is refused before the prompt goes
-    on the wire, naming each broken rule's path
-    (`test_gateway_client.py::test_a_non_strict_schema_is_refused_before_any_request`).
-    """
+    """The model's JSON schema, or a typed refusal naming each strict-mode problem."""
     schema = schema_model.model_json_schema()
     problems = strict_schema_problems(schema)
     if problems:

@@ -10,11 +10,10 @@ import { MAX_MESSAGE_CHARS } from "@/features/chat/schema";
 import { reasonSentence } from "@/lib/decision-labels";
 
 /**
- * An earlier change §6, `chat-page.test.tsx`: the chat surface against a scripted stream
+ * `chat-page.test.tsx`: the chat surface against a scripted stream
  * and a stubbed `fetch`. jsdom, no browser, no agent-api.
  *
- * Shapes this file fixes that the plan left open (a project rule/39; these go
- * in the plan's Deviations):
+ * Shapes this file fixes:
  * - the unit under test is `ChatPanel` from `web/src/features/chat/components/chat-panel.tsx`
  *   — the client component `app/chat/page.tsx` renders inside the shell —
  *   taking **no props**. Everything it shows comes from the two route handlers
@@ -23,26 +22,25 @@ import { reasonSentence } from "@/lib/decision-labels";
  *   panel would move the fetching into a component no test here drives. The
  *   page itself is not rendered directly because a server component may be
  *   `async`, and `render()` cannot await one.
- * - it is rendered inside 22a's `QueryProvider`, because the history read is a
- *   TanStack Query read (decision D).
+ * - it is rendered inside the `QueryProvider`, because the history read is a
+ *   TanStack Query read.
  * - each message in the conversation is an element with `role="article"`
- *   carrying `data-role="user" | "assistant"`. §6 fixed the log's role and name
- *   but not how the two authors are told apart, and §1 requires exactly that.
+ *   carrying `data-role="user" | "assistant"`. The log's role and name were fixed
+ *   but not how the two authors are told apart, and the page needs exactly that.
  * - a citation renders its `score` as the raw wire number (`0.42`), not as a
  *   percentage or a star rating.
  * - the tool-step timeline renders exactly ONE `listitem` per `step` event;
  *   the per-tool entries inside a row are not themselves list items, so the
  *   row count is the event count.
  *
- * Shapes an earlier change's §6 left open, fixed here for the same reason (standing rule
- * 55/39; these go in 22d's Deviations):
- * - the decision card is a `region` whose accessible name is exactly `Decision`
- *   (§6 fixes this one), and the approver chain inside it is a `list` whose
+ * More shapes fixed here for the same reason:
+ * - the decision card is a `region` whose accessible name is exactly `Decision`, and the approver
+ * chain inside it is a `list` whose
  *   accessible name is `Approvers` — the shape `ToolSteps` already uses, and
  *   the only way "each approver is exactly one `listitem`" is countable in a
  *   region that may hold other lists (the reasons).
  * - `request_id` rides as the `data-request-id` attribute ON the region
- *   element itself (§1), so a classified-only card is the ABSENCE of that
+ *   element itself, so a classified-only card is the ABSENCE of that
  *   attribute, not an empty one.
  * - the reason sentences and the four label lookups are
  *   `@/lib/decision-labels`'; the sentences are compared by reference here and
@@ -56,7 +54,6 @@ import { reasonSentence } from "@/lib/decision-labels";
  * status, decision, risk_class, reasons, approvers:[{slot, resolved}],
  * effective_expiry_days, expires_at}`, `agent_api/decision_card.py::DecisionCard`
  * dumped `mode="json"` — rendered by `ChatPanel` as the `Decision` region since
- * an earlier change,
  * `error` → `{code}` (`::_failure_frames`), citations → `{document, title,
  * version, heading_path, chunk_id, text, score}` (`graph/state.py::Citation`),
  * history → `{messages:[{role, content}]}` (`chat_routes.ChatHistoryResponse`).
@@ -243,7 +240,7 @@ describe("ChatPanel — the streamed turn", () => {
   });
 
   it("settles on the reply event's string when it differs from the tokens", async () => {
-    // The reconciliation §5 names. On the wire the tokens are always slices of
+    // The reconciliation. On the wire the tokens are always slices of
     // the same checked reply, so an on-contract script cannot tell a panel that
     // RECONCILES from one that just stops appending — this script therefore
     // diverges deliberately, which is the only arrangement in which removing
@@ -325,7 +322,7 @@ describe("ChatPanel — citations", () => {
   it("shows title, version, heading path and score, and the chunk text only when expanded", async () => {
     // Catches a citation list that renders the chunk text inline: a settled
     // reply then carries several hundred words of policy prose the user did not
-    // ask to read, which is exactly why §1 makes it expandable. The
+    // ask to read, which is exactly why it is expandable. The
     // before-click assertion is the load-bearing half — a list that shows
     // everything always would pass the after-click one.
     const stream = scriptedStream();
@@ -442,7 +439,7 @@ describe("ChatPanel — the decision card", () => {
     };
   }
 
-  /** The same card for a turn that classified and filed nothing (22c decision B). */
+  /** The same card for a turn that classified and filed nothing. */
   function classifiedCard(): Record<string, unknown> {
     return {
       request_id: null,
@@ -468,7 +465,7 @@ describe("ChatPanel — the decision card", () => {
   }
 
   it("renders the decision, risk, reasons, expiry, approvers and status of a filed request", async () => {
-    // §1's first criterion, all six fields in one arrangement. Catches a card
+    // All six fields in one arrangement. Catches a card
     // that shows the wire values instead of the labels (`approval`,
     // `privileged`, `pending` at the user), one that renders the reason CODES
     // where a sentence belongs, and one that formats `expires_at` through the
@@ -478,8 +475,8 @@ describe("ChatPanel — the decision card", () => {
     // not, so an implementation ignoring `resolved` fails whichever word it
     // hardcodes: "assigned" everywhere fails the second seat, "not yet
     // assigned" everywhere fails the first. The two uuid assertions catch a
-    // card that prints the SoD rule id or the request id as text (decisions C
-    // and §1) — a raw uuid reads as nothing to the person asking.
+    // card that prints the SoD rule id or the request id as text — a raw uuid reads as nothing to
+    // the person asking.
     const stream = scriptedStream();
     streamAnswer = () => stream.response();
     renderPanel();
@@ -520,7 +517,7 @@ describe("ChatPanel — the decision card", () => {
     // unconditionally — `STATUS_LABELS[null]` is the literal "undefined" on
     // screen, and a default of "Pending approval" would tell a user something
     // was filed for them when nothing was. The absent `data-request-id`
-    // catches an attribute written as `String(request_id)`, which row 23 would
+    // catches an attribute written as `String(request_id)`, which a later reader would
     // then read the string "null" out of, and the date assertion catches an
     // expiry line built from a null `expires_at`.
     const stream = scriptedStream();
@@ -597,7 +594,7 @@ describe("ChatPanel — the decision card", () => {
   });
 
   it("an approver whose slot is unknown renders the raw slot", async () => {
-    // §1's enum-drift path, on the map whose member list is most likely to
+    // The enum-drift path, on the map whose member list is most likely to
     // grow. Catches the bare index — an `ApproverSlot` added on the Python
     // side renders "undefined" against a seat somebody has to fill — and a
     // card that DROPS a seat it cannot label, which would show a two-approver
@@ -625,8 +622,8 @@ describe("ChatPanel — the decision card", () => {
   });
 
   it("an error event clears the card", async () => {
-    // The card has the same lifetime the steps and the citations already have
-    // (decision D). Catches a panel that leaves the previous card standing
+    // The card has the same lifetime the steps and the citations already have. Catches a panel
+    // that leaves the previous card standing
     // through a failure: the user then reads a decision beside a sentence
     // saying the turn decided nothing, which is the same class of lie as the
     // half-composed token text the error path already drops. The
@@ -653,7 +650,7 @@ describe("ChatPanel — the decision card", () => {
   });
 
   it("a second send clears the previous turn's card", async () => {
-    // The other half of decision D, and the one a panel passes by accident:
+    // The other half, and the one a panel passes by accident:
     // clearing on `reply` alone leaves the previous turn's decision on screen
     // for the whole of the next turn, which is precisely when a user is
     // waiting to see whether THIS request was approved. Asserted after the
@@ -688,12 +685,10 @@ describe("ChatPanel — the decision card", () => {
 });
 
 /**
- * An earlier change §6 additions: the composer's prefill from `/access`' renewal link.
- * Additions only — nothing above this comment is edited.
+ * The composer's prefill from `/access`' renewal link.
  *
- * Shapes this file fixes that 23b left open (a project rule and 55; these
- * belong in 23b's Deviations):
- * - the panel reads `window.location.search` once on mount (§2, decision C),
+ * Shapes this file fixes:
+ * - the panel reads `window.location.search` once on mount,
  *   so the parameter is set here with `history.replaceState` — no router
  *   context, no Suspense boundary and no navigation, which is exactly the cost
  *   `useSearchParams` would have added to every case above.
@@ -719,11 +714,11 @@ describe("ChatPanel — the renewal prefill", () => {
   it("starts the composer carrying the ask and sends nothing until Send is pressed", async () => {
     // Two kills in one arrangement. The value assertion catches a panel that
     // ignores `?ask=` altogether — `/access`' renewal link then lands on an
-    // empty composer and the user retypes the sentence, which is the whole of
-    // decision C. The `streamCalls === 0` assertion is the load-bearing one: it
+    // empty composer and the user retypes the sentence, which is the whole
+    // point. The `streamCalls === 0` assertion is the load-bearing one: it
     // catches a panel that SENDS the prefill on mount, which would let a link
-    // in an email open a turn the person never asked for (a project rule's
-    // boundary is the mutation, but the turn is still theirs to start). The
+    // in an email open a turn the person never asked for (the rule that only tools
+    // mutate is about the mutation, but the turn is still theirs to start). The
     // body assertion afterwards catches a prefill rendered as a PLACEHOLDER:
     // the text is on screen, Send posts an empty message, and the user sees a
     // VALIDATION refusal for a sentence they can read in front of them.
@@ -763,7 +758,7 @@ describe("ChatPanel — the renewal prefill", () => {
   it.each(EMPTY_STARTS)("starts empty with $name", async ({ search }) => {
     // The first two rows catch a prefill that leaks a default — a remembered
     // draft or a sample question seeded into every visit to `/chat`, which
-    // makes the composer's own emptiness unreliable. The last two are §1's
+    // makes the composer's own emptiness unreliable. The last two are the
     // refusal, and they are the rows that fail for a panel skipping
     // `chatMessageSchema`: an oversized `ask` would seed a message the composer
     // itself refuses, so Send answers VALIDATION over text the app put there.
@@ -776,20 +771,19 @@ describe("ChatPanel — the renewal prefill", () => {
 });
 
 /**
- * An earlier change §6, added to 22b's file and rewriting none of it (§8): the three
+ * Cases added to the file, rewriting none of it: the three
  * cases that hold `fetchHistory` still, after its four private lines become
  * `readWire("/api/chat/messages", z.unknown())` with `readHistory` kept after
- * it (decision A). The stream POST is not a read and is untouched, which is why
+ * it. The stream POST is not a read and is untouched, which is why
  * no case here presses Send.
  *
- * §6 asks each read's case to render "that page's existing alert sentence".
+ * Each read's case should render "that page's existing alert sentence".
  * The history read has NONE: `ChatPanel` renders an alert for the TURN's typed
  * failures only, and a failed history read shows the empty conversation and
  * nothing else. So the state pinned here is that one, and the failed read is
  * told apart from an empty transcript by the RETRY — TanStack's `retry: 1`
  * makes a thrown read two calls and a swallowed one, which is the wrong
- * implementation, exactly one. Reported to 24ia as a deviation rather than
- * answered by adding a sentence no closed plan's §1 asked for (decision B).
+ * implementation, exactly one. No sentence is added for it on purpose.
  */
 describe("ChatPanel — the history read through the shared wire reader", () => {
   const ORIGIN = "http://localhost:3000";
@@ -802,8 +796,8 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
   /**
    * The history answer for this case alone, replacing `beforeEach`'s stub
    * (`afterEach`'s `vi.unstubAllGlobals` takes it back down). The file's own
-   * stub answers a 200 unconditionally and holds no failure staging, and §8
-   * authorises no rewrite of it.
+   * stub answers a 200 unconditionally and holds no failure staging, and it is
+   * left as it is.
    */
   function stubHistory(answer: () => Response): ReturnType<typeof vi.fn<typeof fetch>> {
     const stub = vi.fn<typeof fetch>();
@@ -821,15 +815,15 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
   it("a 403 FORBIDDEN is a failed read, not an empty transcript, and raises no alert", async () => {
     // The read that has no sentence of its own, so the kill is the SHAPE of the
     // failure. The retry count is the load-bearing half: a migration that
-    // swallows the refusal and answers `[]` (the value §1 reserves for the
+    // swallows the refusal and answers `[]` (the value reserved for the
     // REDIRECT alone) renders exactly what this case sees on screen, and only
     // the second call says the read actually failed — `retry: 1` fetches twice
     // for a thrown read and once for a resolved one. The absent alert kills
-    // decision B's rejected alternative on this page: dressing the typed code
+    // the rejected alternative on this page: dressing the typed code
     // would put "You are not allowed to do that." in the region the TURN's
     // failures own, for a transcript the user never asked about, and the
-    // composer would carry a refusal before anything was sent. Arithmetic
-    //: history reads = 1 on mount + 1 retry = 2; a swallowed
+    // composer would carry a refusal before anything was sent. Arithmetic: history reads = 1 on
+    // mount + 1 retry = 2; a swallowed
     // refusal = 1; stream calls = 0, nothing is sent.
     const stub = stubHistory(
       () =>
@@ -858,7 +852,7 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
     // `/api/chat/stream` — the POST route this same component owns, and the one
     // a careless copy reaches for — and kills one that gains a session, a limit
     // or a cursor while being rewritten: which transcript this is comes from the
-    // session cookie behind the proxy, and a page naming one is a project rule in
+    // session cookie behind the proxy, and a page naming one is trusting the caller in
     // the browser. Arithmetic: the file's own stub answers a
     // 200, so history reads = 1 on mount and stream calls = 0.
     renderPanel();
@@ -878,7 +872,7 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
   });
 
   it("a bodyless 500 is a failed read too, and still raises no alert", async () => {
-    // §5's second risk on the one read with no schema at all (decision A's
+    // The one read with no schema at all (the
     // `z.unknown()`): `readWire` reads the body of every non-ok response looking
     // for a typed code, where `fetchHistory` reads it for none. Kills a refusal
     // branch awaiting an unguarded `json()` — the `SyntaxError` would reject

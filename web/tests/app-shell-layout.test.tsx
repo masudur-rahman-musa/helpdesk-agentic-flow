@@ -12,8 +12,8 @@ import { AppShell } from "@/components/layout/app-shell";
  * `next/navigation` is mocked: `SignOutButton` calls `useRouter`, which throws
  * outside a Next tree, and `MainNav` reads `usePathname`, whose answer each
  * case sets through `nav.pathname`. No `QueryClientProvider` is mounted, so
- * `NotificationBell` renders `null` as in `tests/shell.test.tsx`; that is also
- * §1's "no provider still renders" row, held by every case here rendering.
+ * `NotificationBell` renders `null` as in `tests/shell.test.tsx`; every case here
+ * rendering also holds that "no provider still renders" case.
  */
 
 const nav = vi.hoisted(() => ({ pathname: "/chat" }));
@@ -45,7 +45,7 @@ function renderShell(showNav?: boolean) {
 }
 
 /**
- * An earlier change §8: the nav lists the links `/api/me` returns, so the current-page
+ * The nav lists the links `/api/me` returns, so the current-page
  * cases below answer it as a platform_admin to keep all ten present. The
  * marker logic they pin is unchanged.
  */

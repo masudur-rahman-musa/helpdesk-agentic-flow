@@ -1,24 +1,11 @@
-"""RBAC matrix: who may call which tool, with what scope.
+"""Who may call which tool, and how far they may reach.
 
-Single source of truth for the design. Pure: no I/O, no clock, no DB. Identity
-comes only from a verified `TokenClaims` — `authorize` derives the principal
-set from `claims.principals` and never accepts user or tenant identity as an
-argument, so an identity-from-arguments path cannot exist.
-
-Scope here is declarative: the matrix records *how far* an allowing
-principal may reach (the design writes it in the table), while enforcement
-with data — which department, which systems — belongs to the tool
-implementations that hold that data. An `Authorization` therefore carries
-both `scope` (the widest allowing scope, one value) and `scopes` (all of
-them): a caller who is both a manager and a system owner holds two
-incomparable scopes, and enforcement that can act on both must not see only
-the wider one. `create_access_request` appears twice
-(self vs on-behalf-of-report) because the spec's table has two rows with
-different principal sets.
-
-`execute_grant` is system-only: it stays in the matrix so an unknown-tool
-error cannot mask it, but no principal allows it — the system invokes it
-internally, never a user.
+Pure: no I/O, no clock, no DB. Principals come only from a checked token,
+never from arguments. The scope here only says how far a caller may reach;
+the tools that hold the data enforce it. A caller can hold several scopes
+that do not compare (manager and system owner), so `Authorization` carries
+all of them as well as the widest. `execute_grant` is in the table so an
+unknown-tool error cannot hide it, but no user may call it.
 """
 
 from collections.abc import Mapping, Sequence
@@ -83,10 +70,8 @@ class Scope(StrEnum):
     SYSTEM_ONLY = "system_only"
 
 
-# Total width order, widest first. A multi-principal user gets the widest
-# scope among the principals that allow the tool. system_only never appears
-# on an allowing entry (nothing user-callable carries it) but has a defined
-# rank so the order stays total.
+# Widest first. A caller with several principals gets the widest scope that
+# allows the tool.
 _SCOPE_WIDTH: Mapping[Scope, int] = MappingProxyType(
     {
         Scope.ANY: 4,
@@ -99,18 +84,13 @@ _SCOPE_WIDTH: Mapping[Scope, int] = MappingProxyType(
 
 
 class RbacDenied(ToolError):
-    """No principal on the token allows the tool. the design typed code only."""
+    """No principal on the token allows the tool."""
 
     code = ErrorCode.FORBIDDEN
 
 
 class UnknownToolError(ToolError):
-    """The tool name is not in the matrix: refuse loudly, never silently allow.
-
-    Not a user-facing condition: a name outside the matrix means the caller
-    is wrong, not the user, so it carries `INTERNAL` rather than `FORBIDDEN`
-    (which would read as a legitimate permission decision).
-    """
+    """The tool name is not in the table. `INTERNAL`: the calling code is wrong, not the user."""
 
     code = ErrorCode.INTERNAL
 
@@ -120,29 +100,19 @@ class Authorization(BaseModel):
 
     tool: Tool
     scope: Scope
-    """The WIDEST scope among the allowing principals, and what the MCP
-    pipeline records on every audit payload. Total-order collapse: a caller
-    holding two incomparable scopes reads as the wider one alone."""
+    """The widest allowing scope; this is what the audit payload records."""
 
     scopes: frozenset[Scope]
-    """Every allowing principal's scope, un-collapsed.
-
-    `scope` is a total-order maximum, so a caller who is both a `manager`
-    (`own_department`) and a `system_owner` (`own_systems`) reads as
-    `own_department` and their owned systems disappear — the narrowing plan
-    06 recorded and an earlier change re-owed. Enforcement that has the data to act on
-    both reads THIS instead and unions the two, which is what
-    `mcp_server.tools.approvals.list_pending_approvals` does. Pinned by
-    `test_rbac.py::test_multi_principal_scopes_carry_every_allowing_scope`
-    (which fails for `scopes = {scope}`) and, end to end, by
-    `test_mcp_approvals.py::test_a_manager_and_system_owner_caller_sees_the_union_of_both_queues`."""
+    """Every allowing scope. A manager who is also a system owner would lose
+    their systems under `scope` alone, so code that can act on both (like
+    the approvals queue) reads this and joins them."""
 
 
 def _all(scope: Scope) -> dict[Principal, Scope]:
     return dict.fromkeys(Principal, scope)
 
 
-# the design, one entry per table row; principals absent from an entry are denied.
+# One entry per tool; a principal missing from an entry is refused.
 _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
     {
         Tool.GET_ME: _all(Scope.SELF_ONLY),
@@ -151,11 +121,8 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.RESET_OWN_PASSWORD: _all(Scope.SELF_ONLY),
         Tool.UNLOCK_OWN_ACCOUNT: _all(Scope.SELF_ONLY),
         Tool.CREATE_ACCESS_REQUEST_SELF: _all(Scope.SELF_ONLY),
-        # An earlier change, a design note: a notification is addressed to ONE person,
-        # so reading the bell and clearing one entry are both `self_only`
-        # for every principal. the design gives `/notifications` to all seven,
-        # and an absent principal on either row would be somebody who
-        # cannot read — or cannot clear — their own messages.
+        # A notification goes to one person, so everyone may read and
+        # clear their own.
         Tool.LIST_NOTIFICATIONS: _all(Scope.SELF_ONLY),
         Tool.MARK_NOTIFICATION_READ: _all(Scope.SELF_ONLY),
         Tool.SEARCH_POLICY: _all(Scope.ANY),
@@ -168,17 +135,8 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
         Tool.EXECUTE_GRANT: {},  # system-only: no user principal, ever
-        # `hr` carries `any` on all three by a design note.
-        # the design puts an `hr` seat on a `critical` HRIS chain while the design
-        # originally gave `hr` no cell here, so that seat was fillable by
-        # NOBODY — an `hr` caller was refused before any seat was examined,
-        # and an `it_admin` or `platform_admin` reaching the tool does not
-        # hold the `hr` principal the seat names — and such a request parked
-        # in `pending` for ever with no error anywhere. `any` is the scope
-        # `hr` already holds on every other row it appears in; an HR officer
-        # has no department or system to narrow against. The seat exclusions
-        # are untouched: requester and target still fill no seat, and one
-        # person still fills at most one seat of a chain.
+        # `hr` needs these three: a critical HRIS chain has an `hr` seat,
+        # and without it that request would wait in `pending` for ever.
         Tool.LIST_PENDING_APPROVALS: {
             Principal.MANAGER: Scope.OWN_DEPARTMENT,
             Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
@@ -235,10 +193,8 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
-        # An earlier change: the queue that answers "which reviews are waiting on me",
-        # carrying the same cell as the three tools above it. A queue wider
-        # than the tools it feeds would name scopes, reviewers and progress to
-        # a caller who may not open the reviews themselves.
+        # Same audience as the review tools: a wider queue would show
+        # reviews to callers who may not open them.
         Tool.LIST_REVIEWS: {
             Principal.MANAGER: Scope.OWN_DEPARTMENT,
             Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
@@ -268,40 +224,23 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.SET_KILL_SWITCH: {
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
-        # The READ half of the row above, with the same single cell (ADR
-        # 0019). the design gives `/admin/killswitch` to `platform_admin`
-        # alone, so a board whose audience is wider than the write's would
-        # show six principals switches none of them can change.
+        # Same audience as the write: others could not change what they see.
         Tool.LIST_KILL_SWITCHES: {
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
-        # An earlier change: the separation-of-duties rules read as rules, for SPEC
-        # §14's `/admin/rules` page, which that section gives to `it_admin`
-        # and `platform_admin`. Not `auditor`: an auditor reads
-        # what HAPPENED through `search_audit`, and the rules are
-        # configuration a principal with no route to the page cannot act on.
+        # Admin setup, not history; an auditor reads what happened through
+        # `search_audit`.
         Tool.LIST_SOD_RULES: {
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
-        # An earlier change: the policy corpus read as documents, for the design's
-        # `/admin/policies` page, which that section gives to `it_admin` and
-        # `platform_admin` — the same audience as the rules board above, for
-        # the same reason (a design note, cited rather than re-opened). Not
-        # `auditor`: an auditor reads what HAPPENED through `search_audit`,
-        # and the corpus is configuration. Not `employee` either, though
-        # `SEARCH_POLICY` gives every principal the corpus itself: searching
-        # returns the spans an answer may cite, while this row is the ingest's
-        # version history, which only an admin can act on.
+        # The policy files' version history, which only an admin can act
+        # on. Everyone can still search the policy text itself.
         Tool.LIST_POLICY_DOCUMENTS: {
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
-        # An earlier change: making an edited corpus file live is the WRITE half of the
-        # row above, so it carries exactly that row's audience and no wider
-        # one. The five other principals are refused whether the corpus file
-        # exists or not, so the tool never reports on a tenant's corpus to
-        # someone who may not read it.
+        # The write half of the row above, with the same audience.
         Tool.REINGEST_POLICY_DOCUMENT: {
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
@@ -339,16 +278,9 @@ def authorize(claims: TokenClaims, tool: Tool | str) -> Authorization:
 def principals_of(claims: TokenClaims) -> frozenset[Principal]:
     """The token's principals as matrix members, unknown strings dropped.
 
-    The same read `authorize` does, exposed for the enforcement that needs to
-    know WHICH principal a caller holds rather than how far they may reach:
-    a the design group approver seat is filled by a holder of that group's
-    principal, and `Authorization` carries scopes, not principals. Dropping
-    an unknown string here rather than raising keeps it identical to
-    `authorize`'s own behaviour — a principal outside the enum is never
-    honoured and never widens anything. Pinned by
-    `test_rbac.py::test_principals_of_keeps_the_matrix_members_and_drops_the_rest`,
-    which matters because this function alone decides who may fill a SPEC
-    §9.3 group approver seat.
+    A group approver seat needs to know which principal a caller holds, and
+    `Authorization` only carries scopes. This decides who may fill such a
+    seat, so it matches `authorize`: an unknown string never counts.
     """
     return frozenset(
         principal for raw in claims.principals if (principal := _as_principal(raw)) is not None
@@ -362,11 +294,8 @@ def _as_principal(raw: str) -> Principal | None:
         return None
 
 
-# An earlier change: the web shell's ten tabs by stable key, in link order. The first
-# four are open to every principal and gated by no tool; each other key is
-# tied to the ONE read tool its page calls, so a tab shows exactly when the
-# page's own read would not be refused. Pinned by
-# `test_rbac_tabs.py::test_a_gated_tab_is_shown_exactly_when_its_tool_is_allowed`.
+# The web app's tabs in link order. Each gated tab is tied to the one read
+# tool its page calls, so it shows exactly when that read would be allowed.
 _TAB_TOOLS: Mapping[str, Tool | None] = MappingProxyType(
     {
         "chat": None,
@@ -386,11 +315,8 @@ _TAB_TOOLS: Mapping[str, Tool | None] = MappingProxyType(
 def tabs_for(principals: Sequence[str]) -> list[str]:
     """The tab keys these principal strings may see, in link order.
 
-    Reads `_MATRIX` with the same enum match `authorize` uses, so an unknown
-    string (`PLATFORM_ADMIN`, `platform_admin `) is dropped and never widens
-    (`test_rbac_tabs.py::test_an_unknown_principal_string_never_adds_a_tab`).
-    The four universal keys come back even for an empty list. Hiding a tab is
-    cosmetic: the tool's own `authorize` stays the gate.
+    An unknown string never adds a tab. Hiding a tab is only for looks; the
+    tool's own `authorize` is still the real check.
     """
     held = {principal for raw in principals if (principal := _as_principal(raw)) is not None}
     return [

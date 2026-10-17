@@ -1,13 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/**
- * The boxed `role="alert"` banner every page shows when a read or an action
- * fails. `neutral` is the plain bordered box; `destructive` is the
- * red one chat shows for a failed turn.
- *
- * Pinned by `tests/ui-primitives.test.tsx` and, for who uses it,
- * `tests/shared-ui-adoption.test.tsx`.
- */
+/** The alert box every page shows when a read or an action fails. */
 
 const TONES = {
   neutral: "rounded-md border border-border px-3 py-2 text-sm",

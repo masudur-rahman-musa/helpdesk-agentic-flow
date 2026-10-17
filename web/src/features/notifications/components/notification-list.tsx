@@ -16,67 +16,21 @@ import { Alert } from "@/components/ui/alert";
 import { formatIsoDate } from "@/lib/date-format";
 
 /**
- * This person's own notifications, from `GET /api/me/notifications`, with the
- * `Unread only` filter and the per-row read stamp.
- *
- * A client component doing its own read and its own mutations through TanStack
- * Query (§2, 23d decision A), exactly `ReviewQueue`'s and `ApprovalQueue`'s
- * shape. The READ goes through `lib/wire-read.ts`, which answers
- * `null` while the browser follows the proxy's redirect to `/login` (22b
- * decision E); the stamp keeps its own check of it, because `readWire` is a GET
- * and because a notifications list sits open on a screen for many minutes
- * before anyone clicks. BOTH call sites still follow that redirect, which is
- * what `tests/notifications-page.test.tsx`'s two `an expired session` cases
- * pin, one per call site.
- *
- * Every act crosses 23gb's proxies, so a project rule holds: the stamp is a typed
- * MCP tool behind RBAC, the kill switch, the self-only scope check and the
- * audit event, and this component is the surface. Nothing here decides
- * anything — which notifications exist, whose they are, how many are unread and
- * what a second stamp does to an already-read row (23ga decision A) all come
- * from the tools; this renders and labels.
- *
- * The list paints UNFILTERED first (§1): the filtered view hides every row the
- * moment it is stamped, so a page that opened filtered would take "everything I
- * have" away from anyone who did not know the control was there. Pinned by
- * `::paints the unfiltered list first`.
- *
- * A failed read THROWS rather than answering an empty list, so the alert and the
- * empty state are mutually exclusive by construction: `You have no
- * notifications.` over a broken proxy is the sentence a person acts on by
- * closing the tab, believing an expiring grant was never announced. Pinned from
- * both sides by `::renders the named empty state with no list and no alert` and
- * the two `renders the page alert` rows.
- *
- * Accessible names: the region is `Notifications`, the rows are the list `Your
- * notifications`, the filter is the checkbox `Unread only`, and each unread
- * row's control carries the title (`Mark read {title}`) because fifty rows
- * otherwise carry fifty controls with one name.
- *
- * Dates render as the ISO prefix, never `toLocaleDateString`, which answers a
- * different day either side of a date line and is asserted absent by
- * `::renders one row per notification...`.
+ * This person's notifications, with an `Unread only` filter and a read stamp
+ * per row. Every action goes through a typed server tool; this only renders.
+ * It opens unfiltered, so stamped rows do not vanish for someone who never saw
+ * the filter. A failed read shows an alert, never the empty state, so nobody
+ * thinks an expiring grant was never announced.
  */
 
 /**
- * The `VALIDATION` sentence on this surface, and only on this surface
- * (decision G).
- *
- * `FAILURE_MESSAGES.VALIDATION` is "That message could not be sent.", which is
- * about a chat message and says nothing true about a refused stamp; 22b's
- * `tests/chat-schema.test.ts` pins every string in that map verbatim, so
- * widening the shared map is not available. Exactly ONE code is overridden —
- * every other sentence still comes from the shared map, so no second opinion
- * about `FORBIDDEN` or `TOOL_DISABLED` can appear here. Pinned by
- * `tests/notifications-page.test.tsx::pins the VALIDATION override sentence
- * exactly`.
+ * The shared `VALIDATION` sentence is about chat messages, so this page swaps in
+ * its own for that one code only.
  */
 export const NOTIFICATION_VALIDATION_MESSAGE =
   "That notification could not be marked read. Reload the page and try again.";
 
 export function NotificationList() {
-  // Off on first paint (§1): a person's first view of the route is everything
-  // they have, and the unread view is one click away.
   const [unreadOnly, setUnreadOnly] = useState(false);
 
   const notifications = useNotificationPage(unreadOnly);
@@ -118,25 +72,10 @@ export function NotificationList() {
 }
 
 /**
- * One notification, and its stamp while it is still unread.
- *
- * The mutation lives per ROW on purpose. One in-flight flag for the whole list
- * would grey out every control while a single row is being stamped, which a
- * person clearing a page of fifty pays for fifty times; the refusal is scoped
- * the same way, because one banner for the whole list leaves nobody able to say
- * which of fifty rows was refused. Pinned by `::disables the stamping row's
- * control while it is in flight, and no other row's` and the four refusal rows.
- *
- * A row the tool has already stamped carries NO control: the second stamp
- * answers the stored timestamp (23ga decision A), so what a person would get
- * for clicking is a no-op on a row that is already read, and the bell's count
- * would not move.
- *
- * Nothing is stamped optimistically — the returned `read_at` is never written
- * into the list by hand, so the date on screen is only ever what a read
- * answered. `::refetches both the list and the bell through the notifications
- * prefix` pins that from the other side: the stamp answers one timestamp and
- * the refetch another, and only the refetch's is rendered.
+ * One notification, and its stamp while unread. Each row has its own mutation,
+ * so stamping one row does not lock the others and a refusal shows on the right
+ * row. Nothing is updated by hand: the date shown is always what a read
+ * returned.
  */
 function NotificationItem({ row }: { row: NotificationRow }) {
   const stamp = useMarkRead(row.notification_id);

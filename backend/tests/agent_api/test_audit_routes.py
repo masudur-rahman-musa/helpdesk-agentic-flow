@@ -1,4 +1,4 @@
-"""An earlier change section 6: the audit search, over HTTP.
+"""The audit search, over HTTP.
 
 Surface under test (written before it exists; every case below is red on one
 of these names until step 1 lands):
@@ -9,33 +9,32 @@ of these names until step 1 lands):
     ``occurred_to``, ``before_seq``, ``limit``), registered in ``main.py``.
     The route goes through ``agent_api.deps``' existing seam -
     ``authenticated``, ``unauthenticated``, ``call_tool_route`` and
-    ``STATUS_FOR_CODE`` (decision B) - which is why every case here patches
+    ``STATUS_FOR_CODE`` - which is why every case here patches
     ``deps.build_tool_caller`` and none of them opens a socket.
 
-Shapes this file fixes that the plan left open (a project rule and 55;
-these belong in 24a's Deviations):
-- the tool name is ``search_audit``, an earlier change's own registry name.
+Shapes this file fixes that were left open:
+- the tool name is ``search_audit``, the registry name.
 - the refusal envelope is ``{"code": "<ErrorCode value>"}`` and the bearer
-  refusal a literal ``401``, 23a/23c/23h's shape, unchanged.
+  refusal a literal ``401``, the usual shape, unchanged.
 - the arguments are ``{}`` or a SUBSET of the tool's eight keys, carried by a
   subclass per shape rather than by one model with eight nullable fields,
   because ``model_dump`` would otherwise send ``limit: null`` into a ``1``-``200``
   bound and ``event_type: null`` where the tool's absent-filter meaning is
-  "every event type" (23c's reason, section 6's own note).
+  "every event type" (the reason is given in the route's own note).
 - ``occurred_from`` and ``occurred_to`` cross the route as the STRINGS the
-  browser sent, never as a ``datetime`` the route parses: section 1 asks a
+  browser sent, never as a ``datetime`` the route parses: the design asks a
   non-ISO value to answer the typed ``400 VALIDATION``, and a route declaring
-  its own ``datetime`` query parameter answers FastAPI's untyped 422 instead
-  (section 5's first risk). ``before_seq`` and ``limit`` cross as ints, whose
+  its own ``datetime`` query parameter answers FastAPI's untyped 422 instead.
+  ``before_seq`` and ``limit`` cross as ints, whose
   bounds - not whose type - are the tool's to judge.
 - the caps and the page-size bounds are IMPORTED from
   ``mcp_server.tools.read`` rather than retyped. That import
   needs no ``sys.path`` insert: ``mcp-server`` is a workspace package, and
   ``test_decision_card.py`` already imports ``mcp_server.tools.access`` the
-  same bare way (a project rule is about ``mcp_fixtures``, a test module).
+  same bare way (``mcp_fixtures`` is a test module).
 - the bounds themselves are pinned THROUGH the route by a caller that applies
   ``SearchAuditInput`` itself and answers the typed ``VALIDATION`` the real MCP
-  server answers (section 5's first risk, 23h's shape): the route's job - the
+  server answers: the route's job - the
   only thing those rows can fail on - is forwarding the value untouched and
   dressing that code as **400**.
 
@@ -85,8 +84,8 @@ SEARCH_AUDIT = "search_audit"
 SEARCH_PATH = "/admin/audit/search"
 
 # The lowest `audit_events.seq` a cursor can name (`read.py::_MIN_SEQ`, which
-# the module keeps private). Written as the literal it is, a project rule:
-# section 1 fixes `before_seq=1` accepted and `0` refused.
+# the module keeps private). Written as the literal it is:
+# `before_seq=1` is accepted and `0` is refused.
 MIN_BEFORE_SEQ = 1
 
 # Obviously fake, tests only: none of these is a credential, and
@@ -165,7 +164,7 @@ class ScriptedToolCaller:
     """A `ToolCaller` answering one scripted payload per call, in order.
 
     The same stub shape `test_me_routes.py`, `test_approval_routes.py` and
-    `test_review_routes.py` use: a call past the last
+    `test_review_routes.py` use (the tool-caller seam): a call past the last
     scripted answer fails the test outright, which is how "the route opened no
     session at all" is asserted as a hard stop rather than as a count read
     afterwards.
@@ -238,7 +237,7 @@ class UnreachableToolCaller:
 class BoundCheckingToolCaller:
     """The MCP server's own input validation, standing in for the wire.
 
-    Section 5's first risk: `SearchAuditInput` is the ONLY validator of the
+    `SearchAuditInput` is the ONLY validator of the
     four column-derived caps, the `1`-`200` page size, the `before_seq` floor
     and the two timestamps, so an over-long filter, an out-of-bounds limit and
     a non-ISO date each cross back as a typed `VALIDATION` rather than being
@@ -334,7 +333,7 @@ def _get(
 ) -> tuple[httpx.Response, CallerSpy]:
     """One search against the app, with the tool caller replaced at the seam.
 
-    The seam is `deps.build_tool_caller` (23c decision C put `call_tool_route`
+    The seam is `deps.build_tool_caller` (the shared module owns `call_tool_route`
     there), and the lifespan is NOT entered: this route reads nothing off
     `app.state`, so entering it would buy a psycopg pool, a Redis client and a
     gateway client that no case here uses.
@@ -363,16 +362,16 @@ def test_the_search_route_answers_the_tools_output_unchanged(
     audit_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a route that reshapes, filters, redacts or renames
-    `search_audit`'s structured output on the way out (section 1: "returns the
+    `search_audit`'s structured output on the way out ("returns the
     tool's structured output unchanged"), and one that calls a different tool.
 
-    The bearer half is a project rule and decision A: the token the caller
+    The bearer half is the identity rule: the token the caller
     presented is forwarded VERBATIM, so RBAC, the kill switch, the per-row
     scope filter and the audit event all apply to this read. A route that
     minted its own service token, or reused a configured one, fails on the
     identity assertion alone.
 
-    The `next_before_seq` half is section 5's fourth risk: the scope filter
+    The `next_before_seq` half is a known risk: the scope filter
     runs after the read, so a page can be short while matching events exist
     further back, and the cursor is the only way to reach them. A route that
     dropped it passes every other case in this file.
@@ -396,7 +395,7 @@ def test_the_search_route_answers_the_tools_output_unchanged(
 def test_the_search_route_sends_the_eight_filters_and_no_identity_argument(
     audit_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's fourth criterion, a project rule, as an EXACT key set.
+    """As an EXACT key set.
 
     Catches a route that passes the caller's tenant or user id along as an
     argument - `search_audit`'s scope is decided from the token on the MCP
@@ -426,9 +425,9 @@ def test_the_search_route_sends_the_eight_filters_and_no_identity_argument(
 def test_the_search_route_sends_no_argument_at_all_when_no_filter_is_asked_for(
     audit_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's first criterion, both halves at once. Catches a route that
+    """Both halves at once. Catches a route that
     repeats the tool's `SEARCH_LIMIT_DEFAULT` (50) as a number of its own - a
-    second place for it to drift from, a project rule - one that sends
+    second place for it to drift from - one that sends
     `limit: null` into a bound of `1`-`200` and gets a `VALIDATION` back, so
     the auditor's first page is an error instead of the log, and one that sends
     `event_type: null` where the tool's absent-filter meaning is "every event
@@ -494,7 +493,7 @@ def test_each_filter_present_sends_exactly_its_own_key_and_no_other(
     assert arguments == {name: expected}
 
 
-# --- the tool's own caps and bounds, pinned THROUGH the route (section 5) -----
+# --- the tool's own caps and bounds, pinned THROUGH the route -----
 
 
 CAPS: tuple[tuple[str, str, int], ...] = (
@@ -503,8 +502,8 @@ CAPS: tuple[tuple[str, str, int], ...] = (
     ("subject_id", "subject_id", SUBJECT_ID_MAX_LENGTH),
     ("actor_ref", "actor_ref", ACTOR_REF_MAX_LENGTH),
 )
-"""The four column-derived caps, IMPORTED rather than retyped (standing rule
-1): `read.py::_column_length` reads each one off the `audit_events` column, so
+"""The four column-derived caps, IMPORTED rather than retyped (not retyped):
+`read.py::_column_length` reads each one off the `audit_events` column, so
 a widened column moves both ends of every boundary row below with it."""
 
 CAP_IDS = [case[0] for case in CAPS]
@@ -514,7 +513,7 @@ CAP_IDS = [case[0] for case in CAPS]
 def test_a_string_filter_of_exactly_the_column_cap_is_accepted(
     audit_env: None, monkeypatch: pytest.MonkeyPatch, _id: str, name: str, cap: int
 ) -> None:
-    """The INCLUSIVE end of section 1's second criterion, one row per filter.
+    """The INCLUSIVE end of the bound, one row per filter.
 
     Catches a route that re-declares the cap on a query parameter of its own: a
     `Query(max_length=cap - 1)`, or any second opinion narrower than the
@@ -546,8 +545,8 @@ def test_a_string_filter_one_character_over_the_cap_is_a_typed_400_with_no_read(
     """The other end of the same boundary, one character outside it.
 
     Catches a route that answers the tool's typed `VALIDATION` as an untyped
-    500 or as FastAPI's own 422 - the page has one sentence per SPEC section
-    8.1 code and nothing to say for either (section 5's first risk) - and a
+    500 or as FastAPI's own 422 - the page has one sentence per error
+    code and nothing to say for either - and a
     route that silently TRUNCATES the value into the cap, which would answer a
     search the auditor did not run and hide the mistake from them. `answered`
     being empty is what "no read reached a tool" means on a seam that never
@@ -576,7 +575,7 @@ def test_a_string_filter_one_character_over_the_cap_is_a_typed_400_with_no_read(
 def test_the_inclusive_ends_of_the_tools_page_size_are_accepted(
     audit_env: None, monkeypatch: pytest.MonkeyPatch, limit: int
 ) -> None:
-    """The INCLUSIVE ends of section 1's `1`-`200`.
+    """The INCLUSIVE ends of the `1`-`200` range.
 
     Catches a route that re-declares the bound on a query parameter of its own:
     a `Query(gt=1)`, a `Query(lt=200)` or any second opinion refuses one of
@@ -627,7 +626,7 @@ def test_a_page_size_outside_the_tools_bounds_is_a_typed_400_with_no_read(
 
 def test_a_cursor_of_one_is_accepted(audit_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     """`audit_events.seq` is an identity starting at 1, so `before_seq=1` is
-    the lowest cursor that can name a row and section 1 fixes it as accepted.
+    the lowest cursor that can name a row and it is accepted.
 
     Catches a route re-declaring the floor as `Query(gt=1)`: the last page of
     the log - the oldest events, the ones an investigation reaches for - would
@@ -677,9 +676,7 @@ def test_a_cursor_of_zero_is_a_typed_400_with_no_read(
 def test_a_non_iso_occurred_from_is_a_typed_400_and_never_fastapis_422(
     audit_env: None, monkeypatch: pytest.MonkeyPatch, occurred_from: str
 ) -> None:
-    """Section 1's third criterion, last sentence, and section 5's first risk.
-
-    Catches the route this plan most easily writes by accident: one declaring
+    """Catches the route most easily written by accident: one declaring
     `occurred_from: datetime | None = Query(None)`, which answers FastAPI's
     UNTYPED 422 for each of these three - a body with `detail` and a `loc`
     path, not `{"code": "VALIDATION"}`, so the page has nothing to say and the
@@ -719,14 +716,14 @@ BAD_BEARERS: tuple[tuple[str, Mapping[str, str]], ...] = (
 def test_an_absent_or_malformed_bearer_is_a_typed_401_and_opens_no_session(
     audit_env: None, monkeypatch: pytest.MonkeyPatch, headers: Mapping[str, str]
 ) -> None:
-    """Section 1's fifth criterion. Catches a route with no token check at all,
+    """Catches a route with no token check at all,
     and one that checks the token AFTER opening the MCP session: the caller is
     scripted with NOTHING, so a route that entered it or called a tool fails
     outright rather than showing up as a count afterwards.
 
     The token check inside `call_tool_route` is the ONLY guard on this path -
     the route derives no identity of its own, so `deps.authenticated` runs once
-    (decision B, and `deps.py`'s own body) - and there is no rate limit, no
+    (see `deps.py`'s own body) - and there is no rate limit, no
     body and no read behind it. Deleting that check is the only thing that
     flips these rows.
     """
@@ -802,7 +799,7 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """Section 1's sixth criterion, one code per row. Catches a route that lets
+    """One code per row. Catches a route that lets
     the tool's `ToolError` escape: FastAPI answers an untyped 500, so a matrix
     refusal the caller could act on ("you may not read this log") and an
     admin's tripped kill switch ("try again later") read as one outage.
@@ -813,7 +810,7 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     itself is `deps`' and is pinned as a whole by
     `test_approval_routes.py::test_the_shared_status_map_answers_a_matrix_refusal_403_and_a_kill_switch_503`;
     what these rows add is that the search route goes THROUGH it rather than
-    carrying `admin_routes`' own literal statuses (decision B).
+    carrying `admin_routes`' own literal statuses.
     """
     caller = RefusingToolCaller(error_class(code.value))
 
@@ -827,7 +824,7 @@ def test_a_tool_refusal_answers_its_own_typed_code(
 def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor_path(
     audit_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's sixth criterion, second half. Catches two failures at once:
+    """Second half. Catches two failures at once:
     a handshake failure left to propagate (an untyped 500 with a traceback
     body), and a body that carries the client's message -
     `TRANSPORT_FAILURE_MESSAGE` is opaque on purpose, and a route rendering the

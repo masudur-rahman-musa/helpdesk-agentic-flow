@@ -1,4 +1,4 @@
-"""An earlier change §6: the per-tenant Qdrant collections in `helpdesk/rag/vectors.py`.
+"""The per-tenant Qdrant collections in `helpdesk/rag/vectors.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -25,17 +25,17 @@ Expected implementation surface (the implementer must provide exactly this):
     ``async def upsert_chunks(client, tenant_slug: str, *, tenant_id,
         document_id, document_slug: str, version: str,
         chunks: Sequence[Chunk]) -> list[UUID]`` —
-        one point per chunk, both named vectors, the the design payload plus
+        one point per chunk, both named vectors, the contract payload plus
         ``document_slug`` (see ``PAYLOAD_KEYS`` below),
         ``is_current=True``, and the point ids it wrote, in chunk order. The
         ids are deterministic in ``(tenant_id, document_id, chunk_index)``
-        (decision B), so a second call overwrites rather than doubles.
+, so a second call overwrites rather than doubles.
     ``async def supersede_points(client, tenant_slug: str, *,
         document_slug: str, keep_document_id) -> None`` — sets
         ``is_current=false`` on the points of every OTHER version of that
-        document slug and deletes nothing (decision D).
+        document slug and deletes nothing.
 
-a project rule: the compose Qdrant is a shared backing service, never wiped
+The compose Qdrant is a shared backing service, never wiped
 and never rebuilt per test. Per-run isolation is a collection NAME prefix —
 `qdrant_namespace` mints one tenant-slug prefix for the whole session, so
 every collection this suite touches is `policy_{prefix}-...` and no case can
@@ -76,15 +76,15 @@ from helpdesk.shared.core.naming import (
     InvalidPolicyNameError,
 )
 
-# the design's payload plus `document_slug`. a project rule: the set is
+# The contract's payload plus `document_slug`. The set is
 # pinned as a value, not as "at least these keys" — a payload with an extra
-# field is a field row 15's filters would not know about.
+# field is a field later filters would not know about.
 #
-# The seventh key is an earlier change §1's two criteria resolved against each other:
-# the payload was fixed as the SPEC six while `supersede_points` was fixed to
+# The seventh key resolves two needs against each other:
+# the payload was fixed as six keys while `supersede_points` was fixed to
 # find "every other version of that document slug" from inside the collection,
 # where `document_id` differs per version and nothing else names the document
-# (the project notes 2026-09-08, a project rule). Pinned as an exact set here, so
+# (found the hard way). Pinned as an exact set here, so
 # an eighth key fails just as a missing one does.
 PAYLOAD_KEYS = frozenset(
     {
@@ -109,7 +109,7 @@ _UNREACHABLE_MSG = (
 )
 
 
-# --- the shared, session-scoped backing service -------------
+# --- the shared, session-scoped backing service -------------------------------
 
 
 def _settings() -> Settings:
@@ -126,7 +126,7 @@ def _settings() -> Settings:
 def qdrant_url() -> str:
     """Connectivity gate: fails loudly (never skips) when Qdrant is down.
 
-    A silent skip would let the whole of the design's isolation go unproven
+    A silent skip would let the whole of the contract's isolation go unproven
     on a green run, which is the one thing this row exists to show.
     """
     settings = _settings()
@@ -143,8 +143,9 @@ def qdrant_url() -> str:
 def qdrant_namespace(qdrant_url: str) -> Any:
     """One tenant-slug prefix for the whole run; its collections are dropped after.
 
-    The instance is shared with whatever else uses it and is never wiped: isolation is the name, so only collections this run
-    created are deleted, matched on the prefix.
+        The instance is shared with whatever else uses it and is never wiped
+    : isolation is the name, so only collections this run
+        created are deleted, matched on the prefix.
     """
     prefix = f"qtest-{uuid.uuid4().hex[:12]}"
     yield prefix
@@ -263,7 +264,7 @@ def _payload(point: Any) -> dict[str, Any]:
 def test_the_collection_name_is_the_prefixed_tenant_slug() -> None:
     """Catches a name built from anything but `policy_` + the tenant slug —
     a per-tenant collection whose name does not name the tenant is a
-    collection row 15 would have to guess at."""
+    collection a later search would have to guess at."""
     assert collection_name("nordlicht") == "policy_nordlicht"
 
 
@@ -324,7 +325,7 @@ def test_a_tenant_slug_that_is_not_a_lowercase_hyphen_slug_builds_no_request() -
     assert recording.calls == [], "the refused slug reached the store"
 
 
-# --- the constructed client --------------------------------
+# --- the constructed client ---------------------------------------------------
 
 
 def test_the_constructed_client_carries_the_configured_timeout() -> None:
@@ -343,7 +344,7 @@ def test_the_constructed_client_carries_the_configured_timeout() -> None:
 
 def test_the_settings_default_timeout_is_exactly_the_planned_value() -> None:
     """Catches a `qdrant_timeout_seconds` default of any other number, or one
-    typed loosely enough to arrive as a string (a project rule pins the value
+    typed loosely enough to arrive as a string (the value is pinned
     exactly; a band would admit a wrong one)."""
     assert _settings().qdrant_timeout_seconds == 30.0
 
@@ -354,7 +355,7 @@ def test_the_settings_default_timeout_is_exactly_the_planned_value() -> None:
 def test_ensure_collection_creates_both_named_vectors(qdrant_namespace: str) -> None:
     """Catches a collection created with a single unnamed vector, with the
     wrong dense width, or under a distance other than cosine — each of which
-    makes row 15's hybrid search impossible to add without a re-ingest, and
+    makes the hybrid search impossible to add without a re-ingest, and
     the wrong width makes the very first upsert fail with nothing to explain
     it."""
     slug = _slug(qdrant_namespace, "ensure")
@@ -422,9 +423,9 @@ def test_ensure_collection_a_second_time_keeps_the_points_already_written(
 
 
 def test_the_upserted_payload_is_exactly_the_spec_key_set(qdrant_namespace: str) -> None:
-    """Catches a payload missing `is_current` (row 15's current-version filter
-    then matches every version at once) or carrying an extra field SPEC
-    §12.1.5 does not name; the key set is asserted as an exact value, so both
+    """Catches a payload missing `is_current` (the current-version filter
+    then matches every version at once) or carrying an extra field
+    the contract does not name; the key set is asserted as an exact value, so both
     directions fail here."""
     slug = _slug(qdrant_namespace, "payload")
     document_id = uuid.uuid4()
@@ -461,7 +462,7 @@ def test_the_upserted_payload_is_exactly_the_spec_key_set(qdrant_namespace: str)
 
 def test_every_point_carries_both_named_vectors(qdrant_namespace: str) -> None:
     """Catches an upsert that writes the dense vector only: the sparse half is
-    silently absent, the collection looks healthy, and row 15's lexical search
+    silently absent, the collection looks healthy, and the lexical search
     returns nothing for every query without any error to trace."""
     slug = _slug(qdrant_namespace, "vectors")
 
@@ -490,7 +491,7 @@ def test_every_point_carries_both_named_vectors(qdrant_namespace: str) -> None:
 def test_re_upserting_the_same_document_returns_the_same_ids_and_no_new_points(
     qdrant_namespace: str,
 ) -> None:
-    """Catches decision B's rejected alternative, `uuid4` point ids: a random
+    """Catches the rejected alternative, `uuid4` point ids: a random
     id makes the second upsert a SECOND set of points (count doubles) and
     returns ids that no longer match the `policy_chunks` rows written beside
     the first set."""
@@ -571,9 +572,9 @@ def test_two_documents_in_one_tenant_get_different_point_ids(
 def test_superseding_flips_the_other_version_and_deletes_nothing(
     qdrant_namespace: str,
 ) -> None:
-    """Catches decision D implemented as a delete: the point count is asserted
+    """Catches the supersede step implemented as a delete: the point count is asserted
     identical before and after, so an implementation that removes the old
-    version's points (losing the design's audit trail) fails even though
+    version's points (losing the contract's audit trail) fails even though
     every remaining point would look correct."""
     slug = _slug(qdrant_namespace, "supersede")
     tenant_id = uuid.uuid4()
@@ -665,7 +666,7 @@ def test_an_unreachable_qdrant_is_typed_internal_without_naming_the_store() -> N
     """Catches a `vectors.py` that lets `qdrant_client`'s own exception escape
     to the caller: the raw error carries the URL and the store's name, which
     is internal infrastructure in a message a tool boundary forwards, and it
-    arrives under no the design code at all."""
+    arrives under no the contract code at all."""
     settings = _settings().model_copy(
         update={"qdrant_url": CLOSED_PORT_URL, "qdrant_timeout_seconds": 2.0}
     )

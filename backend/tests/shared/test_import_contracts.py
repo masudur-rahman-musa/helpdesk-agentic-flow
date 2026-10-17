@@ -1,4 +1,5 @@
-"""The shared-only rule the restructure adds is enforced by import-linter. `backend/.importlinter` declares two contracts: the three apps are
+"""The shared-only rule the restructure adds is enforced by import-linter.
+`backend/.importlinter` declares two contracts: the three apps are
 independent of each other, and the shared library imports no app.
 
 The happy path runs the real config and expects it kept. The unhappy path runs
@@ -40,7 +41,7 @@ def test_import_contracts_pass() -> None:
 
 
 def test_audit_has_no_deferred_import() -> None:
-    """After an earlier change: anchor.py has no `import` inside a function body (the
+    """anchor.py has no `import` inside a function body (the
     cycle is removed, not hidden), and the module loads cleanly."""
     import ast
     import importlib

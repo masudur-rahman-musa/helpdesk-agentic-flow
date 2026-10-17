@@ -1,4 +1,4 @@
-"""An earlier change section 6: the anchored chain head, and what it makes detectable.
+"""The anchored chain head, and what it makes detectable.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this; the names below are this file's, and a different
@@ -27,19 +27,19 @@ spelling in the implementation is a rename here, not a redesign):
 
 ``helpdesk.models`` — ``AuditChainAnchor`` on ``audit_chain_anchors``.
 
-Why the write is TWO functions rather than the one §6 names: §1 requires a
+Why the write is TWO functions rather than one: a
 write behind the stored head to be refused with a typed error, and a writer
 that derives its own ``audit_seq`` from the last event can never present one.
 The derivation lives in ``anchor_tenant_chain`` (where "a tampered chain
 writes no anchor" is the kill) and the refusal in ``write_chain_anchor``
 (where the regression and the unique constraint are reachable at all).
 
-a project rule: the session-scoped `migrated_db_url` from `conftest.py`, with
-an earlier change's `restricted_db_url` over that SAME database for the privilege
+The session-scoped `migrated_db_url` from `conftest.py`, with
+the restricted-role `restricted_db_url` over that SAME database for the privilege
 cases. Per-test isolation is a fresh tenant per case, never a fresh database;
 only the Alembic round-trip takes `fresh_db_url`, because it downgrades.
 
-a project rule: `test_audit_anchor.py` is a basename no other test file in
+`test_audit_anchor.py` is a basename no other test file in
 the tree carries.
 
 No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
@@ -92,17 +92,17 @@ ANCHOR_TABLE = "audit_chain_anchors"
 """The table name, written out: it is half of every grant and every trigger."""
 
 ANCHOR_LOG_MESSAGE = "audit.chain.anchored"
-"""Decision B's external witness. The message an operator greps the shipped
+"""The external witness. The message an operator greps the shipped
 logs for, so it is pinned as a literal."""
 
 ANCHOR_LOGGER = "helpdesk.shared.audit.anchor"
 """Where that line is emitted from: the module that owns the INSERT."""
 
 ROLE_NAME = "helpdesk_app"
-"""An earlier change decision C, repeated here for the privilege cases below."""
+"""The restricted app role, repeated here for the privilege cases below."""
 
 ANCHOR_DOWNGRADE_TARGET = "c7f4a1d2e8b3"
-"""An earlier change's revision: the one immediately below this plan's own.
+"""The role migration's revision: the one immediately below the anchor table's own.
 
 Named as a literal because the round trip below must undo THIS revision, and
 `-1` counts from whatever the head happens to be."""
@@ -332,7 +332,7 @@ def _tamper(owner_url: str, tenant_id: uuid.UUID, ordinal: int) -> None:
 def _truncate_tail(owner_url: str, tenant_id: uuid.UUID, keep: int) -> None:
     """Delete every event past the `keep`th, as the owner with triggers off.
 
-    The insider this plan is about: the surviving rows still link perfectly,
+    The insider this change is about: the surviving rows still link perfectly,
     which is what `test_audit_chain.py::test_truncating_the_tail_is_not_
     detected_by_the_walk_alone` records about the walk on its own.
     """
@@ -454,7 +454,7 @@ def sweep_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
 
 
 def test_the_anchor_table_is_in_the_tenant_scoped_allowlist() -> None:
-    """a project rule: the hand-kept allowlist this plan extends.
+    """The hand-kept allowlist the anchor table joins.
 
     Catches a table added to `Base.metadata` and to no allowlist, which is
     what makes `test_models.py` walk it for a `tenant_id`, a NOT NULL, a FK to
@@ -466,7 +466,7 @@ def test_the_anchor_table_is_in_the_tenant_scoped_allowlist() -> None:
 
 
 def test_the_anchor_table_carries_the_planned_columns() -> None:
-    """Plan §1's column criterion, asserted on the mapped table.
+    """The column criterion, asserted on the mapped table.
 
     Catches `audit_hash` declared as unbounded text, which would let a
     64-character gate be widened later in one place and not the other, and
@@ -489,11 +489,11 @@ def test_the_anchor_table_carries_the_planned_columns() -> None:
         assert name in table.c, f"{ANCHOR_TABLE} must keep TenantScoped's {name}"
 
 
-# --- the input model (plan §1's input-validation criterion) -------------------
+# --- the input model (input-validation criterion) -------------------
 
 
 def test_the_anchor_validation_constants_are_exactly_the_planned_values() -> None:
-    """a project rule on the two values that decide what may be stored.
+    """The two values that decide what may be stored.
 
     A pattern widened to `[0-9a-fA-F]{64}` or a floor dropped to 0 would let
     a value through that no case below spells out, and the boundary cases
@@ -536,7 +536,7 @@ def test_an_anchor_hash_of_exactly_sixty_four_lowercase_hex_characters_is_accept
 def test_an_anchor_hash_outside_the_pattern_is_refused_with_the_typed_error(
     label: str, candidate: str
 ) -> None:
-    """The rejection table of a project rule, and the boundary from the other
+    """The rejection table, and the boundary from the other
     side.
 
     The three trailing rows are the ones that only `re.fullmatch` refuses: a
@@ -544,7 +544,7 @@ def test_an_anchor_hash_outside_the_pattern_is_refused_with_the_typed_error(
     only, so a 64-character digest with a newline glued on is ACCEPTED by
     either — and a hash carrying a newline is a value no operator reading a
     shipped log line can tell from the real one, which is the whole of
-    decision B's witness.
+    the witness.
 
     The uppercase row is the one a case-insensitive comparison would let
     through; `event_hash` emits lowercase, so an uppercase anchor could never
@@ -583,12 +583,12 @@ def test_an_anchor_seq_below_one_is_refused_with_the_typed_error(audit_seq: int)
 
 
 def test_anchoring_a_verified_chain_stores_the_tenants_last_event(migrated_db_url: str) -> None:
-    """Plan §1's happy path, and the only case that says WHICH event is the head.
+    """The happy path, and the only case that says WHICH event is the head.
 
     Catches an implementation that anchors the FIRST event, or genesis: both
     store a row, both make `latest_chain_anchor` answer, and both leave every
     event after the anchored one deletable with no verify ever noticing — the
-    exact hole this plan closes.
+    exact hole this change closes.
 
     The expected pair is read out of `audit_events` rather than written as a
     literal, because the digest depends on a timestamp the
@@ -607,7 +607,7 @@ def test_anchoring_a_verified_chain_stores_the_tenants_last_event(migrated_db_ur
 
 
 def test_a_tampered_chain_writes_no_anchor(migrated_db_url: str) -> None:
-    """Plan §5's first risk: a doctored log laundering itself into the record.
+    """The first risk: a doctored log laundering itself into the record.
 
     Catches the ordering written the other way round — anchor first, verify
     after. That implementation passes the happy-path case above, passes every
@@ -631,7 +631,7 @@ def test_a_tampered_chain_writes_no_anchor(migrated_db_url: str) -> None:
 
 
 def test_a_truncated_chain_writes_no_anchor(migrated_db_url: str) -> None:
-    """The same refusal for the failure this plan exists to detect, which the
+    """The same refusal for the failure this change exists to detect, which the
     tampered case cannot reach: after a truncation the surviving rows all
     recompute, so only the stored anchor says anything is wrong.
 
@@ -653,7 +653,7 @@ def test_a_truncated_chain_writes_no_anchor(migrated_db_url: str) -> None:
 
 
 def test_a_tenant_with_no_events_writes_no_anchor(migrated_db_url: str) -> None:
-    """Plan §1: a tenant with no events writes no anchor at all.
+    """A tenant with no events writes no anchor at all.
 
     Catches an implementation that anchors `(0, GENESIS_HASH)` for an empty
     tenant — the natural thing to fall out of "the last event's seq and hash"
@@ -674,7 +674,7 @@ def test_a_tenant_with_no_events_writes_no_anchor(migrated_db_url: str) -> None:
 def test_a_second_anchor_at_the_same_seq_is_refused_by_the_unique_constraint(
     migrated_db_url: str,
 ) -> None:
-    """Plan §1's unhappy path, and §5's concurrency backstop.
+    """The unhappy path, and the concurrency backstop.
 
     Catches a table with no unique constraint on (`tenant_id`, `audit_seq`):
     two runners whose Redis lock both expired would each store a head at the
@@ -682,7 +682,7 @@ def test_a_second_anchor_at_the_same_seq_is_refused_by_the_unique_constraint(
     table cannot answer — a reader picking either could verify against a hash
     an attacker chose.
 
-    An EQUAL seq is deliberately not a regression (§1 says "lower than"), so
+    An EQUAL seq is deliberately not a regression (the rule says "lower than"), so
     this case also pins the no-regress comparison as strict: an implementation
     using `<=` answers `AnchorRegressionError` here and fails, which is the
     right signal, because it would then refuse the honest re-anchor of a
@@ -701,7 +701,7 @@ def test_a_second_anchor_at_the_same_seq_is_refused_by_the_unique_constraint(
 def test_an_anchor_behind_the_stored_head_is_refused_and_leaves_it_in_place(
     migrated_db_url: str,
 ) -> None:
-    """Plan §1: an anchor never regresses.
+    """An anchor never regresses.
 
     Catches a writer with no comparison at all. The INSERT of a LOWER seq
     breaks no constraint — different seq, same tenant — so it lands quietly,
@@ -728,7 +728,7 @@ def test_an_anchor_behind_the_stored_head_is_refused_and_leaves_it_in_place(
 def test_latest_chain_anchor_reads_the_highest_seq_not_the_newest_row(
     migrated_db_url: str,
 ) -> None:
-    """Plan §6: proved by inserting the two rows out of order.
+    """Proved by inserting the two rows out of order.
 
     Catches a reader ordering by `anchored_at` (or by `created_at`, or by
     nothing at all with a `LIMIT 1`). Every other case in this file has one
@@ -750,7 +750,7 @@ def test_latest_chain_anchor_reads_the_highest_seq_not_the_newest_row(
 
 
 def test_an_anchor_is_never_read_for_another_tenant(migrated_db_url: str) -> None:
-    """a project rule's neighbour: an anchor belongs to exactly one tenant.
+    """An anchor belongs to exactly one tenant.
 
     Catches a query written without the `tenant_id` filter — one `SELECT ...
     ORDER BY audit_seq DESC LIMIT 1` over the whole table. Every single-tenant
@@ -769,13 +769,13 @@ def test_an_anchor_is_never_read_for_another_tenant(migrated_db_url: str) -> Non
     assert verdict.anchored_seq is None
 
 
-# --- the external witness (decision B) ----------------------------------------
+# --- the external witness ----------------------------------------
 
 
 def test_the_anchor_write_logs_one_line_naming_the_tenant_seq_and_hash(
     migrated_db_url: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Decision B: the only half of the record a superuser cannot reach.
+    """The only half of the record a superuser cannot reach.
 
     Catches an implementation that writes the row and ships nothing — the
     attacker who can drop audit rows can drop anchor rows too, and what
@@ -787,7 +787,7 @@ def test_the_anchor_write_logs_one_line_naming_the_tenant_seq_and_hash(
     `JsonFormatter`
     renders it: the formatter redacts a forbidden key in place rather than
     dropping it, so a producer that attached identity here would still emit a
-    line with that key on it. the design's telemetry rule is checked against the
+    line with that key on it. The telemetry rule is checked against the
     repo's own `FORBIDDEN_KEYS` rather than a list retyped here, so a sixth
     spelling added there is covered on the day it is added.
     """
@@ -807,7 +807,7 @@ def test_the_anchor_write_logs_one_line_naming_the_tenant_seq_and_hash(
         assert forbidden not in payload, f"{forbidden} must never reach a log line"
 
 
-# --- the restricted role on the anchor table (plan §1) ------------------------
+# --- the restricted role on the anchor table ------------------------
 
 
 def test_restricted_role_insert_into_the_anchor_table_succeeds(
@@ -844,7 +844,7 @@ def test_restricted_role_insert_into_the_anchor_table_succeeds(
 def test_a_row_matching_write_on_the_anchor_table_is_refused_by_privilege(
     migrated_db_url: str, restricted_db_url: str, label: str, statement: str
 ) -> None:
-    """Plan §1: the refusal must be the PRIVILEGE check, not the trigger.
+    """The refusal must be the PRIVILEGE check, not the trigger.
 
     The row is planted first and the WHERE clause really matches it, so this
     is the neighbouring-guard trap written out: with the grant still held, the
@@ -856,8 +856,8 @@ def test_a_row_matching_write_on_the_anchor_table_is_refused_by_privilege(
     An UPDATE that lands is how an attacker moves the head DOWN to the
     truncation they just made.
 
-    An earlier change §8 took the DELETE row out of this table. Decision A of that plan
-    grants `helpdesk_app` DELETE so the retention job can run, so a DELETE is
+    The retention job needs DELETE on this table, so `helpdesk_app` is
+    granted it, so a DELETE is
     no longer refused by the grants at all: the head at the time of the
     statement, and every anchor inside the window, are refused one SQLSTATE
     later, by the trigger, for every role including the owner. That guarantee is pinned by
@@ -888,7 +888,7 @@ def test_truncate_on_the_anchor_table_is_refused_by_privilege(
     migrated_db_url: str, restricted_db_url: str
 ) -> None:
     """TRUNCATE empties every tenant's anchors at once, and a log with no
-    anchor verifies clean, so the whole detection this plan adds is one
+    anchor verifies clean, so the whole detection this change adds is one
     statement away from being switched off.
 
     Catches a migration that hands the role TRUNCATE, or grants ALL: the
@@ -911,7 +911,7 @@ def test_truncate_on_the_anchor_table_is_refused_by_privilege(
 
 
 def test_verify_reports_truncation_against_the_stored_anchor(migrated_db_url: str) -> None:
-    """Plan §1's headline, through the seam every caller already uses.
+    """The headline case, through the seam every caller already uses.
 
     Catches `verify.py` never loading the anchor: `chain.py` can answer the
     four-branch verdict perfectly and every existing caller — the route, the
@@ -935,7 +935,7 @@ def test_verify_reports_truncation_against_the_stored_anchor(migrated_db_url: st
 def test_a_truncated_tenant_drives_the_chain_gauge_to_zero(
     migrated_db_url: str, sweep_registry: CollectorRegistry
 ) -> None:
-    """Plan §1: `helpdesk_audit_chain_ok` reads 0 for a truncated tenant
+    """`helpdesk_audit_chain_ok` reads 0 for a truncated tenant
     THROUGH the existing AND in `audit/health.py`, with no change to it.
 
     Catches a verdict shape that reports truncation somewhere other than `ok`
@@ -962,7 +962,7 @@ def test_a_truncated_tenant_drives_the_chain_gauge_to_zero(
 # --- the migration ------------------------------------------------------------
 
 
-@pytest.mark.slow  # an earlier change: 2.5s call, runs the anchor migration up and down
+@pytest.mark.slow  # 2.5s call, runs the anchor migration up and down
 def test_the_anchor_migration_round_trips_and_its_downgrade_takes_the_grants(
     fresh_db_url: str,
 ) -> None:
@@ -970,8 +970,8 @@ def test_the_anchor_migration_round_trips_and_its_downgrade_takes_the_grants(
     TABLE then fails, which is the whole kill of the round trip) and one that
     leaves the grants behind on a table it dropped and recreated.
 
-    The downgrade names an earlier change's revision rather than counting `-1` steps
-    back: this revision is no longer the head, and
+    The downgrade names the role migration's revision rather than counting `-1` steps
+    back: this revision is no longer the head (a later revision sits above it), and
     a relative step would leave the anchor table standing and say nothing about
     this migration at all. If the target is wrong, the grant check below reads
     a database where `audit_events` lost its grants instead, and says so.
@@ -980,8 +980,8 @@ def test_the_anchor_migration_round_trips_and_its_downgrade_takes_the_grants(
 
     async def after_upgrade() -> None:
         granted = await _role_table_privileges(fresh_db_url)
-        # An earlier change §8: this reads the live catalogue at HEAD, not an earlier change's
-        # revision alone, so it sees that plan's `DELETE` too. Which revision
+        # This reads the live catalogue at HEAD, not the anchor revision
+        # alone, so it sees the retention `DELETE` too. Which revision
         # granted which privilege is the union map's business
         # (`test_audit_db_role.py`); what this case still pins is that the
         # downgrade to `c7f4a1d2e8b3` takes every one of them away.

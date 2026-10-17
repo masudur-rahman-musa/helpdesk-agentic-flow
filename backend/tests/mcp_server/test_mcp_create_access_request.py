@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `create_access_request`, through the transport.
+"""`create_access_request`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -6,8 +6,8 @@ Surface under test (written before it exists):
     ``create_access_request(target_user_id, role_id, justification,
     requested_expiry_days?, citations[], idempotency_key)`` — a registered
     MUTATING tool (wire name ``create_access_request``, mapped to
-    ``rbac.Tool.CREATE_ACCESS_REQUEST_SELF`` by ``registry.WIRE_NAME_ALIASES``,
-    decision J). It classifies through an earlier change's snapshot builder and
+    ``rbac.Tool.CREATE_ACCESS_REQUEST_SELF`` by ``registry.WIRE_NAME_ALIASES``).
+    It classifies through the snapshot builder and
     ``policy.engine.classify``, persists exactly one ``access_requests`` row
     carrying the engine's ``risk_class``, ``decision``, ``decision_reasons``,
     ``citations`` and the caller's ``idempotency_key``, then branches:
@@ -18,16 +18,16 @@ Surface under test (written before it exists):
     ``rejected`` with the reasons and no grant.
     Bounds: ``JUSTIFICATION_MAX_LENGTH = 2000`` (the column
     is unbounded ``Text``), ``CITATIONS_MAX = 20`` typed ``Citation`` entries,
-    ``requested_expiry_days`` gt 0 le 3650,
+    ``requested_expiry_days`` gt 0 le 3650 (the ``EXPIRY_DAYS_MAX``),
     ``extra="forbid"`` like every ``MutatingToolInput``.
     On-behalf: a ``target_user_id`` that is not the token's user is
     authorized against ``CREATE_ACCESS_REQUEST_ON_BEHALF`` inside the handler
-    before any write (decision B); a ``manager`` (scope ``own_department``)
+    before any write; a ``manager`` (scope ``own_department``)
     may only name a target in their own department. A refusal is
     ``FORBIDDEN`` with exactly one ``tool.denied`` event and nothing written.
 
-Audit sequences, in ``seq`` order (decision I: an earlier change appends the
-pipeline's own event AFTER the tool body, and that event is this tool's
+Audit sequences, in ``seq`` order (the pipeline appends its
+own event AFTER the tool body, and that event is this tool's
 ``request.created``, so the domain's events precede it):
 
     auto     → request.auto_executed, grant.executed, request.created
@@ -37,7 +37,7 @@ pipeline's own event AFTER the tool body, and that event is this tool's
 Each branch asserts that whole list as a delta against a before-snapshot, not
 a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: a unique justification string and a unique idempotency key per
@@ -74,7 +74,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
 CREATE = "create_access_request"
 
 # The pipeline's own event for this tool (registry `event_type`) and the three
-# domain events beside it (the design, an earlier change decision E).
+# domain events beside it.
 REQUEST_CREATED_EVENT = "request.created"
 REQUEST_QUEUED_EVENT = "request.queued"
 REQUEST_AUTO_EXECUTED_EVENT = "request.auto_executed"
@@ -82,8 +82,8 @@ GRANT_EXECUTED_EVENT = "grant.executed"
 DENIED_EVENT = "tool.denied"
 REPLAYED_EVENT = "tool.replayed"
 
-# The caps under test, at their exact inclusive boundaries (a project rule
-# and 2). EXPIRY_DAYS_MAX is an earlier change's constant, read from one place.
+# The caps under test, at their exact inclusive boundaries.
+# EXPIRY_DAYS_MAX is the constant, read from one place.
 JUSTIFICATION_MAX_LENGTH = 2000
 CITATIONS_MAX = 20
 EXPIRY_DAYS_MAX = 3650
@@ -105,11 +105,11 @@ PRODUCTION_REPORT = ROWS.users_by_department["Production"][6]
 # not, which would make the on-behalf test vacuous.
 OTHER_DEPARTMENT_TARGET = ROWS.users_by_department["Sales"][7]
 # The seeded HR officer is HR index 1 (`scripts.seed` `_assign_principals`),
-# so this token really carries the `hr` principal and its the design `any` scope.
+# so this token really carries the `hr` principal and its `any` scope.
 HR_OFFICER = ROWS.users_by_department["HR"][1]
 # Finance index 3 is the seeded planted conflict: it holds `payments.approver`
 # on top of the Finance template, so `vendor-master.editor` completes the
-# seeded SoD pair (SoD-STD §2.2).
+# seeded SoD pair.
 CONFLICT_USER = ROWS.users_by_department["Finance"][3]
 
 # In every department template that lists it, low sensitivity, read: the auto
@@ -155,7 +155,7 @@ def _justification() -> str:
 
 
 def _citation(index: int) -> dict[str, str]:
-    """One obviously fake the design citation (decision H's typed shape)."""
+    """One obviously fake citation of the typed shape."""
     return {
         "document_slug": "fake-access-policy",
         "title": "Fake Access Policy",
@@ -326,7 +326,7 @@ def test_an_in_template_low_role_is_executed_with_three_events_and_one_grant(
     """Catches a handler that files the request but never executes the grant
     (zero grants and a row left `pending`), executes it but leaves the row's
     status on the classification rather than `executed`, drops the caller's
-    `idempotency_key` from the column the design gives it (decision A), or emits
+    `idempotency_key` from its column, or emits
     the wrong audit sequence — a missing `request.auto_executed` or
     `grant.executed` is invisible to a count and visible to this list."""
     caller = _seeded(CLEAN_USER)
@@ -445,7 +445,7 @@ def test_an_sod_conflict_is_rejected_citing_the_seeded_rule_and_grants_nothing(
     """Catches a blocked branch that still executes the grant (requirement #8),
     that stores the row as anything but `rejected`, or that loses the SoD
     evidence: a block without the seeded rule's id in `decision_reasons` and
-    its `policy_ref` in the response is a refusal nobody can audit (the design).
+    its `policy_ref` in the response is a refusal nobody can audit.
     Also catches a blocked call that emits a domain event it must not — the
     pipeline's `request.created` is the only event this branch earns."""
     caller = _seeded(CONFLICT_USER)
@@ -490,14 +490,14 @@ def test_an_sod_conflict_is_rejected_citing_the_seeded_rule_and_grants_nothing(
     assert events_after == [*events_before, REQUEST_CREATED_EVENT]
 
 
-# --- on-behalf (the design's two rows for one wire name, decision B) ---------------
+# --- on-behalf (two matrix rows for one wire name) ---------------
 
 
 def test_a_manager_may_name_a_report_in_their_own_department(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
     """Catches an on-behalf seam that refuses every target but the token's own
-    user (the `own_department` row of the design would then be dead), or one that
+    user (the `own_department` row would then be dead), or one that
     silently rewrites the target to the caller — the row's `target_user_id`
     would be the manager and the grant would land on the wrong person."""
     manager = _seeded(PRODUCTION_MANAGER)
@@ -574,7 +574,7 @@ def test_an_employee_may_not_name_a_colleague_even_in_their_own_department(
 
     The two on-behalf cases above are both DECIDED by that comparison, so
     they pass with the matrix check gone. This one cannot be: the caller is a
-    plain `employee`, whom the design's on-behalf row denies outright, and the
+    plain `employee`, whom the on-behalf row denies outright, and the
     target is in the caller's OWN department, so the comparison would let it
     through. Only the matrix check refuses here."""
     caller = _seeded(CLEAN_USER)
@@ -607,7 +607,7 @@ def test_an_hr_officer_may_name_a_target_in_any_department(
     """Catches the `scope is Scope.ANY` branch being deleted, which would drop
     `hr`, `it_admin` and `platform_admin` into the `own_department`
     comparison and refuse them a cross-department target — the opposite of
-    the design, which gives those three `any`.
+    the matrix, which gives those three `any`.
 
     The target is deliberately in ANOTHER department, so the `own_department`
     path cannot produce this success."""
@@ -755,7 +755,7 @@ def test_the_justification_boundary_is_inclusive_at_2000(
     """Catches the bound being absent or off by one. The column is unbounded
     `Text`, so nothing downstream refuses an oversized justification: without
     this check 2001 characters are stored, not rejected, and the cap exists
-    only in the plan. The empty row pins the lower bound at 1."""
+    only on paper. The empty row pins the lower bound at 1."""
     caller = _seeded(CLEAN_USER)
     marker = _justification()
     justification = "" if length == 0 else f"{marker} ".ljust(length, "j")[:length]
@@ -791,9 +791,9 @@ def test_the_citations_boundary_is_inclusive_at_20(
     count: int,
     accepted: bool,
 ) -> None:
-    """Catches decision H's cap being absent or exclusive, and — on the
+    """Catches the citations cap being absent or exclusive, and — on the
     accepted side — a handler that takes the citations and drops them instead
-    of persisting them onto the row the design gives the column."""
+    of persisting them onto the row's column."""
     caller = _seeded(CLEAN_USER)
     justification = _justification()
     citations = [_citation(index) for index in range(count)]
@@ -835,7 +835,7 @@ def test_the_requested_expiry_boundary_is_inclusive_at_3650(
     days: int,
     accepted: bool,
 ) -> None:
-    """Catches the mutating input retyping (or dropping) an earlier change's
+    """Catches the mutating input retyping (or dropping) the
     `EXPIRY_DAYS_MAX`: 3650 lands in the int4 column fine and must pass, 3651
     and 0 must be VALIDATION before any row or grant exists."""
     caller = _seeded(CLEAN_USER)

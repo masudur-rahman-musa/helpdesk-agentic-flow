@@ -7,29 +7,24 @@ import { QueryProvider } from "@/components/layout/query-provider";
 import { AUDIT_CSV_MIME } from "@/features/admin/audit/csv";
 
 /**
- * An earlier change §6, `audit-export.test.tsx`: the `Export CSV` control inside
+ * The `Export CSV` control inside
  * `/admin/audit`'s `Audit log` region — when it is there, what it builds and
  * what it downloads — against a stubbed `fetch`. jsdom, no agent-api, no
- * backing service. (No basename collision in the tree, a project rule: the
- * neighbours are `audit-csv.test.ts`, `audit-filters.test.ts`,
- * `audit-proxy-routes.test.ts`, `audit-schema.test.ts` and
- * `audit-search-page.test.tsx`.)
+ * backing service.
  *
  * The unit under test is `AuditSearch` from
- * `web/src/features/admin/audit/components/audit-search.tsx`, taking NO props (24ba), because the
- * export is a pure function of the page state that component already holds
- * (decision A): no second read, no second cursor walk and no server route. The
+ * `web/src/features/admin/audit/components/audit-search.tsx`, taking NO props, because the
+ * export is a pure function of the page state that component already holds:
+ * no second read, no second cursor walk and no server route. The
  * BYTES are pinned in `audit-csv.test.ts`; what this file pins is the wiring —
  * which rows are handed to the file, and that the file reaches the disk.
  *
- * The three stubs are decision C's, named in the plan so no observation is
- * invented here: `URL.createObjectURL` and
+ * The three stubs are `URL.createObjectURL` and
  * `URL.revokeObjectURL`, and `HTMLAnchorElement.prototype.click` — the last of
  * which also stops jsdom answering "Not implemented: navigation" for a clicked
  * `<a download>`.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24bb's Deviations):
+ * Shapes this file fixes:
  * - `vi.stubGlobal` takes a GLOBAL name, so the two object-URL functions are
  *   stubbed by replacing `URL` with a subclass carrying them as statics. The
  *   real `URL` constructor is left untouched, which matters because the
@@ -41,9 +36,9 @@ import { AUDIT_CSV_MIME } from "@/features/admin/audit/csv";
  *   the exported bytes are read back with a `FileReader`.
  * - the expected file and the expected filename are LITERALS. Asserting
  *   `toCsv(rows)` or `csvFilename(rows)` here would be green for whatever those
- *   functions do, including nothing at all, which is exactly what §6 forbids.
+ *   functions do, including nothing at all, which is exactly what must not happen.
  *
- * Every fixture parses under `web/src/features/admin/audit/schema.ts` as 24a built it: the
+ * Every fixture parses under `web/src/features/admin/audit/schema.ts` as the audit page defines it: the
  * nine `AuditEventRow` fields inside `{ events: [...], next_before_seq }`.
  */
 
@@ -147,7 +142,7 @@ function searchCalls(): string[] {
     .filter((url) => url.includes(SEARCH_PATH));
 }
 
-/** A call's parameters as a plain object, the way 24ba's file reads them. */
+/** A call's parameters as a plain object, the way the export reads them. */
 function paramsOf(url: string): Record<string, string> {
   return Object.fromEntries(new URL(url, ORIGIN).searchParams.entries());
 }
@@ -255,7 +250,7 @@ afterEach(() => {
 
 describe("AuditSearch — when Export CSV is offered", () => {
   it("offers no Export CSV before the first page arrives", async () => {
-    // §1's first criterion, the state the page opens in. Kills a button
+    // The state the page opens in. Kills a button
     // rendered beside the form rather than beside the RESULTS: choosing it
     // while the first read is still in flight exports the empty row list, and
     // an auditor gets a header-only file named for a range it does not hold,
@@ -270,11 +265,10 @@ describe("AuditSearch — when Export CSV is offered", () => {
   });
 
   it("offers no Export CSV when the page holds no events", async () => {
-    // The same criterion at the boundary decision A's risk names: an empty
+    // The same criterion at the boundary: an empty
     // page. Kills a button guarded on `isSuccess` alone, which is true here —
     // the read worked and answered nothing — and would produce a file with a
-    // header, no rows and a filename built from an empty seq range. §5 puts
-    // this case in the plan precisely so an empty export is never produced at
+    // header, no rows and a filename built from an empty seq range. This case exists so an empty export is never produced at
     // all, rather than produced and explained.
     searchAnswer = () => page([], null);
     renderSearch();
@@ -299,9 +293,8 @@ describe("AuditSearch — when Export CSV is offered", () => {
   }, 10_000);
 
   it("offers Export CSV inside the Audit log region once the page holds a row", async () => {
-    // The present half of §1's first criterion, scoped to the region so a
-    // control rendered somewhere else on the screen cannot satisfy it (standing
-    // rule 55). Kills a page with no export at all — the design asks for it — and
+    // The present half of the first case, scoped to the region so a
+    // control rendered somewhere else on the screen cannot satisfy it. Kills a page with no export at all and
     // kills one rendering it outside the region an auditor's screen reader
     // announces the log in, where it reads as a control belonging to nothing.
     searchAnswer = () => page([EVENT_ONE], null);
@@ -314,7 +307,7 @@ describe("AuditSearch — when Export CSV is offered", () => {
 
 describe("AuditSearch — what Export CSV downloads", () => {
   it("builds one object URL from a text/csv Blob holding the rows on screen", async () => {
-    // §1's second, third and fourth criteria arriving as BYTES, and §6's rule
+    // The file contents arriving as BYTES, with the rule
     // that the expectation is the literal file and never a second call to
     // `toCsv`. Kills a handler that stringifies the raw rows (`JSON.stringify`,
     // or `join(",")` over `Object.values`), which produces a file whose columns
@@ -337,7 +330,7 @@ describe("AuditSearch — what Export CSV downloads", () => {
   });
 
   it("clicks a named anchor at that url and revokes it afterwards", async () => {
-    // The rest of decision C, as the three things a browser needs to save a
+    // The three things a browser needs to save a
     // file. Kills an anchor with no `download` attribute, which NAVIGATES to
     // the blob url and shows the CSV as a page instead of saving it — the
     // auditor's export silently becomes a browsing session. Kills a `href`
@@ -345,7 +338,7 @@ describe("AuditSearch — what Export CSV downloads", () => {
     // path), and kills a missing `revokeObjectURL`, which holds the whole file
     // in memory for the life of the document — on a 200-row export chosen
     // repeatedly, that is the page's memory growing with no cap. The filename
-    // is the literal decision F fixes, because asserting `csvFilename(rows)`
+    // is a literal, because asserting `csvFilename(rows)`
     // here would be green for any name that function chooses, including none.
     const user = userEvent.setup();
     renderSearch();
@@ -360,8 +353,8 @@ describe("AuditSearch — what Export CSV downloads", () => {
   });
 
   it("exports the SECOND page's rows after paging to it", async () => {
-    // Decision A's limit, made visible in the one place an auditor can see it
-    // (§5's second risk). Kills an export built from the FIRST page the query
+    // The page-at-a-time limit, made visible in the one place an auditor can see it.
+    // Kills an export built from the FIRST page the query
     // cache ever held — the shape a handler reading a captured `data` closure
     // or a stale ref produces — where paging three times and exporting hands
     // back the top of the log under a filename claiming the bottom of it, and

@@ -1,4 +1,4 @@
-"""An earlier change §6: the semantic merge in `helpdesk/rag/chunking.py`.
+"""The semantic merge in `helpdesk/rag/chunking.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -10,11 +10,11 @@ Expected implementation surface (the implementer must provide exactly this):
         ``char_start: int``, ``char_end: int``, ``text: str``,
         ``dense: tuple[float, ...]``, ``sparse: SparseVector``.
     ``def chunk_document(sections: Sequence[Section], embedder: Embedder) -> list[Chunk]``
-        — never constructs an embedder (decision D), never merges across a
+        — never constructs an embedder, never merges across a
         section boundary, and indexes `char_start` / `char_end` into the WHOLE
         document, so ``text`` is the slice those offsets address.
 
-Every case here runs against a deterministic FAKE embedder (decision D): real
+Every case here runs against a deterministic FAKE embedder: real
 embeddings never land on 0.75 on demand, so the inclusive boundary could not
 be tested at all with the real model. The fake counts tokens as
 whitespace-separated words in EVERY case in this file, so a token expectation
@@ -69,8 +69,8 @@ TAG_VECTORS: Mapping[str, tuple[float, ...]] = {
 class FakeEmbedder:
     """A deterministic `Embedder` whose similarities the case chooses.
 
-    Token counting is whitespace words in every case of this file (decision
-    D's fake side of decision C), so a 150-word sentence is 150 tokens
+    Token counting is whitespace words in every case of this file (the fake token
+    counter), so a 150-word sentence is 150 tokens
     wherever it appears.
     """
 
@@ -311,7 +311,7 @@ def test_a_single_sentence_over_the_cap_becomes_its_own_oversized_chunk() -> Non
 def test_a_heading_with_no_body_yields_no_chunk() -> None:
     """Catches an implementation that emits a chunk per section regardless of
     content: the heading-only section would embed to a near-empty vector that
-    matches everything weakly, which is plan §5's named retrieval-pollution
+    matches everything weakly, which is the named retrieval-pollution
     risk. The neighbouring section proves the run produced chunks at all, so
     an implementation that returns nothing does not pass this row."""
     _, sections = _document(
@@ -328,7 +328,7 @@ def test_a_heading_with_no_body_yields_no_chunk() -> None:
 
 def test_a_chunk_carries_both_its_dense_and_its_sparse_vector() -> None:
     """Catches a `Chunk` built with placeholder empty vectors (or with the
-    dense vector only): 14c upserts both named vectors for one point, so an
+    dense vector only): the store upserts both named vectors for one point, so an
     empty sparse half would make hybrid retrieval fall back to dense with
     nothing in the suite noticing."""
     _, sections = _document(((), SHORT_MERGING))

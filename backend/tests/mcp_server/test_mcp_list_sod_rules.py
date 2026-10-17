@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `list_sod_rules`, through the transport.
+"""`list_sod_rules`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -22,11 +22,11 @@ Surface under test (written before it exists):
     three statements and the unresolvable side are pinned there, against the
     engine, and this file pins what reaches the WIRE.
 
-SPEC section 14 gives ``/admin/rules`` to ``it_admin`` and ``platform_admin``,
-so SPEC section 7's row for this tool has exactly those two cells at
-``Scope.ANY`` (decision E). There is NO scope helper on this tool, so the
+The ``/admin/rules`` page belongs to ``it_admin`` and ``platform_admin``,
+so the matrix row for this tool has exactly those two cells at
+``Scope.ANY``. There is NO scope helper on this tool, so the
 pipeline's matrix stage IS the whole permission check and the five-principal
-case below is its kill (a project rule - the handler never re-runs
+case below is its kill (the handler never re-runs
 ``rbac.authorize``, so there is no second copy of that guard to hide behind).
 
 Everything here is a READ: the tool takes no arguments, no key is derived from
@@ -36,7 +36,7 @@ Audit deltas are asserted as exact ordered event-type lists against a before
 snapshot, never as counts: a duplicated summary, a domain event this tool has
 no business writing, or a denial filed as an outage is invisible to a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam - one seeded throwaway database, one dedicated Redis
 index flushed per test. The two tenants and their six seeded rules each come
 from ``mcp_env`` itself and no rule is planted by name; the
@@ -80,13 +80,13 @@ SET_KILL_SWITCH = "set_kill_switch"
 SUCCEEDED_EVENT = "tool.succeeded"
 DENIED_EVENT = "tool.denied"
 
-# SPEC section 8.1's kill switch key shape, as a literal for the same reason.
+# The kill switch key shape, as a literal for the same reason.
 KEY_PREFIX_LITERAL = "killswitch"
 
 # The envelope, the row and the block, written out: what
-# 24eb parses and 24f renders. An extra key is as much a defect as a missing
+# the page parses and renders. An extra key is as much a defect as a missing
 # one - an `unresolvable` flag beside a null block would be a second, ambiguous
-# answer to the question nullability already answers (decision B).
+# answer to the question nullability already answers.
 ENVELOPE_KEYS = {"rules"}
 ROW_KEYS = {
     "rule_id",
@@ -99,8 +99,8 @@ ROW_KEYS = {
 }
 BLOCK_KEYS = {"role_id", "slug", "name", "system_slug", "system_name"}
 
-# SPEC section 7's `list_sod_rules` row: the two cells SPEC section 14 gives
-# `/admin/rules`. Checked against `rollback_request`'s row in
+# The `list_sod_rules` matrix row: the two cells the
+# `/admin/rules` page needs. Checked against `rollback_request`'s row in
 # `helpdesk/auth/rbac.py`, which carries the same pair.
 ALLOWED_PRINCIPALS = ("it_admin", "platform_admin")
 DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "hr", "auditor")
@@ -108,7 +108,7 @@ DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "hr", "auditor")
 # The seeded corpus this file reads back. `scripts/seed.py` plants six SoD
 # rules per tenant; the assertions below compare against whatever the database
 # actually holds and use this only as the floor that makes the comparison
-# worth making (a project rule: nothing is addressed by name).
+# worth making (nothing is addressed by name).
 MINIMUM_SEEDED_RULES = 4
 
 _RULES_SQL = (
@@ -135,7 +135,7 @@ def _structured(result: Any) -> dict[str, Any]:
 
 
 def _token(env: SeededMcp, principal: str) -> dict[str, str]:
-    """A tenant-A token carrying ONE of SPEC section 7's two cells on this row."""
+    """A tenant-A token carrying ONE of the two matrix cells on this row."""
     return bearer(token_for(env.tenant_a, principals=(principal,)))
 
 
@@ -251,8 +251,8 @@ def _plant_ruleless_tenant(database_url: str) -> SeededUser:
 
     The seeded tenants both carry six SoD rules, so the empty answer has
     nowhere else to come from. Planted rather than fixtured, and removed again
-    by `_remove_tenant`: the database is session-scoped and shared (standing
-    rule 7), so a case that needs a different shape makes its own namespace
+    by `_remove_tenant`: the database is session-scoped and shared, so a case
+    that needs a different shape makes its own namespace
     inside it instead of building a second database.
     """
     marker = uuid.uuid4().hex[:10]
@@ -318,7 +318,7 @@ def _remove_tenant(database_url: str, tenant: SeededUser) -> None:
     )
 
 
-# --- the happy path (criteria 3 and 4) -------------------------------------------
+# --- the happy path -------------------------------------------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -326,12 +326,12 @@ def test_the_board_answers_the_envelope_and_an_exact_seven_key_row(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """Criteria 3 and 4, as the literal 24eb parses and 24f renders, for BOTH
-    cells of SPEC section 7's row.
+    """The literal the page parses and renders, for BOTH
+    cells of the matrix row.
 
     KILL: a handler answering a bare list or a mapping of rule id to rule; a
-    row that drops the two top-level ids once the blocks resolve (decision B
-    keeps them always present, and an unresolvable row is then unactionable);
+    row that drops the two top-level ids once the blocks resolve (they are
+    kept always present, and an unresolvable row is then unactionable);
     a block short of `system_slug`, which the page needs to say WHICH system
     the role belongs to; and a resolution that reads the system off the other
     side of the pair - the seeded corpus pairs roles from two different
@@ -366,10 +366,10 @@ def test_the_board_answers_the_envelope_and_an_exact_seven_key_row(
 def test_the_rows_arrive_in_the_policy_ref_then_rule_id_order(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 5 on the wire: the order the helper applies survives the tool.
+    """The order the helper applies survives the tool.
 
     KILL: a handler that RE-ORDERS what the helper handed it - a sort by the
-    resolved system or role name (decision C rejects it: a rename would move
+    resolved system or role name (a rename would move
     the rows and an unresolvable rule has no name to sort by), or a mapping
     keyed by rule id rebuilt into a list. The seeded corpus pairs roles whose
     systems and names sort differently from their `policy_ref`s, so either
@@ -393,7 +393,7 @@ def test_the_rows_arrive_in_the_policy_ref_then_rule_id_order(
 def test_the_tool_takes_no_arguments_at_all(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 2 and a project rule: the input model carries NO fields.
+    """The input model carries NO fields.
 
     KILL: an input that accepts a `tenant_id` (or a `rule_id`, or a `limit`)
     so a caller can choose whose rules they read. The declared field set is
@@ -404,7 +404,7 @@ def test_the_tool_takes_no_arguments_at_all(
 
     The `tenant_id` sent below is the caller's OWN, so the
     refusal cannot be the tenant guard answering on the model's behalf - this
-    caller holds a cell SPEC section 7 gives the row, every other stage
+    caller holds a cell the matrix gives the row, every other stage
     passes, and nothing but the empty model can refuse it.
     """
     spec = REGISTRY[LIST_SOD_RULES]
@@ -420,7 +420,7 @@ def test_the_tool_takes_no_arguments_at_all(
     assert error_code(result) == "VALIDATION"
 
 
-# --- SPEC section 7's five empty cells (criterion 9) -----------------------------
+# --- the five empty matrix cells -----------------------------
 
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
@@ -428,16 +428,16 @@ def test_the_five_denied_principals_read_no_rules(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """SPEC section 7's five empty cells on this row, and the record they leave.
+    """The five empty matrix cells on this row, and the record they leave.
 
     KILL: adding this principal to the `list_sod_rules` cell of the RBAC
     matrix. This handler runs no scope helper and therefore never re-runs
-    `rbac.authorize` (plan section 2), so the pipeline's matrix stage is the
+    `rbac.authorize`, so the pipeline's matrix stage is the
     only guard that can refuse here and deleting it hands every one of these
-    five the tenant's SoD configuration (a project rule does not apply:
-    there is no second copy of the guard). `auditor` is the cell that matters
+    five the tenant's SoD configuration (there is no second
+    copy of the guard). `auditor` is the cell that matters
     most - it holds one on `search_audit` and none here, because the rules are
-    configuration and not a record of what happened (decision E).
+    configuration and not a record of what happened.
 
     The call carries no arguments at all, which are the only valid arguments
     this tool has, so no validation stage can produce this answer.
@@ -461,13 +461,13 @@ def test_the_five_denied_principals_read_no_rules(
     ]
 
 
-# --- the token's tenant and no other (criterion 7) -------------------------------
+# --- the token's tenant and no other -------------------------------
 
 
 def test_another_tenants_rules_are_invisible_to_this_caller(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 7 on the wire: the rules are the token's tenant's own rows.
+    """The rules are the token's tenant's own rows.
 
     KILL: a handler that opens its own session, or one that binds a tenant
     that came from anywhere but the token. Both seeded tenants
@@ -504,13 +504,13 @@ def test_another_tenants_rules_are_invisible_to_this_caller(
     assert ids_a.isdisjoint(ids_b)
 
 
-# --- a tenant with no rules (criterion 10) ---------------------------------------
+# --- a tenant with no rules ---------------------------------------
 
 
 def test_a_tenant_with_no_rules_answers_an_empty_list_as_a_success(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 10: an unconfigured tenant is answered, never refused.
+    """An unconfigured tenant is answered, never refused.
 
     KILL: a handler that turns the empty read into `NOT_FOUND` (the shape
     every id-taking tool in this suite uses, and the easiest thing to copy),
@@ -519,7 +519,7 @@ def test_a_tenant_with_no_rules_answers_an_empty_list_as_a_success(
     case here can see it because both seeded tenants carry six rules.
 
     The envelope is asserted present with an empty list rather than merely
-    "not an error": a success carrying no `rules` key at all would leave 24eb
+    "not an error": a success carrying no `rules` key at all would leave the page
     parsing `undefined`.
     """
     ruleless = _plant_ruleless_tenant(mcp_env.database_url)
@@ -534,19 +534,19 @@ def test_a_tenant_with_no_rules_answers_an_empty_list_as_a_success(
         _remove_tenant(mcp_env.database_url, ruleless)
 
 
-# --- the board can be stopped like any other tool (criterion 11) -----------------
+# --- the board can be stopped like any other tool -----------------
 
 
 def test_a_switch_on_the_rules_board_answers_tool_disabled(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 11: this read is not in `PROTECTED_TOOLS` and is not special.
+    """This read is not in `PROTECTED_TOOLS` and is not special.
 
     The switch is set through `set_kill_switch` rather than planted in Redis,
     which is what makes this two kills in one:
 
-    * adding `list_sod_rules` to `PROTECTED_TOOLS` - the plan adds nothing to
+    * adding `list_sod_rules` to `PROTECTED_TOOLS` - nothing is added to
       that frozenset - turns the trip itself into `POLICY_BLOCKED` and this
       case red;
     * a board wired around the pipeline (its own route, its own handler, a
@@ -589,7 +589,7 @@ def test_a_switch_on_the_rules_board_answers_tool_disabled(
 def test_one_call_writes_exactly_one_event_naming_the_tool_and_the_caller(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule: what the audit log carries for one rules-board read.
+    """What the audit log carries for one rules-board read.
 
     KILL: a read that declares a domain event type of its own, or appends one
     beside the summary. A `sod.rule.read` per render would put a governance

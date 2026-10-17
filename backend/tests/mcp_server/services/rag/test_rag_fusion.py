@@ -1,19 +1,19 @@
-"""An earlier change §6: Reciprocal Rank Fusion in `helpdesk/rag/retrieval.py`.
+"""Reciprocal Rank Fusion in `helpdesk/rag/retrieval.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``helpdesk.rag.retrieval``
-    ``RRF_K = 60`` — SPEC's fusion constant, the k of ``1 / (k + rank)``.
+    ``RRF_K = 60`` — the fusion constant, the k of ``1 / (k + rank)``.
     ``TOP_K_DEFAULT = 6`` — the default page size.
     ``CANDIDATES_PER_ARM = 30`` — how many candidates EACH arm fetches before
-        fusion (decision C), five times the default page.
+        fusion, five times the default page.
     ``@dataclass(frozen=True) class SearchHit`` — ``chunk_id: uuid.UUID``,
         ``document_id: uuid.UUID``, ``document_slug: str``, ``version: str``,
         ``heading_path: tuple[str, ...]``, ``text: str``, ``score: float``,
         ``dense_score: float | None``. ``score`` is the arm's own score on the
         way in and the FUSED score on the way out; ``dense_score`` is the dense
         arm's cosine, carried through fusion so `should_refuse` can read it
-        (decision A), and ``None`` for a chunk only the sparse arm found.
+, and ``None`` for a chunk only the sparse arm found.
     ``def fuse(dense: Sequence[SearchHit], sparse: Sequence[SearchHit], *,
         top_k: int = TOP_K_DEFAULT) -> list[SearchHit]`` — one entry per
         chunk id, ordered by descending ``1/(RRF_K + rank)`` summed over the
@@ -71,12 +71,12 @@ def _expected(*ranks: int) -> float:
     return sum(1.0 / (60 + rank) for rank in ranks)
 
 
-# --- the constants ------------------------------------------
+# --- the constants ------------------------------------------------------------
 
 
 def test_the_fusion_constant_is_exactly_sixty() -> None:
     """Catches fusion done with any other k — the qdrant server-side
-    `FusionQuery.RRF` default that decision B rejected, or a bare `1/rank` —
+    `FusionQuery.RRF` default that was rejected, or a bare `1/rank` —
     each of which changes every fused score the page is ordered by."""
     assert RRF_K == 60
 
@@ -89,7 +89,7 @@ def test_the_default_page_size_is_exactly_six() -> None:
 
 
 def test_each_arm_fetches_exactly_thirty_candidates() -> None:
-    """Catches decision C's rejected shape, an arm fetching `top_k`
+    """Catches the rejected shape, an arm fetching `top_k`
     candidates: with 6 and 6 the fused page is nearly the dense page, so
     fusion still runs and every other case here still passes while the sparse
     arm can no longer rescue anything it alone ranked."""
@@ -144,7 +144,7 @@ def test_a_chunk_in_both_arms_outranks_one_that_leads_a_single_arm() -> None:
 
 
 def test_a_chunk_ranked_twentieth_by_one_arm_and_first_by_the_other_reaches_the_page() -> None:
-    """Catches the failure decision C's 30 candidates exist to prevent, at
+    """Catches the failure the 30 candidates exist to prevent, at
     the fusion level: with a full 30-deep dense arm, a chunk sitting 20th
     there and 1st in the sparse arm must still make a six-hit page. A fuse
     that ordered by the dense arm's rank alone would leave it at 20."""
@@ -160,7 +160,7 @@ def test_a_chunk_ranked_twentieth_by_one_arm_and_first_by_the_other_reaches_the_
 
 def test_a_chunk_both_arms_returned_appears_once() -> None:
     """Catches a fuse that concatenates the two arms and sorts: the shared
-    chunk then appears twice in one page, which is the plan §5 off-by-one and
+    chunk then appears twice in one page, which is the off-by-one and
     is invisible to any assertion made against a SET of ids."""
     dense = [_hit(A), _hit(B)]
     sparse = [_hit(A), _hit(B)]
@@ -221,7 +221,7 @@ def test_two_empty_arms_fuse_to_an_empty_page() -> None:
 def test_the_dense_cosine_survives_fusion_for_a_chunk_the_sparse_arm_led_with() -> None:
     """Catches a fuse that builds each fused hit from whichever arm it met
     FIRST: the sparse arm's copy carries `dense_score=None`, so the cosine
-    decision A gates the refusal on is lost for exactly the chunks fusion
+    the refusal is gated on is lost for exactly the chunks fusion
     promoted, and `should_refuse` then refuses a strong dense match."""
     dense = [_hit(B, score=0.4, dense_score=0.4), _hit(A, score=0.91, dense_score=0.91)]
     sparse = [_hit(A, score=7.5), _hit(B, score=6.0)]

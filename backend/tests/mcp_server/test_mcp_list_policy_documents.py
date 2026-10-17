@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `list_policy_documents`, through the transport.
+"""`list_policy_documents`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -25,17 +25,17 @@ Surface under test (written before it exists):
     pinned there, against the engine, and this file pins what reaches the
     WIRE.
 
-SPEC section 14 gives ``/admin/policies`` to ``it_admin`` and
-``platform_admin``, so SPEC section 7's row for this tool has exactly those
+The ``/admin/policies`` page belongs to ``it_admin`` and
+``platform_admin``, so the matrix row for this tool has exactly those
 two cells at ``Scope.ANY``. There is NO scope helper on this tool, so the
 pipeline's matrix stage IS the whole permission check and the five-principal
-case below is its kill (a project rule - the handler never re-runs
+case below is its kill (the handler never re-runs
 ``rbac.authorize``, so there is no second copy of that guard).
 
 Everything here is a READ: the tool takes no arguments, no key is derived from
 client input and nothing is written.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam - one seeded throwaway database, one dedicated Redis
 index flushed per test. The seeded tenants are SHARED with every other file in
 this suite and several of them plant policy documents of their own, so the
@@ -85,7 +85,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
 LIST_POLICY_DOCUMENTS = "list_policy_documents"
 
 # The envelope, the row and the version block, written out:
-# what the agent-api route forwards and 24h renders. An extra key is as much a
+# what the agent-api route forwards and the page renders. An extra key is as much a
 # defect as a missing one.
 ENVELOPE_KEYS = {"documents"}
 DOCUMENT_KEYS = {"slug", "title", "versions"}
@@ -98,20 +98,20 @@ VERSION_KEYS = {
     "sha256",
 }
 
-# SPEC section 7's `list_policy_documents` row: the two cells SPEC section 14
-# gives `/admin/policies`. Checked against `list_sod_rules`' row in
+# The `list_policy_documents` matrix row: the two cells that
+# `/admin/policies` needs. Checked against `list_sod_rules`' row in
 # `helpdesk/auth/rbac.py`, which carries the same pair.
 ALLOWED_PRINCIPALS = ("it_admin", "platform_admin")
 DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "hr", "auditor")
 
-# The three keys a project rule says a caller must not be able to send. Each is a
+# The three keys a caller must not be able to send. Each is a
 # plausible one: a `tenant_id` asks for another tenant's corpus, a `slug` and a
 # `version` ask the board to narrow itself.
 FORBIDDEN_ARGUMENT_KEYS = ("tenant_id", "slug", "version")
 
 BASE_INSTANT = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
 
-# Obviously fake digests, 64 hex characters each (a project rule: nothing here is
+# Obviously fake digests, 64 hex characters each (nothing here is
 # a real document's digest and nothing is a secret).
 DIGEST_ACCESS_V1 = "a1" * 32
 DIGEST_ACCESS_V2 = "b2" * 32
@@ -337,13 +337,13 @@ def _plant_corpus(database_url: str, tenant: SeededUser) -> None:
     )
 
 
-# --- the input model (criterion 2, a project rule) ----------------------------------
+# --- the input model ----------------------------------
 
 
 def test_the_tool_declares_no_field_at_all(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 2's "pinned as an exactly empty field set".
+    """The input model is pinned as an exactly empty field set.
 
     KILL: an input that grew a `slug`, a `version`, a `limit` or a
     `tenant_id`, so a caller could choose what the board answers or whose
@@ -361,7 +361,7 @@ def test_an_argument_riding_along_is_refused_validation(
     mcp_env: SeededMcp,  # noqa: F811
     key: str,
 ) -> None:
-    """Criterion 2's wire half: `extra="forbid"` and not `ignore`.
+    """The wire half: `extra="forbid"` and not `ignore`.
 
     KILL: `model_config = ConfigDict(extra="ignore")` (Pydantic's default is
     to ignore unknown keys, so writing no config at all is the same defect).
@@ -371,7 +371,7 @@ def test_an_argument_riding_along_is_refused_validation(
 
     The `tenant_id` sent below is the caller's OWN, so the
     refusal cannot be the tenant guard answering on the model's behalf: this
-    caller holds a cell SPEC section 7 gives the row, every other stage
+    caller holds a cell the matrix gives the row, every other stage
     passes, and nothing but the empty model can refuse it.
     """
     values = {
@@ -389,18 +389,18 @@ def test_an_argument_riding_along_is_refused_validation(
     assert error_code(result) == "VALIDATION"
 
 
-# --- the output models (criterion 3) ---------------------------------------------
+# --- the output models ---------------------------------------------
 
 
 def test_the_output_models_carry_exactly_the_planned_field_sets(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 3's field sets, read off the models rather than off a payload.
+    """The field sets, read off the models rather than off a payload.
 
     KILL: an envelope keyed `policies` or `rows` rather than `documents` (the
     web parser is written against that key and would refuse a payload the
     server answered correctly); a version row short of `sha256` or
-    `source_path`, which decision G carries because the digest is the only
+    `source_path`, which is carried because the digest is the only
     evidence on this surface that two versions differ at all; and a row that
     grew a `document_id` or a `chunk_ids` list, which this page has no use for
     and which a later caller would start depending on.
@@ -414,7 +414,7 @@ def test_the_output_models_carry_exactly_the_planned_field_sets(
     assert set(PolicyVersionRow.model_fields) == VERSION_KEYS
 
 
-# --- the board itself (criteria 3, 4, 5, 6, 7 and 8, on the wire) ----------------
+# --- the board itself (on the wire) ----------------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -422,13 +422,13 @@ def test_the_board_answers_the_whole_corpus_grouped_and_in_the_helpers_order(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """The handler maps and reorders NOTHING (section 6's last transport row),
-    for BOTH cells of SPEC section 7's row.
+    """The handler maps and reorders NOTHING,
+    for BOTH cells of the matrix row.
 
     KILL: a handler that re-sorts what the helper handed it - by `version`
     string (`v2` would lead `v1` here only by luck, so the slug order is what
     catches it), by title, or reversed; one that FLATTENS the versions into
-    one row per version, which decision A rejects; one that drops the version
+    one row per version, which is wrong; one that drops the version
     with no chunks (`chunk_count` 0 is asserted present, which is the ingest
     failure this page exists to show); and one that opens its own session or
     binds a tenant from anywhere but the token - the planted tenant's corpus
@@ -473,7 +473,7 @@ def test_the_board_answers_the_whole_corpus_grouped_and_in_the_helpers_order(
 def test_a_tenant_with_no_corpus_answers_an_empty_list_as_a_success(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 9's first half: an un-ingested tenant is answered, never refused.
+    """An un-ingested tenant is answered, never refused.
 
     KILL: a handler that turns the empty read into `NOT_FOUND` (the shape
     every id-taking tool in this suite uses, and the easiest thing to copy),
@@ -494,7 +494,7 @@ def test_a_tenant_with_no_corpus_answers_an_empty_list_as_a_success(
         _remove_tenant(mcp_env.database_url, tenant)
 
 
-# --- SPEC section 7's five empty cells (criterion 9's second half) ---------------
+# --- the five empty matrix cells ---------------
 
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
@@ -504,19 +504,19 @@ def test_the_five_denied_principals_are_refused_whatever_the_corpus_holds(
     principal: str,
     corpus: bool,
 ) -> None:
-    """SPEC section 7's five empty cells on this row, and criterion 9's
-    "not an existence oracle".
+    """The five empty matrix cells on this row, and the
+    "not an existence oracle" rule.
 
     KILL: adding this principal to the `list_policy_documents` cell of the
     RBAC matrix. This handler runs no scope helper and therefore never re-runs
     `rbac.authorize`, so the pipeline's matrix stage is the only guard that
     can refuse here and deleting it hands every one of these five the tenant's
-    whole corpus listing (a project rule does not apply: there is no second
+    whole corpus listing (there is no second
     copy of the guard). `auditor` is the cell that matters most - it holds one
     on `search_audit` and none here, because the corpus is configuration and
-    not a record of what happened (a design note's reasoning, cited by this plan).
+    not a record of what happened.
 
-    The corpus dimension is criterion 9's second half: the SAME code comes
+    The corpus dimension matters too: the SAME code comes
     back whether the tenant has been ingested or not, so the refusal cannot be
     read as an answer to "does this tenant have a corpus". That kills a
     handler which read the corpus first and answered `NOT_FOUND` for an empty

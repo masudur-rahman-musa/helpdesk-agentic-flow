@@ -1,4 +1,4 @@
-"""Validator for the eval data of an earlier change, section 1 and section 6.
+"""Validator for the eval data.
 
 Guards two repo-data files, both read-only here:
 
@@ -25,7 +25,7 @@ imports with no ``sys.path`` surgery; ``scripts.seed`` imports because
 Claims pinned here, each by the test named beside it:
 - the golden file holds exactly 120 cases, one per line, no blank line:
   ``test_the_golden_file_holds_one_hundred_and_twenty_parsable_cases``;
-- the twelve category counts are exactly the SPEC section 20 minimums:
+- the twelve category counts are exactly the category minimums:
   ``test_category_counts_equal_the_spec_minimums_exactly``;
 - each access case agrees with the real policy engine on decision and risk
   class: ``test_access_cases_agree_with_the_policy_engine``;
@@ -92,7 +92,7 @@ BASELINE = _repo_root() / "backend/evals/baseline.json"
 GOLDEN_SET_POINTER = "backend/evals/golden/helpdesk-v1.jsonl"
 """What ``baseline.json`` must name as its golden set."""
 
-# The SPEC section 20 minimums. They sum to exactly 120, so the minimums ARE
+# The category minimums. They sum to exactly 120, so the minimums ARE
 # the count and this mapping is asserted whole.
 CATEGORY_MINIMUMS: dict[str, int] = {
     "access_auto": 15,
@@ -151,8 +151,8 @@ ACCESS_CASE_COUNT = 55
 """The four access categories sum to 55 of the 120 cases."""
 
 # `create_access_request` is the registry's wire literal for
-# `rbac.Tool.CREATE_ACCESS_REQUEST_SELF` (services/mcp-server/mcp_server/
-# registry.py, the ToolSpec around line 147): SPEC section 7 splits one wire
+# `rbac.Tool.CREATE_ACCESS_REQUEST_SELF` (in the MCP server's
+# registry, on its ToolSpec): the permission matrix splits one wire
 # tool into a self row and an on-behalf row, so the wire name is not a member
 # value and has to be added by hand.
 TOOL_NAMES: frozenset[str] = frozenset(
@@ -403,7 +403,7 @@ def _tenure_days(user: UserRow) -> int:
 
     `_HIRING_EPOCH` and the `(tenant_index * 97) % 2900` offset are imported
     and recomputed rather than copied as a number, the precedent
-    `dev/scripts/e2e_accounts.py` set for importing a private seed constant.
+    another script set for importing a private seed constant.
     """
     start_date = _HIRING_EPOCH + timedelta(days=(user.tenant_index * 97) % 2900)
     return (date.today() - start_date).days
@@ -592,7 +592,7 @@ def test_every_case_id_is_unique_and_matches_the_pattern(
 def test_ids_at_the_inclusive_pattern_boundary() -> None:
     """Catches an id check written with Pydantic `pattern=` (a substring match)
     or with a loose length bound: the accepted pair sits on both ends of the
-    3-to-4-letter, 3-digit shape, and the rejected list is a project rule's
+    3-to-4-letter, 3-digit shape, and the rejected list is the spec's
     table, whose newline, CRLF and trailing-space rows a substring match lets
     through."""
     for accepted in ("abc-000", "abcd-999"):

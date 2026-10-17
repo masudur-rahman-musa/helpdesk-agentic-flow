@@ -1,16 +1,8 @@
 /**
- * The only module that talks to agent-api. It runs on the server side alone,
- * so the browser never makes a cross-origin request and there is no CORS for
- * row 27 to open.
- *
- * Every call carries an explicit timeout: agent-api is an
- * external call that can hang, and a login waiting forever on it holds a Next
- * worker with nothing for the user to see. `AGENT_API_TIMEOUT_MS` is pinned at
- * its exact value, and the signal's presence on the outgoing call asserted, by
- * `tests/agent-api.test.ts`.
- *
- * `AGENT_API_URL` is read per call, not at module load, so a process that is
- * reconfigured — and a test that sets the variable per case — sees the change.
+ * The only module that talks to agent-api. It runs on the server alone, so the
+ * browser makes no cross-origin calls. Every call has a timeout, so a hung
+ * agent-api never holds a worker forever. `AGENT_API_URL` is read per call so a
+ * changed setting takes effect.
  */
 
 import { NextResponse } from "next/server";
@@ -22,30 +14,15 @@ import { clearSessionCookie, readSessionToken } from "@/lib/session";
 export const AGENT_API_TIMEOUT_MS = 10_000;
 
 /**
- * Two minutes, for a streamed turn alone.
- *
- * `AbortSignal.timeout` bounds the WHOLE response, its body included, so the
- * ten seconds above would abort an ordinary turn part-way through its own
- * reply and look exactly like a dropped socket. a project rule still holds —
- * the stream carries a timeout, it is just a different number — and the value
- * is pinned, and its signal traced onto the outgoing call, by
- * `tests/chat-stream-route.test.ts`.
+ * Two minutes, for a streamed turn. The timeout covers the whole body, so ten
+ * seconds would cut an ordinary reply short.
  */
 export const AGENT_API_STREAM_TIMEOUT_MS = 120_000;
 
 /**
- * Thirty-five seconds, for one re-ingest alone.
- *
- * A re-ingest is a gateway redaction call plus an embed pass rather than a
- * query, and the ingest process's first `FastEmbedEmbedder` load can outrun ten
- * seconds while the ingest itself completes — an abort the admin reads as a
- * failure over a corpus that did change, and clicks again. The number is above
- * agent-api's own `MCP_READ_TIMEOUT_SECONDS` (30.0) on purpose, so the tool's
- * typed refusal wins the race rather than this proxy aborting a call that is
- * still running. a project rule still holds: the call carries a timeout, it
- * is just a different number, and the value and the reason for it are pinned by
- * `tests/agent-api.test.ts`'s "pins the reingest timeout at exactly 35000ms and
- * above agent-api's MCP read timeout".
+ * Thirty-five seconds, for one policy re-ingest, which can take longer than ten.
+ * It sits above agent-api's own 30 second tool timeout, so the typed refusal
+ * arrives before this call gives up.
  */
 export const AGENT_API_REINGEST_TIMEOUT_MS = 35_000;
 
@@ -56,11 +33,8 @@ function baseUrl(): string {
 }
 
 /**
- * Exchanges credentials for a bearer. A non-200, a body without a string
- * `access_token`, and a transport failure all answer the SAME `{ ok: false }`:
- * the caller has one refusal to render and agent-api's own body never reaches
- * it. Pinned by `tests/login-route.test.ts`'s "does not forward agent-api's
- * own error body".
+ * Exchanges credentials for a bearer. Every failure gives the same
+ * `{ ok: false }`, so agent-api's own error body never reaches the caller.
  */
 export async function requestToken(input: LoginInput): Promise<LoginResult> {
   let response: Response;
@@ -101,22 +75,9 @@ export async function requestToken(input: LoginInput): Promise<LoginResult> {
 }
 
 /**
- * The shape every later proxied call takes:
- * attach the bearer from the cookie, and on a 401 from agent-api CLEAR that
- * cookie and send the browser to `/login`. A 401 means the token is expired,
- * revoked or forged, so keeping it would make every later call fail the same
- * way with nothing telling the user why.
- *
- * An earlier change's chat routes are the first callers, and routing them through here
- * is what keeps the expiry path in one place. Pinned by
- * `tests/agent-api-proxy.test.ts` and, for the streamed caller, by
- * `tests/chat-stream-route.test.ts`'s 401 case.
- *
- * `timeoutMs` is a PARAMETER rather than the constant this function used to
- * hardcode: the signal is set after the `...init` spread — deliberately, so a
- * caller cannot proxy an untimed call — which left a streaming caller unable
- * to ask for anything but ten seconds. The default is
- * unchanged, so every existing caller is bounded exactly as before.
+ * Proxy one call with the bearer from the cookie. A 401 clears the cookie and
+ * sends the browser to `/login`, since a bad token would only fail again. The
+ * signal is set after `...init`, so a caller cannot make an untimed call.
  */
 export async function proxyAgentApi(
   path: string,

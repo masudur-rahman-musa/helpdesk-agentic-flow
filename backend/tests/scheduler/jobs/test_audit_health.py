@@ -1,11 +1,11 @@
-"""An earlier change §6: `refresh_chain_gauge`, the process-wide AND behind it.
+"""`refresh_chain_gauge`, the process-wide AND behind it.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
 
 ``helpdesk.obs.metrics``
     ``AUDIT_CHAIN_OK = "helpdesk_audit_chain_ok"`` — a Gauge with NO labels
-    (the design, an earlier change decision D), registered by ``install_sweep_gauges``
+    (the health rule), registered by ``install_sweep_gauges``
     and reached through the module-level ``SWEEP_GAUGES``, read at CALL time.
     ``def record_audit_chain_ok(ok: bool) -> None``.
 
@@ -14,20 +14,20 @@ must provide exactly this):
     tenant's chain through ``audit.verify.verify_tenant_chain``, folds the
     answer into a process-local map keyed by tenant id, and records the AND
     over every tenant this process has verified. A verify that RAISES records
-    ``0`` and re-raises (decision G).
+    ``0`` and re-raises.
     ``def reset_chain_verdicts() -> None`` — the reset seam this file needs.
     The map is process-local by design, so without a seam the second case in
     this file would inherit the first case's verdict and every case after a
-    broken one would read ``0`` whatever the code did. The plan names the seam
+    broken one would read ``0`` whatever the code did. The design names the seam
     but not its spelling; this file fixes it as ``reset_chain_verdicts``, and
     a different name in the implementation is a rename here, not a redesign.
 
-Decision D is what this file mostly exists for. The runner calls the job once
+The per-tenant AND is what this file mostly exists for. The runner calls the job once
 per tenant, so a plain ``.set()`` per tenant would let a healthy tenant's tick
 erase a broken tenant's verdict; the map is what makes one unlabelled gauge
 answer for the whole process.
 
-a project rule: ONE session-scoped database, schema created once. Per-test
+ONE session-scoped database, schema created once. Per-test
 isolation is a namespace — a tenant of the case's own from `_seed.seed_tenant`
 — plus the fresh `CollectorRegistry` installed over `metrics.SWEEP_GAUGES` and
 the reset of the process-local map. Nothing is rebuilt per test.
@@ -93,11 +93,11 @@ def health_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
 def sweep_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistry]:
     """A registry of this test's own, with the sweep gauges installed on it.
 
-    `test_obs_metrics.py::fresh_registry`'s shape for an earlier change decision F's
+    `test_obs_metrics.py::fresh_registry`'s shape for the
     separate factory: `record_audit_chain_ok` reads `metrics.SWEEP_GAUGES` at
     call time, so replacing that name here is what makes an absolute assertion
     possible and what stops these cases reading the scheduler's process-wide
-    instance (plan §5's fourth risk).
+    instance (a risk the design names).
     """
     registry = CollectorRegistry()
     monkeypatch.setattr(metrics, "SWEEP_GAUGES", metrics.install_sweep_gauges(registry))
@@ -108,7 +108,7 @@ def sweep_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
 def clean_verdicts() -> Iterator[None]:
     """Empty the process-local map before and after every case.
 
-    The map is deliberately process-local (decision D), so without this the
+    The map is deliberately process-local, so without this the
     file's own order would decide its results: one broken tenant would pin the
     gauge at `0` for every case after it, and a re-run of a single case would
     disagree with the full file.
@@ -211,7 +211,7 @@ def _gauge(registry: CollectorRegistry) -> float | None:
     return registry.get_sample_value(AUDIT_CHAIN_OK)
 
 
-# --- the two verdicts (criterion 5) ------------------------------------------
+# --- the two verdicts ------------------------------------------
 
 
 def test_a_sound_chain_sets_the_gauge_to_one(
@@ -244,7 +244,7 @@ def test_a_tampered_row_sets_the_gauge_to_zero(
     """Catches a sweep that records `1` unconditionally — a gauge hard-wired
     to "I ran", which is what a health check written from the sweep's point of
     view rather than the chain's becomes. That is the one failure this whole
-    plan exists to surface: a doctored audit log is invisible by construction,
+    change exists to surface: a doctored audit log is invisible by construction,
     so a gauge that cannot go to zero means nobody ever learns.
 
     The tenant is driven to `1.0` FIRST and then tampered with, so the `0.0`
@@ -265,14 +265,14 @@ def test_a_tampered_row_sets_the_gauge_to_zero(
     assert _gauge(sweep_registry) == 0.0
 
 
-# --- the accumulator (criterion 5's second half, decision D) ------------------
+# --- the accumulator ------------------
 
 
 def test_a_healthy_tenant_verified_after_a_broken_one_leaves_the_gauge_at_zero(
     health_db_url: str,
     sweep_registry: CollectorRegistry,
 ) -> None:
-    """Decision D's kill: delete the per-tenant map, leave a plain `.set()`,
+    """The kill: delete the per-tenant map, leave a plain `.set()`,
     and this case reads `1.0`.
 
     The runner visits every tenant on one tick, so with a `.set()` per tenant
@@ -299,7 +299,7 @@ def test_a_healthy_tenant_verified_after_a_broken_one_leaves_the_gauge_at_zero(
     assert _gauge(sweep_registry) == 0.0
 
 
-# --- the unhappy path (criterion 6, decision G) -------------------------------
+# --- the unhappy path -------------------------------
 
 
 def test_a_verify_that_raises_sets_the_gauge_to_zero_and_re_raises(
@@ -307,7 +307,7 @@ def test_a_verify_that_raises_sets_the_gauge_to_zero_and_re_raises(
     sweep_registry: CollectorRegistry,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decision G, fail closed. Catches the two ways this goes wrong.
+    """Fail closed. Catches the two ways this goes wrong.
 
     One: a sweep that lets the exception out untouched, leaving the gauge at
     the `1.0` the previous tick wrote — the runner logs the failure, deletes

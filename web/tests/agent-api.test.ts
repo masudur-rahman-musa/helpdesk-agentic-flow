@@ -4,9 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_API_REINGEST_TIMEOUT_MS, AGENT_API_TIMEOUT_MS, requestToken } from "@/lib/agent-api";
 
 /**
- * a project rule: agent-api is an external call that can hang, so it carries
- * an explicit timeout and the value is pinned exactly. An earlier change's §6 named no
- * case for it (recorded in the plan's Deviations); these are that case.
+ * agent-api is an external call that can hang, so it carries an explicit
+ * timeout and the value is pinned exactly.
  */
 
 const VALID_INPUT = {
@@ -36,13 +35,13 @@ afterEach(() => {
 
 describe("agent-api timeout", () => {
   it("pins the timeout at exactly 10000ms", () => {
-    // Kills a band ("some timeout is set"): a project rule wants the value,
+    // Kills a band ("some timeout is set"): the exact value matters,
     // and a 10-minute timeout is indistinguishable from none to a waiting user.
     expect(AGENT_API_TIMEOUT_MS).toBe(10_000);
   });
 
   it("pins the reingest timeout at exactly 35000ms and above agent-api's MCP read timeout", () => {
-    // An earlier change §1's timeout criterion and decision E. Kills
+    // Kills
     // the re-ingest proxy left on `AGENT_API_TIMEOUT_MS`: a re-ingest is a
     // gateway redaction call plus an embed pass, and the process's first
     // `FastEmbedEmbedder` load can outrun ten seconds while the ingest itself

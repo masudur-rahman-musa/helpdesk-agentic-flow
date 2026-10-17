@@ -5,7 +5,7 @@ A plain support module (``tests/support/mcp.py``), imported by its package path
 are. Deliberately NOT a ``conftest.py``: these fixtures are opt-in, pulled in by
 name only by the modules that want them, not made autouse for the whole suite.
 
-a project rule: the expensive things are built exactly once for the whole
+The expensive things are built exactly once for the whole
 session — one throwaway Postgres database, created and seeded through the real
 ``scripts.seed.seed_all`` (argon2 makes seeding the slow part of the run), and
 one Redis database index dedicated to this suite. Per-test isolation is a
@@ -605,7 +605,7 @@ def list_tools(headers: Mapping[str, str] | None = None) -> mcp_types.ListToolsR
 def error_code(result: mcp_types.CallToolResult) -> str:
     """The single content block of an errored result, as an exact string.
 
-    Reads the whole text, never a substring: the design says the boundary
+    Reads the whole text, never a substring: the error contract is that the result
     carries a code and nothing else, so a code with an explanation appended
     must fail here rather than pass a `in` check.
     """
@@ -705,12 +705,12 @@ def mcp_post(
 def transport_security_of_a_fresh_app() -> object:
     """The `TransportSecuritySettings` the constructed app's transport holds.
 
-    Read off the built application rather than off `build_server()`: an earlier change
-    criterion 1 is about what `create_app()` PASSES, and the settings object
+    Read off the built application rather than off `build_server()`: the check is
+    about what `create_app()` PASSES, and the settings object
     reaches `StreamableHTTPSessionManager(security_settings=...)` inside
     `Server.streamable_http_app`. The path is the mount `create_app()` adds at
     `/`, that Starlette app's `/mcp` route, and the `StreamableHTTPASGIApp`
-    endpoint's own `session_manager` (a project rule: read off the SDK body,
+    endpoint's own `session_manager` (read off the SDK body,
     not guessed). Returns `object` so the caller carries the narrowing
     annotation itself.
     """
@@ -730,7 +730,7 @@ def transport_security_of_a_fresh_app() -> object:
 
 # --- Qdrant --------------------------------------------------------
 #
-# a project rule again, one level down. The instance is the compose one and is
+# Same idea, one level down. The instance is the compose one and is
 # never wiped; the namespace is the two seeded tenants' collections, which only
 # this suite ever writes to, and they are dropped at BOTH ends of the session so
 # a previous run's points can neither hide a leak nor invent one. Nothing here
@@ -747,8 +747,8 @@ def transport_security_of_a_fresh_app() -> object:
 def mcp_qdrant() -> str:
     """Connectivity gate: fails loudly (never skips) when Qdrant is down.
 
-    A skip would let the design's isolation at the TOOL boundary — the only
-    boundary a client can reach — go unproven on a green run.
+    A skip would let tenant isolation at the TOOL level, the only
+    level a client can reach, go unproven on a green run.
     """
     try:
         response = httpx.get(f"{TEST_QDRANT_URL}/collections", timeout=5.0)
@@ -837,7 +837,7 @@ def stub_point(
     version: str = "v1",
     heading_path: tuple[str, ...] = ("1. Purpose",),
 ) -> StubPoint:
-    """A point carrying exactly the payload keys 14c's upsert writes."""
+    """A point carrying exactly the payload keys upsert writes."""
     return StubPoint(
         id=str(chunk_id),
         score=score,

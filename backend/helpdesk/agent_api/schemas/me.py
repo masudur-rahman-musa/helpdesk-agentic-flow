@@ -1,24 +1,17 @@
-"""Request/argument models for the /me, /me/requests and /me/access routes."""
+"""Argument models for the /me, /me/requests and /me/access routes."""
 
 from pydantic import BaseModel
 
 
 class ListMyRequestsArgs(BaseModel):
-    """`list_my_requests` with no page size asked for.
+    """`list_my_requests` with no page size, so the tool's default applies.
 
-    The tool's own `REQUESTS_LIMIT_DEFAULT` then applies. Repeating that number
-    here would be a second place for it to drift from (a project rule wants
-    one constant, pinned once), which is why the limited call is a SUBCLASS
-    below rather than a nullable field: `model_dump` carries every declared
-    field, so a `limit: int | None = None` would send `limit: null` to a tool
-    whose bound does not accept it.
+    The limit lives on a subclass, not a nullable field, because `model_dump`
+    would send `limit: null` and the tool refuses it.
     """
 
     status: str | None = None
-    """Passed through as the string it arrived as, so the TOOL's input model
-    is the one validator that decides enum membership and answers the typed
-    `VALIDATION` this router dresses as a 400. A second enum here would refuse
-    the same value with FastAPI's own untyped 422."""
+    """Left a plain string so the tool alone checks it and answers a typed 400."""
 
 
 class ListMyRequestsArgsWithLimit(ListMyRequestsArgs):

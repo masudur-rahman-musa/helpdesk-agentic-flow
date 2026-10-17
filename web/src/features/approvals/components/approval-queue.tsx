@@ -22,64 +22,15 @@ import { TextArea } from "@/components/ui/field";
 import { formatIsoDate } from "@/lib/date-format";
 
 /**
- * The queue waiting on this approver, from `GET /api/me/approvals`, and the two
- * decisions it can take.
- *
- * A client component doing its own read and its own mutations through TanStack
- * Query (decision A), exactly `RequestList`'s shape. The READ goes through
- * `lib/wire-read.ts`, which answers `null` while the browser
- * follows the proxy's redirect to `/login` (22b decision E); both mutations
- * keep their own check of it, because `readWire` is a GET and because a session
- * expires while the queue sits open on a screen far more often than it expires
- * mid-read. That is what `tests/approvals-page.test.tsx`'s `::follows the
- * redirect at the decision too, not only at the read` pins.
- *
- * Every act crosses 23c's proxies, so a project rule holds: the decision is a
- * typed MCP tool behind RBAC, the kill switch, the seat rules and the audit
- * event, and this component is the surface. Nothing here decides anything —
- * the queue's order, its membership, which seat is the caller's and every name
- * on a row come from the tool.
- *
- * A failed read THROWS rather than answering an empty list, so the alert and
- * the empty state are mutually exclusive by construction: `Nothing is waiting
- * for your decision.` over a broken proxy is the sentence on this page an
- * approver acts on by closing the tab. Pinned from both sides by
- * `::renders the named empty state with no list and no alert` and the two
- * `a read that fails` rows.
- *
- * Accessible names: the region is `Approvals`, the rows are the list `Pending
- * approvals`, and inside a row the three nested lists are `Reasons`,
- * `Approvers` and `Sources`. Each row's two controls carry the role name
- * (`Approve {role_name}`, `Comment for {role_name}`) — the `grant-list.tsx`
- * shape — because two rows otherwise carry four controls with the same four
- * names.
- *
- * Neither field declares a `maxLength` (§1, 23c decision E): the tool's
- * `COMMENT_MAX_LENGTH` and `REASON_MAX_LENGTH` are the only validator, so a
- * comment of exactly 2000 characters reaches the proxy whole
- * (`::sends a 2000 character comment whole, with no maxLength on the field`).
- * The one refusal the page answers for itself is a blank rejection reason,
- * which costs a round trip and a rate-limit slot to be told (`::$name makes no
- * call at all`) — a floor, never a second cap.
+ * The approver's queue and its two actions. A failed read shows an alert, never
+ * "nothing waiting". No `maxLength` on the text fields: the server checks
+ * length, and only a blank reject reason is caught here.
  */
 
-/**
- * The `VALIDATION` sentence on this surface, and only on this surface
- * (decision B).
- *
- * `FAILURE_MESSAGES.VALIDATION` is "That message could not be sent.", which is
- * about a chat message and says nothing true about a comment the tool refused;
- * 22b's `tests/chat-schema.test.ts` pins every string in that map verbatim, so
- * widening the shared map is not available. Exactly ONE code is overridden —
- * every other sentence still comes from the shared map, so no second opinion
- * about `FORBIDDEN` or `TOOL_DISABLED` can appear here. Pinned by
- * `tests/approvals-page.test.tsx::pins the VALIDATION override sentence
- * exactly`.
- */
+/** The shared sentence is about chat messages. */
 export const DECISION_VALIDATION_MESSAGE =
   "That decision could not be filed. Check the comment and try again.";
 
-/** The sentence the page says when a Reject is attempted with no reason. */
 const BLANK_REASON_MESSAGE = "Give a reason before rejecting this request.";
 
 export function ApprovalQueue() {
@@ -142,24 +93,10 @@ function ApprovalRow({ approval }: { approval: PendingApproval }) {
 }
 
 /**
- * The two acts, and the only local state this page has: the text in the two
- * fields and which of this ROW's mutations is in flight.
- *
- * Per row on purpose. One in-flight flag for the whole queue would grey out
- * every control while a single row is being decided, which an approver holding
- * ten items pays for ten times; no flag at all leaves the Reject beside an
- * in-flight Approve live, so the opposite decision can be filed on the same
- * request. The guarantee against a double-filed decision is not this: it is the
- * server-derived idempotency key (23c decision B), which replays the stored
- * response rather than filing twice. These disabled controls are a courtesy on
- * top of it, and `::disables both controls of the deciding row while its
- * decision is in flight, and no other row's` says so.
- *
- * A success invalidates the queue and nothing is removed optimistically
- * (decision E): the tool decides what the row becomes — an approval that
- * completed a chain and then failed the fresh the design check answers `failed`
- * with a `failure_code`, and a chain with seats left stays `pending` — so a row
- * vanishing on click would show a decision that did not land as done.
+ * Pending state is per row: one flag for the whole queue would grey out every
+ * row. The real guard against a double decision is the server's idempotency
+ * key. A success re-reads the queue, since the server decides what the row
+ * becomes.
  */
 function DecideControls({ approval }: { approval: PendingApproval }) {
   const [comment, setComment] = useState("");
@@ -179,9 +116,7 @@ function DecideControls({ approval }: { approval: PendingApproval }) {
   }
 
   function onReject(): void {
-    // The floor, and the only refusal answered without a round trip: the tool
-    // would spend a rate-limit slot to say `VALIDATION` for something the page
-    // already knows. Trimmed, because `reason === ""` lets three spaces past.
+    // Caught here to save a round trip. Trimmed, so three spaces do not pass.
     if (reason.trim() === "") {
       setBlankReason(true);
       return;
@@ -229,7 +164,6 @@ function DecideControls({ approval }: { approval: PendingApproval }) {
   );
 }
 
-/** The sentence for a refused decision, or `null` while nothing is refused. */
 function decisionRefusal(error: unknown): string | null {
   if (error === null || error === undefined) {
     return null;

@@ -1,11 +1,9 @@
-"""An earlier change section 6: which web tabs a token's principals may see.
+"""Which web tabs a token's principals may see.
 
-Surface under test (written before it exists; every case is red on the one
-import below until step 2 lands):
+Surface under test:
 
 ``helpdesk.auth.rbac.tabs_for(principals: Sequence[str]) -> Iterable[str]``
-    The stable tab KEYS the principals may see. Shapes this file fixes that the
-    plan left open (a project rule and 55; they belong in 42's Deviations):
+    The stable tab KEYS the principals may see. Shapes this file fixes:
     - it lives in ``rbac.py`` itself, beside ``authorize``, and takes the raw
       principal STRINGS off the token (unknown strings included), not a set of
       ``Principal`` members, so the unknown-string row can be asked.
@@ -96,7 +94,7 @@ def _allowed(principals: list[str], tool: Tool) -> bool:
 def test_each_principal_sees_exactly_its_literal_tab_set(
     principals: list[str], expected: frozenset[str]
 ) -> None:
-    """Catches a tab set that is wider or narrower than the plan's counts.
+    """Catches a tab set that is wider or narrower than the expected counts.
 
     Employee four, manager/system_owner/hr seven, it_admin nine, auditor five,
     platform_admin ten. An implementation giving managers the two admin boards,

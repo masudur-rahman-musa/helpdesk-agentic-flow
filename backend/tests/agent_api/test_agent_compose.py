@@ -1,4 +1,4 @@
-"""An earlier change §6: the composed reply, the node that writes it and its refusals.
+"""The composed reply, the node that writes it and its refusals.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -6,11 +6,11 @@ Expected implementation surface (the implementer must provide exactly this):
     ``COMPOSITION_PROMPT = "reply_composition"`` — the prompt file shipped as
         ``services/agent-api/prompts/reply_composition.md``.
     ``async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState``
-        — exactly ONE ``deps.model.complete`` call (decision E: plain
+        — exactly ONE ``deps.model.complete`` call (plain
         ``complete``, no ``response_format``) under
-        ``ModelAlias.AGENT_DEFAULT`` (decision D), handed the system prompt and
+        ``ModelAlias.AGENT_DEFAULT``, handed the system prompt and
         the composition prompt as the only ``system`` messages and everything
-        the turn gathered as ``user`` messages (the design): the intent and
+        the turn gathered as ``user`` messages: the intent and
         entities, the resolved directory ids, the citations, the tool results
         and each failure's sentence from ``PLAIN_ERRORS``. It adds the answer's
         ``total_tokens`` to ``tokens_used``, puts the reply on the state and
@@ -19,7 +19,7 @@ Expected implementation surface (the implementer must provide exactly this):
         ``error_code``, the templated ``FAILURE_REPLY``) with no composed text
         anywhere, exactly as ``plan_tools`` does.
 
-An earlier change §6 adds the decision-word post-check to the same node and the same
+A later change adds the decision-word post-check to the same node and the same
 harness. Expected additional surface:
 
 ``agent_api.graph.nodes.compose_reply``
@@ -27,11 +27,11 @@ harness. Expected additional surface:
         node, ever.
     ``compose_reply`` composes, checks the answer against
         ``postcheck.contradicts``, regenerates ONCE with the permitted words
-        quoted as a ``user`` data message (decision D), checks again and falls
+        quoted as a ``user`` data message, checks again and falls
         back to ``POSTCHECK_FALLBACK_REPLY``. Exactly one assistant row on
         every path that writes one, both calls' ``total_tokens`` added, and
-        ``state.postcheck`` recording which of the three things it did
-        (decision E). A regeneration that fails or answers past
+        ``state.postcheck`` recording which of the three things it did.
+        A regeneration that fails or answers past
         ``MAX_MESSAGE_CHARS`` ends the turn exactly as a first call would.
 
 Cost: nothing. No Postgres, no Redis and no socket. The gateway is an
@@ -175,7 +175,7 @@ class StagedGateway:
     That is how a call bound is asserted as a hard stop rather than as a count
     read afterwards: a node that retried once more than the staging allows
     fails at the moment of the extra request, not in an assertion it might
-    never reach. An earlier change's criterion 6 needs the bound from both sides, so
+    never reach. The post-check cases need the bound from both sides, so
     the default staging is still ONE answer — every 17d case keeps its
     "exactly one `complete` call" guarantee unchanged — and a case that
     expects a regeneration stages exactly two.
@@ -318,7 +318,7 @@ def _failed_result(code: ErrorCode = ErrorCode.SOD_CONFLICT) -> ToolResult:
     return ToolResult(tool="create_access_request", ok=False, error_code=code)
 
 
-# --- criterion 7: one call, the right alias, the right shape -------------------
+# --- one call, the right alias, the right shape -------------------
 
 
 def test_the_composition_makes_exactly_one_call_under_the_default_alias() -> None:
@@ -330,7 +330,7 @@ def test_the_composition_makes_exactly_one_call_under_the_default_alias() -> Non
     `agent-strong` — paid on every turn that gets this far, for a call that
     writes down a decision the policy engine and the tools already made — and
     one wrapped in `complete_json`, which buys no structure for prose and
-    hides the `ModelAnswer` whose `total_tokens` this plan needs."""
+    hides the `ModelAnswer` whose `total_tokens` this change needs."""
     gateway = StagedGateway()
 
     _compose(_state(citations=[_citation()]), gateway, RecordingSession())
@@ -342,7 +342,7 @@ def test_the_composition_makes_exactly_one_call_under_the_default_alias() -> Non
 
 
 def test_everything_the_turn_gathered_is_quoted_as_data_and_not_as_instructions() -> None:
-    """the design, on the one call whose input includes a tool's own output and
+    """On the one call whose input includes a tool's own output and
     somebody else's policy text. Catches a composition that formats the
     citations, the tool results or the failure sentences into its system
     message: merged there they become instructions the model obeys, which is
@@ -373,7 +373,7 @@ def test_everything_the_turn_gathered_is_quoted_as_data_and_not_as_instructions(
 
 
 def test_a_failure_reaches_the_prompt_in_plain_words_and_never_as_its_code() -> None:
-    """Criterion 6 where it is paid for. Catches a composition that hands the
+    """The call limit where it is paid for. Catches a composition that hands the
     model the raw `error_code` or the tool caller's message: `SOD_CONFLICT`
     read back to a user is internal vocabulary, and the caller's message is
     the server's own text, which is exactly what may not cross into a chat
@@ -395,7 +395,7 @@ def test_a_failure_reaches_the_prompt_in_plain_words_and_never_as_its_code() -> 
     assert PLAIN_ERRORS[ErrorCode.POLICY_BLOCKED] in user_content
 
 
-# --- criterion 7: exactly one assistant message, and the reply on the state ----
+# --- exactly one assistant message, and the reply on the state ----
 
 
 def test_the_composed_reply_is_stored_once_and_carried_on_the_state() -> None:
@@ -420,7 +420,7 @@ def test_the_composed_reply_is_stored_once_and_carried_on_the_state() -> None:
 
 
 def test_the_compositions_own_tokens_are_added_to_the_turns_counter() -> None:
-    """Criterion 8's last call site. Catches a composition that spends the
+    """The last call site. Catches a composition that spends the
     gateway's tokens and reports none: the counter would understate every turn
     by the largest single call it makes, and a turn could pass
     `MAX_TURN_TOKENS` while having spent well past it.
@@ -437,7 +437,7 @@ def test_the_compositions_own_tokens_are_added_to_the_turns_counter() -> None:
 
 
 def test_a_gateway_failure_ends_the_turn_and_leaves_no_partial_reply() -> None:
-    """Criterion 9. Catches a `compose_reply` that lets the gateway's
+    """Catches a `compose_reply` that lets the gateway's
     `ToolError` escape — `run_turn` would raise where every other failure
     comes back as state, so the route would have an exception to translate —
     and one that stores a half-composed answer before the call returned.
@@ -455,11 +455,11 @@ def test_a_gateway_failure_ends_the_turn_and_leaves_no_partial_reply() -> None:
     assert db.messages == []
 
 
-# --- criterion 10: the stored reply against the column's own cap ---------------
+# --- the stored reply against the column's own cap ---------------
 
 
 def test_a_composed_reply_of_exactly_the_cap_is_stored() -> None:
-    """The inclusive half of a project rule's boundary, on the one value this
+    """The inclusive half of the length limit, on the one value this
     plan produces that is STORED. Catches an exclusive comparison that refuses
     the longest reply the `messages.content` column can hold — the turn would
     end on a templated failure after every tool call had already succeeded,
@@ -507,7 +507,7 @@ def test_the_staged_gateway_refuses_a_second_request() -> None:
         gateway.handler(request)
 
 
-# --- an earlier change: the decision-word post-check on the composing node --------------
+# --- the decision-word post-check on the composing node --------------
 
 
 def _pending_result() -> ToolResult:
@@ -529,7 +529,7 @@ def _pending_state(*, tokens_used: int = 0) -> TurnState:
 
 
 def test_the_composition_bound_is_exactly_two_attempts() -> None:
-    """a project rule on the number §5 calls the node's worst case: asserted
+    """The number that is the node's worst case: asserted
     as the value, because the cost of this node — latency and tokens — is
     multiplied by it on every turn that reaches composition.
 
@@ -540,7 +540,7 @@ def test_the_composition_bound_is_exactly_two_attempts() -> None:
 
 
 def test_a_permitted_reply_is_stored_unchanged_after_a_single_call() -> None:
-    """Criterion 1. The reply carries `pending`, which is exactly what this
+    """The reply carries `pending`, which is exactly what this
     turn's one successful result returned, so the post-check has something to
     approve rather than merely nothing to object to.
 
@@ -549,7 +549,7 @@ def test_a_permitted_reply_is_stored_unchanged_after_a_single_call() -> None:
     implementation fails here at the moment it makes it — and one that stores
     the template over a perfectly good answer. `postcheck` is `passed`, which
     catches a node that recorded an outcome only on the unhappy paths and left
-    row 20 counting nothing on the ordinary one."""
+    the metrics counting nothing on the ordinary one."""
     db = RecordingSession()
     state = _pending_state()
     gateway = StagedGateway(text=PENDING_REPLY)
@@ -566,12 +566,12 @@ def test_a_permitted_reply_is_stored_unchanged_after_a_single_call() -> None:
 
 
 def test_a_contradicting_reply_is_regenerated_once_and_only_the_second_is_stored() -> None:
-    """Criterion 2, the whole of it. The first answer claims `approved` over a
+    """The whole of it. The first answer claims `approved` over a
     turn whose only result says `pending`; the second says `pending`.
 
     Catches a node that stores the contradicting answer and regenerates
     afterwards — the user would have already been told their access was
-    approved, which is the sentence this plan exists to prevent, and the
+    approved, which is the sentence this change exists to prevent, and the
     turn's history would carry two assistant messages for one question — and
     one that stores both. The stored content is asserted to be the SECOND
     reply and the first is asserted absent, so neither half can pass alone.
@@ -600,7 +600,7 @@ def test_a_contradicting_reply_is_regenerated_once_and_only_the_second_is_stored
 
 
 def test_the_regeneration_names_the_permitted_words_as_data_and_adds_no_system_message() -> None:
-    """Decision D and the design together, on the one message this plan adds
+    """On the one message this change adds
     to a prompt. Catches a regeneration that re-sends the identical request —
     which mostly reproduces the same contradiction and spends the second call
     to reach the same fallback — because the second request would then be
@@ -637,7 +637,7 @@ def test_the_regeneration_names_the_permitted_words_as_data_and_adds_no_system_m
 
 
 def test_a_second_contradicting_reply_ends_the_turn_on_the_template() -> None:
-    """Criterion 3, and the bound of criterion 6 from the upper side: only two
+    """And the call limit from the upper side: only two
     answers are staged, so a node that tried a third time fails at the request
     rather than at an assertion.
 
@@ -670,7 +670,7 @@ def test_a_second_contradicting_reply_ends_the_turn_on_the_template() -> None:
 
 
 def test_a_gateway_failure_on_the_regeneration_ends_the_turn_with_no_row() -> None:
-    """Criterion 9's first half, on the path that only exists after this plan.
+    """The first half, on the path that only exists after this change.
     The FIRST call succeeded, so a node that stored its answer before checking
     it would have a row here — and that row would be the contradicting reply.
 
@@ -696,8 +696,8 @@ def test_a_gateway_failure_on_the_regeneration_ends_the_turn_with_no_row() -> No
 
 
 def test_a_regenerated_reply_of_exactly_the_cap_is_stored() -> None:
-    """Criterion 10's inclusive half ON THE REGENERATION PATH. Standing rule
-    12: the same gate against the same constant applies at the second call
+    """The inclusive half ON THE REGENERATION PATH. The
+    same gate against the same constant applies at the second call
     site, not only the first.
 
     Catches an implementation that checks `check_message_content` on the first
@@ -726,13 +726,13 @@ def test_a_regenerated_reply_of_exactly_the_cap_is_stored() -> None:
 
 
 def test_a_regenerated_reply_one_character_over_the_cap_writes_no_row_at_all() -> None:
-    """Criterion 10's exclusive half on the same path, and the "before any
-    effect" half of a project rule.
+    """The exclusive half on the same path, and the "before any
+    effect" half of the length limit.
 
     Catches a node that falls back to the TEMPLATE when the regenerated answer
     is too long — the template would be stored as though the composition had
     merely contradicted itself, and a reply the length gate refused would be
-    reported to row 20 as a post-check fallback rather than as the validation
+    reported to the metrics as a post-check fallback rather than as the validation
     failure it is. The turn ends the way every other model failure ends, with
     no row."""
     db = RecordingSession()
@@ -753,7 +753,7 @@ def test_a_regenerated_reply_one_character_over_the_cap_writes_no_row_at_all() -
 
 
 def test_a_two_answer_staging_refuses_a_third_request() -> None:
-    """Guard against a vacuous fixture, the upper half of criterion 6: "at
+    """Guard against a vacuous fixture, the upper half of the call limit: "at
     most 2 gateway calls, ever" rests on the third request failing the test,
     so a handler that kept answering from its last staged answer would make
     every case above pass whatever the node did."""

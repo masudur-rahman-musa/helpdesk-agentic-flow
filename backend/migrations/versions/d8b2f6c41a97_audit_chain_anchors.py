@@ -20,23 +20,13 @@ depends_on: str | Sequence[str] | None = None
 TABLE_NAME = "audit_chain_anchors"
 ROLE_NAME = "helpdesk_app"
 
-# An earlier change decision A: the anchored head lives in its own append-only table
-# rather than a file on a volume. The restricted role of an earlier change cannot
-# delete or update a row it holds only INSERT on, so the guarantee is the one
-# this repo has already built and tested.
-#
-# An earlier change decision D: this revision carries its OWN grant map rather than
-# editing an earlier change's or sharing a constant with it. An applied migration is
-# frozen history, and `test_audit_db_role.py` unions the two maps so each
-# revision keeps saying for itself what it granted.
+# The anchored head lives in its own append-only table, not a file on a volume,
+# so the restricted app role (INSERT only) cannot change it. This revision keeps
+# its own grant map, because an applied migration is frozen history.
 TABLE_GRANTS: dict[str, tuple[str, ...]] = {TABLE_NAME: ("SELECT", "INSERT")}
 
-# Same shape as `audit_events`' trigger and for the same reason: an UPDATE
-# from any connection is refused by the database rather than trusted to be
-# well-behaved. The grants above are the first refusal (SQLSTATE 42501 for
-# `helpdesk_app`); this is what still stops the table OWNER, and what a
-# superuser has to go out of its way to disable. `TG_TABLE_NAME` is used so
-# the message names the table without the literal being repeated.
+# Same trigger as on `audit_events`. The grants stop the app role; this still
+# stops the table owner.
 _APPEND_ONLY_FUNCTION = """
 CREATE OR REPLACE FUNCTION audit_chain_anchors_append_only() RETURNS trigger AS $$
 BEGIN
@@ -51,9 +41,8 @@ BEFORE UPDATE OR DELETE ON audit_chain_anchors
 FOR EACH ROW EXECUTE FUNCTION audit_chain_anchors_append_only()
 """
 
-# TRUNCATE fires no row-level trigger, and a tenant with no anchor verifies as
-# intact, so one statement would switch off the whole detection this revision
-# adds. Statement-level, same function.
+# TRUNCATE fires no row trigger, and a tenant with no anchor verifies as intact,
+# so one statement would switch off the whole check.
 _APPEND_ONLY_TRUNCATE_TRIGGER = """
 CREATE TRIGGER audit_chain_anchors_no_truncate
 BEFORE TRUNCATE ON audit_chain_anchors
@@ -87,11 +76,8 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_audit_chain_anchors")),
     )
-    # Unique rather than merely indexed: two runners whose Redis lock both
-    # expired would otherwise each store a head at the same seq, and two rows
-    # at one seq make "the current head" a question the table cannot answer.
-    # A unique INDEX rather than a UniqueConstraint, so the composite index
-    # every tenant-scoped table owes (`test_models.py`) is the same object.
+    # Unique: two runners whose locks both expired could each store a head at
+    # the same seq, and then "the current head" has no answer.
     op.create_index(
         "ix_audit_chain_anchors_tenant_id_audit_seq",
         TABLE_NAME,
@@ -107,9 +93,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # The REVOKE runs before the DROP: dropping the table takes its grants
-    # with it, but a downgrade that only dropped would leave nothing for
-    # `test_audit_db_role.py` to tell apart from a revoke that never ran.
+    # Revoke before the drop, so the downgrade undoes the grant on its own.
     for table_name in TABLE_GRANTS:
         op.execute(f'REVOKE ALL ON TABLE {table_name} FROM "{ROLE_NAME}"')
     op.execute(f"DROP TRIGGER IF EXISTS audit_chain_anchors_no_truncate ON {TABLE_NAME}")

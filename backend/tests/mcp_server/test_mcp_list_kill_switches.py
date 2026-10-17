@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `list_kill_switches`, through the transport.
+"""`list_kill_switches`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -20,11 +20,11 @@ Surface under test (written before it exists):
     ``KillSwitch.list_states(tenant_id, tools)``, the one bulk read behind it
     (its own cases live in ``packages/helpdesk/tests/test_killswitch.py``).
 
-the design gives this row ONE cell, ``platform_admin`` at ``Scope.ANY``, the
-same single cell as ``set_kill_switch`` and the same audience as the design's
+The matrix gives this row ONE cell, ``platform_admin`` at ``Scope.ANY``, the
+same single cell as ``set_kill_switch`` and the same audience as the
 ``/admin/killswitch`` page. There is NO scope helper on this tool, so the
 pipeline's matrix stage IS the whole permission check and the six-principal
-case below is its kill (a project rule — the handler never re-runs
+case below is its kill (the handler never re-runs
 ``rbac.authorize``, so there is no second copy of that guard to hide behind).
 
 Everything here is a READ: no key is derived from client input, nothing is
@@ -34,7 +34,7 @@ Audit deltas are asserted as exact ordered event-type lists against a before
 snapshot, never as counts: a duplicated summary, a domain event this tool has
 no business writing, or a denial filed as an outage is invisible to a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Nothing here plants a database row, so no seeded
 tenant is resolved by name: both tenant handles come from
@@ -79,26 +79,26 @@ SUCCEEDED_EVENT = "tool.succeeded"
 DENIED_EVENT = "tool.denied"
 DISABLED_EVENT = "tool.disabled"
 
-# the design's key shapes, as literals for the same reason.
+# The key shapes, as literals for the same reason.
 KEY_PREFIX_LITERAL = "killswitch"
 GLOBAL_SEGMENT_LITERAL = "global"
 
-# The envelope and the row, written out: what 24cb parses
-# and 24d renders. An extra key is as much a defect as a missing one — a row
+# The envelope and the row, written out: what the page parses
+# and renders. An extra key is as much a defect as a missing one — a row
 # that grew a `reason` beside its two states would be a second, ambiguous
 # answer to the question `global_state` already answers.
 ENVELOPE_KEYS = {"switches"}
 ROW_KEYS = {"tool", "protected", "stopped", "global_state", "tenant_state", "unreadable"}
 STATE_KEYS = {"reason", "actor", "at"}
 
-# the design's `list_kill_switches` row: ONE cell, the same audience as the write
+# The `list_kill_switches` matrix row: ONE cell, the same audience as the write
 # it is the read half of. Checked against `set_kill_switch`'s row in
 # `helpdesk/auth/rbac.py` before it was written.
 ALLOWED_PRINCIPAL = "platform_admin"
 DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "hr", "it_admin", "auditor")
 
 # The tool whose switch these cases flip. A registered READ permitted to every
-# principal the design has, so a `TOOL_DISABLED` on it can only come from the kill
+# principal the matrix has, so a `TOOL_DISABLED` on it can only come from the kill
 # switch and never from the matrix.
 TARGET = "get_me"
 
@@ -128,7 +128,7 @@ def _structured(result: Any) -> dict[str, Any]:
 
 
 def _admin_token(env: SeededMcp) -> dict[str, str]:
-    """A tenant-A token carrying ONLY the design's single cell on this row."""
+    """A tenant-A token carrying ONLY the single matrix cell on this row."""
     return bearer(token_for(env.tenant_a, principals=(ALLOWED_PRINCIPAL,)))
 
 
@@ -212,17 +212,17 @@ def _global_key(tool_name: str) -> str:
     return f"{KEY_PREFIX_LITERAL}:{GLOBAL_SEGMENT_LITERAL}:{tool_name}"
 
 
-# --- the happy path (criteria 1 to 4) --------------------------------------------
+# --- the happy path --------------------------------------------
 
 
 def test_the_board_answers_the_envelope_and_an_exact_six_key_row(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 4, as the literal 24cb parses and 24d renders.
+    """The literal the page parses and renders.
 
     KILL: a handler answering a bare list, a mapping of tool to state, or a
-    row short of a field — `protected` left for the page to retype (decision
-    G), `unreadable` omitted because the happy path has no bad key, or the two
+    row short of a field — `protected` left for the page to retype,
+    `unreadable` omitted because the happy path has no bad key, or the two
     layers collapsed into one `state`. Each of those reads plausibly and none
     of them can drive the toggle the page owes: the envelope key, the row key
     set and the values on a CLEAN namespace are asserted together, so a board
@@ -243,17 +243,17 @@ def test_the_board_answers_the_envelope_and_an_exact_six_key_row(
 def test_the_listed_names_are_exactly_the_registry_in_its_own_order(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 3 and decision A: where the tool list comes from.
+    """Where the tool list comes from.
 
     KILL: a handler built from a Redis `SCAN` over `killswitch:*` or from the
     `rbac.Tool` members instead of the registry's own names. `SCAN` shows only
     the keys that EXIST, so on the clean namespace here it answers an empty
     board — the page could never say "this tool is running". The matrix
     members are the wrong vocabulary: `check` is called with `spec.name`, and
-    the design splits `create_access_request` into two members with one wire
+    the matrix splits `create_access_request` into two members with one wire
     name, so a board built from them lists a name no key is ever written
     under. The equality is with `set(REGISTRY)` rather than a literal on
-    purpose: a tool registered by a LATER plan must not be able to go missing
+    purpose: a tool registered by a LATER change must not be able to go missing
     from the admin page.
 
     Each name appears exactly once, and the order is the registry's, so a
@@ -270,7 +270,7 @@ def test_the_listed_names_are_exactly_the_registry_in_its_own_order(
 def test_the_tool_takes_no_arguments_at_all(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 2 and a project rule: the input model carries NO fields.
+    """The input model carries NO fields.
 
     KILL: an input that accepts a `tenant_id` (or a `tool`, or a `user_id`) so
     a caller can choose whose board they read. The declared field set is
@@ -281,7 +281,7 @@ def test_the_tool_takes_no_arguments_at_all(
 
     The `tenant_id` sent below is the caller's OWN, so the
     refusal cannot be the scope or tenant guard answering on the model's
-    behalf — this caller holds the one cell the design gives the row, every other
+    behalf — this caller holds the one cell the matrix gives the row, every other
     stage passes, and nothing but the empty model can refuse it.
     """
     spec = REGISTRY[LIST_KILL_SWITCHES]
@@ -300,18 +300,18 @@ def test_the_tool_takes_no_arguments_at_all(
 def test_protected_is_true_for_the_one_tool_no_switch_may_stop(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 6 and decision G: the flag that disables 24d's toggle.
+    """The flag that disables the page's toggle.
 
     KILL: a handler that hardcodes `protected` to `False`, or one that
     retypes the protected list instead of reading `PROTECTED_TOOLS`. Either
     gives the page a toggle that looks live on `set_kill_switch` and answers
     `POLICY_BLOCKED` when an admin uses it — a second copy of a
-    security-relevant list, which is what a project rule exists to stop. The
+    security-relevant list, which is what the tenant rule exists to stop. The
     exact True row AND every False row are asserted, so `protected=True`
     everywhere (a toggle nobody can use) fails too.
 
     `PROTECTED_TOOLS` is compared against its literal contents as well, so a
-    tool added to that frozenset by a later plan without a thought for this
+    tool added to that frozenset by a later change without a thought for this
     page is a red row rather than a silently disabled toggle.
     """
     from helpdesk.shared.services.killswitch import PROTECTED_TOOLS
@@ -330,7 +330,7 @@ def test_protected_is_true_for_the_one_tool_no_switch_may_stop(
         assert row["protected"] is False, row["tool"]
 
 
-# --- the two layers and the precedence they must agree with (criterion 5) --------
+# --- the two layers and the precedence they must agree with --------
 
 
 @pytest.mark.parametrize(
@@ -347,13 +347,13 @@ def test_a_stopped_tool_reads_stopped_on_the_layer_it_was_stopped_on(
     plant_global: bool,
     plant_tenant: bool,
 ) -> None:
-    """Criterion 5: the board and `check` must never part company.
+    """The board and `check` must never part company.
 
     KILL: `stopped` derived from the tenant layer alone, or from whichever
-    key came back non-null last, instead of the global-first precedence plan
-    09b decision D gives `check`. The `global-only` row is the one that
+    key came back non-null last, instead of the global-first precedence
+    `check` uses. The `global-only` row is the one that
     catches the tenant-only reading; the `both-layers` row catches an
-    effective-state board (decision B), where the tenant switch is invisible
+    effective-state board, where the tenant switch is invisible
     behind the global one and an admin clearing it is never told the tool is
     still held down.
 
@@ -409,7 +409,7 @@ def test_another_tenants_switch_is_invisible_to_this_caller(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 7: `tenant_state` reads the token's tenant and no other.
+    """`tenant_state` reads the token's tenant and no other.
 
     KILL: a handler that reads the tenant layer with a glob
     (`killswitch:*:{tool}`) or from a tenant that came in any way other than
@@ -436,14 +436,14 @@ def test_another_tenants_switch_is_invisible_to_this_caller(
         _delete_key(mcp_redis_url, foreign_key)
 
 
-# --- the bad key an admin has to be able to see (criterion 9) --------------------
+# --- the bad key an admin has to be able to see --------------------
 
 
 def test_an_unreadable_value_marks_its_row_and_the_board_still_answers(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 9 and decision D: one bad key may not blank the board.
+    """One bad key may not blank the board.
 
     KILL: a handler that lets `_read`'s `ToolDisabledError` out — the way
     `check` answers an unparseable value — so the whole call fails and the
@@ -478,7 +478,7 @@ def test_an_unreadable_value_marks_its_row_and_the_board_still_answers(
         _delete_key(mcp_redis_url, corrupt_key)
 
 
-# --- the design's six empty cells (criterion 12) ------------------------------------
+# --- the six empty matrix cells ------------------------------------
 
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
@@ -486,13 +486,13 @@ def test_the_six_denied_principals_read_no_board(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """the design's six empty cells on this row, and the record they leave.
+    """The six empty matrix cells on this row, and the record they leave.
 
     KILL: adding this principal to the `list_kill_switches` cell of the RBAC
     matrix. This handler runs no scope helper and therefore never re-runs
-    `rbac.authorize` (plan §2), so the pipeline's matrix stage is the only
+    `rbac.authorize`, so the pipeline's matrix stage is the only
     guard that can refuse here and deleting it hands every one of these six
-    the platform's switch board (a project rule does not apply: there is no
+    the platform's switch board (there is no
     second copy of the guard). `it_admin` and `auditor` are the cells that
     matter most — `it_admin` holds one on `rollback_request` and `auditor`
     one on `search_audit`, so a row copied from either by habit fails.
@@ -523,7 +523,7 @@ def test_a_denied_caller_is_refused_before_any_switch_is_read(
     mcp_env: SeededMcp,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Criterion 12's second half: the matrix decides with no Redis read.
+    """The second half: the matrix decides with no Redis read.
 
     The handler's own Redis accessor is staged to a port nothing listens on,
     so ANY read it issues raises rather than answering. The pipeline's own
@@ -544,7 +544,7 @@ def test_a_denied_caller_is_refused_before_any_switch_is_read(
 
     # `raising=True` (the default) is deliberate: the handler reaches Redis
     # through the accessor `mcp_server.tools.killswitch` already imports from
-    # `helpdesk.shared.core.redis` (plan §2), and an implementation that reached
+    # `helpdesk.shared.core.redis`, and an implementation that reached
     # it some other way makes this case fail loudly here rather than pass
     # while staging nothing.
     monkeypatch.setattr(killswitch, "_redis", _closed)
@@ -558,20 +558,20 @@ def test_a_denied_caller_is_refused_before_any_switch_is_read(
     assert error_code(result) == "FORBIDDEN"
 
 
-# --- the board can be stopped like any other tool (criterion 13) -----------------
+# --- the board can be stopped like any other tool -----------------
 
 
 def test_a_switch_on_the_board_itself_answers_tool_disabled(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 13: the board is not protected, and it is not special.
+    """The board is not protected, and it is not special.
 
     The switch is set through `set_kill_switch` rather than planted in Redis,
     which is what makes this two kills in one:
 
-    * adding `list_kill_switches` to `PROTECTED_TOOLS` by habit — the plan
-      says only the tool that can UNDO a switch is protected — turns the
+    * adding `list_kill_switches` to `PROTECTED_TOOLS` by habit —
+      only the tool that can UNDO a switch is protected — turns the
       first call into `POLICY_BLOCKED` and this case red;
     * a board wired around the pipeline (its own route, its own handler, a
       registry entry the switch stage skips) answers the second call with
@@ -616,7 +616,7 @@ def test_a_switch_on_the_board_itself_answers_tool_disabled(
 def test_one_call_writes_exactly_one_event_naming_the_tool_and_the_caller(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule: what the audit log actually carries for a board read.
+    """What the audit log actually carries for a board read.
 
     KILL: a read that declares a domain event type of its own, or appends one
     beside the summary. A `killswitch.changed` per render would put a

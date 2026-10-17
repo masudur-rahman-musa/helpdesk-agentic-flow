@@ -5,7 +5,7 @@ import { GET as killswitchGET, POST as killswitchPOST } from "@/app/api/admin/ki
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change §6, `killswitch-proxy-routes.test.ts`: the kill switch board and
+ * `killswitch-proxy-routes.test.ts`: the kill switch board and
  * the toggle, proxied, against a stubbed `fetch`. Node environment, because
  * both handlers are server-side and `NextResponse.redirect` needs the real
  * `Response`.
@@ -14,13 +14,12 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  * mocked exactly as `tests/audit-proxy-routes.test.ts` mocks it — the module
  * under test is the route, not Next's store.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24cb's Deviations):
+ * Shapes this file fixes:
  * - the board handler is `export async function GET(): Promise<Response>`,
- *   23b's zero-argument shape, because the agent-api route takes no parameter
+ *   the zero-argument shape, because the agent-api route takes no parameter
  *   at all; the toggle is `export async function POST(request: Request):
  *   Promise<Response>`, the shape the approval proxies use minus the path
- *   segment (decision E puts both verbs on one path).
+ *   segment (both verbs share one path).
  * - the upstream path is agent-api's own `/admin/killswitch` for both verbs,
  *   never the browser-facing `/api/...` prefix, and with no query at all.
  * - the toggle's body is forwarded VERBATIM as the bytes that arrived, with
@@ -30,7 +29,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  * - the transport-failure envelope is `502 { code: "UPSTREAM_UNAVAILABLE" }`,
  *   `proxyAgentApi`'s own body, and the 401 answer is a **307** to `/login`,
  *   read off `NextResponse.redirect`'s default status the same way
- *   `tests/audit-proxy-routes.test.ts` reads it (a project rule: the
+ *   `tests/audit-proxy-routes.test.ts` reads it (the
  *   redirect is observed on the response's status and `location` header, never
  *   through `window.location`).
  *
@@ -45,7 +44,7 @@ const UPSTREAM_UNAVAILABLE_STATUS = 502;
 const CONFLICT_STATUS = 409;
 const UNAVAILABLE_STATUS = 503;
 
-/** The browser's half of a toggle: §1's exact four keys, obviously fake. */
+/** The browser's half of a toggle: the exact four keys, obviously fake. */
 const TOGGLE_BODY = {
   tool_name: "grant_access",
   enabled: true,
@@ -134,8 +133,8 @@ describe("the kill switch proxy — the bearer and the path", () => {
     "$name sends the bearer from the httpOnly cookie and never in the URL",
     async ({ call, method }) => {
       // Catches a route that reads a token from a header the browser set or
-      // from the query string — the cookie is the only copy of the bearer (22a
-      // decision A), so anything else means the client was handed one, and a
+      // from the query string — the cookie is the only copy of the bearer, so anything else means
+      // the client was handed one, and a
       // token in a URL lands in every access log. Also catches a route that
       // calls agent-api directly instead of through `proxyAgentApi`: an
       // unrouted call carries no authorization header at all, and on the write
@@ -182,7 +181,7 @@ describe("the kill switch proxy — the bearer and the path", () => {
     // Catches a proxy that reuses the toggle's `init` for both verbs: a GET
     // carrying a body is refused outright by some runtimes and, where it is
     // not, it is a write-shaped request on a read path. The board takes no
-    // argument of any kind (a project rule, §1's second criterion).
+    // argument of any kind (the tenant comes from the token).
     await killswitchGET();
 
     const [, init] = firstCall();
@@ -192,9 +191,9 @@ describe("the kill switch proxy — the bearer and the path", () => {
 
 describe("the kill switch proxy — the toggle's body", () => {
   it("forwards the body verbatim with its content type", async () => {
-    // §6's own requirement. Catches a proxy that re-parses and re-serialises
+    // Catches a proxy that re-parses and re-serialises
     // the payload — a second opinion about a body it does not validate, which
-    // would drop the one key it had not heard of (the `scope` this plan adds)
+    // would drop the one key it had not heard of (the `scope` key)
     // and silently turn a tenant-scoped stop into whatever its default is —
     // and one that sends no content type, which leaves FastAPI unable to read
     // the body at all and answers a refusal for a perfectly good toggle.
@@ -208,11 +207,11 @@ describe("the kill switch proxy — the toggle's body", () => {
 
   it("forwards a body it cannot itself validate, byte for byte", async () => {
     // The other half of "verbatim": an over-long `reason` and an out-of-enum
-    // `scope` are agent-api's to refuse with the typed `VALIDATION` 24d has a
+    // `scope` are agent-api's to refuse with the typed `VALIDATION` the page has a
     // sentence for. Catches a proxy that validates the payload here and
     // answers its own refusal, which would be a second bound to keep in step
     // with `helpdesk.killswitch`'s own constants and a body shape the page
-    // cannot map to any the design code.
+    // cannot map to any typed error code.
     const rejected = { tool_name: "", enabled: true, scope: "everything", reason: "" };
 
     await killswitchPOST(toggleRequest(rejected));
@@ -224,7 +223,7 @@ describe("the kill switch proxy — the toggle's body", () => {
   it.each([CONFLICT_STATUS, UNAVAILABLE_STATUS])(
     "passes a %i through with its own typed body",
     async (status) => {
-      // §6's last web row. A 409 is `POLICY_BLOCKED` (an admin aiming the
+      // A 409 is `POLICY_BLOCKED` (an admin aiming the
       // switch at `set_kill_switch` itself) and a 503 is `TOOL_DISABLED` (the
       // switch already tripped on the tool being read). Catches a proxy that
       // treats every non-200 as a transport failure: the admin would be told
@@ -277,7 +276,7 @@ describe("the kill switch proxy — an expired session", () => {
     async ({ call }) => {
       // Catches a route that passes agent-api's 401 through to the browser: the
       // stale cookie survives, so every later call fails the same way with
-      // nothing telling the user why. This is 22a's `proxyAgentApi` seam, so a
+      // nothing telling the user why. This is the `proxyAgentApi` seam, so a
       // route that opens its own `fetch` is caught here too — an unrouted call
       // answers 401, not a redirect, and clears no cookie.
       fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));

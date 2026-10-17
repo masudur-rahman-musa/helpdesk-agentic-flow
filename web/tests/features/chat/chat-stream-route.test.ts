@@ -6,7 +6,7 @@ import { AGENT_API_STREAM_TIMEOUT_MS } from "@/lib/agent-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change §6, `chat-stream-route.test.ts`: `POST /api/chat/stream` against a
+ * `chat-stream-route.test.ts`: `POST /api/chat/stream` against a
  * stubbed `fetch`. Node environment, because the handler is server-side and
  * `NextResponse.redirect` needs the real `Response`.
  *
@@ -14,19 +14,18 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  * mocked exactly as `tests/agent-api-proxy.test.ts` mocks it — the module under
  * test is the route, not Next's store.
  *
- * Shapes this file fixes that the plan left open (a project rule/39; these go
- * in the plan's Deviations):
+ * Shapes this file fixes:
  * - the redirect status is **307**, read off `proxyAgentApi` rather than
  *   invented: it answers `NextResponse.redirect(url)`, whose default status is
- *   307. §6 named 307 and the seam agrees, so the number is pinned here.
- * - the refusal envelope is `{ code: "VALIDATION" }` (§6's binding paragraph),
- *   agent-api's own shape from `chat_routes._typed`, and NOT 22a's
+ *   307, so the number is pinned here.
+ * - the refusal envelope is `{ code: "VALIDATION" }`,
+ *   agent-api's own shape from `chat_routes._typed`, and NOT the older
  *   `{ message }`.
  * - the timeout is asserted through a spy on `AbortSignal.timeout`, because a
  *   signal carries no readable duration: the case pins that the signal handed
  *   to `fetch` is the one built from `AGENT_API_STREAM_TIMEOUT_MS` and not the
  *   one `proxyAgentApi` builds from `AGENT_API_TIMEOUT_MS` (10s, which would
- *   abort an ordinary turn part-way through its own reply — decision B). An
+ *   abort an ordinary turn part-way through its own reply). An
  *   implementation that times out with `AbortController` + `setTimeout`
  *   instead would have to be reconciled with this case; `AbortSignal.timeout`
  *   is what every existing call in `lib/agent-api.ts` uses.
@@ -102,7 +101,7 @@ afterEach(() => {
 describe("POST /api/chat/stream — the bearer", () => {
   it("sends the bearer from the httpOnly cookie and never in the URL", async () => {
     // Catches a route that reads a token from the request body or a header the
-    // browser set — the cookie is the only copy of the bearer (22a decision A),
+    // browser set — the cookie is the only copy of the bearer,
     // so anything else means the client was handed one. The URL half catches a
     // token put in a query string, where it lands in every access log.
     await POST(request({ message: "grant me the finance dashboard" }));
@@ -116,8 +115,8 @@ describe("POST /api/chat/stream — the bearer", () => {
 
 describe("POST /api/chat/stream — the streaming timeout", () => {
   it("pins AGENT_API_STREAM_TIMEOUT_MS at exactly 120000", () => {
-    // Catches a band ("some longer timeout"): a project rule wants the value,
-    // and decision B fixed it at two minutes because `AbortSignal.timeout`
+    // Catches a band ("some longer timeout"): the test wants the value,
+    // and it is two minutes because `AbortSignal.timeout`
     // bounds the WHOLE response, body included.
     expect(AGENT_API_STREAM_TIMEOUT_MS).toBe(STREAM_TIMEOUT_MS);
   });
@@ -126,8 +125,8 @@ describe("POST /api/chat/stream — the streaming timeout", () => {
     // Catches the route reusing `proxyAgentApi`'s hardcoded
     // `AbortSignal.timeout(AGENT_API_TIMEOUT_MS)`: the constant would exist,
     // read 120000, and never reach a stream, so every turn longer than ten
-    // seconds would abort mid-reply and look exactly like a dropped socket
-    // (§5). Identity against the signal built from the stream constant is the
+    // seconds would abort mid-reply and look exactly like a dropped socket. Identity against the
+    // signal built from the stream constant is the
     // only thing that can tell the two apart — a signal carries no duration.
     await POST(request({ message: "grant me the finance dashboard" }));
 
@@ -143,8 +142,8 @@ describe("POST /api/chat/stream — an expired session", () => {
     // Catches a route that passes agent-api's 401 through to the browser: the
     // stale cookie survives, so every later call fails the same way with
     // nothing telling the user why, and the chat page renders a refusal it
-    // cannot recover from. This is 22a's `proxyAgentApi` seam and its first
-    // real caller (§1), so a route that opens its own `fetch` is caught here
+    // cannot recover from. This is the `proxyAgentApi` seam and its first
+    // real caller, so a route that opens its own `fetch` is caught here
     // too — an unrouted call answers 401, not a redirect.
     fetchStub.mockResolvedValue(
       new Response(JSON.stringify({ code: "FORBIDDEN" }), {
@@ -192,7 +191,7 @@ describe("POST /api/chat/stream — the shared pre-check", () => {
 
   it("answers the typed code envelope and not 22a's message envelope", async () => {
     // Catches a refusal shaped `{ message: "..." }`: that key belongs to the
-    // one human sentence `/login` renders (§6). The chat client picks its
+    // one human sentence `/login` renders. The chat client picks its
     // sentence from `FAILURE_MESSAGES` by CODE, so a body without `code` leaves
     // it rendering the default for a validation failure it could have named.
     const response = await POST(request({ message: "" }));
@@ -233,7 +232,7 @@ describe("POST /api/chat/stream — the stream itself", () => {
   it("delivers the first frame while the upstream stream is still open", async () => {
     // Catches a proxy that buffers — `await upstream.text()` and then one
     // `Response` — which turns a stream into one late blob while every test
-    // that reads a SETTLED reply still passes (§5's first risk). The upstream
+    // that reads a SETTLED reply still passes (the main risk). The upstream
     // body is deliberately left OPEN: a buffering proxy has nothing to answer
     // with until it closes, so the race below resolves to the sentinel.
     const encoder = new TextEncoder();

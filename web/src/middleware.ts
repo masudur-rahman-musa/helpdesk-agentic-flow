@@ -1,28 +1,10 @@
 /**
- * The session gate. Any app route but `/login` needs the session cookie;
- * without it the request is redirected to `/login`.
- *
- * `/login` is exempt, which is the infinite redirect loop this has to avoid —
- * a gate covering every path sends an unauthenticated visitor to `/login`
- * forever and the form never renders. Pinned by `tests/middleware.test.ts`'s
- * "does not redirect /login when no session cookie is present".
- *
- * The cookie's PRESENCE is all this checks. It is not a verification: the
- * bearer is verified by agent-api on every call it carries, and a stale or
- * forged cookie gets a 401 there, which the client turns back into a logout
- * (§1's second unhappy path). Putting a signature check here would be a second
- * verification path to keep in step with the Python one.
- *
- * `/api/*` is outside the matcher: `POST /api/login` is how a visitor with no
- * cookie gets one, so gating it would make signing in impossible.
- *
- * `/healthz` and `/readyz` are exempt for the same class of reason.
- * A probe carries no cookie, so the gate answered both with a 307 to `/login`:
- * compose's healthcheck reads `r.ok` and a kubelet reads the status, so the web
- * container was never healthy on a machine where nothing had signed in. They
- * are exempt rather than excluded from the matcher because the matcher is a
- * negative pattern, and a third alternative in it is harder to read than a
- * second entry in the set below.
+ * The session check. Every app route but the public ones needs the session
+ * cookie, or it is sent to `/login`. Only the cookie's presence is checked:
+ * agent-api checks the bearer on every call, and a 401 there logs the user out.
+ * `/login` is public, or the redirect would loop. `/api/*` is outside the
+ * matcher, since `POST /api/login` is how a cookie is obtained. `/healthz` and
+ * `/readyz` are public because health probes carry no cookie.
  */
 
 import { NextResponse, type NextRequest } from "next/server";

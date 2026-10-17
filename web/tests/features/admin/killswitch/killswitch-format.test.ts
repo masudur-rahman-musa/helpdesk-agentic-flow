@@ -4,18 +4,18 @@ import { KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
 import { formatSwitchInstant } from "@/lib/date-format";
 
 /**
- * An earlier change §6, `killswitch-format.test.ts`: the parts of `/admin/killswitch` a
+ * `killswitch-format.test.ts`: the parts of `/admin/killswitch` a
  * test can pin without a DOM — how a switch's instant renders, and the sentence
  * a failed read shows. No component, no fetch, no clock, no backing service.
- * (No basename collision in the tree, a project rule: the neighbours are
+ * (The neighbours are
  * `killswitch-schema.test.ts` and `killswitch-proxy-routes.test.ts`.)
  *
- * The units under test are `formatSwitchInstant` in `web/src/lib/date-format.ts` (moved by an earlier change)
- * and `KILL_SWITCH_READ_MESSAGE` in `web/src/features/admin/killswitch/format.ts`; §3 says they export
+ * The units under test are `formatSwitchInstant` in `web/src/lib/date-format.ts`
+ * and `KILL_SWITCH_READ_MESSAGE` in `web/src/features/admin/killswitch/format.ts`; they export
  * `formatSwitchInstant(at: string): string` and `KILL_SWITCH_READ_MESSAGE` —
- * the way `lib/audit-filters.ts` carries 24ba's pure helpers.
+ * the way `lib/audit-filters.ts` carries the pure helpers.
  *
- * Decision B is the rule these rows encode: the wire string's first 16
+ * This is the rule these rows encode: the wire string's first 16
  * characters, with `T` replaced by a space, followed by ` UTC`. Never a `Date`
  * and never `toLocaleString`, for the five neighbours' own reason — a formatter
  * that parses the string answers a different day either side of midnight, and a
@@ -23,9 +23,8 @@ import { formatSwitchInstant } from "@/lib/date-format";
  * every JS engine, so the hour an operator reads would depend on the browser's
  * zone.
  *
- * Shapes this file fixes that the plan left open (a project rule and 39;
- * these belong in 24da's Deviations):
- * - 16 characters is the INCLUSIVE boundary of "formatted": §1 says a string
+ * Shapes this file fixes:
+ * - 16 characters is the INCLUSIVE boundary of "formatted": a string
  *   SHORTER than 16 is returned unchanged, so `"2026-09-13T14:05"` (exactly 16)
  *   is formatted and `"2026-09-13T14:0"` (15) is not. Both rows are here; the
  *   plan states only the short case, and either direction of an off-by-one
@@ -64,9 +63,9 @@ const UNCHANGED: ReadonlyArray<{ name: string; at: string }> = [
 
 describe("formatSwitchInstant — the strings it formats", () => {
   it.each(FORMATTED)("renders $name as its date and minute in UTC", ({ at, rendered }) => {
-    // Decision B as the three exact strings.
+    // The three exact strings.
     //
-    // Row 1 kills a formatter built on `Date`: `toLocaleString` renders
+    // The first row kills a formatter built on `Date`: `toLocaleString` renders
     // "9/13/2026, 2:05:09 PM" (and a different DAY either side of midnight in a
     // non-UTC browser), and `toISOString()` renders the `T` and the seconds
     // back. It also kills the neighbours' date-only prefix — "stopped ten
@@ -74,12 +73,12 @@ describe("formatSwitchInstant — the strings it formats", () => {
     // situations that "2026-09-13" cannot tell apart, which is the whole
     // reason this surface gets a minute.
     //
-    // Row 2 kills a formatter that reaches the answer by STRIPPING the
+    // The second row kills a formatter that reaches the answer by STRIPPING the
     // `+00:00` suffix instead of slicing 16 characters: on this input there is
     // no suffix to strip, so it renders "2026-09-13 14:05:09 UTC" — the
-    // seconds still on — while row 1 stays green for it.
+    // seconds still on — while the first row stays green for it.
     //
-    // Row 3 is the inclusive boundary: it kills the off-by-one guard
+    // The third row is the inclusive boundary: it kills the off-by-one guard
     // `at.length <= 16 ? at : ...`, which returns this minute-precision instant
     // raw, complete with its `T` and with no zone on a page whose entire
     // subject is when somebody stopped a tool.
@@ -89,7 +88,7 @@ describe("formatSwitchInstant — the strings it formats", () => {
 
 describe("formatSwitchInstant — the strings it returns untouched", () => {
   it.each(UNCHANGED)("returns $name unchanged", ({ at }) => {
-    // §1's short-string criterion, from three directions, each killing a
+    // From three directions, each killing a
     // formatter that slices and appends unconditionally.
     //
     // 15 characters would render "2026-09-13 14:0 UTC" — a half minute, which
@@ -108,7 +107,7 @@ describe("formatSwitchInstant — the strings it returns untouched", () => {
 
 describe("KILL_SWITCH_READ_MESSAGE", () => {
   it("is exactly the sentence a failed board read shows", () => {
-    // a project rule on the one string this module introduces. Every case in
+    // The exact literal for the one string this module introduces. Every case in
     // `killswitch-board.test.tsx` READS this constant, so it stays green for
     // whatever wording the module chooses; only this literal fixes it. Kills an
     // implementation that exports the symbol and fills it with

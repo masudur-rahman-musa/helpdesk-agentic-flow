@@ -1,14 +1,12 @@
 """Every tool declared once: wire name, permission, schemas, audit event type.
 
-One declaration per tool means the transport, the RBAC check, the kill
-switch and the audit log all read the same name — a tool advertised under a
-name the matrix does not know, or one the kill switch cannot store, fails in
-`test_mcp_registry.py` rather than at the moment someone needs the stop.
+One declaration per tool means the transport, the role check, the kill
+switch and the audit log all read the same name. `mutating` decides whether
+a call needs an idempotency key and runs at most once per key.
 
-`mutating` is what the pipeline's `run_once` branch keys on: a
-mutating tool's input carries an idempotency key and its body runs at most
-once per key, a property of the registry rather than a list kept somewhere
-else.
+Reads, and several writes, declare the generic `tool.succeeded`. Those
+writes append their own event naming the real subject (the person, the
+grant, the review), and the pipeline's event lands last as a summary.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
@@ -36,27 +34,27 @@ from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.auth import rbac
 
 SUCCESS_EVENT_TYPE = "tool.succeeded"
-"""What a read tool writes when it worked. Per-tool rather than global (plan
-10a decision C): row 11's mutating tools declare `grant.executed` and friends
-from the design, and a single generic type would have to be replaced then."""
+"""What a tool writes when it worked, unless it declares its own event type."""
 
 DENIED_EVENT_TYPE = "tool.denied"
 """The caller held a valid token and the matrix refused them."""
 
 DISABLED_EVENT_TYPE = "tool.disabled"
-"""An admin had stopped the tool. Distinct from denied: the audit trail must
-be able to tell a permission decision from a platform stop."""
+"""An admin had stopped the tool. Kept apart from denied, so the log can tell a
+permission decision from a platform stop.
+"""
 
 FAILED_EVENT_TYPE = "tool.failed"
-"""The call reached the tool (or a check other than the two above) and did
-not complete. Written from a fresh session so it survives the rollback that
-takes the tool's own writes with it."""
+"""The call did not complete. Written from a fresh session, so it survives the
+rollback that undoes the tool's own writes.
+"""
 
 REPLAYED_EVENT_TYPE = "tool.replayed"
-"""A mutating call answered from its stored idempotency row (an earlier change
-decision B). Distinct from the tool's declared event on purpose: a second
-`ticket.created` for one ticket would be a false record, so a replay logs
-that it replayed and nothing else."""
+"""A mutating call answered from its stored idempotency row.
+
+Not the tool's own event: a second `ticket.created` for one ticket would be a
+false record.
+"""
 
 
 WIRE_NAME_ALIASES: Mapping[str, rbac.Tool] = MappingProxyType(
@@ -64,20 +62,12 @@ WIRE_NAME_ALIASES: Mapping[str, rbac.Tool] = MappingProxyType(
         "create_access_request": rbac.Tool.CREATE_ACCESS_REQUEST_SELF,
     }
 )
-"""Wire names that deliberately differ from their matrix member's value.
+"""Wire names that differ on purpose from their matrix member's value.
 
-the design gives `create_access_request` TWO rows — one for a self-request and
-one for naming someone else — so the matrix has two members where the wire
-has one name. The invariant a wire name has to satisfy
-is therefore "equals the member's value, or is the one declared alias for
-it"; without this table it would just be absent for that tool. The
-on-behalf member is not registered at all: it is a permission the handler
-checks, never a tool a client can call.
-
-Anything here still has to be a legal kill-switch key and audit subject, and
-the parametrized cases over `REGISTRY` cover it because the alias IS the
-registered name. Pinned by
-`test_mcp_registry.py::test_the_wire_name_aliases_are_exactly_the_declared_pair`."""
+`create_access_request` has two permission rows, one for yourself and one
+for someone else, but one wire name. The on-behalf row is a check inside the
+handler, never a tool a client can call.
+"""
 
 
 @dataclass(frozen=True)
@@ -85,11 +75,8 @@ class ToolSpec[I: BaseModel, O: BaseModel]:
     """One tool, declared for every part of the pipeline that needs it.
 
     `name` is the wire name. It equals `tool.value` unless `WIRE_NAME_ALIASES`
-    declares otherwise, which is what
-    `test_mcp_registry.py::test_each_spec_names_a_real_matrix_tool_and_agrees_with_its_key`
-    asserts: the string a client sends, the string the kill switch keys on
-    and the matrix member are then the same string by construction, or paired
-    once and explicitly.
+    says otherwise, so the client's string, the kill-switch key and the matrix
+    member are the same string.
     """
 
     name: str
@@ -144,8 +131,7 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=access.list_my_requests,
     ),
     ToolSpec(
-        # The wire name is the design's, not the matrix member's: §7 splits
-        # this one tool into a self row and an on-behalf row (decision J).
+        # One wire name, two matrix rows: self and on behalf.
         name="create_access_request",
         tool=rbac.Tool.CREATE_ACCESS_REQUEST_SELF,
         description=(
@@ -158,10 +144,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=access.create_access_request,
     ),
     ToolSpec(
-        # `tool.succeeded` is the SUMMARY event: the
-        # handler appends one `grant.revoked` per revoked row, because a set of
-        # two revocations recorded as one event naming the tool answers no
-        # question an auditor asks.
         name=rbac.Tool.REVOKE_ACCESS.value,
         tool=rbac.Tool.REVOKE_ACCESS,
         description=(
@@ -174,10 +156,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=access.revoke_access,
     ),
     ToolSpec(
-        # `tool.succeeded` is the SUMMARY event: the
-        # handler appends `user.onboarded` itself with the NEW USER as its
-        # subject, because the pipeline's event names the tool and would
-        # record that somebody called one, not who was hired.
         name=rbac.Tool.ONBOARD_USER.value,
         tool=rbac.Tool.ONBOARD_USER,
         description=("Create a joiner in this tenant and apply their department's role template."),
@@ -188,11 +166,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=lifecycle.onboard_user,
     ),
     ToolSpec(
-        # `tool.succeeded` is the SUMMARY event: the
-        # handler appends `user.transferred` itself with the MOVER as its
-        # subject and the whole diff as its payload, which is what an auditor
-        # asking "why does this person hold this" reads. The pipeline's event
-        # names the tool and would answer that for nobody.
         name=rbac.Tool.TRANSFER_USER.value,
         tool=rbac.Tool.TRANSFER_USER,
         description=(
@@ -205,11 +178,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=lifecycle.transfer_user,
     ),
     ToolSpec(
-        # `tool.succeeded` is the SUMMARY event: the handler appends
-        # `user.offboarded` itself with the LEAVER as its subject, plus one
-        # `grant.revoked` per revoked row and one `request.rejected` per closed
-        # request. The pipeline's event names the tool, so as the declared type
-        # it would record that somebody called one and not who left.
         name=rbac.Tool.OFFBOARD_USER.value,
         tool=rbac.Tool.OFFBOARD_USER,
         description=(
@@ -222,11 +190,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=lifecycle.offboard_user,
     ),
     ToolSpec(
-        # `tool.succeeded` is the SUMMARY event: the
-        # domain appends `review.opened` itself with the REVIEW as its subject
-        # and the flag tally as its payload. The pipeline's event names the
-        # tool, so as the declared type it would record that somebody called
-        # one and not which scope was reviewed or what was found.
         name=rbac.Tool.OPEN_ACCESS_REVIEW.value,
         tool=rbac.Tool.OPEN_ACCESS_REVIEW,
         description=(
@@ -239,12 +202,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=reviews.open_access_review,
     ),
     ToolSpec(
-        # `tool.succeeded` is the SUMMARY event: the
-        # handler appends `review.item_decided` itself with the ITEM as its
-        # subject, and a revoke decision appends `grant.revoked` before it.
-        # The pipeline's event names the tool, so as the declared type it
-        # would record that somebody called one and not which grant was ended
-        # or whether the review is now finished.
         name=rbac.Tool.DECIDE_REVIEW_ITEM.value,
         tool=rbac.Tool.DECIDE_REVIEW_ITEM,
         description="Keep or revoke one flagged grant of an access review.",
@@ -265,9 +222,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=reviews.list_review_items,
     ),
     ToolSpec(
-        # An earlier change: a read, so the generic `tool.succeeded` is the WHOLE
-        # record — nothing here appends an event of its own, because reading a
-        # queue changes nothing an auditor could ask about.
         name=rbac.Tool.LIST_REVIEWS.value,
         tool=rbac.Tool.LIST_REVIEWS,
         description="List the access reviews the calling user's scope reaches, oldest due first.",
@@ -333,9 +287,7 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         name=rbac.Tool.ROLLBACK_REQUEST.value,
         tool=rbac.Tool.ROLLBACK_REQUEST,
         description=(
-            # The number comes from the domain's own constant, never a
-            # literal: a widened window must not leave the description
-            # telling an agent an older request cannot be undone.
+            # Read from the constant, so a wider window never leaves this text stale.
             f"Undo an executed access request within {rollback.WINDOW_HOURS} hours: "
             "revoke every live grant it produced and close it."
         ),
@@ -346,10 +298,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=rollback.rollback_request,
     ),
     ToolSpec(
-        # A READ: `search_audit` changes nothing, so it carries no
-        # idempotency key and the pipeline's generic `tool.succeeded` is the
-        # whole record it leaves. The wire name, the matrix member, the kill
-        # switch key and the audit subject are one string by construction.
         name=rbac.Tool.SEARCH_AUDIT.value,
         tool=rbac.Tool.SEARCH_AUDIT,
         description=("Search this tenant's audit log, newest first, within the caller's scope."),
@@ -360,20 +308,12 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=read.search_audit,
     ),
     ToolSpec(
-        # A mutating spec like every other write: the call is
-        # keyed and runs through `run_once`, and the tool is on
-        # `test_mcp_registry.py::MUTATING_TOOL_NAMES`.
-        #
-        # `tool.succeeded` is the SUMMARY event: `helpdesk.killswitch.change`
-        # appends `killswitch.changed` itself with the TARGET TOOL as its
-        # subject. Declaring that type here instead would file the change
-        # under `set_kill_switch` and answer nobody asking when a given tool
-        # was stopped.
+        # The handler writes `killswitch.changed` naming the TARGET tool, so an
+        # auditor can find when a given tool was stopped.
         name=rbac.Tool.SET_KILL_SWITCH.value,
         tool=rbac.Tool.SET_KILL_SWITCH,
         description=(
-            # The polarity in words, decision B: an agent reading this cannot
-            # get `enabled` backwards.
+            # Spelled out so an agent cannot read `enabled` backwards.
             "Turn a tool's kill switch on or off. enabled=true STOPS the named tool; "
             'enabled=false lets it run again. scope is "global" or your own tenant id.'
         ),
@@ -384,17 +324,8 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=killswitch.set_kill_switch,
     ),
     ToolSpec(
-        # A READ, and the half of the row above that was missing: nothing
-        # could say WHICH tools were stopped. It writes nothing, so it carries
-        # no idempotency key, stays off
-        # `test_mcp_registry.py::MUTATING_TOOL_NAMES`, and the pipeline's
-        # generic `tool.succeeded` is the whole record a render of the board
-        # leaves — a `killswitch.changed` per page view would put a governance
-        # record in the hash chain for a call that changed nothing.
-        #
-        # It is NOT in `helpdesk.killswitch.PROTECTED_TOOLS`: only the tool
-        # that can UNDO a switch is protected, so this one can be stopped like
-        # any other.
+        # Not protected: only the tool that can undo a switch is, so this one can
+        # be stopped like any other.
         name=rbac.Tool.LIST_KILL_SWITCHES.value,
         tool=rbac.Tool.LIST_KILL_SWITCHES,
         description=(
@@ -408,17 +339,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=killswitch.list_kill_switches,
     ),
     ToolSpec(
-        # An earlier change: a READ of the tenant's own configuration, so no
-        # idempotency key, no place on `test_mcp_registry.py::
-        # MUTATING_TOOL_NAMES`, and the pipeline's generic `tool.succeeded`
-        # as the whole record a render of the rules board leaves.
-        #
-        # It takes no arguments at all: the tenant is the token's and the
-        # rules are that tenant's rows. Two cells, `it_admin`
-        # and `platform_admin`, the design's audience for `/admin/rules`
-        # — wider than `list_kill_switches` because reading the
-        # rules is not changing anything, narrower than `search_audit`
-        # because these are configuration rather than what happened.
         name=rbac.Tool.LIST_SOD_RULES.value,
         tool=rbac.Tool.LIST_SOD_RULES,
         description=(
@@ -433,17 +353,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=rules.list_sod_rules,
     ),
     ToolSpec(
-        # An earlier change: a READ of the tenant's own corpus metadata, so no
-        # idempotency key, no place on `test_mcp_registry.py::
-        # MUTATING_TOOL_NAMES`, and the pipeline's generic `tool.succeeded`
-        # as the whole record a render of the policies board leaves.
-        #
-        # It takes no arguments at all: the tenant is the token's and the
-        # documents are that tenant's rows. The same two cells
-        # as the rules board above, the design's audience for `/admin/policies`
-        # — narrower than `search_policy`, which every principal
-        # holds, because searching answers the spans a question may cite while
-        # this answers the ingest's version history.
         name=rbac.Tool.LIST_POLICY_DOCUMENTS.value,
         tool=rbac.Tool.LIST_POLICY_DOCUMENTS,
         description=(
@@ -459,22 +368,9 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=policy_docs.list_policy_documents,
     ),
     ToolSpec(
-        # An earlier change: the WRITE half of the row above, and MUTATING -- it re-reads
-        # a corpus file and can write a `policy_documents` row, its chunk rows
-        # and a Qdrant upsert, so `MutatingToolInput` makes the idempotency key
-        # required, the pipeline's `run_once` spends it, and the name joins
-        # `test_mcp_registry.py::MUTATING_TOOL_NAMES`.
-        #
-        # It declares `policy.reingested` rather than the generic
-        # `tool.succeeded` (decision D): the corpus is what every access
-        # decision cites, so a change to it is a governance record in its own
-        # right, and the design's list is explicitly a minimum.
-        #
-        # It is NOT in `helpdesk.killswitch.PROTECTED_TOOLS`, whose one member
-        # stays `set_kill_switch`: a re-ingest can be stopped like any other
-        # tool. It is also absent from the agent's `TOOL_INPUTS` catalogue
-        # (decision G) -- the model may not change the evidence its own next
-        # answer cites, so the only caller is a person on `/admin/policies`.
+        # Declares its own event: the corpus is what every access decision
+        # cites. Not offered to the agent, so a model can never change the
+        # evidence its own next answer cites.
         name=rbac.Tool.REINGEST_POLICY_DOCUMENT.value,
         tool=rbac.Tool.REINGEST_POLICY_DOCUMENT,
         description=(
@@ -489,11 +385,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=policy_docs.reingest_policy_document,
     ),
     ToolSpec(
-        # A READ over Qdrant: nothing is written, so no idempotency key and no
-        # domain event of its own — the pipeline's generic `tool.succeeded` is
-        # the whole record a search leaves. The wire name, the matrix member,
-        # the kill switch key and the audit subject are one string by
-        # construction, which is what lets an admin stop policy search alone.
         name=rbac.Tool.SEARCH_POLICY.value,
         tool=rbac.Tool.SEARCH_POLICY,
         description=(
@@ -508,9 +399,6 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=policy_search.search_policy,
     ),
     ToolSpec(
-        # An earlier change: a READ, so it carries no idempotency key and the generic
-        # `tool.succeeded` is the whole record it leaves — reading your own
-        # bell changes nothing an auditor could ask about.
         name=rbac.Tool.LIST_NOTIFICATIONS.value,
         tool=rbac.Tool.LIST_NOTIFICATIONS,
         description=(
@@ -523,12 +411,8 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=notifications.list_notifications,
     ),
     ToolSpec(
-        # MUTATING, so the pipeline's `run_once` covers a retried click, and
-        # the generic `tool.succeeded` is the DECLARED type rather than a
-        # `notification.read` of its own: the audit log
-        # records who got access to what and who decided it, and one row in
-        # the hash chain per UI interaction would be noise in a table whose
-        # whole value is that every row matters.
+        # Mutating so a retried click runs once, but no event of its own: one
+        # audit row per click would be noise in a log where every row matters.
         name=rbac.Tool.MARK_NOTIFICATION_READ.value,
         tool=rbac.Tool.MARK_NOTIFICATION_READ,
         description=(
@@ -559,14 +443,9 @@ REGISTRY: Mapping[str, ToolSpec[Any, Any]] = MappingProxyType({spec.name: spec f
 def lookup(name: str) -> ToolSpec[Any, Any]:
     """The spec for a wire name, or a typed refusal.
 
-    This is the gate the plan's criterion 8 names: the client's string is
-    matched against the registry before anything downstream can turn it into
-    a Redis key, so an unregistered or malformed name writes nothing at all
-    (`test_mcp_registry.py::test_an_unregistered_wire_name_touches_no_redis_key`).
-
-    `UnknownToolError` carries `INTERNAL`, not `FORBIDDEN`: a name outside
-    the registry means the caller is wrong, and reading it as a permission
-    decision would hide a wiring bug behind a legitimate-looking denial.
+    The name is matched before anything can turn it into a Redis key, so an
+    unknown name writes nothing. The error is `INTERNAL`, not `FORBIDDEN`: an
+    unknown name is a wiring bug, and a denial would hide it.
     """
     spec = REGISTRY.get(name)
     if spec is None:

@@ -5,20 +5,19 @@ import { NotificationBell } from "@/features/notifications/components/notificati
 import { QueryProvider } from "@/components/layout/query-provider";
 
 /**
- * An earlier change §6, `notification-bell.test.tsx`: the unread count in the shell's
+ * `notification-bell.test.tsx`: the unread count in the shell's
  * nav, against a stubbed `fetch` and a frozen clock. jsdom, no agent-api, no
- * backing service. (No basename collision in the tree, a project rule.)
+ * backing service. (No basename collision in the tree.)
  *
  * The unit under test is `NotificationBell` from
  * `web/src/features/notifications/components/notification-bell.tsx`, taking NO props and
- * holding its own query (decision B), so `components/nav.tsx` stays the plain
+ * holding its own query, so `components/nav.tsx` stays the plain
  * component `tests/shell.test.tsx` renders with no router.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23gc's Deviations):
+ * Shapes this file fixes:
  * - the bell is ONE `role="link"` whose accessible name is `Notifications, {n}
- *   unread` at every count, zero included — §1 fixes the name unconditionally
- *   and makes only the count ELEMENT disappear at zero. The count is therefore
+ *   unread` at every count, zero included — the name never changes
+ *   and only the count ELEMENT disappears at zero. The count is therefore
  *   an `aria-label` (or equivalent) on the link and the rendered TEXT carries
  *   the number only when there is one, which is how "no count element at all"
  *   is observable: at zero the link's text holds no digit.
@@ -31,21 +30,21 @@ import { QueryProvider } from "@/components/layout/query-provider";
  *   `waitFor` both need time to pass and a fully frozen clock hangs every async
  *   case here.
  *
- * The wire shape is 23gb's as BUILT and every fixture parses under
+ * The wire shape is the as BUILT and every fixture parses under
  * `web/src/features/notifications/schema.ts`: `{ notifications: [...], unread_count: N }`,
  * with a failed proxy answering `502 {"code": "UPSTREAM_UNAVAILABLE"}`.
  *
- * §6 names no case for the "on window focus" half of decision D, and none is
+ * There is no case for the "on window focus" half, and none is
  * written: TanStack Query v5 refetches from `visibilitychange` on `window` and
  * only once the query is stale, so a case for it would pin the library's own
  * default through its own mechanism rather than anything this component
- * decides. That gap is reported to 23gc rather than filled here.
+ * decides.
  */
 
 const LOGIN_URL = "http://localhost:3000/login";
 
 /** One unread row with a tally of SEVEN: the bell renders the tally, never the
- * length of what `limit=1` handed it (§5's first risk). */
+ * length of what `limit=1` handed it. */
 const UNREAD_ROW: Record<string, unknown> = {
   notification_id: "11111111-1111-5111-8111-111111111111",
   kind: "grant_expired",
@@ -69,8 +68,7 @@ function jsonResponse(body: unknown, status: number): Response {
   });
 }
 
-/** The 200 a browser holds after FOLLOWING the proxy's redirect to `/login`
- *: neither `redirected` nor `url` is a constructor option. */
+/** The 200 a browser holds after FOLLOWING the proxy's redirect to `/login`: neither `redirected` nor `url` is a constructor option. */
 function redirectedResponse(): Response {
   const response = new Response("<html>login</html>", {
     status: 200,
@@ -145,15 +143,15 @@ afterEach(() => {
 
 describe("NotificationBell — the count it reads", () => {
   it("reads unread_only=true&limit=1 and renders the tally, not the rows it was handed", async () => {
-    // §5's first risk, which is the way this component goes quiet without
+    // Which is the way this component goes quiet without
     // looking broken: a bell rendering `notifications.length` shows 1 while
     // seven rows wait, and at any count above the page size it would understate
     // every time. The fixture answers ONE row with a tally of SEVEN, so only a
-    // bell reading `unread_count` (23ga decision B) can render 7. The url is
-    // the other half of decision C: a bell without `unread_only=true` counts
+    // bell reading `unread_count` can render 7. The url is
+    // the other half: a bell without `unread_only=true` counts
     // nothing meaningful, and one without `limit=1` drags fifty rows it renders
-    // none of into the header of every authenticated page. Arithmetic (standing
-    // rule 43): bell reads = 1 on mount, `unread_count` = 7.
+    // none of into the header of every authenticated page. Arithmetic: bell reads = 1 on mount,
+    // `unread_count` = 7.
     bellAnswer = () => jsonResponse({ notifications: [UNREAD_ROW], unread_count: 7 }, 200);
     renderBell();
 
@@ -167,7 +165,7 @@ describe("NotificationBell — the count it reads", () => {
   });
 
   it("names the link Notifications, {n} unread and points it at /notifications", async () => {
-    // §1's bell criterion as the element itself. Kills a bell whose count is
+    // The element itself. Kills a bell whose count is
     // rendered as bare text beside an icon — a screen reader then hears
     // "Notifications" and a stray "7" with nothing joining them — and kills one
     // that renders the number but links nowhere, or links to `/chat`, which
@@ -184,12 +182,12 @@ describe("NotificationBell — the count it reads", () => {
   });
 
   it("renders the link with no count element at unread_count 0", async () => {
-    // §1's zero case. Kills a bell that paints a badge reading `0` on every
+    // The zero case. Kills a bell that paints a badge reading `0` on every
     // screen of an app where nothing is waiting — the one state in which the
     // header should say nothing at all — and kills one that hides the whole
     // LINK at zero, which would take the route away exactly when someone wants
     // to check their history. The digit assertion is what distinguishes the two
-    // from the accessible name, which §1 keeps as `Notifications, {n} unread`
+    // from the accessible name, which stays `Notifications, {n} unread`
     // at every count.
     bellAnswer = () => jsonResponse({ notifications: [], unread_count: 0 }, 200);
     renderBell();
@@ -215,7 +213,7 @@ describe("NotificationBell — a read that fails", () => {
   it.each(FAILURES)(
     "$name leaves the link in place with no count and no alert",
     async (row) => {
-      // §5's third risk, and the one failure mode that follows a person from
+      // And the one failure mode that follows a person from
       // screen to screen: the bell is in the header of the whole authenticated
       // app, so a page-shaped error region here puts "could not be read" above
       // every route, including the ones that are working. Kills a bell reusing
@@ -239,7 +237,7 @@ describe("NotificationBell — a read that fails", () => {
 
 describe("NotificationBell — freshness", () => {
   it("does not poll: no second read after two minutes of clock", async () => {
-    // Decision D as behaviour rather than as a prop, which §6 asks for on
+    // Behaviour rather than as a prop, on
     // purpose: asserting a `refetchInterval` of `undefined` would pass for a
     // bell that polls through its own `setInterval`. Kills any polling bell —
     // the header is on every authenticated page, so an interval multiplies MCP
@@ -262,11 +260,11 @@ describe("NotificationBell — freshness", () => {
 
 describe("NotificationBell — an expired session", () => {
   it("follows the proxy's redirect to /login", async () => {
-    // §1's last unhappy path at the bell read, the third of the plan's three
-    // call sites and the one that fires on EVERY authenticated page, so it is
+    // The last unhappy path at the bell read, the one that fires on EVERY authenticated page, so
+    // it is
     // the likeliest place a stale session is discovered at all. It is
-    // `response.redirected` and never a status (22b decision E, standing rule
-    // 59): the browser has already followed the redirect, so what arrives is a
+    // `response.redirected` and never a status: the browser has already followed the redirect, so
+    // what arrives is a
     // 200 carrying the login page. Kills a bell whose fetcher checks
     // `response.ok` or `response.status === 401` — both see a success, the
     // parser refuses the HTML, and the person keeps browsing an app whose every
@@ -283,30 +281,29 @@ describe("NotificationBell — an expired session", () => {
 });
 
 /**
- * An earlier change §6, added to 23gc's file and rewriting none of it (§8): the three
+ * Cases added to the file, rewriting none of it: the three
  * cases that hold `fetchUnreadCount` still, after its four private lines become
  * `readWire("/api/me/notifications?unread_only=true&limit=1",
  * notificationPageSchema)` with `null` mapped to `0`.
  *
- * §6 asks each read's case to render "that page's existing alert sentence".
- * This component has NONE and may not grow one: §1 of 23gc makes a failed read
+ * Each read's case should render "that page's existing alert sentence".
+ * This component has NONE and may not grow one: a failed read is
  * silent, because an error region in the shell's header follows a person onto
  * every route including the working ones. The failure state pinned here is
  * therefore that silence — the link still present, its accessible name
  * `Notifications` with no count in it, and no alert anywhere — which is the
- * state this bell reaches today. Reported to 24ia as a deviation rather than
- * answered by adding a sentence the plan's §1 forbids.
+ * state this bell reaches today. No sentence is added, on purpose.
  */
 describe("NotificationBell — through the shared wire reader", () => {
   const ORIGIN = "http://localhost:3000";
 
   it("a 403 FORBIDDEN leaves the count unknown, never 0, and shows no alert", async () => {
-    // Decision B where this component has no sentence to keep, so what has to
+    // Where this component has no sentence to keep, so what has to
     // hold is the silence AND the unknown count. The accessible name is the
     // whole discriminator: a bell that maps the refusal (or `readWire`'s `null`)
     // to `0` renders `Notifications, 0 unread`, which claims nothing is waiting
     // when the truth is that nobody could read it — and `0` is exactly what the
-    // migration's `?? 0` invites at the wrong place, since §1 maps only the
+    // migration's `?? 0` invites at the wrong place, since only the
     // REDIRECT to zero. Kills that, kills a bell dressing the typed code into an
     // alert in the shell's header (the one place an error region follows a
     // person from screen to screen), and kills a `WireRefusedError` unmounting
@@ -325,7 +322,7 @@ describe("NotificationBell — through the shared wire reader", () => {
 
   it("reads /api/me/notifications with the exact query string ?unread_only=true&limit=1", async () => {
     // The bell's query string is the only thing telling its read apart from the
-    // page's, on the same path (decision C against decision E). The case above
+    // page's, on the same path (the bell against the page). The case above
     // asserts the two keys with `toContain`, which stays green for
     // `?unread_only=true&limit=50` or for a third parameter added while the call
     // moves; this pins the `search` byte for byte, so a migration that drops
@@ -344,7 +341,7 @@ describe("NotificationBell — through the shared wire reader", () => {
   });
 
   it("a bodyless 500 leaves the count unknown, never 0, and shows no alert", async () => {
-    // §5's second risk on the read that fires on every authenticated page:
+    // The read that fires on every authenticated page:
     // `readWire` reads the body of every non-ok response looking for a typed
     // code, and `fetchUnreadCount` reads it for none. Kills a refusal branch
     // awaiting an unguarded `json()` — the rejection would surface as an

@@ -3,18 +3,16 @@ import { describe, expect, it } from "vitest";
 import { NOTIFICATION_KIND_LABELS, notificationKindLabel } from "@/features/notifications/labels";
 
 /**
- * An earlier change §6, `notification-labels.test.ts`: the hand-kept mirror of
+ * `notification-labels.test.ts`: the hand-kept mirror of
  * `helpdesk.models.notification.NotificationKind`, as literals. Pure — no DOM,
- * no fetch, no React. (No basename collision in the tree, a project rule:
- * the neighbours are `notifications-schema.test.ts` and
+ * no fetch, no React. (The neighbours are `notifications-schema.test.ts` and
  * `notifications-proxy-routes.test.ts`.)
  *
  * Every key asserted here is the enum's VALUE as `model_dump(mode="json")` puts
  * it on the wire (`grant_expired`), never the Python member name.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23gc's Deviations): §6 asks that "each of the four wire
- * values renders its sentence" but writes none of the four sentences down, so
+ * Shapes this file fixes: each of the four wire
+ * values renders a sentence, but none is written of the four sentences down, so
  * no case here pins a TEXT — the strongest true statement available is "a
  * non-empty label that is not the wire code itself", plus the map/lookup
  * agreement below. `review-labels.test.ts` made exactly the same call one
@@ -69,7 +67,7 @@ describe("the map and the lookup", () => {
 
 describe("a kind no map knows", () => {
   it("renders the raw wire string", () => {
-    // §6's third bullet, and `review-labels.ts`' decision one module over.
+    // The raw-string case, and the same choice `review-labels.ts` makes one module over.
     // Catches the lookup written as a bare index —
     // `NOTIFICATION_KIND_LABELS[kind]` on a member Python added since renders
     // the literal "undefined" in front of a person — and the one written with a

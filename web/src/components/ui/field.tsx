@@ -1,10 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/**
- * The form primitives. shadcn/ui is a copy-in library,
- * so what belongs in the repo is the components in use and nothing else —
- * `components.json` is here for the next plan that needs a dialog or a table.
- */
+/** Form parts. shadcn/ui is copy-in, so only the parts in use live here. */
 
 export function Label({ className, ...props }: React.ComponentProps<"label">) {
   return <label className={cn("text-sm font-medium text-foreground", className)} {...props} />;

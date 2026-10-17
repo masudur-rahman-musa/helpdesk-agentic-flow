@@ -1,8 +1,7 @@
-"""An earlier change acceptance: model metadata shape, schema round-trip, migration parity.
+"""Model metadata shape, schema round-trip, migration parity.
 
 Covers:
-- exactly the declared tables exist: the nine directory-core ones (scope
-  decision A: core only) plus ``audit_events`` from an earlier change
+- exactly the declared tables exist: the nine directory-core ones (core only) plus ``audit_events``
 - every table: single UUID pk ``id``, ``created_at``, ``updated_at`` (server-set)
 - every tenant-scoped table: ``tenant_id`` FK to tenants + composite index led by it
 - create_all schema round-trips one row per table through tenant-bound sessions
@@ -44,8 +43,8 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 def test_metadata_contains_exactly_the_declared_tables() -> None:
     """The hand-kept schema literal, and how many tables it names.
 
-    The count is asserted beside the set (an earlier change: 19 tenant-scoped tables
-    with `audit_chain_anchors`, plus `tenants`). a project rule's allowlist
+    The count is asserted beside the set (19 tenant-scoped tables
+    with `audit_chain_anchors`, plus `tenants`). The allowlist
     is not derived from the code, so a plan that adds a table to BOTH
     `Base.metadata` and `_seed.py` still has to say so here; without the
     count, extending the allowlist is the whole of what it takes to keep this

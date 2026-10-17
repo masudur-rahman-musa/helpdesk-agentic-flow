@@ -22,10 +22,9 @@ import * as field from "@/components/ui/field";
 import { LIVE_VERSION_TEXT, NOT_LIVE_VERSION_TEXT } from "@/features/admin/policies/format";
 
 /**
- * An earlier change §6 (`design-kit-adoption.test.tsx`): the kit 39a built is applied to
+ * The shared design kit is applied to
  * every page WITHOUT changing one accessible name, heading, status word or
- * empty sentence. jsdom, no agent-api, no backing service. (No basename
- * collision in the tree, a project rule.)
+ * empty sentence. jsdom, no agent-api, no backing service.
  *
  * Every list and board does its own read through TanStack Query, so each is
  * wrapped in `<QueryProvider>` and its `/api/...` read stubbed with a success
@@ -33,11 +32,9 @@ import { LIVE_VERSION_TEXT, NOT_LIVE_VERSION_TEXT } from "@/features/admin/polic
  * (requests, access, approvals, reviews, notifications, audit, killswitch,
  * rules, policies). A fixture that does not parse would drop the component into
  * its error or empty branch and make the heading and badge assertions lie
- *, so every rendered component here reaches its SUCCESS
+ * so every rendered component here reaches its SUCCESS
  * branch on purpose.
  *
- * input validation: §5 n/a — this plan adds no input that shapes a key, an
- * identifier, a path or a stored value.
  */
 
 /** `LoginForm` reads `useRouter`; mock the router the way `shell.test.tsx` does
@@ -328,9 +325,9 @@ const POLICY_DOCUMENT: Record<string, unknown> = {
 
 describe("no page imports Button from the field module", () => {
   it("leaves zero files importing Button from the field module", () => {
-    // Catches 39b closing without repointing: any page still importing `Button`
-    // from `@/components/ui/field` would keep the re-export that line 2 of §3
-    // deletes alive, so dropping it would break that page's compile.
+    // Catches a page left unpointed at the new kit: any page still importing `Button`
+    // from `@/components/ui/field` would keep the old re-export
+    // alive, so dropping it would break that page's compile.
     const files = tsxFiles("src");
     const offenders = files.filter((path) =>
       importsButtonFrom(readFileSync(path, "utf8"), "@/components/ui/field"),
@@ -376,7 +373,7 @@ describe("no page imports Button from the field module", () => {
 
 describe("the field module exports Input and Label but not Button", () => {
   it("has no Button export and keeps Input and Label", () => {
-    // Catches 39b leaving the `export { Button } from "./button"` line in
+    // Catches the migration leaving the `export { Button } from "./button"` line in
     // field.tsx: with it still there `field.Button` is a function, not
     // `undefined`. Input and Label are asserted present so the delete did not
     // take the two primitives the login form still reads from here.
@@ -618,7 +615,7 @@ describe("a status shows as a toned badge", () => {
     const region = await screen.findByRole("region", { name: "Reviews" });
     // Await the queue list before reading the badge: the status word only
     // exists once the async read resolves, and before it the select's own
-    // `Open` option (untoned) is the one match (standing rule, an earlier change).
+    // `Open` option (untoned) is the one match.
     await within(region).findByRole("list", { name: "Review queue" });
     const openBadge = tonedBadge(region, "Open");
     expect(openBadge).toHaveAttribute("data-tone", "warning");

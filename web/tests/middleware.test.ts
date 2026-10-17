@@ -6,7 +6,7 @@ import { middleware } from "@/middleware";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * The session gate (an earlier change §1: "a request to any app route other than
+ * The session gate ("a request to any app route other than
  * /login carrying no valid session cookie is redirected to /login").
  *
  * NextResponse.redirect() answers 307, which is the value pinned below.

@@ -1,4 +1,4 @@
-"""Marking a user as a leaver and revoking everything they hold. See `lifecycle.py` for the shared types this uses."""
+"""Marking a user as a leaver and taking back everything they hold."""
 
 import uuid
 from datetime import date, datetime
@@ -49,59 +49,19 @@ async def offboard_user(
 ) -> OffboardResult:
     """Mark one person a leaver, take back everything they hold, close what is open.
 
-    The caller resolves nothing first: `lock_user` answers None for a user id
-    that is missing OR another tenant's, so one `NOT_FOUND` covers both and
-    the id is no cross-tenant existence oracle (pinned by
-    `test_mcp_offboard_user.py::test_a_missing_and_another_tenants_user_answer_the_same_not_found`).
-    The lock comes first because the refusal below reads state a concurrent
-    offboard rewrites: the loser waits on it, re-reads the `leaver` the winner
-    wrote and is refused, which is what leaves one departure in the log
-    (pinned by `::test_two_callers_racing_the_same_offboard_leave_one_departure`).
+    A missing user and another tenant's user give the same `NOT_FOUND`. The
+    user row is locked first, so a second offboard racing this one waits,
+    sees `leaver`, and is refused.
 
-    Order of effects, each part of it a decision:
+    Order: the status is set first, so a new request read after it is
+    refused instead of granting access to someone halfway out. Then the
+    revokes, then the request closures, then the departure event, which
+    needs all of their results. A role emptied by someone else in between
+    is just dropped from the list. A person holding nothing still leaves
+    cleanly, or they would stay `active` for ever.
 
-    1. `status = leaver` and `end_date` are written BEFORE anything is taken
-       away (decision D), because the engine blocks every new grant for a
-       leaver (the design): a `create_access_request` that reads the row after
-       this write is refused instead of granting access to somebody halfway
-       out. The window is narrowed, not closed — see the module docstring.
-    2. the revocations, then the closures. §1 and §6 fix that observable
-       order; §4's decision D lists the two the other way round and argues
-       only the point above, so the acceptance criteria are what this follows
-       (recorded in the plan's §9).
-    3. `user.offboarded` last (before the pipeline's `tool.succeeded`), because
-       every list it names is known only by then.
-
-    A role whose live set was emptied between the read and its revocation
-    costs that role and nothing else (decision H): the end state that role
-    wanted already holds, so it is dropped from `revoked_role_ids` and the
-    departure stands (pinned by
-    `test_access_offboard.py::test_a_role_emptied_before_its_revocation_is_omitted_and_the_rest_stands`).
-
-    A person holding nothing at all is offboarded cleanly, not refused
-    (decision G): offboarding is about the person's state, and refusing here
-    would leave a departing employee `active` for ever precisely because they
-    had no access (pinned by
-    `::test_a_user_with_no_grants_and_no_open_requests_offboards_cleanly`).
-
-    `now` is keyword-only and supplied by the caller, so the liveness test that
-    picked the held set, every `revoked_at` and the event all answer for one
-    instant. `end_date` is a separate argument and is written as given, never
-    derived from `now`: the two are different days whenever a departure is
-    recorded late (pinned by
-    `::test_the_status_becomes_leaver_and_the_end_date_is_the_argument`).
-
-    Everything runs in the caller's transaction, so the status, the
-    revocations, the closures and every event commit or roll back together
-    (pinned by `::test_the_offboard_and_its_events_roll_back_together`).
-
-    `actor_kind` defaults to `USER_ACTOR_KIND` and the actor id is nullable
-    only so an earlier change's leaver sweep can offboard as `system` with no person to
-    name (decision D). Every existing caller passes an id and no kind, so its
-    events read exactly as they did (pinned by
-    `test_access_leavers.py::test_an_offboard_with_an_actor_id_and_no_actor_kind_still_writes_the_user_actor`);
-    a call with neither an id nor a ref is refused `VALIDATION` before the
-    lock, so nothing is written for an event nobody could be named on.
+    `end_date` is written as given, not taken from `now`, since a departure
+    can be recorded late. A None actor id is for the nightly leaver sweep.
     """
     resolved_actor = resolve_actor_ref(actor_ref, offboarded_by_user_id)
 
@@ -111,9 +71,8 @@ async def offboard_user(
     if user.status == LEAVER_STATUS:
         raise AlreadyLeaverError("that user has already been offboarded")
 
-    # Both sets are read at this one instant, before any write, so nothing the
-    # loop below does can add to what it is walking. Sorted, so two runs over
-    # the same rows write their events in the same order.
+    # Read once, before any write, and sorted so events come out in a
+    # steady order.
     held = sorted(await directory.list_account_role_ids(user_id, now))
     open_requests = await lock_open_requests_for_target(session, user_id)
 
@@ -136,9 +95,8 @@ async def offboard_user(
                 now=now,
             )
         except GrantNotActiveError:
-            # Decision H: somebody else emptied this role first, which is the
-            # end state this loop wanted. The refusal costs the role, not the
-            # departure.
+            # Someone else emptied this role first; that is the end state we
+            # wanted, so skip it.
             continue
         revoked_role_ids.append(role_id)
         revoked_grant_count += len(revoked)
@@ -190,19 +148,10 @@ async def _append_offboarded(
     session_id: uuid.UUID | None,
     now: datetime,
 ) -> None:
-    """the design's departure record, subject the leaver, five keys exactly.
+    """The departure event, with the leaver as subject.
 
-    `actor_kind` is the caller's, which is `user` for
-    everybody but the leaver sweep: a nightly job's departures have to be
-    separable from a person's in the log, pinned by
-    `test_access_leavers.py::test_every_event_the_sweep_causes_carries_the_system_actor_and_its_ref`.
-
-    `revoked_grant_count` is carried beside `revoked_role_ids` rather than
-    left to be inferred from it: the two differ whenever one role was held
-    twice, and a log that named only the roles would understate how much
-    access ended. `end_date` is the argument, ISO-rendered, and is the only
-    record that a date was asked for beyond the column itself. Pinned by
-    `test_access_offboard.py::test_user_offboarded_names_the_user_and_carries_exactly_five_keys`.
+    The grant count is kept beside the role list because they differ when
+    one role was held twice.
     """
     await append_event(
         session,

@@ -3,22 +3,21 @@ import { describe, expect, it } from "vitest";
 import { createSseParser } from "@/lib/sse";
 
 /**
- * An earlier change §6, `sse-parser.test.ts`: the pure frame parser of `web/src/lib/sse.ts`
- * (decision A — a hand-written splitter, because a browser `EventSource` cannot
+ * `sse-parser.test.ts`: the pure frame parser of `web/src/lib/sse.ts`
+ * (a hand-written splitter, because a browser `EventSource` cannot
  * POST or carry a bearer). No fetch, no React, no stream: chunks in, events out.
  *
- * Shapes this file fixes that the plan left open (a project rule/39; these go
- * in the plan's Deviations):
+ * Shapes this file fixes:
  * - the export is `createSseParser()`, returning `{ push(chunk: string):
  *   SseEvent[] }` — a factory rather than a module-level function, because the
- *   buffer §3 requires ("buffering across reads") is per stream, and a shared
+ *   buffer ("buffering across reads") is per stream, and a shared
  *   one would carry a half-frame from an aborted turn into the next one.
  * - `push` takes a STRING, not bytes. The decoding half belongs to the reader
  *   loop (`new TextDecoder().decode(value, { stream: true })`), which is the
  *   only thing that can join a multi-byte character split across two network
  *   reads; the parser stays pure and testable without a `TextEncoder`.
  * - `SseEvent` is `{ event: SseEventName; data: unknown }` with the payload
- *   ALREADY `JSON.parse`d — §6's "a `data` line that is not JSON is skipped"
+ *   ALREADY `JSON.parse`d — "a `data` line that is not JSON is skipped"
  *   only means something if the parser is what parses it.
  * - the accepted names are exactly agent-api's five (`agent_api/sse.py`:
  *   `step`, `token`, `reply`, `error`, `done`); anything else is dropped.
@@ -108,7 +107,7 @@ describe("createSseParser", () => {
     // proxy's keepalive, a future server event, or a "reply" spelled by a
     // forged data line would be dispatched as if the turn had produced it. The
     // trailing known frame proves the unknown one was SKIPPED rather than
-    // fatal (§1's last criterion).
+    // fatal.
     const parser = createSseParser();
 
     const events = parser.push(

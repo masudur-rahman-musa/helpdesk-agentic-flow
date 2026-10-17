@@ -2,25 +2,10 @@ import { AuditSearch } from "@/features/admin/audit/components/audit-search";
 import { AuditVerify } from "@/features/admin/audit/components/audit-verify";
 
 /**
- * The `/admin/audit` route. A thin server wrapper, the same division `/requests`,
- * `/access`, `/approvals` and `/reviews` have: everything it shows comes from
- * 24a's two proxies, which the client components read for themselves, so the
- * page has nothing of its own to fetch and every case renders one of them
- * directly (`tests/audit-search-page.test.tsx`, `tests/audit-export.test.tsx`,
- * `tests/audit-verify-panel.test.tsx`).
- *
- * Two regions side by side: 24ba's `Audit log` with its
- * `Export CSV`, and the `Chain integrity` check. They share no state — no
- * filters, no cursor, no page size — which is why the verification is its own
- * component rather than a control inside the search. The `QueryClientProvider`
- * both of their hooks need is app-wide, in `app/layout.tsx`.
- *
- * Reaching this page means the session cookie was present — the middleware's
- * catch-all matcher refuses it otherwise — and the search's own read
- * is what discovers a cookie whose token has since expired. A caller holding no
- * audit principal is answered by the tool, not by this route: RBAC and the kill
- * switch live behind the MCP boundary and nowhere else, which is why the nav
- * links this page for everyone (decision E).
+ * The `/admin/audit` route: the audit log search and the chain check, side by
+ * side. They share no state, so each is its own component and fetches for
+ * itself. Access is checked by the tool behind the MCP server, not here, so the
+ * nav shows this page to everyone.
  */
 export default function AdminAuditPage() {
   return (

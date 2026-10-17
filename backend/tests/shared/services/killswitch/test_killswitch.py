@@ -1,4 +1,4 @@
-"""An earlier change section 6: per-tool kill switches, written before they exist.
+"""Per-tool kill switches, written before they exist.
 
 Expected implementation surface (`helpdesk/killswitch/switch.py`, re-exported
 from `helpdesk.killswitch`):
@@ -18,31 +18,31 @@ from `helpdesk.killswitch`):
 
     * ``await check(tenant_id, tool) -> None`` — returns when allowed, raises
       ``ToolDisabledError`` when tripped. Reads ``killswitch:global:{tool}``
-      first, then ``killswitch:{tenant_id}:{tool}``; first hit wins (an earlier change
-      decision D: a global switch is the platform's emergency stop and must not
+      first, then ``killswitch:{tenant_id}:{tool}``; first hit wins (a global switch is the
+      platform's emergency stop and must not
       be overridable per tenant).
     * ``await trip(scope, tool, reason, actor) -> SwitchState``
     * ``await clear(scope, tool) -> None``
     * ``await status(tenant_id, tool) -> SwitchState | None``
 
-Fail closed (decision C): an unreadable value denies with ``TOOL_DISABLED`` and
+Fail closed: an unreadable value denies with ``TOOL_DISABLED`` and
 a message saying the switch is unreadable; an unreachable Redis denies with
 ``INTERNAL``. A switch that cannot be read is never treated as absent.
 
-An earlier change section 6 adds the BULK read, written before it exists:
+The BULK read:
 
 ``await list_states(tenant_id, tools) -> Sequence[row]``
     One row per requested tool, in the order the tools were requested, read in
-    ONE Redis round trip (an ``MGET`` over the two keys per tool, decision C).
+    ONE Redis round trip (an ``MGET`` over the two keys per tool).
     Each row carries ``tool``, ``global_state``, ``tenant_state`` (each a
     ``SwitchState`` or ``None``) and ``unreadable``.
 
     A value present but unparseable answers that row's ``unreadable`` marker
-    with a null state instead of raising (decision D), so one bad key cannot
+    with a null state instead of raising, so one bad key cannot
     blank the whole board; a ``RedisError`` still raises
     ``SwitchUnavailableError``. The sequence and the row attribute names are
-    fixed here because the plan's section 6 named the fields and not the
-    container; a mapping would fail the ordering case.
+    fixed here because the fields are named and the
+    container is not; a mapping would fail the ordering case.
 
 Style follows the existing DB tests: no pytest-asyncio in this project, so each
 case is a sync function driving one ``asyncio.run`` scenario, and every client
@@ -109,7 +109,7 @@ def _unused_port() -> int:
 
 
 # --- the key shape, pinned from both sides ------------------------------------
-# the design names these exact keys. Drift would silently disable nothing: the
+# The design names these exact keys. Drift would silently disable nothing: the
 # switch would appear to trip while `check` kept allowing the call.
 
 
@@ -147,7 +147,7 @@ def test_tenant_key_string_is_exactly_the_spec_shape(redis_url: str) -> None:
 )
 def test_trip_writes_exactly_the_spec_key(redis_url: str, scope: Any, expected_key: str) -> None:
     """The other side of the pin: what `trip` writes is the raw key an operator
-    inspecting Redis, or the row 24 admin toggle, will expect."""
+    inspecting Redis, or the admin toggle, will expect."""
 
     async def scenario() -> None:
         async with _client(redis_url) as client:
@@ -204,7 +204,7 @@ def test_a_switch_on_one_tool_does_not_trip_another(redis_url: str) -> None:
 
 def test_a_tenant_switch_trips_that_tenant_with_reason_and_actor(redis_url: str) -> None:
     """The error carries the admin's own words: the user is told why the tool is
-    off, and the audit trail records who turned it off (the design)."""
+    off, and the audit trail records who turned it off."""
 
     async def scenario() -> None:
         async with _client(redis_url) as client:
@@ -220,7 +220,7 @@ def test_a_tenant_switch_trips_that_tenant_with_reason_and_actor(redis_url: str)
 
 
 def test_a_tenant_switch_never_trips_another_tenant(redis_url: str) -> None:
-    """a project rule in effect: one tenant's emergency stop must not leak into
+    """One tenant's emergency stop must not leak into
     another tenant's traffic."""
 
     async def scenario() -> None:
@@ -253,8 +253,8 @@ def test_a_global_switch_trips_every_tenant(redis_url: str) -> None:
 
 
 def test_the_global_switch_wins_over_a_tenant_switch(redis_url: str) -> None:
-    """Decision D. The two reasons differ, so the message proves which key was
-    read: a tenant switch must not be able to mask the platform stop."""
+    """The global switch is checked first. The two reasons differ, so the message proves
+    which key was read: a tenant switch must not be able to mask the platform stop."""
 
     async def scenario() -> None:
         async with _client(redis_url) as client:
@@ -308,7 +308,7 @@ def test_clearing_the_tenant_switch_leaves_the_global_one_tripped(redis_url: str
     [pytest.param(GLOBAL, id="global"), pytest.param(TENANT_A, id="tenant")],
 )
 def test_trip_status_clear_round_trip(redis_url: str, scope: Any) -> None:
-    """An earlier change acceptance: after `trip` the state reads back with reason and
+    """After `trip` the state reads back with reason and
     actor; after `clear` the tool is allowed again."""
 
     async def scenario() -> None:
@@ -400,7 +400,7 @@ def test_switch_state_is_frozen() -> None:
 def test_an_unreadable_switch_value_denies(
     redis_url: str, raw: str, case: str, key_template: str
 ) -> None:
-    """Decision C, the boundary row: a value present but unparseable is NOT
+    """A value present but unparseable is NOT
     absent. Treating it as absent would let a corrupt write silently re-enable
     a tool an operator believes is stopped."""
 
@@ -436,7 +436,7 @@ def test_an_unreadable_global_value_denies_even_with_a_valid_tenant_value(
 
 
 def test_an_unreachable_redis_denies_with_internal() -> None:
-    """Decision C: a switch that cannot be read is not a switch. Failing open
+    """A switch that cannot be read is not a switch. Failing open
     here would mean an outage quietly re-enables every stopped tool.
 
     No `redis_url` fixture: this client points at a port nothing listens on.
@@ -658,7 +658,7 @@ def test_an_oversized_stored_reason_is_unreadable_rather_than_read(redis_url: st
 
 
 def test_the_unreadable_message_does_not_leak_the_raw_key(redis_url: str) -> None:
-    """Row 10 surfaces this exception type's message to the caller (it is how
+    """The caller sees this exception type's message to the caller (it is how
     the admin's reason reaches the user), so the corrupt-value variant must not
     hand back the tenant id and the internal key shape."""
 
@@ -690,7 +690,7 @@ def test_every_rbac_tool_name_is_a_valid_switch_target(redis_url: str) -> None:
 
 
 def test_an_unreachable_redis_message_does_not_leak_the_key_or_the_endpoint() -> None:
-    """Same reason as the corrupt-value message: row 10 maps INTERNAL and may
+    """Same reason as the corrupt-value message: the caller maps INTERNAL and may
     surface the text, and this one would otherwise carry the tenant id, the key
     shape and the Redis host and port."""
     port = _unused_port()
@@ -742,8 +742,8 @@ _COMMANDS: list[str] = []
 class _CountingRedis(Redis):
     """Records the NAME of every command issued through this client.
 
-    Counting on the client is the only honest way to assert "one round trip"
-    (decision C): reading the source for an `mget` call would pass just as
+    Counting on the client is the only honest way to assert "one round trip":
+    reading the source for an `mget` call would pass just as
     well for an implementation that also issued a `GET` per key first.
     """
 
@@ -770,7 +770,7 @@ def test_list_states_answers_one_null_row_per_tool_over_a_clean_namespace(
     implementation building its rows from what came BACK (a `SCAN`, or a
     filter over the non-null `MGET` values) answers a shorter list here, in
     which every tool is stopped. The admin board would then have no way to say
-    "this tool is running" — the sentence the page exists for (decision A).
+    "this tool is running" — the sentence the page exists for.
     The order is asserted too: the rows must follow the tools as requested.
     """
 
@@ -804,7 +804,7 @@ def test_list_states_reports_each_layer_on_its_own(
     The `both-layers` row is the one that separates them: with one effective
     state the tenant switch is invisible behind the global one, so an admin
     clearing the tenant switch is never told the global one still holds the
-    tool down (decision B, and `KillSwitch.status`' own docstring). The two
+    tool down (see `KillSwitch.status`' own docstring). The two
     reasons differ, so a row reading the wrong KEY into the wrong layer fails
     as well as one reading a single key.
     """
@@ -896,7 +896,7 @@ def test_a_switch_in_the_middle_leaves_every_other_row_clear(redis_url: str) -> 
 def test_an_unparseable_value_marks_its_own_row_and_answers_the_others(
     redis_url: str,
 ) -> None:
-    """Catches decision D implemented as `check`'s raise.
+    """Catches an unparseable value raising as `check` does.
 
     `_read` raises `ToolDisabledError` on a value it cannot parse, and reusing
     that path here blanks the whole board behind one bad key — the board being
@@ -933,7 +933,7 @@ def test_an_unparseable_value_marks_its_own_row_and_answers_the_others(
 def test_list_states_on_an_unreachable_redis_raises_internal(redis_url: str) -> None:
     """Catches an outage answered as a board of running tools.
 
-    Decision D makes an unparseable VALUE a row-level marker; a `RedisError`
+    An unparseable VALUE is a row-level marker; a `RedisError`
     is not that, and an implementation that widened the marker to cover every
     failure would paint the whole board green during an outage while `check`
     denied every call. `INTERNAL` and not `TOOL_DISABLED`: the platform is not
@@ -962,7 +962,7 @@ def test_list_states_on_an_unreachable_redis_raises_internal(redis_url: str) -> 
 
 
 def test_the_whole_board_costs_exactly_one_redis_command(redis_url: str) -> None:
-    """Catches a bulk read that is a loop of `GET`s (decision C).
+    """Catches a bulk read that is a loop of `GET`s.
 
     One `MGET` over the two keys per tool, or fifty-two round trips to paint
     one page, on every render of the admin board. Counted on the CLIENT rather

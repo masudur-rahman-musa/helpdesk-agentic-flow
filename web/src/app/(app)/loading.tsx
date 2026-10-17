@@ -1,8 +1,6 @@
 /**
- * The loading screen for every signed-in page. Next.js shows it
- * inside the group layout while a page fetches, so the shell stays put and only
- * the content area says it is working. `role="status"` makes a screen reader
- * announce the wait (`tests/app-states.test.tsx`).
+ * The loading screen for every signed-in page, drawn inside the shell.
+ * `role="status"` lets a screen reader announce the wait.
  */
 export default function Loading() {
   return (

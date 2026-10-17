@@ -1,13 +1,13 @@
-"""An earlier change §6: the deterministic entity matcher, pure and graph-free.
+"""The deterministic entity matcher, pure and graph-free.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.graph.matching`` (PURE: no I/O, no langgraph, no SQLAlchemy)
-    ``FUZZY_CUTOFF = 0.85`` (the design step 4)
+    ``FUZZY_CUTOFF = 0.85`` (the fuzzy tier)
     ``@dataclass(frozen=True) class Candidate`` — ``id``, ``slug``, ``name``.
     ``def normalise(value: str) -> str`` — casefolded, every run of
         non-alphanumeric characters collapsed to one space, stripped.
-    ``def aliases_for(candidate: Candidate) -> frozenset[str]`` — decision D:
+    ``def aliases_for(candidate: Candidate) -> frozenset[str]`` —
         derived from the normalised slug and name, plus each with its spaces
         removed. No alias column, no hand-written list.
     ``def match_candidates(term, candidates) -> tuple[Candidate, ...]`` —
@@ -60,7 +60,7 @@ UNDER_NAME = "Billing Management"
 
 
 def test_the_fuzzy_cutoff_is_exactly_the_spec_value() -> None:
-    """a project rule: catches a cutoff loosened to make a demo query match.
+    """Catches a cutoff loosened to make a demo query match.
     At 0.80 the near-miss pair below collapses `billing-read` into
     `billing-admin`, which is a privilege escalation dressed up as a typo."""
     assert FUZZY_CUTOFF == 0.85
@@ -78,7 +78,7 @@ def test_normalise_collapses_case_separators_and_punctuation() -> None:
 
 
 def test_aliases_for_derives_both_spellings_of_the_slug_and_the_name() -> None:
-    """Catches decision D implemented as the slug alone: a user who types the
+    """Catches aliases built from the slug alone: a user who types the
     system's display name, or types it without spaces, would fall through to
     the fuzzy tier where a near-miss can win instead."""
     candidate = _candidate("billing-admin", "Billing Admin")
@@ -123,7 +123,7 @@ def test_an_alias_match_wins_outright_over_a_fuzzy_candidate() -> None:
 
 
 def test_a_pair_scoring_exactly_the_cutoff_matches() -> None:
-    """The inclusive half of the design's cutoff: catches a strict `>`
+    """The inclusive half of the cutoff: catches a strict `>`
     comparison. The premise is asserted first — the best alias ratio is
     exactly 0.85 — so if the pair ever stops being the boundary pair this
     fails as a premise rather than passing for the wrong reason."""
@@ -150,7 +150,7 @@ def test_a_pair_just_under_the_cutoff_does_not_match() -> None:
 
 
 def test_the_near_miss_role_pair_does_not_collapse_into_one_answer() -> None:
-    """Catches plan §5's second risk: a misspelt `billing-read` matching
+    """Catches a misspelt `billing-read` matching
     `billing-admin` as well. The term is a typo, so no exact or alias tier can
     decide it and only the cutoff separates the two — a looser cutoff hands a
     read request an admin role, or asks the user to choose between them."""
@@ -193,7 +193,7 @@ def test_a_term_matching_nothing_returns_no_candidates() -> None:
 
 def test_the_matching_module_imports_no_framework_and_no_io() -> None:
     """Catches the matcher acquiring a repository read or a graph import:
-    decision G puts the ranking here as a pure function over candidates
+    the ranking lives here as a pure function over candidates
     supplied as data, which is what lets the node keep the tenant-scoped read
     and this file need no database."""
     source = Path(str(matching_module.__file__))

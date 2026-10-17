@@ -10,24 +10,23 @@ import {
 } from "@/features/admin/audit/filters";
 
 /**
- * An earlier change §6, `audit-filters.test.ts`: the parts of `/admin/audit` a test can
+ * The parts of `/admin/audit` a test can
  * pin without a DOM — the four string caps, the page sizes, the two
  * date-to-instant compositions and the inverted-range predicate. No component,
  * no fetch, no clock.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24ba's Deviations):
+ * Shapes this file fixes:
  * - `AUDIT_FILTER_MAX_LENGTHS` is keyed by the four WIRE parameter names —
- *   `event_type`, `subject_type`, `subject_id`, `actor_ref` — which is how §1
- *   and the 24a route name them, not by the accessible names of the controls
+ *   `event_type`, `subject_type`, `subject_id`, `actor_ref` — which is how
+ *   the route names them, not by the accessible names of the controls
  *   (`Actor` is the control, `actor_ref` is the parameter).
  * - `PAGE_SIZES` is a readonly tuple of NUMBERS, asserted with `toEqual` in
- *   order, because §1 says the select offers them in the order 50, 100, 200 and
+ *   order, because the select offers them in the order 50, 100, 200 and
  *   opens on the first.
  * - `fromInstant` and `toInstant` take the `type="date"` control's own value
  *   (`YYYY-MM-DD`) and return the composed instant. Neither is given a value
  *   the browser cannot produce: what an empty control does is `isInvertedRange`'s
- *   business and the page's, and §1 says an empty control sends no parameter at
+ *   business and the page's, and an empty control sends no parameter at
  *   all, so there is nothing here for the composers to answer.
  *
  * Every expectation is a literal. Reading the caps off some
@@ -37,8 +36,7 @@ import {
 
 /**
  * The four caps, each at the length of its own Postgres column
- * (`models/audit.py`: `String(64)` twice, `String(256)` twice), as §1 pins
- * them.
+ * (`models/audit.py`: `String(64)` twice, `String(256)` twice), as the page requires.
  */
 const CAPS: ReadonlyArray<{ field: keyof typeof AUDIT_FILTER_MAX_LENGTHS; cap: number }> = [
   { field: "event_type", cap: 64 },
@@ -49,10 +47,10 @@ const CAPS: ReadonlyArray<{ field: keyof typeof AUDIT_FILTER_MAX_LENGTHS; cap: n
 
 describe("AUDIT_FILTER_MAX_LENGTHS", () => {
   it.each(CAPS)("caps $field at $cap exactly", ({ field, cap }) => {
-    // a project rule, one exact assertion per cap. Kills one number standing
+    // One exact assertion per cap. Kills one number standing
     // in for all four — a module exporting 256 everywhere lets an auditor type
-    // a 200-character `event_type` that the route (24a) then refuses with a
-    // 400, which is the whole reason decision F puts a pre-check on the surface
+    // a 200-character `event_type` that the route then refuses with a
+    // 400, which is the whole reason for a pre-check on the control
     // that produces the string. It also kills the off-by-one pair (63, 255):
     // a cap one below the column's makes the form refuse an id the tool
     // accepts, and the shortest way to see that is the exact value.
@@ -76,17 +74,17 @@ describe("AUDIT_FILTER_MAX_LENGTHS", () => {
 
 describe("the page sizes", () => {
   it("offers exactly 50, 100 and 200, in that order", () => {
-    // Decision G as a value. Kills a list carrying a size
+    // The sizes as a value. Kills a list carrying a size
     // outside the tool's own `SEARCH_LIMIT_MIN`-`SEARCH_LIMIT_MAX` bound of
     // `1`-`200` — a 500 option is refused `VALIDATION` by the route and the
     // auditor sees a refusal for a control the page offered them — and kills a
-    // reordered list, because §1 says the page opens on the FIRST option and
+    // reordered list, because the page opens on the FIRST option and
     // the select's own case reads its labels in order.
     expect(PAGE_SIZES).toEqual([50, 100, 200]);
   });
 
   it("opens on 50", () => {
-    // §1's "50 is what the page opens with", and the number the first paint's
+    // 50 is what the page opens with, and the number the first paint's
     // `limit=50` is asserted against. Kills a default of 200: every first paint
     // would then ask the tool for four times the rows, against a `SCAN_CAP` of
     // 500 per call, for a screen nobody has filtered yet. Pinned as a literal
@@ -106,7 +104,7 @@ describe("the page sizes", () => {
 
 describe("the two date compositions", () => {
   it("composes a From date as midnight UTC", () => {
-    // Decision C and §5's fourth risk, as the exact string. Kills a composer
+    // The exact string. Kills a composer
     // that hands the column a NAIVE instant (`2026-09-12T00:00:00`), whose
     // meaning then depends on the server's zone, and kills one going through
     // `new Date(value).toISOString()`, which in jsdom answers whatever the test
@@ -166,7 +164,7 @@ const RANGES = [
 
 describe("isInvertedRange", () => {
   it.each(RANGES)("answers $inverted for $name", ({ from, to, inverted }) => {
-    // The predicate §1 fires the `AUDIT_RANGE_MESSAGE` alert from, with its two
+    // The predicate the `AUDIT_RANGE_MESSAGE` alert fires from, with its two
     // boundary rows carrying the weight. The same-date row kills a `>=`
     // comparison: an auditor searching one day would be told their From is
     // after their To and no read would ever go out, which is a page that cannot

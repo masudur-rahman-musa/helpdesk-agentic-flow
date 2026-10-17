@@ -1,10 +1,10 @@
-"""An earlier change section 6: the pure hash-chain core, written before the implementation.
+"""The pure hash-chain core, written before the implementation.
 
 Expected implementation surface (`helpdesk/audit/chain.py`, pure: no I/O, no
 clock, no imports from models or services):
 
 ``GENESIS_HASH: str``
-    ``"0" * 64`` — the ``prev_hash`` of a tenant's first event (the design).
+    ``"0" * 64`` — the ``prev_hash`` of a tenant's first event.
 
 ``canonical_json(mapping: Mapping[str, object]) -> bytes``
     Deterministic JSON: keys sorted at every level, compact separators
@@ -13,20 +13,20 @@ clock, no imports from models or services):
 
 ``event_hash(prev_hash: str, event_fields: Mapping[str, object]) -> str``
     ``sha256(prev_hash || canonical_json(event_fields)).hexdigest()`` — 64
-    lowercase hex chars (the design).
+    lowercase hex chars.
 
 ``verify_chain(events: Sequence[Mapping[str, object]]) -> VerifyResult``
     Walks the events in ``seq`` order (the input order is not trusted) and
     recomputes each link. An event mapping carries the DB-assigned ``seq``,
     the stored ``prev_hash`` and ``hash``, plus the hashed fields; those
-    three keys are excluded from the hash input (an earlier change decision B: ``seq``
+    three keys are excluded from the hash input (``seq``
     is assigned by the database after the hash is computed, so it can only
     order the walk). ``VerifyResult`` has ``ok: bool`` and
     ``broken_at: int | None`` — the ``seq`` of the FIRST event whose stored
     hash or link does not recompute, or ``None`` when the chain is intact.
 
-An earlier change section 6 adds the ANCHOR cases at the bottom of this file; every
-case above it is an earlier change's and is left exactly as it was. Surface that plan
+The ANCHOR cases sit at the bottom of this file; every
+case above it is older and is left exactly as it was. Surface the anchor
 adds to the same pure module:
 
 ``class ChainAnchor(BaseModel)``
@@ -296,7 +296,7 @@ def test_truncating_the_tail_is_not_detected_by_the_walk_alone() -> None:
 
 
 def test_non_contiguous_seq_values_are_accepted_when_links_hold() -> None:
-    """seq only orders the walk (decision B); gaps from rolled-back inserts are fine."""
+    """seq only orders the walk; gaps from rolled-back inserts are fine."""
     events = _chain(3)
     for event, seq in zip(events, (10, 20, 31), strict=True):
         event["seq"] = seq
@@ -355,7 +355,7 @@ def test_an_anchor_naming_a_surviving_seq_with_its_hash_verifies_ok() -> None:
 
 
 def test_a_tail_removed_past_the_anchor_is_reported_as_truncated() -> None:
-    """The whole point of the plan. Catches the implementation this module has
+    """The whole point of the anchor. Catches the implementation this module has
     shipped until now: the walk alone recomputes perfectly over a shortened
     chain, so without the anchor being consulted at all this answers `ok=True`
     — which is exactly what the untouched
@@ -364,7 +364,7 @@ def test_a_tail_removed_past_the_anchor_is_reported_as_truncated() -> None:
     fails if and only if the anchor branch is missing.
 
     `broken_at` is asserted None as well, to catch reporting truncation
-    through the old field (decision E): "broken at event 5" naming a row that
+    through the old field: "broken at event 5" naming a row that
     no longer exists is a false sentence, and a web panel reading `broken_at`
     would point an auditor at the wrong row.
     """
@@ -411,7 +411,7 @@ def test_a_rechained_log_is_caught_by_the_anchored_hash() -> None:
 
 
 def test_a_broken_link_wins_over_a_truncated_tail() -> None:
-    """Plan §1's precedence criterion: one verdict per case, and the recompute
+    """The precedence criterion: one verdict per case, and the recompute
     wins.
 
     Catches an implementation that checks the anchor FIRST and returns, which
@@ -438,7 +438,7 @@ def test_an_empty_list_with_an_anchor_is_truncated() -> None:
     Catches an implementation that short-circuits on an empty list before it
     reads the anchor — the `for` loop has nothing to walk, so `ok=True` falls
     straight out and a tenant whose whole log was deleted reads as healthy,
-    which is the loudest failure this plan exists to prevent.
+    which is the loudest failure this change exists to prevent.
     """
     events = _chain(3)
     anchor = _anchor_at(events, 2)
@@ -479,7 +479,7 @@ def test_an_empty_list_with_no_anchor_is_ok_and_never_anchored() -> None:
 def test_verify_chain_without_an_anchor_returns_todays_verdict(
     label: str, events: list[dict[str, Any]], expected: VerifyResult
 ) -> None:
-    """Plan §1: with no anchor the answer is exactly today's.
+    """With no anchor the answer is exactly today's.
 
     The comparison is against a whole `VerifyResult` built from the two OLD
     fields, so both new fields must default to None. Catches an anchor

@@ -1,4 +1,4 @@
-"""An earlier change §6: the strict-mode schema checker in `helpdesk/gateway/strict_schema.py`.
+"""The strict-mode schema checker in `helpdesk/gateway/strict_schema.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -10,7 +10,7 @@ Expected implementation surface (the implementer must provide exactly this):
         (``$``, ``$.properties.b``, ``$.$defs.X``, ``$.properties.p.items``,
         ``$.properties.q.anyOf[0]``).
 
-The three rules are OpenAI strict mode's, as an earlier change §1 states them: every
+The three rules are OpenAI strict mode's, as it states them: every
 object carries ``additionalProperties: false``; every object's ``required``
 lists every key of its ``properties``; no node carries a ``default`` key.
 
@@ -111,7 +111,7 @@ def test_a_property_left_out_of_required_is_a_problem() -> None:
 
 def test_a_default_key_is_a_problem() -> None:
     """Catches a checker that knows only the two object rules and misses
-    decision C's third: a nullable field still listed in `required` but
+    the third rule: a nullable field still listed in `required` but
     carrying Pydantic's `"default": null`, which strict mode rejects."""
     schema: dict[str, Any] = {
         "type": "object",

@@ -1,14 +1,14 @@
-"""An earlier change, sections 1 and 6: the two review tools, through the transport.
+"""The two review tools, through the transport.
 
 Surface under test (written before it exists):
 
 ``mcp_server.tools.reviews``
-    ``LIMIT_MIN = 1``, ``LIMIT_DEFAULT = 50``, ``LIMIT_MAX = 200`` (decision I).
+    ``LIMIT_MIN = 1``, ``LIMIT_DEFAULT = 50``, ``LIMIT_MAX = 200``.
     ``OpenAccessReviewInput(MutatingToolInput)`` — ``department_id`` and
     ``system_id``, both ``uuid.UUID | None`` with exactly one set, plus
     ``period: str`` validated by a ``field_validator`` calling
     ``re.fullmatch(r"\\d{4}-Q[1-4]")`` against
-    ``helpdesk.models.PERIOD_LENGTH`` (decision H), and the idempotency key
+    ``helpdesk.models.PERIOD_LENGTH``, and the idempotency key
     and ``extra="forbid"`` of ``MutatingToolInput``. No tenant argument: the
     tenant is the token's.
     ``OpenAccessReviewOutput`` — ``review_id``, ``department_id``,
@@ -22,15 +22,15 @@ Surface under test (written before it exists):
     ``tool.succeeded``: the handler appends ``review.opened`` itself, naming
     the REVIEW) and ``list_review_items`` (a read).
 
-Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the two principals the design
-gives no cell on either row, ``FORBIDDEN`` for a scope the caller's the design
+Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the two principals the matrix
+gives no cell on either row, ``FORBIDDEN`` for a scope the caller's matrix
 scope does not reach, one shared ``NOT_FOUND`` for a scope or review id that
 is missing OR another tenant's, ``POLICY_BLOCKED`` for a second open review of
 one (scope, period), and ``VALIDATION`` for every input the pre-checks refuse
-— the design's validation code, which an earlier change §1 calls ``INVALID_INPUT``;
+— the typed validation code, not a made-up ``INVALID_INPUT``;
 there is no such member of ``helpdesk.errors.ErrorCode``.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: every case plants its OWN department, system, roles, people and
@@ -38,7 +38,7 @@ grants (uuid4-suffixed names), sends a fresh idempotency key per call, and
 opens each review under a period no other review of that scope uses.
 
 Every raw-SQL fixture binds `date` and `datetime` OBJECTS, never strings:
-asyncpg binds by type and does not coerce (the project notes, an earlier change).
+asyncpg binds by type and does not coerce.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
@@ -71,7 +71,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     token_for,
 )
 
-# An earlier change reading: this file's 96 tests run 1.5-3.7s each (heavy seeded-database
+# This file's 96 tests run 1.5-3.7s each (heavy seeded-database
 # RBAC checks) and it is the suite's single largest time sink, so the module is
 # slow as a whole and `make test-fast` skips it.
 pytestmark = pytest.mark.slow
@@ -87,13 +87,13 @@ DENIED_EVENT = "tool.denied"
 REPLAYED_EVENT = "tool.replayed"
 FAILED_EVENT = "tool.failed"
 
-# the design's two review rows: five principals hold a cell on each, two hold
+# The matrix's two review rows: five principals hold a cell on each, two hold
 # none. `hr` DOES hold one here (unlike the approval rows), and `auditor` does
 # not (unlike the audit row), so a row copied from either by habit fails.
 ALLOWED_PRINCIPALS = ("manager", "system_owner", "hr", "it_admin", "platform_admin")
 DENIED_PRINCIPALS = ("employee", "auditor")
 
-# The three principals whose the design cell is `Scope.ANY`.
+# The three principals whose the matrix cell is `Scope.ANY`.
 ANY_SCOPE_PRINCIPALS = ("hr", "it_admin", "platform_admin")
 
 ACTIVE_STATUS = "active"
@@ -102,12 +102,12 @@ PLANTED_PASSWORD_HASH = "not-a-real-hash-this-user-never-logs-in"
 GRANTED_AT = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
 FAR_EXPIRY = datetime(2099, 6, 1, 12, 0, tzinfo=UTC)
 
-# Decision H's shape, and the values around it. `2026-Q1` is the accepted
+# The period shape, and the values around it. `2026-Q1` is the accepted
 # baseline every rejected row is measured against.
 VALID_PERIOD = "2026-Q1"
 
 # Unique periods for cases that open more than one review over one scope: the
-# year is what varies, because decision H's shape admits four quarters.
+# year is what varies, because the period shape admits four quarters.
 _PERIOD_YEARS = itertools.count(2101)
 
 
@@ -433,7 +433,7 @@ def _tenant_rows(slug: str) -> TenantRows:
 
 
 def _scope_arguments_for(principal: str, scope: Scope) -> dict[str, Any]:
-    """The scope a principal's own the design cell can actually reach.
+    """The scope a principal's own the matrix cell can actually reach.
 
     `system_owner` holds `own_systems` and nothing else, so the only review it
     can open is over a system it owns; `manager` holds `own_department`, so
@@ -454,7 +454,7 @@ def _caller_for(principal: str, scope: Scope) -> SeededUser:
 
 
 def test_the_review_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
-    """Decision I, pinned exactly. An unbounded item list is an unbounded
+    """Pinned exactly. An unbounded item list is an unbounded
     response over the wire, and a default that drifts changes what every
     caller who omits `limit` receives. `PERIOD_LENGTH` is pinned here too
     because the input model checks the client's string against it, and every
@@ -464,8 +464,7 @@ def test_the_review_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
     assert reviews.LIMIT_MAX == 200
     assert PERIOD_LENGTH == 16
     # The pre-check is sized by the COLUMN's own constant, not by a literal
-    # retyped beside it: widening one without the other fails here (standing
-    # rule 1).
+    # retyped beside it: widening one without the other fails here.
     assert (
         reviews.OpenAccessReviewInput.model_fields["period"].metadata[-1].max_length
         == PERIOD_LENGTH
@@ -475,11 +474,11 @@ def test_the_review_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
 def test_the_default_limit_is_read_off_the_input_model() -> None:
     """Catches the constant and the model disagreeing: a `Field(default=100)`
     beside a `LIMIT_DEFAULT` of 50 leaves the test above green and every real
-    caller receiving a different number of items than the plan says."""
+    caller receiving a different number of items than documented."""
     assert reviews.ListReviewItemsInput(review_id=uuid.uuid4()).limit == reviews.LIMIT_DEFAULT
 
 
-# --- the design's allow set and its refusal direction (criterion 4) -----------------
+# --- the matrix's allow set and its refusal direction -----------------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -487,8 +486,8 @@ def test_each_permitted_principal_opens_a_review_in_their_scope(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """The allow direction every refusal below depends on, one cell of SPEC
-    §7's `open_access_review` row at a time.
+    """The allow direction every refusal below depends on, one cell of the
+    matrix's `open_access_review` row at a time.
 
     Catches a registry entry wired to the wrong matrix member: `offboard_user`
     admits only `hr` and `platform_admin`, `approve_request` admits neither
@@ -500,8 +499,7 @@ def test_each_permitted_principal_opens_a_review_in_their_scope(
     review) would be a widened scope rather than a passing test.
 
     The review row is re-read with no tenant filter and asserted in the
-    TOKEN's tenant, with no tenant argument anywhere in the input (hard
-    rule 6).
+    TOKEN's tenant, with no tenant argument anywhere in the input.
     """
     scope = plant_scope(mcp_env)
     caller = _caller_for(principal, scope)
@@ -532,7 +530,7 @@ def test_the_two_denied_principals_open_nothing(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """the design's two empty cells on this row, and the record they leave.
+    """The matrix's two empty cells on this row, and the record they leave.
 
     Every argument is valid and the department resolves in the caller's OWN
     tenant, so neither the `NOT_FOUND` lookup nor the duplicate refusal can
@@ -540,8 +538,8 @@ def test_the_two_denied_principals_open_nothing(
     than `tool.failed`: a permission decision filed as an outage is a false
     record, and a count-only assertion cannot tell them apart.
 
-    This does NOT claim the pipeline's RBAC stage as its kill (standing rule
-    20): the handler re-runs `rbac.authorize` for the caller's scopes, so a
+    This does NOT claim the pipeline's RBAC stage as its kill:
+    the handler re-runs `rbac.authorize` for the caller's scopes, so a
     principal the matrix refuses is refused there too and deleting the
     pipeline stage changes no answer. What it pins is that these two
     principals are refused at all, and that the refusal writes nothing.
@@ -569,7 +567,7 @@ def test_each_permitted_principal_lists_the_items_of_a_review_in_their_scope(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """The same allow direction for the read half, which has its own the design
+    """The same allow direction for the read half, which has its own the matrix
     row and could be wired to the wrong matrix member independently.
 
     A read wired to `open_access_review`'s member would pass every case in
@@ -627,13 +625,13 @@ def test_the_two_denied_principals_cannot_list_items(
     assert error_code(result) == "FORBIDDEN"
 
 
-# --- scope, per principal (criterion 4, a project rule) ------------------------
+# --- scope, per principal ------------------------
 
 
 def test_a_manager_may_not_open_a_review_for_another_department(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule: the design's `own_department` scope is the ONLY gate this
+    """The matrix's `own_department` scope is the ONLY gate this
     case can fail on.
 
     The caller carries `manager`, which the matrix admits on this row, and the
@@ -757,7 +755,7 @@ def test_an_any_scope_principal_reaches_a_scope_they_have_no_relation_to(
     even a member of the department, so a scope check that compared
     departments unconditionally — the natural mistake once the manager case
     above exists — would refuse all three of these principals and leave HR
-    unable to open the reviews the design says they run.
+    unable to open the reviews they are meant to run.
     """
     scope = plant_scope(mcp_env)
     stranger = plant_scope(mcp_env)
@@ -780,7 +778,7 @@ def test_an_any_scope_principal_reaches_a_scope_they_have_no_relation_to(
 def test_the_managers_department_comes_from_the_directory_not_the_token(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule on the department comparison itself.
+    """The department comparison itself.
 
     The token is minted with a `department_id` claim naming the department
     under review while the caller's DIRECTORY row says otherwise, so a scope
@@ -814,7 +812,7 @@ def test_the_managers_department_comes_from_the_directory_not_the_token(
     assert _reviews_of(mcp_env.database_url, department_id=other.department_id) == []
 
 
-# --- the absences (criterion 7) --------------------------------------------------
+# --- the absences --------------------------------------------------
 
 
 def test_a_missing_and_another_tenants_scope_answer_the_same_not_found(
@@ -829,7 +827,7 @@ def test_a_missing_and_another_tenants_scope_answer_the_same_not_found(
     see. The two answers are compared as whole strings, so a code with an
     explanation appended fails. The caller holds `platform_admin`
     (`Scope.ANY`), so the scope gate cannot be what refuses either call — the
-    widest principal the design has is still confined to its own tenant.
+    widest principal the matrix has is still confined to its own tenant.
     """
     caller = plant_scope(mcp_env).manager
     other_tenant = mcp_env.tenant_b
@@ -906,13 +904,13 @@ def test_a_missing_and_another_tenants_review_answer_the_same_not_found(
     assert error_code(foreign) == error_code(missing)
 
 
-# --- decision G through the wire (criterion 6) -----------------------------------
+# --- the duplicate check through the wire -----------------------------------
 
 
 def test_a_second_review_of_the_same_scope_and_period_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision G at the boundary, with two DIFFERENT idempotency keys so the
+    """At the boundary, with two DIFFERENT idempotency keys so the
     guard cannot be what refuses the second call.
 
     Catches the "open a second one anyway" behaviour, which splits a
@@ -946,23 +944,23 @@ def test_a_second_review_of_the_same_scope_and_period_is_refused_policy_blocked(
     ]
 
 
-# --- the input surface (criterion 5 and criterion 8) -----------------------------
+# --- the input surface -----------------------------
 
 
 def test_neither_scope_id_and_both_scope_ids_are_refused_before_any_write(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 5, both halves.
+    """Both halves.
 
     Neither id set is a call with no subject at all; both set is a caller who
     believes they are reviewing a department AND a system, and whichever one
     the handler silently picked would be the wrong answer half the time. The
     table's own check constraint would eventually refuse both, but only as an
     `IntegrityError` mid-transaction — a free-text database error across a
-    boundary whose contract is the eight typed the design codes — so this must
+    boundary whose contract is the eight typed codes — so this must
     be refused by the input model first, which is what the "no row written"
-    assertion pins. `VALIDATION` is the design's code for this (an earlier change §1
-    calls it `INVALID_INPUT`; `helpdesk.errors.ErrorCode` has no such member).
+    assertion pins. `VALIDATION` is the typed code for this
+    (`helpdesk.errors.ErrorCode` has no `INVALID_INPUT` member).
     """
     scope = plant_scope(mcp_env)
     caller = bearer(token_for(scope.manager, principals=("manager",)))
@@ -1004,7 +1002,7 @@ def test_the_period_bounds_are_inclusive_and_reject_before_any_write(
     period_value: str,
     accepted: bool,
 ) -> None:
-    """Decision H, and a project rule and 4.
+    """The period shape.
 
     The three trailing rows are the whole point: `Field(pattern=...)` matches
     a SUBSTRING, so a period ending in a newline, a CRLF or a space is
@@ -1013,11 +1011,12 @@ def test_the_period_bounds_are_inclusive_and_reject_before_any_write(
     `field_validator` calling `re.fullmatch` refuses them, and nothing else in
     this file can tell the two apart.
 
-    The two width rows pin the relationship between the check and the store: `PERIOD_LENGTH` is the column's own size, and the shape
+    The two width rows pin the relationship between the check and the store
+    : `PERIOD_LENGTH` is the column's own size, and the shape
     check is strictly tighter than it, so the value at the width and the value
     one over it are BOTH refused by the shape long before Postgres could
     truncate anything. There is therefore no accepted 16-character period —
-    an earlier change §6 asks for one, and decision H's `\\d{4}-Q[1-4]` makes every
+    a longer one is not wanted, and the `\\d{4}-Q[1-4]` shape makes every
     accepted value exactly seven characters.
 
     The accepted row is what stops the table passing vacuously: it proves the
@@ -1062,7 +1061,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
     limit: int,
     accepted: bool,
 ) -> None:
-    """Decision I's bound, both sides of both ends.
+    """The bound, both sides of both ends.
 
     A one-sided assertion cannot tell an inclusive bound from an exclusive
     one: `gt=1` accepts 200 and refuses 1, and `lt=200` accepts 1 and refuses
@@ -1093,7 +1092,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
         assert error_code(result) == "VALIDATION"
 
 
-# --- replay (criterion 6) --------------------------------------------------------
+# --- replay --------------------------------------------------------
 
 
 def test_a_replayed_key_returns_the_same_response_and_opens_no_second_review(
@@ -1101,7 +1100,7 @@ def test_a_replayed_key_returns_the_same_response_and_opens_no_second_review(
 ) -> None:
     """Catches a retry that re-runs the body.
 
-    The second call under the same key must not reach decision G's duplicate
+    The second call under the same key must not reach the duplicate
     check: by then an open review for that (scope, period) exists, so a re-run
     answers `POLICY_BLOCKED` for a call the caller already saw succeed. Byte
     identity is asserted, not just equality of meaning, so a response rebuilt
@@ -1126,13 +1125,13 @@ def test_a_replayed_key_returns_the_same_response_and_opens_no_second_review(
     ]
 
 
-# --- the audit sequence (criterion 3, a project rule) --------------------------
+# --- the audit sequence --------------------------
 
 
 def test_the_audit_sequence_is_review_opened_then_tool_succeeded(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 3 as an exact ordered list, which is the only place the order
+    """The audit order as an exact ordered list, which is the only place the order
     of the two events is observable at all.
 
     Catches the registry declaring `review.opened` as this tool's event
@@ -1186,7 +1185,7 @@ def test_the_audit_sequence_is_review_opened_then_tool_succeeded(
 
 
 # =================================================================================
-# An earlier change, sections 1 and 6: `decide_review_item`, through the transport.
+# `decide_review_item`, through the transport.
 #
 # Surface under test (written before it exists):
 #
@@ -1202,9 +1201,9 @@ def test_the_audit_sequence_is_review_opened_then_tool_succeeded(
 #     ``tool.succeeded``: the handler's own ``review.item_decided`` names the
 #     ITEM and lands first).
 #
-# Scope is checked BEFORE the item's existence (decision H), the same order
-# as 12c's two tools, so an item id is neither an existence nor a state
-# oracle for a caller whose the design row does not reach it.
+# Scope is checked BEFORE the item's existence, the same order
+# as the open and list tools, so an item id is neither an existence nor a state
+# oracle for a caller whose matrix row does not reach it.
 # =================================================================================
 
 DECIDE = "decide_review_item"
@@ -1324,7 +1323,7 @@ def _open_with_item(
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """Open a review over `scope` and return (review_id, its one item id).
 
-    Driven through the two 12c tools rather than by planting rows, so the
+    Driven through the open and list tools rather than by planting rows, so the
     item under decision is exactly the item a reviewer would be shown.
     """
     token = bearer(token_for(_caller_for(principal, scope), principals=(principal,)))
@@ -1334,7 +1333,7 @@ def _open_with_item(
     return uuid.UUID(str(opened["review_id"])), uuid.UUID(str(listed["items"][0]["item_id"]))
 
 
-# --- the design's allow set and its refusal direction (criterion 10) ----------------
+# --- the matrix's allow set and its refusal direction ----------------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -1342,8 +1341,8 @@ def test_each_permitted_principal_decides_an_item_in_their_scope(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """The allow direction every refusal below depends on, one cell of SPEC
-    §7's `decide_review_item` row at a time.
+    """The allow direction every refusal below depends on, one cell of the
+    matrix's `decide_review_item` row at a time.
 
     Catches a registry entry wired to the wrong matrix member: `offboard_user`
     admits only `hr` and `platform_admin` and `approve_request` admits neither
@@ -1382,7 +1381,7 @@ def test_the_two_denied_principals_decide_nothing(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """the design's two empty cells on this row, and the record they leave.
+    """The matrix's two empty cells on this row, and the record they leave.
 
     The item is a real row the SAME caller's manager token just opened, in
     the caller's own tenant and own department, so neither the `NOT_FOUND`
@@ -1390,8 +1389,8 @@ def test_the_two_denied_principals_decide_nothing(
     permission decision can. `tool.denied` rather than `tool.failed`: a
     permission decision filed as an outage is a false record.
 
-    This does NOT claim the pipeline's RBAC stage as its kill (standing rule
-    20): the handler re-runs `rbac.authorize` through `_in_scope`, so
+    This does NOT claim the pipeline's RBAC stage as its kill:
+    the handler re-runs `rbac.authorize` through `_in_scope`, so
     deleting the pipeline stage changes no answer here.
     """
     scope = plant_scope(mcp_env)
@@ -1413,18 +1412,18 @@ def test_the_two_denied_principals_decide_nothing(
     ]
 
 
-# --- scope, per principal (criterion 10, a project rule) -----------------------
+# --- scope, per principal -----------------------
 
 
 def test_a_manager_may_not_decide_an_item_of_another_departments_review(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule: the design's `own_department` scope is the ONLY gate
+    """The matrix's `own_department` scope is the ONLY gate
     this case can fail on.
 
     The caller carries `manager`, which the matrix admits on this row, and the
     item is a real undecided row in the caller's OWN tenant, so neither the
-    matrix nor the `NOT_FOUND` lookup nor decision C can refuse it — deleting
+    matrix nor the `NOT_FOUND` lookup nor the already-decided check can refuse it — deleting
     the scope comparison is the one change that turns this into a revoked
     grant in a department the caller has no reach over. The same caller then
     decides an item of their OWN review, so a handler that refuses every
@@ -1490,14 +1489,14 @@ def test_a_system_owner_may_not_decide_an_item_of_a_system_they_do_not_own(
 def test_the_deciders_department_comes_from_the_directory_not_the_token(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule on the department comparison of the deciding tool itself.
+    """The department comparison of the deciding tool itself.
 
     The token is minted with a `department_id` claim naming the department
     whose review holds the item, while the caller's DIRECTORY row says
     otherwise: a scope check reading the CLAIM admits the call and revokes
     somebody's access, one reading the directory refuses it. Every other
     scope case here passes whichever source is used, because both agree; only
-    this one separates them. a project rule is satisfied by keeping both
+    this one separates them. It is satisfied by keeping both
     departments in ONE tenant, so the tenant guard cannot refuse this on the
     scope rule's behalf.
 
@@ -1530,7 +1529,7 @@ def test_the_deciders_department_comes_from_the_directory_not_the_token(
     assert str(_grant_row(mcp_env.database_url, other.grant_id).status) == ACTIVE_STATUS
 
 
-# --- the absences, and the order they are answered in (criterion 8, decision H) ---
+# --- the absences, and the order they are answered in ---
 
 
 def test_a_missing_and_another_tenants_item_answer_the_same_not_found(
@@ -1584,7 +1583,7 @@ def test_a_missing_and_another_tenants_item_answer_the_same_not_found(
 def test_an_out_of_scope_item_is_refused_before_its_existence_is_tested(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision H, and the reason this tool joins `SCOPE_BEFORE_EXISTENCE_TOOLS`
+    """The reason this tool joins `SCOPE_BEFORE_EXISTENCE_TOOLS`
     rather than the rbac sweep's two older buckets.
 
     ONE id that resolves nowhere is sent by two callers the matrix admits
@@ -1614,7 +1613,7 @@ def test_an_out_of_scope_item_is_refused_before_its_existence_is_tested(
     assert error_code(wide) == "NOT_FOUND"
 
 
-# --- the input surface (criterion 9) ---------------------------------------------
+# --- the input surface ---------------------------------------------
 
 
 DECISION_CASES: list[tuple[str, str, bool]] = [
@@ -1638,13 +1637,14 @@ def test_the_decision_word_is_an_exact_enum_member_or_refused_before_any_write(
     decision: str,
     accepted: bool,
 ) -> None:
-    """Criterion 9. Catches `decision` typed as a bare `str`, which would let
+    """Catches `decision` typed as a bare `str`, which would let
     any client word land in the `review_items.decision` column — a value no
     query for `keep` or `revoke` ever matches again, and a decision an
     auditor cannot read.
 
     The trailing-newline and trailing-space rows are what separate the enum
-    from a `Field(pattern=...)`, which matches a SUBSTRING and accepts both; the uppercase row catches a case-insensitive coercion.
+    from a `Field(pattern=...)`, which matches a SUBSTRING and accepts both
+    ; the uppercase row catches a case-insensitive coercion.
     Both accepted rows are here so the table cannot pass vacuously, and
     because they are the only two words the column may ever hold. Every
     refused row re-reads the item and the grant, so the refusal has to happen
@@ -1693,7 +1693,7 @@ def test_an_extra_argument_is_refused_with_nothing_written(
     assert str(_grant_row(mcp_env.database_url, scope.grant_id).status) == ACTIVE_STATUS
 
 
-# --- what a `revoke` decision does end to end (criteria 2, 4 and 6) --------------
+# --- what a `revoke` decision does end to end --------------
 
 
 def test_a_revoke_decision_ends_the_grant_and_completes_the_review(
@@ -1704,7 +1704,7 @@ def test_a_revoke_decision_ends_the_grant_and_completes_the_review(
 
     Catches a handler that records the decision and never calls the domain —
     the item would read `revoke` while the access stayed live, which is the
-    failure this whole plan exists to prevent. `revoked_grant_count` is
+    failure this whole tool exists to prevent. `revoked_grant_count` is
     asserted as 1 AND the grant row is re-read `revoked`, so a count computed
     without a revocation cannot pass. The review is the item's last, so
     `review_complete` and the stored `completed_at` are asserted together: a
@@ -1737,7 +1737,7 @@ def test_a_revoke_decision_ends_the_grant_and_completes_the_review(
 def test_a_second_decision_on_the_same_item_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision C at the boundary, with two DIFFERENT idempotency keys so the
+    """At the boundary, with two DIFFERENT idempotency keys so the
     guard cannot be what refuses the second call.
 
     Catches an overwrite: a review is a record of what a named person decided
@@ -1772,7 +1772,7 @@ def test_a_second_decision_on_the_same_item_is_refused_policy_blocked(
     ]
 
 
-# --- replay (criterion 6) --------------------------------------------------------
+# --- replay --------------------------------------------------------
 
 
 def test_a_replayed_key_returns_the_same_response_and_revokes_nothing_twice(
@@ -1780,7 +1780,7 @@ def test_a_replayed_key_returns_the_same_response_and_revokes_nothing_twice(
 ) -> None:
     """Catches a retry that re-runs the body.
 
-    The second call under the same key must not reach decision C's refusal:
+    The second call under the same key must not reach the already-decided refusal:
     by then the item carries a decision, so a re-run answers `POLICY_BLOCKED`
     for a call the caller already saw succeed. Byte identity is asserted, not
     just equality of meaning, so a response rebuilt rather than replayed
@@ -1808,22 +1808,22 @@ def test_a_replayed_key_returns_the_same_response_and_revokes_nothing_twice(
     ]
 
 
-# --- the audit sequence (criterion 5, decision G, a project rule) --------------
+# --- the audit sequence --------------
 
 
 def test_the_audit_sequence_is_review_item_decided_then_tool_succeeded(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 5 as an exact ordered list, which is the only place the order
+    """The audit order as an exact ordered list, which is the only place the order
     of the two events is observable at all.
 
     Catches the registry declaring `review.item_decided` as this tool's event
     instead of the generic `tool.succeeded`: the pipeline writes its event
     with the TOOL as subject and a fixed payload, so the log would record that
-    somebody called a tool and not which grant was ended and why (standing
-    rule 19), and the item's own event would be missing entirely.
+    somebody called a tool and not which grant was ended and why.
+    The item's own event would be missing entirely.
 
-    The subject is the ITEM and the payload is decision G's exact key set,
+    The subject is the ITEM and the payload is an exact key set,
     asserted here as well as in the core suite because only the transport can
     show that the event the PIPELINE adds did not overwrite or duplicate the
     one the handler wrote. `review_complete` carries the completion: there is
@@ -1846,7 +1846,7 @@ def test_the_audit_sequence_is_review_item_decided_then_tool_succeeded(
         *events_before,
         # The revocation's own event first, because `review.item_decided`
         # reports `revoked_grant_count` and cannot be written before the
-        # revocation it counts; the pipeline's summary last (criterion 5).
+        # revocation it counts; the pipeline's summary last.
         GRANT_REVOKED_EVENT,
         REVIEW_ITEM_DECIDED_EVENT,
         SUCCEEDED_EVENT,
@@ -1879,7 +1879,7 @@ def test_the_audit_sequence_is_review_item_decided_then_tool_succeeded(
 
 
 # =================================================================================
-# An earlier change, sections 1 and 6: the review QUEUE, and the item read widened with
+# the review QUEUE, and the item read widened with
 # the grant's context.
 #
 # Surface under test (written before it exists):
@@ -1888,16 +1888,16 @@ def test_the_audit_sequence_is_review_item_decided_then_tool_succeeded(
 #     ``ListReviewsInput`` — ``limit: int = LIMIT_DEFAULT`` bounded
 #     ``ge=LIMIT_MIN, le=LIMIT_MAX`` (the same three constants the item list
 #     reads, never a second copy), and ``status: ReviewStatus | None = None``,
-#     the enum itself so the member IS the pre-check (decision E). No user and
+#     the enum itself so the member IS the pre-check. No user and
 #     no tenant argument at all: both are the token's.
 #     ``ListReviewsOutput`` — ``reviews``, each row carrying exactly the
 #     thirteen keys in ``QUEUE_ROW_KEYS`` below.
 #     ``list_reviews`` — a READ (no idempotency key, extras ignored), declaring
 #     the generic ``tool.succeeded``, registered under ``rbac.Tool.LIST_REVIEWS``
-#     whose the design cell is the one the other three review rows carry.
+#     whose the matrix cell is the one the other three review rows carry.
 #     ``ListReviewItemsOutput``'s items grow six context fields:
 #     ``target_display_name``, ``role_name``, ``system_name``, ``privilege``,
-#     ``granted_at`` and ``expires_at`` (decision B) — eleven keys per item.
+#     ``granted_at`` and ``expires_at`` — eleven keys per item.
 #
 # Fixture cost: the same session-scoped ``mcp_env`` seam and
 # the same per-case namespace (a freshly planted department, system, cast and
@@ -1910,8 +1910,8 @@ def test_the_audit_sequence_is_review_item_decided_then_tool_succeeded(
 LIST_REVIEWS = "list_reviews"
 
 # The output model's keys as a literal, never read off the
-# model under test: criterion 3's row, exactly thirteen of them. `item_count`
-# and `decided_count` are the progress the design asks for; the two id/name pairs
+# model under test: the row, exactly thirteen of them. `item_count`
+# and `decided_count` are the progress the page shows; the two id/name pairs
 # are what makes a scope legible, and exactly one of them is non-null on any
 # row because the table's check constraint says so.
 QUEUE_ROW_KEYS = {
@@ -1930,7 +1930,7 @@ QUEUE_ROW_KEYS = {
     "decided_count",
 }
 
-# One item as a reviewer sees it after decision B: the five 12c keys plus the
+# One item as a reviewer sees it after the widening: the five original keys plus the
 # six the grant answers. Written out rather than derived, so a field dropped on
 # both sides at once is still a red row here.
 ITEM_KEYS = {
@@ -1953,7 +1953,7 @@ COMPLETED_AT = datetime(2026, 5, 5, 9, 0, tzinfo=UTC)
 GRANT_HOLDER_NAME = "Fake Queue Grant Holder"
 
 # A `due_at` no other planted review shares, early enough that every row this
-# plan plants sorts ahead of the NULL-`due_at` reviews the rest of the file
+# file plants sorts ahead of the NULL-`due_at` reviews the rest of the file
 # opens. The MINUTE is what varies, so the sequence stays total.
 _DUE_MINUTES = itertools.count(0)
 
@@ -2070,7 +2070,7 @@ def _when(value: Any) -> datetime:
 
 
 def _queue_scope_for(principal: str, scope: Scope, env: SeededMcp) -> uuid.UUID:
-    """One planted review in the scope this principal's own the design cell reaches.
+    """One planted review in the scope this principal's own the matrix cell reaches.
 
     `system_owner` holds `own_systems` and nothing else, so the only review it
     can see is over a system it owns; `manager` holds `own_department`. The
@@ -2095,7 +2095,7 @@ def _queue_scope_for(principal: str, scope: Scope, env: SeededMcp) -> uuid.UUID:
 
 
 def test_the_queue_reads_the_same_three_limit_constants_as_the_item_list() -> None:
-    """Criterion 5: the bound is READ from `LIMIT_MIN`/`LIMIT_DEFAULT`/`LIMIT_MAX`
+    """The bound is READ from `LIMIT_MIN`/`LIMIT_DEFAULT`/`LIMIT_MAX`
     rather than copied as three fresh numbers beside them.
 
     Catches a second set of literals in the new input model: the boundary case
@@ -2111,7 +2111,7 @@ def test_the_queue_reads_the_same_three_limit_constants_as_the_item_list() -> No
     assert {getattr(entry, "le", None) for entry in bounds} - {None} == {reviews.LIMIT_MAX}
 
 
-# --- the design's allow set and the row it answers (criteria 1, 2, 3 and 4) ---------
+# --- the matrix's allow set and the row it answers ---------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -2119,8 +2119,8 @@ def test_each_permitted_principal_reads_the_queue_of_their_own_scope(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """The allow direction of `list_reviews`' own the design row, one cell at a
-    time, and criterion 3's row shape as a literal.
+    """The allow direction of `list_reviews`' own matrix row, one cell at a
+    time, and the row shape as a literal.
 
     Catches a registry entry wired to a matrix member this row is not:
     `offboard_user` admits two principals and `search_audit` six, so a member
@@ -2131,7 +2131,7 @@ def test_each_permitted_principal_reads_the_queue_of_their_own_scope(
     than a passing test.
 
     The thirteen keys are asserted as an exact set, so a row short of
-    `decided_count` (the progress half of the design) or carrying a spare
+    `decided_count` (the progress half) or carrying a spare
     `tenant_id` fails; the two counts are asserted as numbers, so a row that
     answers the review and leaves the aggregate at zero fails too.
     """
@@ -2194,13 +2194,13 @@ def test_the_two_denied_principals_read_no_queue(
     assert error_code(result) == "FORBIDDEN"
 
 
-# --- scope, per principal (criterion 10, a project rule) -----------------------
+# --- scope, per principal -----------------------
 
 
 def test_a_manager_reads_no_review_of_another_department(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule: the design's `own_department` scope is the ONLY gate that
+    """The matrix's `own_department` scope is the ONLY gate that
     can hide the other department's review here.
 
     The caller carries `manager`, which the matrix admits on this row, and the
@@ -2271,7 +2271,7 @@ def test_a_system_owner_reads_no_review_of_a_system_they_do_not_own(
 def test_a_scope_that_reaches_nothing_answers_an_empty_queue_and_never_not_found(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 11. Catches a handler that treats "no rows" as an absence and
+    """Catches a handler that treats "no rows" as an absence and
     raises `NOT_FOUND`, which is what the other three review tools do for an id
     they cannot resolve.
 
@@ -2293,13 +2293,13 @@ def test_a_scope_that_reaches_nothing_answers_an_empty_queue_and_never_not_found
 def test_another_tenants_review_is_invisible_to_an_any_scope_caller(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 10's cross-tenant half, which the matrix sweep cannot reach:
+    """The cross-tenant half, which the matrix sweep cannot reach:
     `list_reviews` takes no id, so it is not on the cross-tenant axis at all.
 
     The foreign review is a REAL row in tenant B with a real reviewer, planted
     with an early `due_at` so it would sort near the FRONT of an unguarded
     queue rather than off the end of the page. `platform_admin` is the caller
-    that matters: the widest scope the design has is still confined to its own
+    that matters: the widest scope the matrix has is still confined to its own
     tenant, and a read that resolves `any` to "no tenant predicate" answers it.
     The caller's own review is asserted present in the same call, so an empty
     answer cannot pass.
@@ -2330,7 +2330,7 @@ def test_another_tenants_review_is_invisible_to_an_any_scope_caller(
     assert str(foreign) not in answered
 
 
-# --- the input surface (criterion 5 and criterion 6) -----------------------------
+# --- the input surface -----------------------------
 
 
 QUEUE_LIMIT_CASES: list[tuple[str, int, bool]] = [
@@ -2352,7 +2352,7 @@ def test_the_queue_limit_boundary_is_inclusive_at_1_and_200(
     limit: int,
     accepted: bool,
 ) -> None:
-    """Criterion 5's bound, both sides of both ends.
+    """The bound, both sides of both ends.
 
     A one-sided assertion cannot tell an inclusive bound from an exclusive one:
     `gt=1` accepts 200 and refuses 1, and `lt=200` accepts 1 and refuses 200, so
@@ -2405,14 +2405,14 @@ def test_the_status_filter_is_an_exact_enum_member_or_refused_before_any_read(
     status: str,
     accepted: bool,
 ) -> None:
-    """Decision E. Catches `status` typed as a bare `str`, which would send a
+    """Catches `status` typed as a bare `str`, which would send a
     client word straight into the WHERE clause: `"OPEN"` then answers an empty
     queue that a reviewer reads as "nothing is waiting on me", and `"archived"`
     names a status the `ReviewStatus` enum has never had.
 
     The trailing-newline and trailing-space rows are what separate the enum from
-    a `Field(pattern=...)`, which matches a SUBSTRING and accepts both (standing
-    rule 4); the uppercase row catches a case-insensitive coercion. Both
+    a `Field(pattern=...)`, which matches a SUBSTRING and accepts both;
+    the uppercase row catches a case-insensitive coercion. Both
     accepted rows are here so the table cannot pass vacuously, and because they
     are the only two words `access_reviews.status` may ever hold.
     """
@@ -2439,7 +2439,7 @@ def test_the_status_filter_is_an_exact_enum_member_or_refused_before_any_read(
 def test_each_status_answers_only_its_own_rows_and_an_absent_status_answers_both(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision E's filtering half, which the word table above cannot pin: a
+    """The filtering half, which the word table above cannot pin: a
     handler that ACCEPTS the member and then ignores it passes every row there.
 
     Both reviews are in the caller's own department, so the scope gate answers
@@ -2477,13 +2477,13 @@ def test_each_status_answers_only_its_own_rows_and_an_absent_status_answers_both
     assert _when(_row_for(only_completed, completed_review_id)["completed_at"]) == COMPLETED_AT
 
 
-# --- the audit record (criterion 12, a project rule) ---------------------------
+# --- the audit record ---------------------------
 
 
 def test_the_queue_writes_exactly_one_audit_event_of_type_tool_succeeded(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 12 as an exact delta. Catches a read that appends an event of
+    """An exact delta. Catches a read that appends an event of
     its own beside the pipeline's — a `review.opened` or a `review.listed` for a
     call that reviewed nothing — and one registered with a declared event type
     other than the generic `tool.succeeded`, which would file a read of the
@@ -2510,13 +2510,13 @@ def test_the_queue_writes_exactly_one_audit_event_of_type_tool_succeeded(
     ]
 
 
-# --- the widened item shape (criterion 7, decision B) ----------------------------
+# --- the widened item shape ----------------------------
 
 
 def test_list_review_items_answers_eleven_keys_naming_the_grant_behind_the_item(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision B. Catches the item list left at 12c's five keys, and a widening
+    """Catches the item list left at its five original keys, and a widening
     that echoes the item's own columns under context names.
 
     A reviewer cannot decide a `grant_id`: the six new keys name the PERSON, the

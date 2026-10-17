@@ -1,7 +1,4 @@
-"""The complete audit package: appending events, searching them, anchoring and verifying the chain, and removing old anchors.
-
-Every audit statement that touches the database lives here. The chain core, writer, search, reader and anchor halves all moved from `helpdesk.shared.services.audit` to this package; the package is now complete.
-"""
+"""The audit log: append, search, anchor and check the chain, remove old anchors."""
 
 from helpdesk.shared.audit.anchor import (
     ANCHOR_LOG_MESSAGE,

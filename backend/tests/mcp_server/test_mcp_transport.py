@@ -1,4 +1,4 @@
-"""An earlier change, section 1 criterion 1 and section 6: the MCP transport itself.
+"""The MCP transport itself.
 
 Surface under test (written before it exists):
 
@@ -9,7 +9,7 @@ Surface under test (written before it exists):
     instance and each test drives its own ``asyncio.run`` loop. The backing
     services it talks to stay session-scoped.
     ``app`` — a module-level application for uvicorn.
-    ``run_stdio() -> None`` — the stdio entrypoint (the design, local debugging).
+    ``run_stdio() -> None`` — the stdio entrypoint (local debugging).
     Routes: ``GET /healthz`` -> ``{"status": "ok"}``;
     ``GET /readyz`` -> ``{"status": "ready"|"not_ready",
     "checks": {"postgres": bool, "redis": bool}}`` with 200/503; the MCP
@@ -54,8 +54,8 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     transport_security_of_a_fresh_app,
 )
 
-# An earlier change registered the two read tools; an earlier change adds the three helpdesk
-# mutating tools; an earlier change adds the two access read tools. Pinned as a
+# The two read tools, the three helpdesk
+# mutating tools and the two access read tools. Pinned as a
 # literal, not derived from REGISTRY, so adding a tool without deciding it
 # belongs on the wire fails.
 EXPECTED_TOOL_NAMES = {
@@ -67,73 +67,72 @@ EXPECTED_TOOL_NAMES = {
     "classify_access_request",
     "list_my_requests",
     "create_access_request",
-    # An earlier change: the approval queue and the two deciding tools.
+    # The approval queue and the two deciding tools.
     "list_pending_approvals",
     "approve_request",
     "reject_request",
-    # An earlier change: the one tool that takes access away.
+    # The one tool that takes access away.
     "revoke_access",
-    # An earlier change: the design's joiner, mover and leaver. Added by
-    # an earlier change, which is the first session to run this file since they landed
-    # — under `test-mode = related-tests` each of those plans ran only its own tests,
-    # so this literal was stale for three rows rather than for one.
+    # The joiner, mover and leaver tools.
+    # They were added together, so this literal went stale for all three at once
+    # when only each tool's own tests were run.
     "onboard_user",
     "transfer_user",
     "offboard_user",
-    # An earlier change: opening an access review and reading its items.
+    # Opening an access review and reading its items.
     "open_access_review",
     "list_review_items",
-    # An earlier change: the keep-or-revoke half, the only path from a review to a
-    # change in access (a project rule: this literal is part of every diff
+    # The keep-or-revoke half, the only path from a review to a
+    # change in access (this literal is part of every diff
     # that adds a REGISTRY entry).
     "decide_review_item",
-    # An earlier change: the design's undo, the first tool of the design's Admin group.
+    # The undo, the first tool of the Admin group.
     "rollback_request",
-    # An earlier change: the audit log read back under a filter, the Admin group's
+    # The audit log read back under a filter, the Admin group's
     # read half.
     "search_audit",
-    # An earlier change: the per-tool emergency stop, the last of the design's Admin
+    # The per-tool emergency stop, the last of the Admin
     # group. Registered like any other tool, so this literal has to name it
     # or the wire surface and the registry disagree.
     "set_kill_switch",
-    # An earlier change: the policy corpus read, and the only tool that reaches Qdrant.
+    # The policy corpus read, and the only tool that reaches Qdrant.
     "search_policy",
-    # An earlier change: the review QUEUE — the read that answers "which reviews are
-    # waiting on me", which the three id-taking review tools cannot (standing
-    # rule 27: this literal is the wire surface, and it is part of every diff
+    # The review QUEUE — the read that answers "which reviews are
+    # waiting on me", which the three id-taking review tools cannot (this
+    # literal is the wire surface, and it is part of every diff
     # adding a REGISTRY entry).
     "list_reviews",
-    # An earlier change: the mailbox row 21 has been filling gets a door — the
+    # The mailbox that notices fill gets a door: the
     # person's own list and the stamp that marks one read. Twenty-three names
-    # become twenty-five, one read and one mutation (a project rule: this
+    # become twenty-five, one read and one mutation (this
     # literal is the wire surface, and it is part of every diff adding a
     # REGISTRY entry).
     "list_notifications",
     "mark_notification_read",
-    # An earlier change: the admin board's read half. Twenty-five names become
+    # The admin board's read half. Twenty-five names become
     # twenty-six, the new one a READ — `set_kill_switch` could stop a tool but
-    # nothing could say which tools were stopped (a project rule: this
+    # nothing could say which tools were stopped (this
     # literal is the wire surface, and it is part of every diff adding a
     # REGISTRY entry).
     "list_kill_switches",
-    # An earlier change: the SoD rules board. Twenty-six names become twenty-seven,
+    # The SoD rules board. Twenty-six names become twenty-seven,
     # the new one a READ - the rules could be judged against but never listed,
-    # so `/admin/rules` had nothing to render (a project rule: this literal
+    # so `/admin/rules` had nothing to render (this literal
     # is the wire surface, and it is part of every diff adding a REGISTRY
     # entry).
     "list_sod_rules",
-    # An earlier change: the policy documents board. Twenty-seven names become
+    # The policy documents board. Twenty-seven names become
     # twenty-eight, the new one a READ - the corpus could be SEARCHED
     # (`search_policy`) but never listed, so `/admin/policies` had no way to
-    # say which documents and versions a tenant holds (a project rule: this
+    # say which documents and versions a tenant holds (this
     # literal is the wire surface, and it is part of every diff adding a
     # REGISTRY entry).
     "list_policy_documents",
-    # An earlier change: the re-ingest, the first MUTATION on the policy corpus.
+    # The re-ingest, the first MUTATION on the policy corpus.
     # Twenty-eight names become twenty-nine - an edited corpus file could be
     # made live only from a shell on the ingest host, so `/admin/policies`
-    # could show a stale version and do nothing about it (a project rule:
-    # this literal is the wire surface, and it is part of every diff adding a
+    # could show a stale version and do nothing about it (this
+    # literal is the wire surface, and it is part of every diff adding a
     # REGISTRY entry).
     "reingest_policy_document",
 }
@@ -175,7 +174,7 @@ def test_each_advertised_schema_is_its_registry_models_schema(
 def test_stdio_entrypoint_starts_and_lists_the_same_tools(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """the design's local-debugging entrypoint, driven as a real subprocess."""
+    """The error contract local-debugging entrypoint, driven as a real subprocess."""
     environment = dict(os.environ)
     environment.update(
         {
@@ -271,12 +270,12 @@ def test_readyz_against_the_live_compose_stack_is_ready(
     }
 
 
-# --- an earlier change: the Host header the transport accepts ---------------------------
+# --- The Host header the transport accepts ---------------------------
 #
 # Every case here drives `mcp_post`, not the SDK `Client`: the client builds its
 # own request from `mcp_fixtures._BASE_URL` and always sends the loopback name,
-# so no existing case in this file can choose a `Host` header (an earlier change section
-# 8's grep). `mcp_post` sends `content-type: application/json` for a reason that
+# so no existing case in this file can choose a `Host` header (found by searching
+# the file for `Host`). `mcp_post` sends `content-type: application/json` for a reason that
 # decides whether these cases mean anything at all:
 # `TransportSecurityMiddleware.validate_request` checks Content-Type FIRST for a
 # POST and answers 400, so a case omitting it would be "red" at HEAD on the
@@ -284,7 +283,7 @@ def test_readyz_against_the_live_compose_stack_is_ready(
 MISDIRECTED_REQUEST = 421
 """The status the SDK's `_validate_host` failure answers with, pinned exactly.
 
-a project rule: a `>= 400` band would let the Content-Type 400 and the
+A `>= 400` band would let the Content-Type 400 and the
 transport's own 406 satisfy a case about the Host header."""
 
 COMPOSE_HOST = "helpdesk-mcp-server:8081"
@@ -295,7 +294,7 @@ port, exactly as `MCP_URL`'s deployed value produces it."""
 def test_the_compose_service_name_reaches_the_transport(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Catches the an earlier change F1 defect itself: a `create_app()` that lets the SDK
+    """Catches the original defect itself: a `create_app()` that lets the SDK
     INFER its transport security from `host="127.0.0.1"`, which builds an
     allow-list of the loopback three and nothing else, so the middleware refuses
     `Host: helpdesk-mcp-server:8081` with 421 before identity, RBAC or any
@@ -329,8 +328,8 @@ def test_a_loopback_host_still_reaches_the_transport(
     while breaking every other path at once - the host-process arrangement
     `uvicorn` serves on 127.0.0.1, this suite's own `_BASE_URL`, and the SDK
     `Client` every other case in this file drives. This case is the guard on
-    criterion 3, and it is green at HEAD by design: HEAD already allows the
-    loopback names, and its job is to STAY green through the fix.
+    the fix, and it is green before the fix by design: the loopback names were already allowed,
+    and its job is to STAY green through the fix.
     """
     response = mcp_post({"host": "127.0.0.1:8081"})
 
@@ -412,7 +411,7 @@ def test_the_transport_receives_explicit_security_settings(
     mcp_env: SeededMcp,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Catches criterion 1 being satisfied by the SDK's INFERENCE rather than by
+    """Catches the transport guard being satisfied by the SDK's INFERENCE rather than by
     an explicit pass: `streamable_http_app(host="127.0.0.1")` with no
     `transport_security` builds a `TransportSecuritySettings` of its own, and
     `allowed_hosts` is then the SDK's hardcoded loopback three, which no
@@ -422,14 +421,14 @@ def test_the_transport_receives_explicit_security_settings(
     alone cannot tell the two apart for the loopback case: the settings object
     is reached through the mount `create_app()` adds at `/`, that Starlette
     app's `/mcp` route and the `StreamableHTTPASGIApp` endpoint's own
-    `session_manager.security_settings` (a project rule: the union-typed
+    `session_manager.security_settings` (the union-typed
     attribute carries its narrowing annotation here).
 
     `allowed_hosts` is asserted as the CONFIGURED list, so the case also catches
     a diff that passes a `TransportSecuritySettings` built from a literal
     instead of from `mcp_allowed_hosts_from_env()` - that implementation
     satisfies the flag and the explicit pass while ignoring the variable
-    entirely. `allowed_origins` is deliberately not asserted: an earlier change decision C
+    entirely. `allowed_origins` is deliberately not asserted: the design
     configures hosts only, and `_validate_origin` returns True when no `Origin`
     header is present, which is every request agent-api sends.
     """

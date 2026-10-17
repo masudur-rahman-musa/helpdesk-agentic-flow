@@ -1,41 +1,14 @@
-"""The approval slot state machine and the scoped approver queue.
+"""Approver seats: who may fill one, what a decided seat holds, and the queue.
 
-the design gives a request a chain of approver SLOTS, not a list of people.
-An earlier change stores that chain in `access_requests.approvals` as
-`{"slot", "user_id"}` objects, with `user_id` null for the two seats that
-name a group rather than a person. This module is the other half: who may
-fill a seat, what a decided seat looks like, when a chain is finished, and
-which pending requests a caller can actually act on.
+A request carries a chain of seats, stored as JSON objects on the request
+row. A decided seat gains `decision`, `decided_by_user_id`, `decided_at` and
+`comment` in place. Two seats (`it_admin`, `hr`) name a group, not a person.
 
-The per-slot decision extends those same JSONB objects in place (an earlier change
-decision D), so there is no migration and no second table: a decided seat
-gains `decision`, `decided_by_user_id`, `decided_at` and `comment`.
-`approver_user_ids` keeps an earlier change's meaning — the ids the ENGINE could
-resolve — and is never rewritten when a group seat is filled.
-
-Nobody approves their own request, and that rule is enforced HERE rather
-than in the engine. `policy/decision.py::_ROLE_WIDE_SLOTS` carries the
-standing-rule-5 marker saying why: the engine is pure, `it_admin` and `hr`
-name a group, and a snapshot cannot say whether the requester is in it. So
-`may_fill` refuses the requester and the target on EVERY seat, group seats
-included, pinned by
-`test_access_approvals.py::test_a_party_to_the_request_fills_no_seat_of_any_kind`
-(every slot kind crossed with both parties) and its non-party twin
-`test_a_caller_who_is_neither_party_still_fills_the_seat`, which is what
-stops an over-broad exclusion from refusing everybody.
-
-A group seat is filled by a holder of that seat's OWN principal: an
-`it_admin` may not fill an `hr` seat, and a `platform_admin` fills neither.
-the design's `any` scope says which requests a caller may reach, not which
-seats they may occupy. Pinned by
-`test_a_group_seat_is_fillable_only_by_a_holder_of_its_own_principal` and
-`test_a_platform_admin_holding_neither_group_principal_fills_neither_seat`.
-
-The queue consumes `Authorization.scopes`, not `Authorization.scope`: a
-caller who is both a manager and a system owner holds two incomparable
-scopes and the total-order collapse would drop their owned systems (the
-narrowing an earlier change recorded, re-owed by an earlier change). Pinned by
-`test_two_scopes_return_the_union_and_one_scope_returns_only_its_half`.
+Nobody fills a seat on a request they made or are the target of, group
+seats included. That check lives here, not in the pure policy engine,
+because the engine cannot know who is in a group. A group seat is filled
+only by a holder of that group's own principal; a wide `any` scope says
+which requests a caller can reach, not which seats they may sit in.
 """
 
 import uuid
@@ -68,12 +41,8 @@ class SlotDecision(StrEnum):
 
 
 GROUP_SLOTS: frozenset[ApproverSlot] = frozenset({ApproverSlot.IT_ADMIN, ApproverSlot.HR})
-"""The two the design seats that name a group instead of a person.
-
-Exactly `policy/decision.py::_ROLE_WIDE_SLOTS`, and pinned as an exact set
-by `test_access_approvals.py::test_the_group_slots_are_exactly_it_admin_and_hr`:
-`department_manager` sliding in would let anyone holding some principal fill
-a seat that names one person."""
+"""The seats that name a group instead of a person. A named seat must never
+join this set, or anyone with some principal could fill it."""
 
 _PRINCIPAL_FOR_GROUP_SLOT: dict[ApproverSlot, Principal] = {
     ApproverSlot.IT_ADMIN: Principal.IT_ADMIN,
@@ -82,14 +51,11 @@ _PRINCIPAL_FOR_GROUP_SLOT: dict[ApproverSlot, Principal] = {
 
 
 class RequestNotPendingError(ToolError):
-    """The request is not waiting for a decision any more (decision J).
+    """The request is no longer waiting for a decision.
 
-    `POLICY_BLOCKED`, never `FORBIDDEN`: the caller may well have been
-    entitled to decide the row a second earlier, so answering with a
-    permission code would tell an approver who simply arrived second that
-    they lack permission, and the audit log would file a race as a denial.
-    Pinned by
-    `test_access_approvals.py::test_the_approval_errors_carry_their_spec_error_codes`.
+    `POLICY_BLOCKED`, not `FORBIDDEN`: an approver who simply arrived second
+    must not be told they lack permission, and the audit log must not file a
+    race as a denial.
     """
 
     code = ErrorCode.POLICY_BLOCKED
@@ -98,9 +64,8 @@ class RequestNotPendingError(ToolError):
 class NotAnApproverError(ToolError):
     """No open seat on this chain is one this caller may fill.
 
-    One answer for "the seat names someone else", "you do not hold the
-    group's principal" and "you are a party to this request": telling them
-    apart would say who the named approver is to a caller who may not know.
+    One answer for every reason, so the caller does not learn who the named
+    approver is.
     """
 
     code = ErrorCode.FORBIDDEN
@@ -109,19 +74,16 @@ class NotAnApproverError(ToolError):
 class SlotState(BaseModel):
     """One seat of the chain, open or decided.
 
-    Frozen, so `decide_slot` can only answer with a new chain rather than
-    mutating one a caller still holds. `extra="forbid"` because this is read
-    back out of a JSONB column the system itself wrote: a key nobody parses
-    is a decision silently dropped on the next write-back.
+    Frozen, so a decision makes a new chain. `extra="forbid"`: an unread key
+    in the stored JSON would be a decision quietly dropped on the next write.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     slot: ApproverSlot
     user_id: uuid.UUID | None = None
-    """Whom the ENGINE resolved for this seat; always None for a group seat.
-    Never rewritten when somebody fills the seat — `decided_by_user_id`
-    records who acted."""
+    """Whom the policy engine named for this seat; None for a group seat.
+    Never rewritten; `decided_by_user_id` records who acted."""
 
     decision: SlotDecision | None = None
     decided_by_user_id: uuid.UUID | None = None
@@ -134,22 +96,12 @@ class SlotState(BaseModel):
 
 
 def parse_slots(raw: Sequence[Any]) -> tuple[SlotState, ...]:
-    """The stored chain as slot states, in chain order.
-
-    An earlier change's rows carry `{"slot", "user_id"}` and nothing else, so every
-    decision field defaults to None and an existing pending request reads as
-    a chain of open seats.
-    """
+    """The stored chain as seat states. Fields not yet decided default to None."""
     return tuple(SlotState.model_validate(entry) for entry in raw)
 
 
 def dump_slots(slots: Sequence[SlotState]) -> list[dict[str, Any]]:
-    """The chain as JSON-safe objects for the JSONB column.
-
-    `mode="json"` so uuids and datetimes land as strings: a raw `uuid.UUID`
-    would not survive the write, and a datetime that did would come back as
-    something `parse_slots` cannot read.
-    """
+    """The chain as JSON-safe objects, so uuids and datetimes store as strings."""
     return [slot.model_dump(mode="json") for slot in slots]
 
 
@@ -163,12 +115,9 @@ def may_fill(
 ) -> bool:
     """May this caller record a decision against this seat?
 
-    Three rules, in order: a decided seat is closed; a party to the request
-    fills nothing at all; and then the seat's own kind decides — a group seat
-    wants that group's principal, a named seat wants exactly the person it
-    names. A named seat with no resolved person is fillable by nobody, which
-    is why the comparison is against `slot.user_id` rather than an equality
-    that two Nones would satisfy.
+    A decided seat is closed; a party to the request fills nothing; a group
+    seat wants that group's principal; a named seat wants exactly its
+    person. A named seat with no person is fillable by nobody.
     """
     if not slot.is_open:
         return False
@@ -189,23 +138,9 @@ def first_fillable_index(
 ) -> int | None:
     """The first seat this caller may fill, or None.
 
-    None is what the tools turn into `NotAnApproverError`; there is
-    deliberately no fallback index, because a fallback would record a
-    stranger against somebody else's seat.
-
-    ONE PERSON, ONE SEAT PER CHAIN. This is the rule `may_fill` structurally
-    cannot hold, because it sees one seat and this is a property of the whole
-    chain: a manager who also holds `it_admin`, or who also owns the system,
-    would otherwise fill two of the three seats of a `critical` chain over
-    two calls and approve a request nearly on their own. The engine already
-    refuses to build such a chain — `policy/decision.py::_is_usable_fallback`
-    will not substitute a slot that is already in the chain, "that would
-    collapse two approvers into one person and quietly halve the control" —
-    and this is the same obligation one layer up, where seats are filled by
-    whoever acts (decision C). Pinned by
-    `test_access_approvals.py::test_a_caller_who_already_decided_a_seat_gets_no_second_one`
-    and, end to end, by
-    `test_mcp_approvals.py::test_one_person_cannot_fill_two_seats_of_the_same_chain`.
+    One person, one seat per chain. `may_fill` sees only one seat, so it
+    cannot stop a manager who also holds `it_admin` from filling two seats
+    of a critical chain over two calls and nearly approving alone.
     """
     if any(slot.decided_by_user_id == caller_user_id for slot in slots):
         return None
@@ -227,12 +162,9 @@ def is_rejected(slots: Sequence[SlotState]) -> bool:
 
 
 def chain_is_complete(slots: Sequence[SlotState]) -> bool:
-    """True only when every seat is APPROVED.
+    """True only when every seat is approved.
 
-    Not "no open seats left": a chain whose last decision was a rejection
-    also has no open seats, and reading that as complete would execute the
-    grant a rejection refused — which is why the rejection test is written
-    out here rather than implied by the `all`.
+    Not "no open seats left": a chain ended by a rejection has none either.
     """
     return (
         bool(slots)
@@ -250,11 +182,10 @@ def decide_slot(
     decided_at: datetime,
     comment: str | None,
 ) -> tuple[SlotState, ...]:
-    """A new chain with exactly one seat decided; every other seat untouched.
+    """A new chain with exactly one seat decided.
 
-    `decided_by_user_id` is the person who ACTED, never `slot.user_id`: a
-    group seat names nobody, so copying the seat's id would record a critical
-    request as approved by no one.
+    `decided_by_user_id` is who acted, never `slot.user_id`: a group seat
+    names nobody, so copying it would record the approval as by no one.
     """
     decided = slots[index].model_copy(
         update={
@@ -270,14 +201,9 @@ def decide_slot(
 async def lock_request(session: AsyncSession, request_id: uuid.UUID) -> AccessRequest | None:
     """The bound tenant's request, locked for the rest of this transaction.
 
-    `SELECT … FOR UPDATE` through the ORM, so the tenant guard still injects
-    its filter: a row in another tenant reads exactly like a row that does
-    not exist (both None), and the id is not an existence oracle. Pinned by
-    `test_access_approvals.py::test_locking_answers_the_same_way_for_another_tenants_row_and_a_missing_one`.
-
-    The lock is what serialises two approvers deciding the same last seat
-    (decision F): the second waits, then re-reads a row that is no longer
-    `pending`.
+    Another tenant's row reads as missing, so the id tells nothing. The lock
+    makes a second approver on the same last seat wait, then see a row that
+    is no longer `pending`.
     """
     return await _crud_lock_request(session, request_id)
 
@@ -290,23 +216,12 @@ def request_in_scope(
     target_department_id: uuid.UUID | None,
     system_owner_user_id: uuid.UUID | None,
 ) -> bool:
-    """Does any scope this caller holds reach this ONE request? (the design.)
+    """Does any scope this caller holds reach this one request?
 
-    The single authority on scope for both the queue and the two deciding
-    tools. The seat rules and this are independent obligations: a seat says
-    the chain asked for THIS person, scope says the person still has reach
-    over the request. A manager named on a seat who has since transferred
-    passes the first and fails this one, which is what
-    `test_mcp_approvals.py::test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department`
-    pins on the decide path and
-    `::test_the_managers_department_comes_from_the_directory_not_the_token`
-    on the queue.
-
-    A scope this row of the design does not use (`self_only`, `system_only`)
-    reaches nothing rather than everything: an unknown scope must narrow,
-    never widen. Every department
-    comparison takes ids the caller supplies from the DIRECTORY, never from a
-    token claim.
+    Used by the queue and both deciding tools. It is separate from the seat
+    rules: a manager named on a seat who has since moved department passes
+    the seat check and fails this one. Unknown scopes reach nothing.
+    Department ids must come from the directory, never the token.
     """
     return any(
         _one_scope_reaches(
@@ -340,14 +255,7 @@ def _one_scope_reaches(
 def _scope_predicate(
     scope: Scope, *, approver_user_id: uuid.UUID, approver_department_id: uuid.UUID | None
 ) -> ColumnElement[bool] | None:
-    """The SQL half of `request_in_scope`, one scope at a time.
-
-    A prefilter and nothing more: the queue re-checks every row it keeps with
-    `request_in_scope`, so this narrows the read and the Python predicate is
-    what actually decides. If the two ever disagree the Python one wins, which
-    is why a scope with no predicate here (`self_only`, `system_only`) is
-    still the same "reaches nothing" answer on both sides.
-    """
+    """The SQL prefilter for one scope. `request_in_scope` re-checks every row and decides."""
     if scope is Scope.ANY:
         return true()
     if scope is Scope.OWN_DEPARTMENT:
@@ -363,15 +271,8 @@ def _scope_predicate(
 class PendingWithContext:
     """One pending request, the seat this caller may fill, and the names.
 
-    A frozen dataclass around the ORM row rather than a Pydantic model
-    repeating its columns, exactly as an earlier change's `RequestWithContext` is: the
-    wire shape is `mcp_server.tools.approvals.PendingApproval`, which SPEC
-    §8.2 owns, and a second twenty-field model here would be two contracts to
-    keep in step. What this carries beside the row is what the JOIN answered
-    and the row cannot — the role's and the system's names, and the display
-    names of the two PEOPLE the request is about, resolved from the rows their
-    ids point at rather than echoed from the request. Pinned by
-    `test_mcp_approvals.py::test_the_queue_names_come_from_the_directory_rows_the_ids_point_at`.
+    Names of the role, system and both people come from the rows the ids
+    point at, not from text on the request.
     """
 
     request: AccessRequest
@@ -393,43 +294,17 @@ async def list_pending_with_context_for_approver(
     principals: frozenset[Principal],
     limit: int,
 ) -> list[PendingWithContext]:
-    """What is waiting for THIS caller: pending, in scope, theirs to fill, named.
+    """What is waiting for this caller: pending, in scope, theirs to fill.
 
-    Decision G — a queue of rows only somebody else can move is not a queue.
-    Two independent filters, and each has a case the other cannot decide: the scope predicate is the only thing that hides a
-    row whose seat names the caller but whose target left their department,
-    and the seat predicate is the only thing that hides a row in their
-    department whose seat names somebody else.
+    Scope and seat are both needed: scope hides a row whose target left the
+    caller's department, the seat hides a row whose seat names someone else.
+    The caller's department comes from the directory, not the token, so a
+    moved manager loses the old queue. Oldest first; `limit` applies after
+    the seat filter, so every row returned is one the caller can act on.
 
-    The caller's department comes from the DIRECTORY, never from the token's
-    `department_id` claim: a manager transferred after their token was issued
-    must not keep the queue of the department they left. Pinned end to end by
-    `test_mcp_approvals.py::test_the_managers_department_comes_from_the_directory_not_the_token`.
-
-    The SQL scope clause is a prefilter; `request_in_scope` re-checks every
-    row that survives it, so the queue and the deciding tools answer the scope
-    question through one function rather than two that can drift.
-
-    FOUR joins in one statement: the role, the role's system, the
-    target and — through an ALIAS, because both people are rows of `users` —
-    the requester. All four are inner joins, since every pending request names
-    all four rows, and the tenant guard reaches the alias too
-    (`with_loader_criteria(..., include_aliases=True)` in `helpdesk.core.db`).
-    One row per pending request, never multiplied by the joins, pinned by
-    `test_mcp_approvals.py::test_several_pending_seats_come_back_once_each_despite_the_joins`.
-
-    Ordering is oldest first so the longest-waiting request is worked first,
-    and `limit` (decision H) is applied after the seat filter, so the answer
-    is `limit` rows the caller can actually act on rather than `limit` rows
-    of which some are theirs.
-
-    KNOWN LIMIT, recorded rather than fixed:
-    the seat filter runs in Python, so the read is bounded by "pending rows in
-    scope", not by `limit`. A tenant with tens of thousands of pending
-    requests loads them all on every call. Capping the SQL instead would
-    silently hide a request from the only person who can approve it, which is
-    worse than a large read; a keyset-paginated queue belongs with the web
-    rows that need paging.
+    Known limit: the seat filter runs in Python, so every pending row in
+    scope is loaded. Capping the SQL instead could hide a request from the
+    only person who can approve it.
     """
     approver = await directory.lookup_user(approver_user_id)
     approver_department_id = None if approver is None else approver.department_id
@@ -495,13 +370,7 @@ async def list_pending_for_approver(
     principals: frozenset[Principal],
     limit: int,
 ) -> list[tuple[AccessRequest, SlotState]]:
-    """The same queue, narrowed to the request and the seat.
-
-    The narrow twin of `list_pending_with_context_for_approver` and a pure
-    projection of it, kept because the filtering rules — scope, seat, order
-    and limit — may exist in exactly one place. A caller that needs
-    the names calls the widened one; nothing here re-reads or re-decides.
-    """
+    """The same queue, narrowed to the request and the seat."""
     return [
         (row.request, row.slot)
         for row in await list_pending_with_context_for_approver(

@@ -1,22 +1,7 @@
 /**
- * The wire shapes this surface reads, and the readers that narrow them.
- *
- * Everything crossing the SSE boundary arrives as `unknown`: a frame's payload
- * is whatever `JSON.parse` produced, and retrieved policy text in particular is
- * DATA, never instructions and never a shape to be trusted. Each reader takes
- * `unknown` and returns either a value of the declared type or `null`, so a
- * frame the server changes under us costs its own row and never a thrown
- * render.
- *
- * The shapes are agent-api's as BUILT, not as remembered:
- * `step` → `{node, round, tools:[{tool, ok, error_code}]}`
- * (`graph/build.py::_step_data`), `reply` → `{reply, outcome, citations,
- * request_id, decision}` (`::_reply_data`, five keys since an earlier change),
- * `error` → `{code}` (`::_failure_frames`), a citation →
- * `graph/state.py::Citation`, a decision card →
- * `agent_api/decision_card.py::DecisionCard` dumped `mode="json"`, and the
- * history → `chat_routes.ChatHistoryResponse`. Asserted against those literal
- * shapes by `tests/chat-page.test.tsx`.
+ * The chat stream shapes and the readers that narrow them. Every frame
+ * arrives as `unknown`, and each reader returns the type or `null`, so a
+ * frame the server changes costs one row and never a crashed render.
  */
 
 export type ChatRole = "user" | "assistant";
@@ -41,13 +26,9 @@ export type Citation = {
 export type CardApprover = { slot: string; resolved: boolean };
 
 /**
- * The turn's decision card, `DecisionCard` as the wire dumps it.
- *
- * `requestId` and `status` are null together for a turn that classified and
- * filed nothing (22c decision B), which is why the card's status line is
- * conditional and nothing else is. The enum-valued fields stay STRINGS rather
- * than unions: the label maps are what turn them into words, and a member
- * Python adds must render as itself rather than fail to parse.
+ * The turn's decision card. `requestId` and `status` are null together when
+ * nothing was filed. Enum fields stay strings, so a new server value shows as
+ * itself instead of failing to parse.
  */
 export type DecisionCard = {
   requestId: string | null;
@@ -128,15 +109,9 @@ function readCitation(value: unknown): Citation | null {
 }
 
 /**
- * The `decision` key of a `reply` frame as a card, or `null`.
- *
- * `null` covers both the turn that decided nothing about access — the common
- * one, a policy question — and a value that is not an object at all. The shape
- * is NARROWED and never cast: a cast would let `approvers.map` throw inside
- * render and take the whole conversation down with it, which is what
- * `chat-page.test.tsx::a decision that is not an object renders no card` fails
- * on. A key the server renames answers its empty value here rather than
- * throwing, the same as every sibling reader.
+ * The `decision` of a `reply` frame, or `null` when the turn decided nothing.
+ * Narrowed, never cast: a cast would let a bad shape throw inside render and
+ * take the whole conversation down.
  */
 export function readDecision(data: unknown): DecisionCard | null {
   const card = record(data);
@@ -176,9 +151,6 @@ export function readReply(data: unknown): ReplyEvent | null {
       citations.push(citation);
     }
   }
-  // A paused turn carries its pending sentence in the same key, and a turn
-  // that failed sends an `error` frame instead of this one, so `reply` is the
-  // settled text whatever the outcome.
   return { reply: text(frame.reply), citations, decision: readDecision(frame.decision) };
 }
 

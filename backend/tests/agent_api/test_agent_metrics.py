@@ -1,4 +1,4 @@
-"""An earlier change section 6: `/metrics` on agent-api, and the turn call sites.
+"""`/metrics` on agent-api, and the turn call sites.
 
 Written before the implementation exists. Surface under test:
 
@@ -16,7 +16,7 @@ Written before the implementation exists. Surface under test:
         decision ``"failed"``, tenant from
         ``helpdesk.obs.context.current_context()``.
 Called at the terminals of ``graph.build.run_turn``, ``graph.build.stream_turn``
-(its early returns included) and ``resume.resume_turn`` — decision E, so the
+(its early returns included) and ``resume.resume_turn`` — so the
 two routes cannot drift and a resume is counted at all.
 
 Cost and isolation. The compose Postgres and Redis through the suite's
@@ -87,7 +87,7 @@ REFUSALS = "helpdesk_refusals_total"
 UNKNOWN_INTENT = "unknown"
 """The sentinel label for a turn with no extraction, verbatim.
 
-A literal rather than a member of `Intent`: the closed set the design fixes has
+A literal rather than a member of `Intent`: the closed set has
 no "we never got that far" member, and adding one would put a label the model
 may answer with next to one it may not.
 """
@@ -131,9 +131,10 @@ def _turn_labels(env: StreamRouteEnv, *, intent: str, decision: str) -> dict[str
 def _seeded_identity(env: StreamRouteEnv) -> tuple[str, ...]:
     """The seeded person's id, email and display name, read off the row.
 
-    Read back from the database rather than rebuilt from the module's literals: the identity claim is about the person the turn
-    actually ran as, and a value this test composed itself would pass even if
-    the row said something else.
+        Read back from the database rather than rebuilt from the module's literals:
+    the identity claim is about the person the turn
+        actually ran as, and a value this test composed itself would pass even if
+        the row said something else.
     """
 
     async def scenario() -> tuple[str, ...]:
@@ -163,7 +164,7 @@ def test_one_chat_turn_counts_exactly_one(
     eight turns for one message and make every rate on this metric wrong by
     the graph's depth — and catches a counter that never fires at all.
 
-    The labels are asserted as the closed values §1 fixes: the tenant from the
+    The labels are asserted as the closed values: the tenant from the
     token's uuid, the intent from the extraction the model returned, and the
     decision from `TurnOutcome`. The total pins that no second series moved, so
     a turn counted once under the right labels and once under a fallback set
@@ -200,8 +201,8 @@ def test_one_streamed_turn_counts_exactly_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches `stream_turn` left uninstrumented, which is invisible on any
-    dashboard: `/chat` and `/chat/stream` are two views of ONE turn (decision
-    E), so a counter placed on the plain route only makes every streamed turn —
+    dashboard: `/chat` and `/chat/stream` are two views of ONE turn,
+    so a counter placed on the plain route only makes every streamed turn —
     which is what the web client sends — disappear from the turn rate.
 
     Same message, same labels and the same absolute 1 as the `/chat` case, so
@@ -249,7 +250,7 @@ def test_a_resumed_turn_counts_exactly_one(
     what the absolute 1 on the `done` cell says.
 
     The paused turn's own count is asserted beside it rather than isolated
-    away: the pause and the resume are two counts of §1's "a resumed turn adds
+    away: the pause and the resume are two counts of "a resumed turn adds
     exactly one", and a total of 2 is the only reading in which neither was
     lost and neither was doubled. The two cells differ ONLY in the decision
     label, so an implementation that reported both under one outcome fails
@@ -310,7 +311,7 @@ def test_a_failed_turn_counts_a_refusal_under_its_error_code(
 
     `reason` is `INTERNAL`, read off `ErrorCode`: a reason built from the
     exception's text would be free-form client-adjacent data in a label, which
-    is an earlier change's second risk, and a reason built from the HTTP status would
+    is a second risk, and a reason built from the HTTP status would
     collapse every 500 into one bucket.
     """
     session_id = uuid.uuid4()
@@ -409,15 +410,15 @@ def test_the_exposition_names_no_user_of_the_seeded_tenant(
     """Catches a label carrying identity — a `user` label on the turn counter
     is the obvious one, and it is the change most likely to be asked for.
 
-    the design permits tenant, session, trace and principal kind in telemetry
-    and nothing else, and `/metrics` is decision D's UNAUTHENTICATED endpoint,
+    Telemetry may carry tenant, session, trace and principal kind
+    and nothing else, and `/metrics` is an UNAUTHENTICATED endpoint,
     so a user id there is published to anyone who can reach the port. The whole
     exposition is searched for the id, the email and the display name of the
     person whose turn just ran, read off the row, so any of the three reaching
     a label value or an exemplar fails here.
 
     The tenant is asserted PRESENT in the same body, which is what stops the
-    claim being satisfied by an endpoint that returns nothing: the design
+    claim being satisfied by an endpoint that returns nothing: the rule
     allows the tenant, and a scrape with no series in it would pass every
     absence check above.
     """

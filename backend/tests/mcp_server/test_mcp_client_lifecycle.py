@@ -1,4 +1,4 @@
-"""An earlier change: the MCP tools' clients are made and closed with the app.
+"""The MCP tools' clients are made and closed with the app.
 
 Surface under test (written before it exists):
 
@@ -15,7 +15,7 @@ Surface under test (written before it exists):
 ``mcp_server.main.create_app`` — its lifespan opens one ``ToolClients`` and
 puts it on the MOUNTED transport app's state (``mcp_app.state.tool_clients``),
 and closes it at shutdown. The embedder is NOT opened at startup; it stays
-built on first use.
+built on first use (the laziness).
 
 ``mcp_server.tools.dispatch.dispatch`` — reads the one copy off
 ``request.scope["app"].state.tool_clients``; with no app carrying one it builds
@@ -185,8 +185,8 @@ def test_the_lifespan_opens_the_three_clients_and_closes_them(
 def test_the_embedder_is_not_opened_at_startup(
     monkeypatch: Any,
 ) -> None:
-    """Catches a lifespan that eagerly loads the ONNX embedder at boot (plan
-    68a pins that the embedder stays built on first use only): entering and
+    """Catches a lifespan that eagerly loads the ONNX embedder at boot (the
+    embedder stays built on first use only): entering and
     leaving the lifespan must load no model, so the model constructor is called
     zero times. The three real clients are faked so startup touches no service."""
     _fake_the_three_builders(monkeypatch)

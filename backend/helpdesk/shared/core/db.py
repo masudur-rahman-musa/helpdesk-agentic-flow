@@ -1,15 +1,9 @@
-"""Async engine/session factory and the tenant isolation guard.
+"""Async engine and session setup, plus the tenant isolation guard.
 
-Every ORM SELECT, UPDATE, and DELETE that touches a `TenantScoped` model is
-intercepted by a `do_orm_execute` hook: with no tenant bound it raises
-`UnboundTenantQueryError` (never a silent full-table read); with one bound
-it injects `tenant_id = :bound` into the statement via
-`with_loader_criteria`. Bind a tenant with `tenant_session`.
-
-The guard covers exactly those three statement shapes. INSERTs (via
-`session.add` or `insert()`) and `text()` statements are NOT intercepted;
-writes stay tenant-correct by convention: services only touch the DB
-through the repository helpers, which stamp the bound tenant themselves.
+Every ORM SELECT, UPDATE and DELETE on a `TenantScoped` model is filtered to
+the bound tenant, or raises when none is bound, so a query can never read
+every tenant by mistake. INSERTs and `text()` are not covered: the repository
+helpers stamp the tenant on writes themselves.
 """
 
 import asyncio
@@ -37,15 +31,9 @@ class UnboundTenantQueryError(RuntimeError):
 
 
 CONNECT_TIMEOUT_SECONDS = 10
-"""How long a new connection may take to establish.
+"""Stops a Postgres that drops packets from hanging a request forever.
 
-Every engine in the project comes from here, so this is the one place a
-blackholed Postgres (packets dropped rather than refused) can be stopped
-from hanging a request forever. Only the connect half is set: a statement
-timeout here would also cut legitimate long reads, such as the audit
-verifier walking a whole tenant chain, so the read half is named as owed in
-STATUS rather than guessed at. Pinned by
-`test_isolation.py::test_the_engine_carries_the_pinned_connect_timeout`."""
+No statement timeout: it would also cut long reads like a full audit check."""
 
 
 def create_engine(database_url: str) -> AsyncEngine:
@@ -62,15 +50,11 @@ _SHARED_ENGINES: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, AsyncEng
 
 
 def shared_engine(database_url: str) -> AsyncEngine:
-    """A process-shared engine for the running event loop.
+    """A shared engine per (event loop, URL).
 
-    Keyed by (event loop, URL) because asyncpg's pooled connections bind to
-    the loop that created them: under a server that is one engine per
-    process, while a test that drives each request through its own
-    `asyncio.run` gets a per-loop engine instead of a poisoned pool. Entries
-    drop with their loop (WeakKeyDictionary), but dropping an engine does not
-    close the connections it pooled: a process that retires event loops must
-    call `dispose_shared_engines` from inside each one before it ends.
+    asyncpg connections belong to the loop that made them, so each loop needs
+    its own pool. A process that retires loops must call
+    `dispose_shared_engines` inside each one, or its connections leak.
     """
     loop = asyncio.get_running_loop()
     engines = _SHARED_ENGINES.setdefault(loop, {})
@@ -82,14 +66,7 @@ def shared_engine(database_url: str) -> AsyncEngine:
 
 
 async def dispose_shared_engines() -> None:
-    """Dispose and forget the running loop's shared engines.
-
-    A server has one loop for the life of the process and never needs this.
-    A test that drives each call through its own `asyncio.run` does: the
-    engine's pooled connections belong to a loop that is about to die, and
-    nothing else will ever close them, so a long suite walks Postgres into
-    `TooManyConnectionsError` and every later test reads as a tool failure.
-    """
+    """Dispose the running loop's engines before the loop ends, so Postgres is not exhausted."""
     loop = asyncio.get_running_loop()
     for engine in _SHARED_ENGINES.pop(loop, {}).values():
         await engine.dispose()

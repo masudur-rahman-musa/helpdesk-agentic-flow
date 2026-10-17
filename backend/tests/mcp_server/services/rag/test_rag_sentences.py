@@ -1,4 +1,4 @@
-"""An earlier change §6: the sentence splitter in `helpdesk/rag/sentences.py`.
+"""The sentence splitter in `helpdesk/rag/sentences.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -9,7 +9,7 @@ Expected implementation surface (the implementer must provide exactly this):
         ``char_start: int`` / ``char_end: int`` — offsets into the WHOLE
             document, i.e. `offset` plus the position inside `text`.
     ``def split_sentences(text: str, offset: int = 0) -> list[Sentence]`` —
-        pure: no I/O, no NLP dependency (decision H). Breaks on `.`, `!`, `?`
+        pure: no I/O, no NLP dependency. Breaks on `.`, `!`, `?`
         followed by whitespace, guards a short abbreviation list, and treats a
         markdown list item, a table row and a blank-line-delimited block as
         their own sentence.
@@ -18,7 +18,7 @@ The invariant every chunk offset rests on is the partition:
 ``"".join(s.text for s in split_sentences(t)) == t``, the first sentence
 starting at `offset`, each starting where the previous ended, and the last
 ending at ``offset + len(t)``. A byte dropped between two sentences is a
-citation that points at the wrong words once 14c stores the offsets.
+citation that points at the wrong words once the store keeps the offsets.
 
 Pure filesystem and pure function: no DB fixtures, no compose stack.
 """
@@ -218,7 +218,7 @@ def test_a_text_ending_without_punctuation_still_yields_its_last_sentence() -> N
 def test_empty_text_yields_no_sentences() -> None:
     """Catches a splitter that returns one empty-text sentence for an empty
     section: that sentence would embed to a zero vector and pollute
-    retrieval (plan §5's named risk)."""
+    retrieval (plan the named risk)."""
     assert split_sentences("") == []
 
 

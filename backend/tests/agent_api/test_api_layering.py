@@ -1,7 +1,6 @@
-"""An earlier change §6: services raise typed errors, routes carry no DB or login logic.
+"""Services raise typed errors, routes carry no DB or login logic.
 
-The seven tests here are RED until the an earlier change implementation lands. They
-check one thing: that the routing layer is thin. Routes must not own a
+The seven tests here check one thing: that the routing layer is thin. Routes must not own a
 `try/except ToolError` block — the app-level handler in `router.py` is the one
 edge that turns a `ToolError` into an HTTP response. Services must return typed
 Pydantic models, never a `JSONResponse`. Route files must not import or call
@@ -458,7 +457,7 @@ def test_the_rate_limit_is_rendered_by_the_one_edge(
     """Catches any path where the route catches RateLimitExceededError and
     returns _rate_limited() directly, bypassing the app-level handler.
 
-    After an earlier change, the chat route must NOT have a `except RateLimitExceededError`
+    The chat route must NOT have a `except RateLimitExceededError`
     block. The rate-limit error must propagate to the app-level handler, which
     renders 429 {"code": "POLICY_BLOCKED"}. The gateway is staged with nothing,
     so if a turn starts at all the test fails inside the stub.
@@ -516,7 +515,7 @@ def test_a_failed_turn_answers_its_typed_code_and_no_reply(
     including the error text) instead of letting the service raise ToolError on
     a FAILED turn.
 
-    After an earlier change, `chat.chat_turn(...)` raises `ToolError` for a FAILED turn.
+    `chat.chat_turn(...)` raises `ToolError` for a FAILED turn.
     The app-level handler renders it. The response must have no "reply" key and
     must carry the typed code. A gateway that refuses to answer proves the turn
     entered but the route rendered nothing on its own.
@@ -575,7 +574,7 @@ def test_a_forbidden_audit_verify_answers_403(
     """Catches any route that catches ToolError(FORBIDDEN) and returns a
     JSONResponse(403) directly, bypassing the app-level handler.
 
-    After an earlier change, `services/audit.verify_chain` raises `ToolError(FORBIDDEN)`
+    `services/audit.verify_chain` raises `ToolError(FORBIDDEN)`
     when the principal check fails. The new app-level handler renders 403
     {"code": "FORBIDDEN"}. An employee token (no audit principal) exercises the
     RBAC check first, before any DB access, so no lifespan is needed.
@@ -605,7 +604,7 @@ def test_a_forbidden_audit_verify_answers_403(
 def test_the_chat_and_audit_routes_hold_no_db_or_login_logic() -> None:
     """Catches any refactoring that leaves DB or login logic in a route file.
 
-    After an earlier change, `api/routes/chat.py` and `api/routes/admin/audit.py` must
+    `api/routes/chat.py` and `api/routes/admin/audit.py` must
     not contain any of the names that mean the route is doing its own DB work
     or login work. Those calls must live in the service layer only.
     """
@@ -647,7 +646,7 @@ def test_the_composed_routes_declare_their_response_model(
     response_model= set, which means FastAPI omits the route from the OpenAPI
     schema components.
 
-    After an earlier change, POST /chat, GET /chat/messages, POST /auth/login and
+    POST /chat, GET /chat/messages, POST /auth/login and
     GET /admin/audit/verify must all have a response_model pointing to a named
     component (ChatResponse, ChatHistoryResponse, LoginResponse, VerifyResult).
     The component name must appear in components.schemas.
@@ -721,7 +720,7 @@ def test_a_service_returns_a_result_not_a_response(
     """Catches any service that still returns a JSONResponse instead of a typed
     result model.
 
-    After an earlier change:
+    Expected state:
     - `chat.chat_turn(...)` returns a `ChatResponse`, never a Starlette Response.
     - `tool_proxy.proxy_tool(...)` returns a `Mapping`, never a Response.
 

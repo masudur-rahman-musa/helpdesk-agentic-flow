@@ -1,11 +1,11 @@
-"""An earlier change §6: `warn_expiring_grants`, called directly with a fixed `now`.
+"""`warn_expiring_grants`, called directly with a fixed `now`.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
 
 ``helpdesk.models.notification``
     ``NotificationKind.GRANT_EXPIRING = "grant_expiring"``, the second and
-    last member of the enum after this plan (§8 widens
+    last member of the enum after this change (the model test widens
     `test_notification_models.py`'s set to exactly
     `{"grant_expired", "grant_expiring"}`).
 
@@ -13,25 +13,25 @@ must provide exactly this):
     ``EXPIRY_WARNING_HORIZON_DAYS = 14`` — the band's width.
     ``_WARNING_TITLE`` — the fixed title literal every warning carries. The
     role name goes in the BODY, so a long role name can never reach `notify`'s
-    200-character title cap (criterion 2, decision B).
+    200-character title cap.
     ``async def warn_expiring_grants(session, *, now) -> list[Grant]`` — over
     the BOUND tenant only, one `grant_expiring` notification to the HOLDER of
     every `active`, unrevoked grant whose `expires_at` falls in
     `(now, now + 14 days]`, with `subject_type` `grant`, `subject_id` the
-    grant id and `read_at` null. A grant held by a `leaver` is never warned
-    (decision C), and a grant that already carries a `grant_expiring`
-    notification for its own id is not warned again (decision A's dedupe).
+    grant id and `read_at` null. A grant held by a `leaver` is never warned,
+and a grant that already carries a `grant_expiring`
+    notification for its own id is not warned again (the dedupe).
 
-The return value is never asserted here: plan §6 fixes no return shape, and
+The return value is never asserted here: the contract fixes no return shape, and
 every claim below is readable from the `notifications` table.
 
-Decision A is the boundary this file exists for. The band is inclusive at the
+The band is what this file exists for. It is inclusive at the
 top and strict at the bottom: `now + 14 days` exactly is warned, one
 microsecond later is not, and `now` exactly is not — that row is
 `expire_grants`', and warning about a grant in the same tick that ends it
 would put two contradictory rows in one person's bell.
 
-a project rule: the session factory is the shared one from `conftest.py` --
+The session factory is the shared one from `conftest.py` --
 one engine for the whole run, schema created once. Per-test isolation is a
 namespace, not a rebuild: this
 job sweeps a whole tenant, so every case seeds a tenant of its OWN with
@@ -39,7 +39,7 @@ job sweeps a whole tenant, so every case seeds a tenant of its OWN with
 grant carries a NULL `expires_at`, so it is never warned and every "no rows"
 assertion below stays exact.
 
-a project rule: `test_access_expiry.py` (21a's sweep) and this file are
+`test_access_expiry.py` (the expiry sweep) and this file are
 distinct basenames, and neither collides with anything in the tree.
 
 No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
@@ -72,7 +72,7 @@ NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 GRANTED_AT = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
 
 HORIZON = timedelta(days=14)
-"""Decision A's band width, written as a literal here on purpose.
+"""The band width, written as a literal here on purpose.
 
 Asserted equal to `EXPIRY_WARNING_HORIZON_DAYS` by the constants case below,
 so a horizon widened in the module moves the boundary cases only through a
@@ -89,7 +89,7 @@ EXPIRED_GRANT_STATUS = "expired"
 """What `expire_grants` leaves behind; a warned row must never be in it."""
 
 LEAVER_STATUS_LITERAL = "leaver"
-"""`users.status` for somebody on their way out (decision C)."""
+"""`users.status` for somebody on their way out."""
 
 ACTIVE_USER_STATUS = "active"
 
@@ -99,7 +99,7 @@ SUBJECT_TYPE = "grant"
 
 LONG_ROLE_NAME = "Fake Role " + "x" * (256 - len("Fake Role "))
 """Exactly the `roles.name` column width (256), and above `notify`'s
-200-character TITLE cap. Criterion 2's whole point: this name has to reach a
+200-character TITLE cap. The whole point: this name has to reach a
 stored row, which it can only do from the body."""
 
 
@@ -292,21 +292,21 @@ def _warnings(
     return [row for row in _notifications(factory, tenant_id) if row.kind == EXPIRING_KIND]
 
 
-# --- the warning itself (criterion 2) -----------------------------------------
+# --- the warning itself -----------------------------------------
 
 
 def test_a_grant_expiring_inside_the_horizon_warns_its_holder_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 2, as one exact row.
+    """As one exact row.
 
     Catches four wrong implementations at once. One that warns the holder AND
     their department manager — the `expire_grants` shape this module sits
-    beside, refused by decision C, and the case fails on the row count. One
-    that writes the kind `grant_expired`, which row 23's route renders as
+    beside (the manager is not owed it), and the case fails on the row count. One
+    that writes the kind `grant_expired`, which the notifications route renders as
     access that is already gone, telling a person their still-live access
     ended. One whose `subject_id` is the USER or the ROLE rather than the
-    grant: decision B makes the subject fields the ONLY thing a renewal link
+    grant: the subject fields are the ONLY thing a renewal link
     can be composed from, so a warning naming anything else links nowhere. And
     one that stamps `read_at`, which makes the row invisible to the unread
     list that is the whole point of writing it.
@@ -328,7 +328,7 @@ def test_a_grant_expiring_inside_the_horizon_warns_its_holder_once(
 def test_the_role_name_is_in_the_body_and_the_title_is_the_fixed_literal(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 2's second half, at the length that makes it observable.
+    """The second half, at the length that makes it observable.
 
     Catches a warning that composes the role name into the TITLE. `notify`
     refuses a title over 200 characters with a typed `VALIDATION` error before
@@ -361,18 +361,18 @@ def test_the_role_name_is_in_the_body_and_the_title_is_the_fixed_literal(
     assert len(rows[0].title) <= NOTIFICATION_TITLE_MAX_LENGTH
 
 
-# --- the band, both boundaries exactly (criterion 3, decision A) ---------------
+# --- the band, both boundaries exactly ---------------
 
 
 def test_a_grant_expiring_at_exactly_the_horizon_is_warned(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The inclusive half of decision A's top boundary, at the exact instant.
+    """The inclusive half of the top boundary, at the exact instant.
 
     Catches a strict `<` on the upper bound, which loses the grant that lands
     precisely on the horizon — and, because the daily tick moves by 24 hours,
     every such grant is warned a day later than the horizon promises, or not
-    at all if the tick drifts (decision H). The lower bound cannot save this
+    at all if the tick drifts. The lower bound cannot save this
     row: it is inside the band on that side either way.
     """
     tenant = _tenant(session_factory)
@@ -406,10 +406,10 @@ def test_a_grant_one_microsecond_past_the_horizon_is_not_warned(
 def test_a_grant_expiring_at_exactly_now_is_not_warned(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 3's third row: the STRICT lower bound.
+    """The third row: the STRICT lower bound.
 
     Catches a band written `expires_at >= now`, which overlaps `expire_grants`
-    exactly — 21a decision D expires `expires_at <= now`, so the same grant
+    exactly — the expiry sweep expires `expires_at <= now`, so the same grant
     would be expired and warned about in one tick, and the holder's bell would
     carry "your access ended" and "your access is about to end" for one id.
     Only the lower bound can refuse this row; it is well under the horizon.
@@ -422,15 +422,15 @@ def test_a_grant_expiring_at_exactly_now_is_not_warned(
     assert _notifications(session_factory, tenant.tenant_id) == []
 
 
-# --- the dedupe (criterion 4, decision A) -------------------------------------
+# --- the dedupe -------------------------------------
 
 
 def test_a_second_run_over_the_same_grant_writes_no_second_notification(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 4. Catches the band with no dedupe at all.
+    """Catches the band with no dedupe at all.
 
-    Decision A took the wide band precisely so that a warning is owed until it
+    The wide band was chosen precisely so that a warning is owed until it
     has been GIVEN; the price is that the same grant is in the band on every
     daily tick for a fortnight. Without the anti-join that is fourteen
     identical rows in one person's bell for one grant, which is how a
@@ -448,7 +448,7 @@ def test_a_second_run_over_the_same_grant_writes_no_second_notification(
 def test_a_grant_already_carrying_an_expired_notification_is_still_warned(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 7: the dedupe is on kind AND subject, never subject alone.
+    """The dedupe is on kind AND subject, never subject alone.
 
     Catches an anti-join keyed on `subject_id` only. `expire_grants` writes a
     `grant_expired` row against the very same grant id, and a renewed grant
@@ -475,7 +475,7 @@ def test_a_grant_already_carrying_an_expired_notification_is_still_warned(
     assert [row.subject_id for row in warned] == [str(grant_id)]
 
 
-# --- the excluded rows, one case per conjunct (criterion 5) -------------------
+# --- the excluded rows, one case per conjunct -------------------
 
 
 def test_a_grant_that_never_expires_is_not_warned(
@@ -578,10 +578,10 @@ def test_another_tenants_grant_inside_the_horizon_is_not_warned(
 def test_a_grant_held_by_a_leaver_is_not_warned(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision C's exclusion, which needs the join to `users`.
+    """The exclusion, which needs the join to `users`.
 
     Catches a band that reads `grants` alone. The other daily job in this same
-    plan is about to revoke every one of this person's grants wholesale, so a
+    run is about to revoke every one of this person's grants wholesale, so a
     warning telling them to request a renewal is the system contradicting
     itself inside one tick — and it is the only row here that a filter written
     purely over `grants` cannot refuse: the grant is `active`, unrevoked, and
@@ -631,12 +631,12 @@ def test_two_holders_in_the_band_are_each_warned_on_their_own_grant(
 
 
 def test_the_expiry_warning_constants_are_exactly_the_planned_values() -> None:
-    """a project rule on everything this half of the plan introduces.
+    """The constants this half introduces, pinned as literals.
 
     Catches a horizon quietly moved — every boundary case above is written
     against 14 days, so a module constant of 7 or 30 would leave them all
-    green while the service warned on a different schedule from the one §1
-    fixes. Catches the enum member's value drifting from the literal row 23's
+    green while the service warned on a different schedule from the one the contract
+    fixes. Catches the enum member's value drifting from the literal the notifications
     route renders and the anti-join matches on, which would make the dedupe
     match nothing and the bell render an unknown kind. The export is part of
     the surface: `scheduler.jobs` imports the engine the way every other

@@ -7,18 +7,17 @@ import {
 } from "@/features/notifications/schema";
 
 /**
- * An earlier change section 6, `notifications-schema.test.ts`: the parser 23gc's
+ * `notifications-schema.test.ts`: the parser the
  * `/notifications` page and its bell read, over the two payloads the new
  * proxies return.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23gb's Deviations):
+ * Shapes this file fixes:
  * - `web/src/features/notifications/schema.ts` exports `notificationRowSchema`,
- *   `notificationPageSchema` and `notificationReadSchema` (decision E: one
+ *   `notificationPageSchema` and `notificationReadSchema` (one
  *   file, both envelopes). The page and the stamp schemas are written over the
- *   WHOLE envelope, so 23gc runs ONE `safeParse` on what the proxy returned --
+ *   WHOLE envelope, so the page runs ONE `safeParse` on what the proxy returned --
  *   `approvals-schema.ts`' and `reviews-schema.ts`' own shape -- and the row
- *   schema is exported because section 6 names it and because the page schema
+ *   schema is exported because the proxy uses it and because the page schema
  *   has to be built out of it rather than out of a looser inline copy.
  * - the page envelope is `{ notifications: [...], unread_count: number }` with
  *   the EIGHT `NotificationRow` fields, and the stamp envelope the FOUR
@@ -55,7 +54,7 @@ const ROW: Record<string, unknown> = {
   read_at: null,
 };
 
-/** The eight field names of section 1, written out rather than derived from the row. */
+/** The eight field names of the row, written out rather than derived from the row. */
 const ROW_FIELDS = [
   "notification_id",
   "kind",
@@ -95,7 +94,7 @@ describe("notificationRowSchema and notificationPageSchema", () => {
     // The premise every rejection row below depends on: a schema that refused
     // the complete payload would make all eight of them pass while the page
     // rendered nothing at all. The count is asserted beside it because
-    // section 1 fixes it at eight.
+    // the contract fixes it at eight.
     expect(notificationRowSchema.safeParse(ROW).success).toBe(true);
     expect(notificationPageSchema.safeParse(page([ROW], 3)).success).toBe(true);
     expect(ROW_FIELDS).toHaveLength(8);
@@ -120,7 +119,7 @@ describe("notificationRowSchema and notificationPageSchema", () => {
 
   it.each(NULLABLE_ROW_FIELDS)("accepts a row whose %s is null", (field) => {
     // A nullable field and a missing one are two different wire answers
-    // (section 6). `subject_type` and `subject_id` are null on a notification
+    // `subject_type` and `subject_id` are null on a notification
     // about nothing in particular, and `read_at` is null on exactly the rows
     // the bell counts. Catches `z.string()` on any of the three, under which
     // the parser would refuse every unread message -- the whole point of the
@@ -132,7 +131,7 @@ describe("notificationRowSchema and notificationPageSchema", () => {
   it("accepts a read row carrying a read_at timestamp", () => {
     // The other side of the nullable `read_at`: a row is stamped once the
     // person opens it, and an absent `unread_only` filter means the page lists
-    // read and unread alike (section 1). Catches a parser pinning `read_at` to
+    // read and unread alike. Catches a parser pinning `read_at` to
     // `null`, which would refuse every message the person has already seen and
     // leave the default page empty for anyone who reads their bell.
     expect(
@@ -141,7 +140,7 @@ describe("notificationRowSchema and notificationPageSchema", () => {
   });
 
   it("rejects an envelope with no unread_count and one whose unread_count is a string", () => {
-    // Section 1's two-key envelope, and 23ga decision B's reason for it: the
+    // The two-key envelope, and the reason for it: the
     // bell is a count of EVERY unread row and not the page's own tally.
     // Catches a parser written over `{ notifications }` alone -- the bell would
     // read `undefined` and render nothing, so a person with unread messages
@@ -194,7 +193,7 @@ describe("notificationRowSchema and notificationPageSchema", () => {
 
 describe("notificationReadSchema", () => {
   it("accepts the whole four-field stamp answer", () => {
-    // The premise the four rejection rows depend on, and section 1's count
+    // The premise the four rejection rows depend on, and the field count
     // pinned beside it.
     expect(notificationReadSchema.safeParse(STAMP).success).toBe(true);
     expect(STAMP_FIELDS).toHaveLength(4);

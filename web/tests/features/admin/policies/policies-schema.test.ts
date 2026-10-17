@@ -8,7 +8,7 @@ import {
 } from "@/features/admin/policies/schema";
 
 /**
- * An earlier change §6, `policies-schema.test.ts`: the parser 24h's `/admin/policies`
+ * `policies-schema.test.ts`: the parser the `/admin/policies`
  * page reads, over the one payload the new proxy returns.
  *
  * Surface under test (written before it exists):
@@ -46,7 +46,7 @@ const CURRENT_VERSION: Record<string, unknown> = {
 
 /**
  * A version that registered a document and wrote no span: `chunk_count` 0 and
- * `is_current` false. The row §1 says may never be dropped.
+ * `is_current` false. The row that may never be dropped.
  */
 const UNCHUNKED_VERSION: Record<string, unknown> = {
   ...CURRENT_VERSION,
@@ -77,7 +77,7 @@ const ACCESS_DOCUMENT: Record<string, unknown> = {
   versions: [CURRENT_VERSION, UNCHUNKED_VERSION],
 };
 
-/** A document with NO current version — every flag false (§1's criterion 6). */
+/** A document with NO current version — every flag false. */
 const ORPHANED_DOCUMENT: Record<string, unknown> = {
   slug: "fake-leave-policy",
   title: "Fake Leave Standard",
@@ -102,13 +102,12 @@ describe("policyDocumentsBoardSchema", () => {
   it("accepts a two-document board: one current version, one half-landed, one orphan", () => {
     // The premise every rejection row below depends on: a schema that refused
     // the complete payload would make all nine of them pass while the page
-    // rendered nothing at all. The three version states are the ones §1 says
+    // rendered nothing at all. The three version states are the ones that
     // must all appear — a live version, a version with zero chunks, and a
     // document whose every flag is false — so a schema that required
     // `is_current` to be true somewhere, or `chunk_count` to be positive,
     // refuses exactly the rows this page exists to show. The counts ride along
-    // because §1 fixes the document at three fields and the version at six
-    //.
+    // because the document has three fields and the version at six.
     const parsed = policyDocumentsBoardSchema.safeParse(board(ACCESS_DOCUMENT, ORPHANED_DOCUMENT));
 
     expect(parsed.success).toBe(true);
@@ -145,10 +144,10 @@ describe("policyDocumentsBoardSchema", () => {
     // Catches an `.optional()` field inside the version, asserted through the
     // ENVELOPE as well as through the version schema, so a board written over
     // a looser version than `policyVersionSchema` is caught too. A version
-    // missing `chunk_count` hides the half-landed ingest §1 carries it for, a
+    // missing `chunk_count` hides the half-landed ingest it exists to show, a
     // missing `is_current` loses which copy is live, a missing `sha256` leaves
-    // two versions indistinguishable (decision G), and a missing `ingested_at`
-    // removes the column the whole order is built on (decision C).
+    // two versions indistinguishable, and a missing `ingested_at`
+    // removes the column the whole order is built on.
     expect(policyVersionSchema.safeParse(without(CURRENT_VERSION, field)).success).toBe(false);
     expect(
       policyDocumentsBoardSchema.safeParse(
@@ -158,7 +157,7 @@ describe("policyDocumentsBoardSchema", () => {
   });
 
   it("accepts an empty board and rejects a bare array or another envelope key", () => {
-    // §1's "a tenant with no corpus is a 200 carrying an empty list". Catches
+    // A tenant with no corpus is a 200 carrying an empty list. Catches
     // a schema written over the DOCUMENT rather than over the envelope, which
     // would leave the page parsing per row and never seeing the envelope the
     // tool answers, and one that guessed a different key — `policies`, or the
@@ -172,7 +171,7 @@ describe("policyDocumentsBoardSchema", () => {
 
   it("accepts a document, a version and an envelope carrying an unknown extra key", () => {
     // Catches a `.strict()` schema at any of the three levels. The wire may
-    // grow — row 31's re-ingest control is expected to add to this very
+    // grow — the re-ingest control is expected to add to this very
     // payload — and a page that refused a payload carrying one new key would
     // break on a deploy that changed nothing it reads.
     expect(
@@ -194,7 +193,7 @@ describe("policyDocumentsBoardSchema", () => {
 
 describe("policyVersionSchema", () => {
   it("rejects a numeric instant, a numeric digest and a numeric version", () => {
-    // §1's "ids/instants as `z.string()`, never coerced". Catches a schema
+    // Ids and instants are `z.string()`, never coerced. Catches a schema
     // written with `z.number()` or with `z.coerce.string()` on any of the
     // three: the tool serialises its `datetime` and its digest as strings, so
     // a number is a payload nothing on the server produces, and a coercing
@@ -225,7 +224,7 @@ describe("policyVersionSchema", () => {
   it("accepts a zero chunk count and rejects an undefined one", () => {
     // Catches a schema written as `z.number().positive()` or, worse, one whose
     // `chunk_count` is optional: zero is the value that says an ingest
-    // registered a document and wrote no span (decision B), which is the whole
+    // registered a document and wrote no span, which is the whole
     // reason the field is carried, and both of those turn it into nothing at
     // all. `undefined` is asserted separately because an `.optional()` field
     // passes every "missing key" rejection above by not being there.
@@ -238,11 +237,11 @@ describe("policyVersionSchema", () => {
 
 describe("policyDocumentSchema", () => {
   it("accepts one document on its own and rejects a versions field that is not an array", () => {
-    // The document schema is exported so 24h can narrow a single card without
+    // The document schema is exported so the board can narrow a single card without
     // re-parsing the board. Catches a file that exported only the envelope —
     // the page would then have no type for a document at all — and one whose
     // `versions` is a single object or a string rather than a list, which
-    // decision A rejects: the page's question is "which versions of each", so
+    // is rejected: the page's question is "which versions of each", so
     // a document that carried one version would render a corpus as if every
     // document had exactly one.
     expect(policyDocumentSchema.safeParse(ACCESS_DOCUMENT).success).toBe(true);
@@ -257,7 +256,7 @@ describe("policyDocumentSchema", () => {
 });
 
 /**
- * An earlier change §6, extending this file: the RESULT envelope the re-ingest POST
+ * Extends this file: the RESULT envelope the re-ingest POST
  * returns, one rejection case per required field.
  *
  * Surface under test (written before it exists):
@@ -323,12 +322,12 @@ describe("policyReingestResultSchema", () => {
     // what the mutation did: an undefined `created` or `chunk_count` leaves the
     // page unable to tell a re-ingest that wrote four chunks from one that
     // wrote nothing, an undefined `is_current` loses whether the version just
-    // made live is the live one (decision E's whole visible effect), an
+    // made live is the live one (the whole visible effect), an
     // undefined `sha256` removes the only evidence the file on disk differed,
     // an undefined `ingested_at` leaves no time to show, and an undefined
     // `slug` or `version` leaves the answer unattached to the row it belongs
     // to. A missing `summary` leaves the control with nothing to say, which is
-    // the field the design requires beside the values rather than instead of
+    // the field the error contract requires beside the values rather than instead of
     // them.
     expect(policyReingestResultSchema.safeParse(without(REINGEST_RESULT, field)).success).toBe(
       false,

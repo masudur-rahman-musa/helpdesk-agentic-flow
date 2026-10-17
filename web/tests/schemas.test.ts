@@ -62,9 +62,7 @@ describe("login schema — slug length boundary, both sides", () => {
   it("refuses a slug of 65 characters", () => {
     // Kills a missing or off-by-one max: with no cap at all this is the only
     // case that turns red, since 64 still parses.
-    expect(parse({ tenant_slug: slugOf(SLUG_MAX_LENGTH + 1) }).success).toBe(
-      false,
-    );
+    expect(parse({ tenant_slug: slugOf(SLUG_MAX_LENGTH + 1) }).success).toBe(false);
   });
 });
 
@@ -104,7 +102,7 @@ describe("login schema — slug pattern anchoring", () => {
   ];
 
   it.each(rejected)("refuses a slug with $label", ({ slug }) => {
-    // Kills an unanchored pattern (a project rule's three rows): every one of
+    // Kills an unanchored pattern (three whitespace rows): every one of
     // the whitespace rows PASSES a substring match and fails a full match, and
     // the slug is otherwise valid and well under 64, so length cannot decide it.
     expect(parse({ tenant_slug: slug }).success).toBe(false);
@@ -137,7 +135,7 @@ describe("login schema — required fields", () => {
 describe("the generic failure message", () => {
   it("exports one non-empty generic message with no field-level hint", () => {
     // Kills a message that names which of the three inputs was wrong, which is
-    // exactly what an earlier change §1's 401 criterion forbids.
+    // exactly what the 401 rule forbids.
     expect(SIGN_IN_FAILED_MESSAGE.length).toBeGreaterThan(0);
     expect(SIGN_IN_FAILED_MESSAGE.toLowerCase()).not.toContain("password");
     expect(SIGN_IN_FAILED_MESSAGE.toLowerCase()).not.toContain("email");

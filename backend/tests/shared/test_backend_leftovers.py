@@ -1,4 +1,4 @@
-"""An earlier change: the backend leftovers that are import and file shape.
+"""The backend leftovers that are import and file shape.
 
 Pure import and filesystem checks: no Postgres, Redis, Qdrant, fixture or
 network, so every case here runs in the fast set. The happy halves prove the
@@ -14,7 +14,7 @@ BACKEND = Path(__file__).resolve().parents[2]
 PRODUCTION = BACKEND / "helpdesk"
 
 DEAD_RAG_PATH = "helpdesk.rag."
-"""The top-level path the code left in an earlier change. The real module is
+"""The top-level path the code no longer uses. The real module is
 `helpdesk.mcp_server.services.rag.*`."""
 
 

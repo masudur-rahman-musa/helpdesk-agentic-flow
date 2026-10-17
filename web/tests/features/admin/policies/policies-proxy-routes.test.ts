@@ -8,22 +8,19 @@ import { AGENT_API_REINGEST_TIMEOUT_MS, proxyAgentApi } from "@/lib/agent-api";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change: the policy documents board, proxied, against a stubbed `fetch`.
+ * The policy documents board, proxied, against a stubbed `fetch`.
  *
- * NOT named by the plan's §6, which lists only `policies-schema.test.ts` for
- * the web half while §1 carries a criterion for the proxy itself
- * ("`web/src/app/api/admin/policies/route.ts` proxies with no query string and no
- * body"). A criterion with no case cannot be ticked by anyone (standing rule
- * 56), so this file is the missing home and belongs in 24g's Deviations.
+ * `web/src/app/api/admin/policies/route.ts` proxies with no query string and no
+ * body, and this file is where that is checked.
  *
  * Node environment, because the handler is server-side and
  * `NextResponse.redirect` needs the real `Response`. `next/headers`' `cookies()`
  * only exists inside a request scope, so it is mocked exactly as
- * `tests/rules-proxy-routes.test.ts` mocks it — the module under test is the
+ * `rules-proxy-routes.test.ts` mocks it — the module under test is the
  * route, not Next's store.
  *
- * Shapes this file fixes that the plan left open:
- * - the handler is `export async function GET(): Promise<Response>`, 23b's
+ * Shapes this file fixes:
+ * - the handler is `export async function GET(): Promise<Response>`, the
  *   zero-argument shape, because the agent-api route takes no parameter at all.
  * - the upstream path is agent-api's own `/admin/policies`, never the
  *   browser-facing `/api/...` prefix.
@@ -34,9 +31,9 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  *
  * No backing service and no page: the only seam is `fetch`.
  *
- * An earlier change §6 adds the five `the reingest proxy ...` cases at the bottom, over
- * `app/api/admin/policies/reingest/route.ts` (31a's route, whose timeout is
- * 31b's). Shapes that file fixes, on top of the four above:
+ * The five `the reingest proxy ...` cases at the bottom cover
+ * `app/api/admin/policies/reingest/route.ts` (the route, whose timeout is
+ * its own). Shapes that file fixes, on top of the four above:
  * - the handler is `export async function POST(request: Request):
  *   Promise<Response>` and the upstream path is `/admin/policies/reingest`.
  * - the timeout is observed by MOCKING `@/lib/agent-api` and reading
@@ -138,8 +135,8 @@ afterEach(() => {
 describe("the policies proxy — the bearer, the path and the empty request", () => {
   it("sends the bearer from the httpOnly cookie and never in the URL", async () => {
     // Catches a route that reads a token from a header the browser set or from
-    // the query string — the cookie is the only copy of the bearer (22a
-    // decision A), so anything else means the client was handed one, and a
+    // the query string — the cookie is the only copy of the bearer, so anything else means the
+    // client was handed one, and a
     // token in a URL lands in every access log. Also catches a route that
     // calls agent-api directly instead of through `proxyAgentApi`: an unrouted
     // call carries no authorization header at all, which on this resource
@@ -154,7 +151,7 @@ describe("the policies proxy — the bearer, the path and the empty request", ()
   });
 
   it("sends no query string and no body at all", async () => {
-    // §1's last criterion, as the wire sees it: this plan introduces NO input
+    // As the wire sees it: the proxy introduces NO input
     // of any kind. Catches a proxy that forwarded the browser's search params
     // (a `slug` or a `tenant_id` riding along would cross back as a
     // `VALIDATION`, because `ListPolicyDocumentsInput` forbids extras) and one
@@ -227,7 +224,7 @@ describe("the policies proxy — the refusals", () => {
     // stale cookie survives, so every later call fails the same way with
     // nothing telling the admin why, and an empty corpus page would read as
     // "this tenant has no policies" instead of "your session ended". This is
-    // 22a's `proxyAgentApi` seam, so a route that opens its own `fetch` is
+    // the `proxyAgentApi` seam, so a route that opens its own `fetch` is
     // caught here too — an unrouted call answers 401, not a redirect, and
     // clears no cookie.
     fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));
@@ -245,10 +242,10 @@ describe("the policies proxy — the refusals", () => {
 });
 
 describe("the reingest proxy — the bearer, the body and the bound (plan 31b §6)", () => {
-  /** agent-api's own path, which 31a decision I keeps identical to the browser's. */
+  /** agent-api's own path, which matches the browser's. */
   const REINGEST_UPSTREAM_PATH = "/admin/policies/reingest";
 
-  /** The browser's half of a re-ingest: §1's exact three keys, obviously fake. */
+  /** The browser's half of a re-ingest: the exact three keys, obviously fake. */
   const REINGEST_BODY = {
     slug: "fake-access-policy",
     version: "v9",
@@ -277,8 +274,8 @@ describe("the reingest proxy — the bearer, the body and the bound (plan 31b §
 
   it("the reingest proxy sends the bearer from the httpOnly cookie and never in the URL", async () => {
     // Catches a route that reads a token from a header the browser set or from
-    // the query string — the cookie is the only copy of the bearer (22a
-    // decision A), so anything else means the client was handed one, and a
+    // the query string — the cookie is the only copy of the bearer, so anything else means the
+    // client was handed one, and a
     // token in a URL lands in every access log. Also catches a route that calls
     // agent-api directly instead of through `proxyAgentApi`: an unrouted call
     // carries no authorization header at all, and on THIS verb that is a
@@ -320,9 +317,9 @@ describe("the reingest proxy — the bearer, the body and the bound (plan 31b §
   });
 
   it("the reingest proxy bounds the call at exactly 35000ms", async () => {
-    // 31b §1's timeout criterion and decision E, as the exact number AND the
+    // As the exact number AND the
     // exact argument position. Catches the route left on
-    // `proxyAgentApi`'s ten-second default, which 31a deliberately deferred to
+    // `proxyAgentApi`'s ten-second default, which was deliberately deferred to
     // this row: a re-ingest is a gateway redaction call plus an embed pass, and
     // the process's first `FastEmbedEmbedder` load can outrun ten seconds while
     // the ingest itself completes — the admin reads an abort as a failure over
@@ -331,8 +328,8 @@ describe("the reingest proxy — the bearer, the body and the bound (plan 31b §
     // would go out untimed with no method, no body and no content type.
     //
     // The number is read off the seam's argument list because
-    // `AbortSignal.timeout`'s value is not observable on the signal it returns
-    //, which is why this one case mocks the module rather
+    // `AbortSignal.timeout`'s value is not observable on the signal it returns, which is why this
+    // one case mocks the module rather
     // than the socket.
     expect(AGENT_API_REINGEST_TIMEOUT_MS).toBe(35_000);
 
@@ -367,9 +364,9 @@ describe("the reingest proxy — the bearer, the body and the bound (plan 31b §
     // which the control cannot map to any sentence — so a timed-out re-ingest
     // would render nothing an admin can act on. Only the transport branch can
     // produce this row: the cookie is present and no status is returned at all.
-    // This is also the one envelope 31b's control treats as a failure rather
-    // than a typed refusal, because `UPSTREAM_UNAVAILABLE` is outside SPEC
-    // §8.1's eight.
+    // This is also the one envelope the control treats as a failure rather
+    // than a typed refusal, because `UPSTREAM_UNAVAILABLE` is outside the eight
+    // typed error codes.
     fetchStub.mockRejectedValue(new TypeError("fetch failed"));
 
     const response = await reingestPOST(reingestRequest());
@@ -384,7 +381,7 @@ describe("the reingest proxy — the bearer, the body and the bound (plan 31b §
     // nothing telling the admin why, and the control would render a refusal for
     // a session that merely ended. A board sits open on a screen for minutes,
     // so this is the common case on a MUTATION rather than an edge. This is
-    // 22a's `proxyAgentApi` seam, so a route that opens its own `fetch` is
+    // the `proxyAgentApi` seam, so a route that opens its own `fetch` is
     // caught here too — an unrouted call answers 401, not a redirect, and
     // clears no cookie.
     fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));

@@ -1,32 +1,32 @@
-"""An earlier change, sections 1 and 6: `open_review` and `list_items` over the seed.
+"""`open_review` and `list_items` over the seed.
 
 Surface under test (written before it exists):
 
 ``helpdesk.access.reviews``
-    ``REVIEW_OPENED_EVENT_TYPE = "review.opened"`` (the design, decision K).
-    ``STALE_WINDOW = timedelta(days=14)`` — decision C's expiry half.
+    ``REVIEW_OPENED_EVENT_TYPE = "review.opened"``.
+    ``STALE_WINDOW = timedelta(days=14)`` — the expiry half.
     ``ReviewAlreadyOpenError(ToolError)`` — `code = POLICY_BLOCKED`
-    (decision G).
+.
     ``async def open_review(session, directory, *, department_id, system_id,
     period, opened_by_user_id, due_at=None, actor_ref=None, session_id=None,
     now) -> OpenReviewResult`` — a frozen result carrying ``.review``,
     ``.items`` and ``.flag_counts``. It resolves the scope, locks the scope row
     (`core.repository.lock_department` / `lock_system`), refuses a second OPEN
     review for the same (scope, period), writes one `access_reviews` row plus
-    one `review_items` row per ACTIVE grant in scope with decision E's flag,
+    one `review_items` row per ACTIVE grant in scope with the flag,
     and appends one `review.opened` naming the REVIEW. All in the caller's
     transaction.
     ``async def list_items(session, review_id, *, limit) -> Sequence[ReviewItem]``
     — the items of one review, in the bound tenant, at most `limit` of them.
 
 "Active grant in scope" is `status = 'active'` and `revoked_at IS NULL`, and
-deliberately NOT "live": decision C counts an ALREADY-PAST expiry as stale, so
+deliberately NOT "live": an ALREADY-PAST expiry as stale, so
 a filter that also required an unexpired grant would drop exactly the rows the
 review exists to surface. Pinned by
 `test_department_scope_collects_that_departments_grants_and_nothing_else`,
 which plants one row per excluded state.
 
-a project rule: the seeded database is `test_access_snapshot.py`'s
+The seeded database is `test_access_snapshot.py`'s
 session-scoped `access_db_url` fixture, imported rather than rebuilt (argon2
 seeding is the slow part of this suite). Per-test isolation inside it is a
 namespace: every case plants its OWN department, system, roles, users and
@@ -107,7 +107,7 @@ OPENED_AT = NOW
 GRANTED_AT = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
 # Far beyond `OPENED_AT + STALE_WINDOW`: an expiry that cannot be stale.
 FAR_EXPIRY = datetime(2099, 6, 1, 12, 0, tzinfo=UTC)
-# Strictly before `OPENED_AT`: decision C counts an already-past expiry stale.
+# Strictly before `OPENED_AT`: an already-past expiry counts as stale.
 PAST_EXPIRY = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
 
 PLANTED_START = date(2019, 3, 7)
@@ -126,7 +126,7 @@ EXPECTED_PAYLOAD_KEYS = {
 
 # Unique periods, one per opened review: half the per-test namespace (the
 # other half is the freshly planted scope). The year is what varies, because
-# decision H's shape admits exactly four quarters.
+# The shape admits exactly four quarters.
 _PERIOD_YEARS = itertools.count(2101)
 
 
@@ -476,7 +476,7 @@ def test_the_review_constants_and_error_code_are_exactly_the_spec_values() -> No
     assert ReviewAlreadyOpenError.code.value == "POLICY_BLOCKED"
 
 
-# --- what a scope collects (criterion 1) ---------------------------------------
+# --- what a scope collects ---------------------------------------
 
 
 def test_department_scope_collects_that_departments_grants_and_nothing_else(
@@ -489,7 +489,7 @@ def test_department_scope_collects_that_departments_grants_and_nothing_else(
     another department, one revoked, one whose `status` is not `active` — and
     each violates exactly one conjunct, so a dropped clause fails a named row
     rather than hiding behind the others. The EXPIRED-but-active row must be
-    an item: decision C counts an already-past expiry as stale, so a scope
+    an item: an already-past expiry counts as stale, so a scope
     filter built from `is_live_grant` (the obvious reuse) drops precisely the
     grants the review exists to surface, and passes every other case here.
     """
@@ -547,7 +547,7 @@ def test_system_scope_collects_that_systems_grants_and_nothing_else(
     assert set(items_of(access_db_url, review.review_id)) == {on_system, outsider_on_system}
 
 
-# --- the four flags and their precedence (criterion 2, decision E) --------------
+# --- the four flags and their precedence --------------
 
 
 def test_a_grant_inside_the_template_with_a_distant_expiry_reads_ok(
@@ -603,8 +603,8 @@ def test_a_role_outside_the_holders_template_reads_non_standard(
 def test_the_non_standard_template_is_the_one_the_transfer_diff_reads(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """An earlier change §5's divergence risk: the template question is now asked by
-    an earlier change's transfer diff AND by this flag.
+    """The template question is now asked by
+    the transfer diff AND by this flag.
 
     Catches the two answers drifting apart — a review calling a grant
     `non_standard` that `transfer_user` would RETAIN as a template role, which
@@ -678,7 +678,7 @@ def test_a_grant_half_of_a_held_sod_pair_reads_sod_conflict(
 def test_a_grant_that_is_all_three_reads_sod_conflict(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision E's precedence, on the only grant that can pin it.
+    """The precedence, on the only grant that can pin it.
 
     The grant is stale (already expired), outside its holder's template AND
     half of a held SoD pair, so `review_items.flag` — one column, one word —
@@ -712,7 +712,7 @@ def test_a_grant_that_is_all_three_reads_sod_conflict(
 def test_a_stale_grant_outside_the_template_reads_non_standard(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """The second rung of decision E's ladder, which the all-three case above
+    """The second rung of the ladder, which the all-three case above
     cannot reach on its own.
 
     A grant that is BOTH stale and outside the template reads `non_standard`,
@@ -733,7 +733,7 @@ def test_a_stale_grant_outside_the_template_reads_non_standard(
     assert items_of(access_db_url, review.review_id) == {grant_id: ReviewFlag.NON_STANDARD.value}
 
 
-# --- decision C's boundary, exactly (criterion 2) -------------------------------
+# --- the boundary, exactly -------------------------------
 
 
 def test_an_expiry_exactly_at_the_stale_window_is_stale(
@@ -785,7 +785,7 @@ def test_an_expiry_one_second_past_the_stale_window_is_not_stale(
 def test_an_already_past_expiry_is_stale(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision C's "already-past expiry included".
+    """The "already-past expiry included".
 
     Catches a window implemented as the half-open interval
     `now < expires_at <= now + 14d`, which is the natural reading of "expiry
@@ -809,10 +809,10 @@ def test_an_already_past_expiry_is_stale(
 def test_a_renewal_makes_neither_row_stale(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision C's second half: "no other live grant for the same (user, role)
+    """The second half: "no other live grant for the same (user, role)
     expires later".
 
-    An earlier change leaves two live rows for one (user, role) reachable, which is how
+    The request flow can leave two live rows for one (user, role) reachable, which is how
     a renewal looks in this schema. A flagger that asks only "does THIS row
     expire soon" marks the old row stale and sends a reviewer to revoke access
     that was already renewed — the one false positive this rule exists to
@@ -842,7 +842,7 @@ def test_a_renewal_makes_neither_row_stale(
     }
 
 
-# --- decision G: one open review per (scope, period) ----------------------------
+# --- one open review per (scope, period) ----------------------------
 
 
 def test_a_second_review_for_the_same_scope_and_period_is_refused_and_writes_nothing(
@@ -883,7 +883,7 @@ def test_a_second_review_for_the_same_scope_and_period_is_refused_and_writes_not
 def test_two_concurrent_openers_leave_exactly_one_review(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision G's lock, on two real connections.
+    """The lock, on two real connections.
 
     The two callers send no idempotency key at this layer at all, so nothing
     but `SELECT … FOR UPDATE` on the department row can serialise them: without
@@ -912,20 +912,21 @@ def test_two_concurrent_openers_leave_exactly_one_review(
     assert len(reviews_for(access_db_url, department_id=scope.department_id)) == 1
 
 
-# --- decision J: an empty scope -------------------------------------------------
+# --- an empty scope -------------------------------------------------
 
 
 def test_a_scope_with_no_active_grants_opens_a_review_already_completed(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """An earlier change decision F, rewritten from an earlier change's `open` expectation. Catches an item-less review left `open`.
+    """An empty scope completes at once, rewritten from the `open` expectation.
+    Catches an item-less review left `open`.
 
     Completion is only ever written by deciding the LAST undecided item, so a
     review with zero items has no path to `completed` at all: left `open` it
-    sits on row 21's reminder list for ever, and no call any principal can
+    sits on the reminder list for ever, and no call any principal can
     make will ever clear it. The status AND `completed_at` are both asserted,
     because a status flipped without the timestamp records a completion that
-    happened at no time. Decision J is unchanged and still pinned here: the
+    happened at no time. The opening rule is unchanged and still pinned here: the
     empty scope is opened rather than refused, with its department set, so a
     handler that returned early without writing anything fails too.
     """
@@ -944,7 +945,7 @@ def test_a_scope_with_no_active_grants_opens_a_review_already_completed(
 def test_a_scope_with_one_active_grant_still_opens_open(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """The other direction of decision F, without which the case above is
+    """The other direction, without which the case above is
     satisfied by a handler that writes every review `completed`.
 
     One undecided item exists, so the review has something to answer and must
@@ -962,7 +963,7 @@ def test_a_scope_with_one_active_grant_still_opens_open(
     assert row.completed_at is None
 
 
-# --- the audit record (criterion 3, a project rule) ---------------------------
+# --- the audit record ---------------------------
 
 
 def test_review_opened_names_the_review_and_carries_exactly_seven_keys(
@@ -979,7 +980,7 @@ def test_review_opened_names_the_review_and_carries_exactly_seven_keys(
     pair (one set, one null) is what tells a system review from a department
     one, `item_count` and `flag_counts` are the only record of what the
     reviewer was shown at the moment it was opened, and `reviewer_user_id`
-    pins decision F — the reviewer is the DEPARTMENT'S MANAGER, not whoever
+    pins that the reviewer is the DEPARTMENT'S MANAGER, not whoever
     called the tool, so a handler that stamped the caller fails here.
     """
     scope = plant_scope(access_db_url, members=1)
@@ -1059,7 +1060,7 @@ def test_the_review_its_items_and_its_event_roll_back_together(
     )
 
 
-# --- the item read (criterion 4) ------------------------------------------------
+# --- the item read ------------------------------------------------
 
 
 def read_items(
@@ -1103,7 +1104,7 @@ def test_list_items_returns_this_reviews_items_and_honours_the_limit(
 def test_another_tenants_review_items_are_invisible(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision B: catches `review_items` left a pure child of the review.
+    """Catches `review_items` left a pure child of the review.
 
     Without its own `tenant_id` the model is not `TenantScoped`, so the ORM
     guard in `helpdesk.core.db` never filters it and the only protection is
@@ -1130,23 +1131,22 @@ def test_another_tenants_review_items_are_invisible(
 
 
 # =================================================================================
-# An earlier change, sections 1 and 6: `decide_item`, the keep-or-revoke half.
+# `decide_item`, the keep-or-revoke half.
 #
 # Surface under test (written before it exists):
 #
 # ``helpdesk.access.reviews``
-#     ``REVIEW_ITEM_DECIDED_EVENT_TYPE = "review.item_decided"`` (the design,
-#     decision G).
+#     ``REVIEW_ITEM_DECIDED_EVENT_TYPE = "review.item_decided"`` (the event catalogue).
 #     ``REVIEW_REVOKE_REASON`` — the one fixed sentence a review's revocation
-#     writes to `grants.revoke_reason` (decision E).
+#     writes to `grants.revoke_reason`.
 #     ``ItemAlreadyDecidedError(ToolError)`` — `code = POLICY_BLOCKED`
-#     (decision C).
+# .
 #     ``async def find_item(session, item_id) -> ReviewItem | None`` — the
 #     bound tenant's item, through the ORM.
 #     ``async def decide_item(session, directory, *, item, decision,
 #     decided_by_user_id, actor_ref=None, session_id=None, now)
 #     -> DecideItemResult`` — locks the item's GRANT row
-#     (`core.repository.lock_grant_row`, decision I), refuses a second
+#     (`core.repository.lock_grant_row`), refuses a second
 #     decision, writes `decision` and `decided_at`, revokes that ONE row
 #     through `access.revoke.revoke_grant_row` for `revoke`, completes the
 #     review when nothing is left undecided, and appends one
@@ -1361,7 +1361,7 @@ def test_the_decide_constants_and_error_code_are_exactly_the_spec_values() -> No
     outage.
 
     `REVIEW_REVOKE_REASON` is asserted byte for byte AND against the other
-    two revocation reasons in the codebase (decision E): the reason is the
+    two revocation reasons in the codebase: the reason is the
     only thing on the row and on the event that tells an auditor a review
     ended this access rather than a transfer, an offboarding or a manual
     `revoke_access`, so a reason equal to (or containing) one of the others
@@ -1374,13 +1374,13 @@ def test_the_decide_constants_and_error_code_are_exactly_the_spec_values() -> No
     assert ItemAlreadyDecidedError.code.value == "POLICY_BLOCKED"
 
 
-# --- `keep`: a record and nothing else (criterion 3, decision D) -----------------
+# --- `keep`: a record and nothing else -----------------
 
 
 def test_keep_records_the_decision_and_touches_no_grant_and_no_other_item(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision D. Catches a `keep` that extends the grant's expiry, revokes
+    """Catches a `keep` that extends the grant's expiry, revokes
     anything, or stamps every item of the review instead of the one named.
 
     The review holds TWO items, and only the first is decided: the second is
@@ -1413,13 +1413,13 @@ def test_keep_records_the_decision_and_touches_no_grant_and_no_other_item(
     assert len(revoked_events(access_db_url)) == revocations_before
 
 
-# --- `revoke`: the one path from a review to a change (criteria 2 and 4) ---------
+# --- `revoke`: the one path from a review to a change ---------
 
 
 def test_revoke_ends_the_items_grant_with_the_review_reason_and_one_event(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 2. Catches a `revoke` that records the decision and leaves
+    """Catches a `revoke` that records the decision and leaves
     the access alive, and one that revokes with a reason an auditor cannot
     tell from a manual `revoke_access`.
 
@@ -1429,7 +1429,7 @@ def test_revoke_ends_the_items_grant_with_the_review_reason_and_one_event(
     `list_active_grants_for_user` reads two of the three, so a revocation
     writing only `revoked_at` looks correct to every reader while the row
     still says `active`. Exactly ONE `grant.revoked` is appended, naming that
-    grant as its subject: the review's unit is one row (decision A), so a
+    grant as its subject: the review's unit is one row, so a
     decide path that fanned out over the (user, role) live set would end a
     neighbouring grant nobody reviewed. The SECOND item's grant is re-read
     unchanged, which is what pins that fan-out.
@@ -1458,14 +1458,14 @@ def test_revoke_ends_the_items_grant_with_the_review_reason_and_one_event(
 def test_a_stale_items_grant_is_revoked_although_no_live_set_holds_it(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 4 and decision A, the case the whole extraction exists for.
+    """The case the whole extraction exists for.
 
-    The grant is `active` but its expiry has already gone by, so an earlier change's
+    The grant is `active` but its expiry has already gone by, so the revoke path's
     `lock_live_grants_for_role` returns nothing for its (user, role) and
     `revoke_role_access` would refuse it `POLICY_BLOCKED` — leaving the most
     reviewable item in the tenant the one item a reviewer cannot revoke, and
-    a review nobody can complete. Routing the decide path through 11d
-    unchanged (decision A option ii) is the single change that fails this:
+    a review nobody can complete. Routing the decide path through the revoke path
+    unchanged is the single change that fails this:
     every other case here plants a grant with a distant expiry and passes
     either way.
 
@@ -1486,13 +1486,13 @@ def test_a_stale_items_grant_is_revoked_although_no_live_set_holds_it(
     assert review_row(access_db_url, review.review_id).status == ReviewStatus.COMPLETED.value
 
 
-# --- decision B: the grant went away while the review waited ---------------------
+# --- the grant went away while the review waited ---------------------
 
 
 def test_a_grant_revoked_before_the_decision_is_recorded_and_revokes_nothing(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision B. Catches a decide path that refuses an item whose grant is
+    """Catches a decide path that refuses an item whose grant is
     already gone, and one that revokes it a second time.
 
     Refusing leaves an item nobody can decide and therefore a review nobody
@@ -1531,13 +1531,13 @@ def test_a_grant_revoked_before_the_decision_is_recorded_and_revokes_nothing(
     assert len(revoked_events(access_db_url)) == revocations_before
 
 
-# --- decision C: a decision is written once --------------------------------------
+# --- a decision is written once --------------------------------------
 
 
 def test_a_second_decision_on_a_decided_item_is_refused_and_writes_nothing(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision C. Catches an overwrite, which destroys the only thing the
+    """Catches an overwrite, which destroys the only thing the
     table is for: what a named person decided at a named instant.
 
     The second call names the OPPOSITE decision, so an implementation that
@@ -1568,12 +1568,12 @@ def test_a_second_decision_on_a_decided_item_is_refused_and_writes_nothing(
 def test_two_concurrent_deciders_leave_one_decided_item_and_one_refusal(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision I's lock, on two real connections.
+    """The lock, on two real connections.
 
     Both callers ask to REVOKE the same item and neither sends an idempotency
     key at this layer, so nothing but `SELECT … FOR UPDATE` on the item's
     grant row can serialise them: without it both read an undecided item,
-    both pass decision C's check, and the grant is revoked twice — two
+    both pass the check, and the grant is revoked twice — two
     `grant.revoked` events for one row, the second rewriting the first's
     `revoked_at`. Exactly one success, exactly one `POLICY_BLOCKED` and
     exactly one revocation event are asserted, so a lock taken AFTER the
@@ -1598,17 +1598,17 @@ def test_two_concurrent_deciders_leave_one_decided_item_and_one_refusal(
     assert grant_row(access_db_url, items[0].grant_id).revoked_at == OPENED_AT
 
 
-# --- completion (criterion 6, decision F) ----------------------------------------
+# --- completion ----------------------------------------
 
 
 def test_the_last_undecided_item_completes_the_review_and_an_earlier_one_does_not(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 6, both directions in one review.
+    """Both directions in one review.
 
     Catches a decide that completes on the FIRST item — which would close a
     reviewer's worklist while items they never saw are still undecided — and
-    one that never completes at all, leaving every review on row 21's
+    one that never completes at all, leaving every review on the
     reminder list for ever. `review_complete` is asserted on BOTH results,
     because it is the only place the flag is observable before the event, and
     `completed_at` is asserted null after the first decision and exactly the
@@ -1658,13 +1658,13 @@ def test_a_neighbouring_reviews_undecided_item_does_not_hold_this_one_open(
     assert neighbour_items[0].decision is None
 
 
-# --- the audit record (decision G, a project rule) -----------------------------
+# --- the audit record -----------------------------
 
 
 def test_review_item_decided_names_the_item_and_carries_decision_gs_keys(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """a project rule. Catches an event whose subject is the review, the
+    """Catches an event whose subject is the review, the
     grant or the tool rather than the ITEM, and one whose payload cannot
     answer what the reviewer did.
 
@@ -1675,7 +1675,7 @@ def test_review_item_decided_names_the_item_and_carries_decision_gs_keys(
     question nothing else in the log can: `grant_id`, `user_id` and `role_id`
     say WHOSE access this was (the item row alone names only a grant),
     `flag` says why it was in front of a reviewer, `revoked_grant_count`
-    distinguishes decision B's "revoke that ended nothing" from a real
+    distinguishes the "revoke that ended nothing" from a real
     revocation, and `review_complete` is the ONLY record that this decision
     closed the review — there is no `review.completed` event.
     """
@@ -1779,29 +1779,29 @@ def test_find_item_answers_nothing_for_another_tenants_item(
 
 
 # =================================================================================
-# An earlier change, sections 1 and 6: the queue read and the widened item read.
+# The queue read and the widened item read.
 #
 # Surface under test (written before it exists):
 #
 # ``helpdesk.access.reviews``
 #     ``async def list_reviews_for_scope(session, *, department_id, system_ids,
 #     any_scope, status, limit) -> Sequence[ReviewWithCounts]`` — the reviews one
-#     caller's the design scope reaches, `due_at` oldest first with the review id
+#     caller's the permission matrix's scope reaches, `due_at` oldest first with the review id
 #     breaking a tie, at most `limit` of them. The scope arrives DECIDED (a
 #     department id, a set of owned system ids, or `any_scope=True`): nothing in
 #     `helpdesk/access/` reads a token, exactly as `list_items` takes no scope.
 #     Each answered row carries ``.review`` (the ORM row), ``.department_name``,
 #     ``.system_name``, ``.reviewer_display_name``, ``.item_count`` and
 #     ``.decided_count``, the last two from ONE grouped aggregate over
-#     `review_items` (decision D).
+#     `review_items`.
 #     ``async def list_items_with_context(session, review_id, *, limit) ->
-#     Sequence[ReviewItemWithContext]`` — 23c's widened twin: ``.item`` plus the
+#     Sequence[ReviewItemWithContext]`` — the widened twin: ``.item`` plus the
 #     grant's ``.target_display_name``, ``.role_name``, ``.system_name``,
 #     ``.privilege``, ``.granted_at`` and ``.expires_at``, off one joined read.
 #     ``list_items`` becomes a pure PROJECTION of it, so the
 #     cases above this line keep unpacking `Sequence[ReviewItem]`.
 #
-# a project rule: the same session-scoped seeded database, the same per-test
+# The same session-scoped seeded database, the same per-test
 # namespace (a freshly planted department, system, cast and period). The rows
 # these cases read are planted with RAW SQL rather than opened through
 # `open_review`, because the queue's contract is about `due_at`, `status` and
@@ -1950,7 +1950,7 @@ def read_queue(
     return in_tenant(url, work, tenant_id=tenant_id)
 
 
-# --- what a resolved scope answers (criterion 2) ---------------------------------
+# --- what a resolved scope answers ---------------------------------
 
 
 def test_a_department_scope_answers_its_own_reviews_and_not_another_departments(
@@ -2010,7 +2010,7 @@ def test_an_any_scope_answers_both_the_department_and_the_system_review(
     access_db_url: str,  # noqa: F811
 ) -> None:
     """Catches the `any` caller falling through the two narrow predicates into
-    an empty answer — the `if not predicates: return []` shape an earlier change's queue
+    an empty answer — the `if not predicates: return []` shape the queue
     read uses for a caller whose scopes resolve to nothing.
 
     `any_scope` is handed no department and no system ids at all, so a read that
@@ -2044,7 +2044,7 @@ def test_an_any_scope_answers_both_the_department_and_the_system_review(
 def test_the_queue_orders_by_due_at_oldest_first_with_the_review_id_breaking_the_tie(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 2's order as an exact sequence, both halves of it.
+    """The order as an exact sequence, both halves of it.
 
     The two tied reviews share one `due_at` and are INSERTED highest-id first,
     so a read ordered by `created_at` (which is what `list_items` orders by, the
@@ -2083,7 +2083,7 @@ def test_the_queue_orders_by_due_at_oldest_first_with_the_review_id_breaking_the
     assert answered == [earliest, low, high]
 
 
-# --- the two counts (criterion 4, decision D) ------------------------------------
+# --- the two counts ------------------------------------
 
 
 def test_a_review_with_three_items_one_decided_reads_three_and_one(
@@ -2134,13 +2134,13 @@ def test_a_review_with_three_items_one_decided_reads_three_and_one(
 def test_a_review_with_no_items_reads_zero_and_zero_rather_than_being_absent(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision D's join direction: catches the counts arriving through an INNER
-    join, which drops exactly the review that has nothing to show.
+    """The join direction: catches the counts arriving through an INNER
+        join, which drops exactly the review that has nothing to show.
 
-    A review with no items is the one `open_review` writes for a clean scope
-    (decision J), so a queue that hides it hides every completed-on-arrival
-    review in the product. The review with one item is planted in the same
-    department, so a read that answers nothing at all cannot pass instead.
+        A review with no items is the one `open_review` writes for a clean scope,
+    so a queue that hides it hides every completed-on-arrival
+        review in the product. The review with one item is planted in the same
+        department, so a read that answers nothing at all cannot pass instead.
     """
     scope = plant_scope(access_db_url, members=1)
     empty = plant_review(
@@ -2175,7 +2175,7 @@ def test_a_review_with_no_items_reads_zero_and_zero_rather_than_being_absent(
 def test_another_tenants_review_contributes_neither_a_row_nor_a_count(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """An earlier change §5's leak, both halves: catches a queue read outside the tenant
+    """Catches a queue read outside the tenant
     guard, and an aggregate written as a hand-rolled `count()` that the ORM
     guard never filters.
 
@@ -2234,13 +2234,13 @@ def test_another_tenants_review_contributes_neither_a_row_nor_a_count(
     assert answered[mine].decided_count == 0
 
 
-# --- the widened item read and its projection (criterion 7) ----------------------
+# --- the widened item read and its projection ----------------------
 
 
 def test_list_items_with_context_carries_the_grants_six_context_fields(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision B. Catches a read that answers the item alone, or one that
+    """Catches a read that answers the item alone, or one that
     echoes the item's own columns under context names.
 
     A reviewer cannot decide a `grant_id`: the six fields name the PERSON, the
@@ -2290,7 +2290,7 @@ def test_list_items_with_context_carries_the_grants_six_context_fields(
 def test_list_items_answers_the_same_orm_rows_as_the_widened_read(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """a project rule's projection, pinned from the narrow side.
+    """The projection, pinned from the narrow side.
 
     Catches `list_items` rewritten to answer the widened rows (its existing
     callers unpack `Sequence[ReviewItem]` and would break on `.flag`), and

@@ -21,45 +21,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-/**
- * The seven columns, in the order every cell assertion in
- * `tests/policies-board.test.tsx` reads them by.
- *
- * Six read cells rather than a live marker folded into the version cell (24h
- * decision B): a merged cell could not say whether a version is live without
- * re-reading the version string, and reading by position is how every other
- * admin board in the tree is asserted. `Actions` is APPENDED (31b §1), so those
- * six keep positions 0 to 5 and every positional assertion still reads the
- * column it was written for. Pinned as an exact sequence by `::PoliciesBoard —
- * the shape of the board::renders the seven column headers in order`.
- */
+/** `Actions` is last, so the data columns keep their places. */
 const COLUMNS = ["Version", "Status", "Ingested", "Chunks", "Source", "Digest", "Actions"] as const;
 
 /**
- * One line per version of one document, in the payload's own order.
- *
- * Keyed by `${version}:${sha256}` (31b decision F). The bare `version` is NOT
- * unique within a document: `register_document_version` matches on the DIGEST,
- * so a changed re-ingest writes a second row under the same version string and
- * 24g's read answers both. Two children under one key is a React error and,
- * worse, carries one row's component state — the armed flag this table hands
- * down — onto the other. An index would re-key every row whenever a later
- * ingest adds one. Pinned by `::renders both rows of a repeated version
- * string`.
- *
- * WHICH rows carry a re-ingest is decided here (31b decision A): the FIRST
- * occurrence of each distinct version string in the payload's own order, which
- * is the newest row of that version because 24g decision C orders versions
- * `ingested_at` descending. The tool re-ingests a version DIRECTORY, so two
- * rows sharing a version string are one re-ingestable thing and a second
- * control would be a duplicate accessible name doing an identical act. Nothing
- * is sorted, filtered or regrouped to find them. Pinned by `::renders one
- * re-ingest control per distinct version of a document`.
- *
- * The ARMING lives here rather than in the control (§1, 31b Deviations): a
- * click on any other control in the same document must clear it, and a flag
- * held per control cannot see its siblings. One armed version per document, so
- * clearing it clears whichever control set it.
+ * Keyed by version and digest: a changed re-ingest adds a second row with the
+ * same version string. Only the newest row of each version gets a control,
+ * since the server re-ingests the whole version. The armed flag lives here so a
+ * click on another control in the same document can clear it.
  */
 export function PolicyVersionsTable({
   policy,
@@ -106,13 +75,6 @@ export function PolicyVersionsTable({
   );
 }
 
-/**
- * The index of each version string's first row, in the payload's own order.
- *
- * A first-occurrence scan and not a group-by: nothing is reordered, so the rows
- * an admin reads stay in the order the tool fixed and the control lands on the
- * newest row of its version.
- */
 function firstOccurrences(versions: PolicyVersion[]): number[] {
   const seen = new Set<string>();
   const indexes: number[] = [];
@@ -127,29 +89,14 @@ function firstOccurrences(versions: PolicyVersion[]): number[] {
 }
 
 /**
- * One version, seven cells.
- *
- * `Status` is a word either way and never a blank cell (decision C).
- * `Ingested` renders through `formatSwitchInstant` (decision F), so the date
- * and the minute are read in UTC rather than in whatever zone the browser sits
- * in. `Chunks` carries the exact count AND, at zero, the marker that says the
- * ingest registered a document and wrote no span (decision D) — the number
- * stays, because the marker replaces nothing. `Source` is `source_path`
- * verbatim, which 24g decision G made corpus-relative, so nothing about the
- * ingest host reaches the browser through this cell. `Digest` shows
- * `DIGEST_PREFIX` characters with the whole 64 in the cell's `title` (decision
- * E), which is where `::PoliciesBoard — what a version row shows::renders the
- * digest as twelve characters carrying the whole sha256 as its title` looks for
- * it. `Actions` carries the re-ingest on the rows `firstOccurrences` picked and
- * an empty cell on the rest, so every row still has seven cells and a
- * positional read of the first six is unaffected.
+ * Zero chunks gets a marker, since that version is invisible to search.
+ * The digest shows a prefix with the full value on hover.
  */
 function VersionRow({ version, control }: { version: PolicyVersion; control: ReactNode }) {
   return (
     <TableRow className="align-top">
       <TableCell className="font-mono text-xs">{version.version}</TableCell>
-      {/* The live word is a hand-toned badge: `Live` reads success
-          and `Not live` reads neutral. */}
+      {/* A word either way, never a blank cell. */}
       <TableCell>
         <Badge tone={version.is_current ? "success" : "neutral"}>
           {version.is_current ? LIVE_VERSION_TEXT : NOT_LIVE_VERSION_TEXT}

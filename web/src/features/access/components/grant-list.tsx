@@ -14,27 +14,10 @@ import { Alert } from "@/components/ui/alert";
 import { formatIsoDate } from "@/lib/date-format";
 
 /**
- * What this user holds right now, from `GET /api/me/access`.
- *
- * The same shape as `RequestList`: a client read through TanStack Query
- * (decision A) made by `lib/wire-read.ts`, whose `null` — the
- * browser already following the proxy's redirect to `/login` (22b decision E) —
- * is mapped here to the empty list, and a failed read thrown rather than
- * answered as an empty list — "you hold no access" over a broken proxy is the
- * sentence on this page a person might act on by asking again for access they
- * already have (`tests/access-page.test.tsx`'s two `a read that fails` rows
- * against `::renders the named empty state and no list`).
- *
- * Accessible names: the region is `Active access`, the rows are the list
- * `Grants`, and each row's renewal link is named `Request renewal for
- * {role_name}` — one row per role means a link named "Renew" on every row is a
- * list of identical links to a screen reader.
- *
- * The countdown is `daysUntil` and never a rendered timestamp, and a NULL
- * `expires_at` reads `No expiry`: a standing grant run through the arithmetic
- * would tell its holder access ends today. An unreadable timestamp falls back
- * to the raw value rather than `NaN days left`. The granted date
- * is the ISO prefix, never a locale format.
+ * What this user holds now. A failed read shows an error, never the empty
+ * list: "you hold no access" would make people ask again for access they have.
+ * Each renewal link names its role, so a screen reader does not hear a list of
+ * identical links.
  */
 export function GrantList() {
   const access = useMyAccess();
@@ -86,13 +69,7 @@ function GrantRow({ grant }: { grant: MyGrant }) {
   );
 }
 
-/**
- * The expiry as a word and a hand-picked tone: `No expiry` for a
- * standing grant and the raw value for a timestamp that will not parse both read
- * neutral, an expired grant (a negative countdown) reads neutral as the status
- * map's `expired` does, a grant with a week or less left reads warning, and
- * anything further out reads success.
- */
+/** A grant with no end date reads `No expiry`, never "ends today". */
 function expiryBadge(expiresAt: string | null): { text: string; tone: BadgeTone } {
   if (expiresAt === null) {
     return { text: "No expiry", tone: "neutral" };

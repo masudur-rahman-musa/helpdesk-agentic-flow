@@ -1,4 +1,4 @@
-"""An earlier change §6: the two review jobs, their registrations and their wrappers.
+"""The two review jobs, their registrations and their wrappers.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -13,7 +13,7 @@ must provide exactly this):
     ``helpdesk.access.review_schedule.send_review_reminders(session, now=now)``
     and drops the return value.
 
-    The two WRAPPER names are not fixed by plan §6; they follow the convention
+    The two WRAPPER names are not fixed by the contract; they follow the convention
     `jobs.py` already carries (`run_expire_grants`, `run_expiry_warnings`,
     `run_leaver_sweep`), which is why they are written out here rather than
     discovered.
@@ -25,20 +25,20 @@ must provide exactly this):
 
 What this file deliberately does NOT re-test: `check_job_name`'s inclusive
 boundary (exactly 64 accepted, 65 refused) and its `re.fullmatch` rejection
-table. Both are already pinned in `test_scheduler_runner.py`, and this plan
+table. Both are already pinned in `test_scheduler_runner.py`, and this change
 adds no new value that shapes a key — only two constants of its own, which are
-asserted to PASS that same gate below (plan §1's input-validation criterion,
+asserted to PASS that same gate below (the input-validation criterion,
 recorded rather than silently skipped). A copy of those cases here would be
 red and green for exactly the same reasons as the originals — the
 neighbouring-guard trap.
 
-a project rule: the database and the dedicated Redis index are
+The database and the dedicated Redis index are
 `test_scheduler_runner.py`'s session-scoped fixtures, imported rather than
 rebuilt. Per-test isolation stays what that file established: the only keys
-this file writes are the two the plan names, and the one case that touches
+this file writes are the two the design names, and the one case that touches
 them deletes exactly those two first.
 
-a project rule: `test_scheduler_runner.py`, `test_scheduler_daily_jobs.py`
+`test_scheduler_runner.py`, `test_scheduler_daily_jobs.py`
 and `test_scheduler_review_jobs.py` are three distinct basenames.
 
 No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
@@ -110,18 +110,18 @@ def _recorder(
 
 
 def test_the_review_job_constants_are_exactly_the_planned_values() -> None:
-    """Catches every one of this plan's new key-shaping literals drifting.
+    """Catches every one of this change's new key-shaping literals drifting.
 
     The two names are asserted with the keys they produce, because the name is
     the only client-shaped part of a Redis key here: a job renamed without its
     key moving orphans the lock a running instance holds while the new one
     takes a fresh key with a fresh window, so a quarter's reviews could be
     generated twice on the day of a deploy. `DAILY_CADENCE_SECONDS` is
-    re-asserted because this plan registers against it: the cadence IS the
-    lock TTL (21a decision B), so a value of 3600 would open a quarter's
+    re-asserted because this change registers against it: the cadence IS the
+    lock TTL, so a value of 3600 would open a quarter's
     reviews 24 times a day, each run skipped only by the already-open check,
     and would nag every reviewer 24 times about the same overdue review —
-    decision E having deliberately removed the dedupe that would have hidden
+    the dedupe having been deliberately removed that would have hidden
     it.
     """
     assert jobs.REVIEW_GENERATION_JOB_NAME == "review_generation"
@@ -141,15 +141,15 @@ def test_the_review_job_constants_are_exactly_the_planned_values() -> None:
 def test_each_review_job_is_registered_at_the_daily_cadence_under_a_valid_name(
     job_name: str, lock_key: str
 ) -> None:
-    """Plan §1's registration criterion, per job.
+    """The registration criterion, per job.
 
-    Catches a job written and never registered — the whole plan lands, the
+    Catches a job written and never registered — the whole change lands, the
     library's tests pass, and nothing ever runs it, so no review is ever
     generated and no reviewer ever reminded. Catches one registered with its
     own cadence literal instead of the constant: the key's TTL IS the gate, so
     a job declaring 86400 while its key is set for 300 runs 288 times a day.
     And it applies `check_job_name` to the REGISTERED name, which is where
-    plan §1 puts the input validation for this plan's only two new
+    the input validation for the only two new
     key-shaping values — a name with a hyphen or a capital would then fail
     here rather than inside a `SET` at three in the morning.
     """
@@ -164,16 +164,16 @@ def test_each_review_job_is_registered_at_the_daily_cadence_under_a_valid_name(
 
 def test_the_registry_holds_all_eight_jobs_under_eight_distinct_names() -> None:
     """Catches a registration that REPLACES the registry rather than extending
-    it — a `REGISTRY = {...}` rebuilt from this plan's two jobs, which
-    silently stops 21a's expiry sweep and 21b's daily pair and would show up
+    it — a `REGISTRY = {...}` rebuilt from this change's two jobs, which
+    silently stops the expiry sweep and the daily pair and would show up
     nowhere else in this file. Also catches both new jobs being registered
     under one name, which a per-job case cannot see: a dict keyed by name
     loses one of them without complaining.
 
     Eight is counted off the code, not carried over from this file's previous
     row: `expire_grants`, `expiry_warnings`, `leaver_sweep`,
-    this plan's two, an earlier change's `metrics_sweep`, an earlier change's `chain_anchor`,
-    and an earlier change's `anchor_retention`.
+    this change's two, the `metrics_sweep`, the `chain_anchor`,
+    and the `anchor_retention`.
     """
     assert {
         "expire_grants",
@@ -189,7 +189,7 @@ def test_the_registry_holds_all_eight_jobs_under_eight_distinct_names() -> None:
     assert len(REGISTRY) == 8
 
 
-# --- the cadence gate on the real registry (21a decision B) ------------------
+# --- the cadence gate on the real registry ------------------
 
 
 def test_a_tick_leaves_both_review_keys_with_a_one_day_ttl(
@@ -203,7 +203,7 @@ def test_a_tick_leaves_both_review_keys_with_a_one_day_ttl(
 
     Catches a lock taken with no expiry (the job would never run again after
     one tick, for ever), one taken on a key an operator would not find, and a
-    lock RELEASED at the end of the run — 21a decision B makes the key itself
+    lock RELEASED at the end of the run — the key itself is
     the cadence gate, so a released key means these jobs run every 60 seconds
     instead of every 24 hours. Both per-tenant keys are asserted PRESENT for
     each job, so a runner that deletes all keys after a run fails here.
@@ -223,7 +223,7 @@ def test_a_tick_leaves_both_review_keys_with_a_one_day_ttl(
             assert ttl == 86400
 
 
-# --- the wrappers (plan §2: two lines each, deciding nothing) ----------------
+# --- the wrappers (two lines each, deciding nothing) ----------------
 
 
 def test_the_review_generation_wrapper_hands_its_session_and_now_to_the_engine(
@@ -236,7 +236,7 @@ def test_the_review_generation_wrapper_hands_its_session_and_now_to_the_engine(
     the PERIOD every review of the run is filed under and the `due_at` every
     reviewer is held to, so a clock read here makes the job untestable at a
     fixed instant and lets one tick's scopes straddle a quarter boundary in
-    two directions instead of one (plan §5). And one that opens its own
+    two directions instead of one. And one that opens its own
     session or re-binds a tenant, which would generate outside the tenant the
     runner bound. The double is not a database handle, so a wrapper doing
     either of those cannot even reach a table — it can only pass this by
@@ -257,10 +257,10 @@ def test_the_review_reminders_wrapper_hands_its_session_and_now_to_the_engine(
     """The same claim for the second job, which has its own wrapper and its own
     way of getting it wrong.
 
-    a project rule: one fix at one call site is not the fix. A reminder
+    One fix at one call site is not the fix. A reminder
     sweep reading its own clock would measure the overdue band and the
     fourteen-day escalation from a different instant than the tick answers
-    for — and both of this plan's boundary pairs are written to the
+    for — and both of this change's boundary pairs are written to the
     microsecond, so the two jobs of one tick could disagree about whether the
     review generated this morning is already overdue.
     """

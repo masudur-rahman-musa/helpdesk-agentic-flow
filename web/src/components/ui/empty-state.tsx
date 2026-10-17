@@ -1,11 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/**
- * What a list says when it has nothing in it. Every other prop reaches the
- * root, so a page keeps the `role="status"` or the label its tests find it by
- * (`tests/ui-primitives.test.tsx::renders the empty state text and passes
- * props through`).
- */
+/** What a list says when empty. Other props reach the root element. */
 export function EmptyState({
   title,
   description,

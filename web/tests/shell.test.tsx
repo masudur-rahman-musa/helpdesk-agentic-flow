@@ -9,9 +9,9 @@ import { THEME_STORAGE_KEY } from "@/components/layout/theme-toggle";
 
 /**
  * The authenticated shell: demo banner, keyboard reachability and the dark-mode
- * toggle that persists.
+ * toggle that persists (last criterion).
  *
- * Value the plan left open (a project rule, recorded in 22a's Deviations):
+ * Value the plan left open:
  * the theme control is located as a button whose accessible name matches
  * /theme/i, so the implementation owes it a name containing that word.
  *
@@ -164,9 +164,8 @@ describe("AppShell — theme toggle", () => {
 });
 
 /**
- * An earlier change §6 additions: the two nav links this plan stops being 404s, and the
- * routes it deliberately does NOT link to (decision E). Additions only —
- * nothing above this comment is edited.
+ * The two nav links that used to be 404s, and the
+ * routes it deliberately does NOT link to.
  *
  * The nav is reached through `AppShell` rather than by rendering `MainNav`
  * directly, so a link that exists but is dropped from the shell (the `showNav`
@@ -178,37 +177,37 @@ describe("MainNav — the routes it links to", () => {
     { name: "My requests", href: "/requests" },
     { name: "My access", href: "/access" },
     { name: "Approvals", href: "/approvals" },
-    // An earlier change §8: `/reviews` is a page as of this plan, so it moves out of
-    // `NOT_YET` and into the links the nav owes. 22a's rule is unchanged — the
+    // `/reviews` is a page today, so it moves out of
+    // `NOT_YET` and into the links the nav owes. The rule is unchanged — the
     // nav links to routes that exist and to no others.
     { name: "Reviews", href: "/reviews" },
-    // An earlier change §8: `/notifications` is a page as of this plan, so it moves out
-    // of `NOT_YET` and into the links the nav owes. 22a's rule is unchanged —
+    // `/notifications` is a page today, so it moves out
+    // of `NOT_YET` and into the links the nav owes. The rule is unchanged —
     // the nav links to routes that exist and to no others.
     { name: "Notifications", href: "/notifications" },
-    // An earlier change §8: `/admin/audit` is a page as of this plan, so it moves out of
-    // `NOT_YET` and into the links the nav owes. 22a's rule is unchanged — the
+    // `/admin/audit` is a page today, so it moves out of
+    // `NOT_YET` and into the links the nav owes. The rule is unchanged — the
     // nav links to routes that exist and to no others.
     { name: "Audit log", href: "/admin/audit" },
-    // An earlier change §8: `/admin/killswitch` is a page as of this plan, so the nav
-    // owes it a link. 22a's rule is unchanged — the nav links to routes that
+    // `/admin/killswitch` is a page today, so the nav
+    // owes it a link. The rule is unchanged — the nav links to routes that
     // exist and to no others.
     { name: "Kill switch", href: "/admin/killswitch" },
-    // An earlier change §8: `/admin/rules` is a page as of this plan, so it moves out of
-    // `NOT_YET` and into the links the nav owes. 22a's rule is unchanged — the
+    // `/admin/rules` is a page today, so it moves out of
+    // `NOT_YET` and into the links the nav owes. The rule is unchanged — the
     // nav links to routes that exist and to no others.
     { name: "Rules", href: "/admin/rules" },
-    // An earlier change §8: `/admin/policies` is a page as of this plan, so it moves out
+    // `/admin/policies` is a page today, so it moves out
     // of `NOT_YET` and into the links the nav owes — the tenth link, and the
-    // last the design route to be served. 22a's rule is unchanged — the nav links
+    // last route to be served. The rule is unchanged — the nav links
     // to routes that exist and to no others.
     { name: "Policies", href: "/admin/policies" },
   ] as const;
 
   it.each(LINKS)("links $name to $href", async ({ name, href }) => {
-    // An earlier change §8: the ten links are asserted for a platform_admin profile only,
+    // The ten links are asserted for a platform_admin profile only,
     // since the shell is role-aware now (the employee's four are held by
-    // `tests/role-nav.test.tsx`). `/api/me` is stubbed to answer all ten keys,
+    // `role-nav.test.tsx`). `/api/me` is stubbed to answer all ten keys,
     // and each link is AWAITED, because the six gated ones only exist once the
     // read has resolved.
     // Catches a nav that names the destination but points elsewhere — a link
@@ -253,10 +252,10 @@ describe("MainNav — the routes it links to", () => {
     expect(await within(nav).findByRole("link", { name })).toHaveAttribute("href", href);
   });
 
-  // An earlier change §8: `NOT_YET` and its case are DELETED. `/admin/policies` was its
-  // last entry and is a page as of this plan, so the list would be empty, and
+  // `NOT_YET` and its case are gone. `/admin/policies` was its
+  // last entry and is a page today, so the list would be empty, and
   // `it.each([])` is an error rather than a skip. Nothing takes its place: this
-  // was the last the design route nothing served, so the rule the case carried —
+  // was the last route nothing served, so the rule the case carried —
   // the nav links to routes that exist and to no others — is now held by the
   // `LINKS` table above alone.
 });

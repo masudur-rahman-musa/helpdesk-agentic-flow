@@ -3,15 +3,13 @@ import animate from "tailwindcss-animate";
 
 // `darkMode: "class"` and not "media": the toggle in `src/components/layout/theme-toggle.tsx`
 // writes the class onto <html>, and the system preference is the value it starts
-// from rather than the only thing that decides. Pinned by
-// `tests/shell.test.tsx`'s "toggle flips the root class".
+// from rather than the only thing that decides.
 const config: Config = {
   darkMode: "class",
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
-      // Every colour token in `src/app/globals.css`, read as `hsl(var(--name))`
-      //.
+      // Every colour token in `src/app/globals.css`, read as `hsl(var(--name))`.
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",

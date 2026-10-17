@@ -5,16 +5,11 @@ import { API, apiPath } from "@/lib/api-paths";
 import { queryKeys } from "@/lib/query-keys";
 import { readWire } from "@/lib/wire-read";
 
-/** The queue waiting on this approver, read through TanStack Query. */
 export function useApprovals() {
   return useQuery({ queryKey: queryKeys.myApprovals, queryFn: fetchApprovals });
 }
 
-/**
- * Approve one request, with an optional comment. A success re-reads the queue
- * and removes nothing on its own: the tool decides what the row becomes
- *.
- */
+/** A success re-reads the queue; the server decides what the row becomes. */
 export function useApproveRequest(requestId: string) {
   const invalidate = useRefreshApprovals();
   return useMutation({
@@ -23,7 +18,6 @@ export function useApproveRequest(requestId: string) {
   });
 }
 
-/** Reject one request with its reason. A success re-reads the queue. */
 export function useRejectRequest(requestId: string) {
   const invalidate = useRefreshApprovals();
   return useMutation({
@@ -39,13 +33,7 @@ function useRefreshApprovals(): () => Promise<void> {
   };
 }
 
-/**
- * A decision the wire refused, carrying the typed code and nothing else.
- *
- * The code is what the design puts on the wire; the sentence is this app's, so
- * no free text crosses the boundary and two surfaces cannot say two different
- * things about one refusal.
- */
+/** Carries only the typed code; the page picks the sentence. */
 export class DecisionRefusedError extends Error {
   readonly code: unknown;
 
@@ -55,28 +43,15 @@ export class DecisionRefusedError extends Error {
   }
 }
 
-/**
- * The queue waiting on this approver, or the empty list while the browser
- * follows the proxy's redirect to `/login`.
- *
- * A refused read throws a `WireRefusedError` and this page dresses it with
- * nothing (24ia decision B): the region's own read alert is what an approver
- * sees for a typed 403 as well as for a bodyless 500, and the per-code
- * sentences on this surface stay the DECISION's alone. Pinned by
- * `tests/approvals-page.test.tsx::a 403 FORBIDDEN on the queue renders the read
- * alert, not the code's sentence`.
- */
+/** Empty while the browser follows the redirect to `/login`. */
 async function fetchApprovals(): Promise<PendingApproval[]> {
   const parsed = await readWire(API.myApprovals, pendingApprovalsSchema);
   return parsed === null ? [] : parsed.approvals;
 }
 
 /**
- * One decision, posted to the proxy for this request and this verb.
- *
- * No idempotency key is sent: agent-api derives it from the approver, the
- * request and the verb (23c decision B), so a double-clicked Approve replays
- * the stored response instead of filing a second decision.
+ * No idempotency key is sent: the server builds it from approver, request and
+ * verb, so a double click replays instead of filing twice.
  */
 async function postDecision(
   requestId: string,

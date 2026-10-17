@@ -8,22 +8,13 @@ from helpdesk.shared.services.killswitch import REASON_MAX_LENGTH, TOOL_NAME_MAX
 
 
 class ListKillSwitchesArgs(BaseModel):
-    """No arguments at all: the tenant is the token's and the tool list is the
-    server's own registry.
-
-    The zero-argument form `me_routes` uses. `ListKillSwitchesInput` declares
-    no field and forbids extras, so a key riding along from here would answer
-    `VALIDATION` on every load of the board."""
+    """No arguments: the tenant is the token's and the tools are the server's."""
 
 
 class SetKillSwitchArgs(BaseModel):
-    """`set_kill_switch`'s SPEC section 8.2 arguments, assembled by this router.
+    """`set_kill_switch`'s arguments, built by the route.
 
-    Exactly five keys: the four the browser sent, plus the idempotency key the
-    route derives. No tenant or user id. `scope` is a
-    `str` carrying either `SCOPE_GLOBAL` or the token's own tenant id rendered
-    as its string, which is the pair
-    `SetKillSwitchInput`'s `Literal["global"] | uuid.UUID` accepts.
+    No tenant or user id. `scope` is "global" or the token's own tenant id.
     """
 
     tool_name: str
@@ -34,19 +25,11 @@ class SetKillSwitchArgs(BaseModel):
 
 
 class SetKillSwitchBody(BaseModel):
-    """The browser's half of a toggle: the four keys, and nothing else.
+    """The browser's half of a toggle.
 
-    `extra="forbid"` is load-bearing rather than tidy: a `tenant_id` here is
-    the browser asking to name the tenant a switch is written for, and an
-    ignored one would answer 200 to an admin who believed they had stopped a
-    tool for one tenant while the switch went wherever `scope` pointed
-    (`test_killswitch_routes.py::test_a_tenant_id_riding_along_in_the_body_is_a_typed_400_and_opens_no_session`).
-
-    The two string bounds are the TOOL's own constants, imported and never
-    retyped: `tool_name` becomes a Redis key segment
-    through `key_for` and `reason` becomes a stored `SwitchState` field, so
-    both get their pre-check before any effect runs, and a second opinion one
-    character narrower than the store's would refuse a value the tool accepts.
+    Extra fields are refused: an ignored `tenant_id` would answer 200 to an
+    admin who thinks they stopped a tool for one tenant. The length caps are
+    the tool's own constants, so the two sides cannot disagree.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -54,12 +37,7 @@ class SetKillSwitchBody(BaseModel):
     tool_name: str = Field(min_length=1, max_length=TOOL_NAME_MAX_LENGTH)
     enabled: bool
     scope: Literal["global", "tenant"]
-    """The one bound this router owns, and the one it must own: a tenant id is
-    not a member, so no client-supplied tenant can reach the tool from here at
-    all (decision C)."""
+    """A tenant id is not allowed here, so no client can pick the tenant."""
 
     reason: str = Field(min_length=1, max_length=REASON_MAX_LENGTH)
-    """Required in both directions, like the tool's own: clearing a switch has
-    nowhere to store a reason, so the `killswitch.changed` payload is the only
-    record that turning a tool back on was a decision somebody made (13c
-    decision H)."""
+    """Required both ways, so turning a tool back on is on record too."""

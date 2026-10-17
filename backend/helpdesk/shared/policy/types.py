@@ -1,12 +1,7 @@
-"""Input snapshot and output shape for the deterministic policy engine.
+"""Input snapshot and output shape for the policy engine.
 
-Every type here is frozen. The engine reads a snapshot the caller has already
-loaded and returns a `Classification`; nothing in this package touches a
-database, a clock, or a model. Validation is not I/O, so Pydantic is fine.
-
-`system_category` is a field on the snapshot rather than something the engine
-derives from a system slug: slugs are tenant seed data and application code
-must not carry them.
+Every type is frozen. `system_category` is passed in rather than derived from
+a system slug, because slugs are tenant data the code must not hard-code.
 """
 
 import uuid
@@ -29,7 +24,7 @@ class Privilege(StrEnum):
 
 
 class SystemCategory(StrEnum):
-    """Which extra approver a `critical` request needs (the design)."""
+    """Which extra approver a `critical` request needs."""
 
     PROD_INFRA = "prod_infra"
     HRIS = "hris"
@@ -57,7 +52,7 @@ _SEVERITY: dict[RiskClass, int] = {
 
 
 def severity(risk_class: RiskClass) -> int:
-    """Rank for comparing classes. §9.2 rows overlap and the highest wins."""
+    """Rank for comparing classes. Table rows overlap and the highest wins."""
     return _SEVERITY[risk_class]
 
 
@@ -68,7 +63,7 @@ class Decision(StrEnum):
 
 
 class ReasonCode(StrEnum):
-    """The machine codes of the design. Reasons are never free text."""
+    """Machine reason codes. Reasons are never free text."""
 
     IN_TEMPLATE = "IN_TEMPLATE"
     NOT_IN_TEMPLATE = "NOT_IN_TEMPLATE"
@@ -88,11 +83,9 @@ def sod_conflict_reason(rule_id: uuid.UUID) -> str:
 
 
 def is_valid_reason(reason: str) -> bool:
-    """True for a bare §9.6 code, or `SOD_CONFLICT:` plus a well-formed id.
+    """True for a bare code, or `SOD_CONFLICT:` plus a dashed lowercase id.
 
-    The id must be in canonical form. `uuid.UUID` also parses undashed hex and
-    `urn:uuid:` strings, which `sod_conflict_reason` never emits, so accepting
-    them would let two spellings of the same reason exist.
+    Other uuid spellings are refused so one reason has only one spelling.
     """
     prefix = f"{ReasonCode.SOD_CONFLICT.value}:"
     if reason.startswith(prefix):
@@ -105,8 +98,8 @@ def is_valid_reason(reason: str) -> bool:
 
 
 class ApproverSlot(StrEnum):
-    """Who must approve. A slot, not a person: the engine is pure and cannot
-    resolve "an it_admin", so the caller fills unresolved ids (decision D)."""
+    """Who must approve. A slot, not a person: the pure engine cannot look up
+    "an it_admin", so the caller fills unresolved ids."""
 
     DEPARTMENT_MANAGER = "department_manager"
     SYSTEM_OWNER = "system_owner"
@@ -119,8 +112,7 @@ class RequiredApprover(BaseModel):
 
     slot: ApproverSlot
     user_id: uuid.UUID | None = None
-    """Resolved where the snapshot knows the person; None for role-wide slots
-    (`it_admin`, `hr`) and where the directory has nobody in the seat."""
+    """None for group slots and for seats nobody holds."""
 
 
 class SodConflictSource(StrEnum):
@@ -133,7 +125,6 @@ class SodConflict(BaseModel):
 
     rule_id: uuid.UUID
     conflicting_role_id: uuid.UUID
-    """The paired role the target already holds or is about to be granted."""
     policy_ref: str
     source: SodConflictSource
 
@@ -141,9 +132,8 @@ class SodConflict(BaseModel):
 class PolicyRefs(BaseModel):
     """Where each clause of the tenant's written policy lives.
 
-    Supplied by the caller: refs read like `NL-POL-001 §4` and are tenant
-    document ids, which application code must not invent. Anything left None
-    is simply not cited.
+    The caller supplies them, since they are tenant document ids. None means
+    not cited.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -170,7 +160,6 @@ class RoleSnapshot(BaseModel):
     privilege: Privilege
     default_expiry_days: int = Field(gt=0)
     sensitivity: Sensitivity
-    """Sensitivity of the system the role belongs to."""
     system_category: SystemCategory
     system_owner_user_id: uuid.UUID | None = None
 
@@ -186,7 +175,7 @@ class TargetSnapshot(BaseModel):
     tenure_days: int = Field(ge=0)
     active_grant_role_ids: frozenset[uuid.UUID] = frozenset()
     approved_pending_role_ids: frozenset[uuid.UUID] = frozenset()
-    """Roles approved but not yet executed — the design counts these too."""
+    """Roles approved but not yet granted. These count for conflicts too."""
 
 
 class RequestSnapshot(BaseModel):
@@ -208,8 +197,7 @@ class RequestSnapshot(BaseModel):
 
 
 class Classification(BaseModel):
-    """The engine's whole output. Total: every field is filled even when the
-    decision is `blocked`, so callers never branch on missing keys."""
+    """The engine's whole output. Every field is filled even when blocked."""
 
     model_config = ConfigDict(frozen=True)
 

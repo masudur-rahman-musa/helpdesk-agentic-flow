@@ -3,16 +3,16 @@ import { expect, type Page, test } from "@playwright/test";
 import { accounts, loginAs, type Principal, sendTurn } from "./_fixtures";
 
 /**
- * The unhappy path of an earlier change §1: with the `create_access_request` kill switch
+ * The unhappy path: with the `create_access_request` kill switch
  * set for the tenant, flow 1's ask is refused in the chat with the typed
  * message, and no access-request row is created by that turn.
  *
  * The switch is set and released through the shipped board
  * (`components/admin/kill-switch-toggle.tsx`) as `platform_admin`, the only
  * principal with a cell for `set_kill_switch` and `list_kill_switches`
- * (`helpdesk/auth/rbac.py`, a design note). It is released in an `afterAll` as well
+ * (`helpdesk/auth/rbac.py`). It is released in an `afterAll` as well
  * as at the end of the case, so a failed run does not leave the tenant's
- * request path stopped for the next one (plan §7 step 9).
+ * request path stopped for the next one.
  *
  * The refusal sentence is `FAILURE_MESSAGES.TOOL_DISABLED` from
  * `web/lib/chat-errors.ts`, asserted verbatim and exact. `TOOL_DISABLED` and

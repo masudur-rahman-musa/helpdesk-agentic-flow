@@ -1,12 +1,12 @@
-"""An earlier change §6: the ingestion composition in `helpdesk/rag/pipeline.py`.
+"""The ingestion composition in `helpdesk/rag/pipeline.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``helpdesk.rag.pipeline``
     ``class Redactor(Protocol)`` — ``async def redact_document(self, text: str,
-        tenant_slug: str) -> RedactedDocument``; satisfied by 14b's
-        ``rag.gateway.RedactionClient`` and by this file's fake (decision E:
-        the pipeline constructs neither a gateway client nor a model).
+        tenant_slug: str) -> RedactedDocument``; satisfied by
+        ``rag.gateway.RedactionClient`` and by this file's fake (the
+        pipeline constructs neither a gateway client nor a model).
     ``@dataclass(frozen=True) class IngestResult`` — ``document:
         PolicyDocument``, ``created: bool``, ``chunk_count: int``.
     ``async def ingest_document(session, client, *, tenant_slug: str,
@@ -21,24 +21,22 @@ Expected implementation surface (the implementer must provide exactly this):
     ``split_sections``, ``chunk_document``, ``register_document_version``,
     ``ensure_collection``, ``upsert_chunks``, ``write_chunks``,
     ``supersede_points`` — so the order case below can wrap each one. The
-    order is ``EXPECTED_ORDER``, which is an earlier change §1's with the registration
-    one place earlier; the comment there says why, and the plan's Deviations
-    records it. Qdrant still runs before the chunk ROWS (decision C), and all
+    order is ``EXPECTED_ORDER``, which has the registration
+    one place earlier; the comment there says why. Qdrant still runs before the chunk ROWS, and all
     three writes share the caller's one transaction.
 
-a project rule: Postgres is `test_policy_models.py`'s session-scoped
+Postgres is `test_policy_models.py`'s session-scoped
 `policy_db_url`; Qdrant is the compose instance, isolated by
 `test_rag_vectors.py`'s per-run collection NAME prefix. Neither is rebuilt.
 
-The redactor and the embedder are FAKES in every case here (decision E): no
+The redactor and the embedder are FAKES in every case here: no
 gateway is reachable in a test run and loading the real models costs seconds
 per session for behaviour `test_rag_embedding.py` already pins. The fake
 embedder still returns vectors of the real model's width, because the real
 Qdrant collection this suite writes to rejects any other.
 
-An earlier change extends this file with `ingest_one_document`, the single-file twin of
-`ingest_version`; its own expected surface is written out above its cases,
-at the end of the file.
+The end of the file adds `ingest_one_document`, the single-file twin of
+`ingest_version`; its own expected surface is written out above its cases.
 
 No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
 """
@@ -95,11 +93,12 @@ from tests.shared.models.test_policy_models import (
 def pipeline_collection(qdrant_url: str) -> Iterator[str]:  # noqa: F811
     """Tenant A's collection, dropped at both ends of the session.
 
-    This suite's tenant slug is fixed by the seed (`register_document_version`
-    cross-checks it against the bound tenant), so it cannot sit inside
-    `test_rag_vectors.py`'s per-run name prefix. The namespace is instead the
-    seeded tenant's own slug, which nothing but this test database ever
-    ingests; the collection is dropped once per session rather than per test, and the cases assert deltas rather than absolutes.
+        This suite's tenant slug is fixed by the seed (`register_document_version`
+        cross-checks it against the bound tenant), so it cannot sit inside
+        `test_rag_vectors.py`'s per-run name prefix. The namespace is instead the
+        seeded tenant's own slug, which nothing but this test database ever
+        ingests; the collection is dropped once per session rather than per test
+    , and the cases assert deltas rather than absolutes.
     """
     name = collection_name(TENANT_A_SLUG)
     httpx.delete(f"{qdrant_url}/collections/{name}", timeout=30.0)
@@ -125,11 +124,10 @@ SOURCE_V1_CHANGED = SOURCE_V1.replace(b"every quarter", b"every month")
 # through, so a step that moved shows up as a reordered list rather than as a
 # downstream symptom.
 #
-# `register_document_version` sits one place EARLIER than an earlier change §1 states
-# it, and the plan's Deviations records why: §1 also fixes a payload carrying
-# `document_id` and a point id derived from it (decision B), and neither
-# exists until the `policy_documents` row does, so §1's own three criteria
-# cannot all hold. What decision C forbids is unaffected — the upsert still
+# `register_document_version` sits one place EARLIER than a naive order would put
+# it: the payload carries `document_id` and a point id derived from it, and neither
+# exists until the `policy_documents` row does, so the naive order cannot
+# hold. What matters is unaffected — the upsert still
 # runs before the chunk ROWS, and all three writes share one transaction, so
 # `test_a_failing_upsert_leaves_no_document_and_no_chunk_row` below asserts
 # zero documents as well as zero chunk rows.
@@ -145,13 +143,13 @@ EXPECTED_ORDER: tuple[str, ...] = (
 )
 
 
-# --- the fakes (decision E) ---------------------------------------------------
+# --- the fakes ----------------------------------------------------------------
 
 
 class FakeRedactor:
     """A `Redactor` that replaces one known string and files a fixed map id.
 
-    Deterministic and offline: the point of decision E's seam is that the
+    Deterministic and offline: the point of the redactor seam is that the
     pipeline suite needs no gateway. The substitution is real, so a pipeline
     that split the RAW source instead of the redacted one produces chunk text
     this file can see (`test_the_chunks_are_cut_from_the_redacted_text`).
@@ -272,7 +270,7 @@ def test_the_effects_run_in_the_order_section_one_states(
     policy_db_url: str,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Catches decision C reversed — the chunk rows written before the points
+    """Catches the writes reversed — the chunk rows written before the points
     exist, which leaves a stored citation resolving to nothing when the upsert
     then fails — and catches a supersede that runs before the new version's
     rows land, which would leave the tenant with no current version for the
@@ -335,7 +333,7 @@ def test_the_chunks_are_cut_from_the_redacted_text(policy_db_url: str) -> None: 
     """Catches a pipeline that splits and chunks the RAW source and redacts
     only what it sends onward (or redacts nothing at all): the word the fake
     redactor removes would then be stored in `policy_chunks.text`, which is
-    precisely the leak 14b decision G's "redact first" order exists to
+    precisely the leak the "redact first" order exists to
     prevent."""
     document_slug = _namespace_slug()
 
@@ -464,16 +462,16 @@ def test_re_ingesting_a_changed_source_replaces_the_rows_rather_than_appending(
     assert "every quarter" not in joined
 
 
-# --- decision C: a failing upsert leaves no chunk row -------------------------
+# --- a failing upsert leaves no chunk row -------------------------------------
 
 
 def test_a_failing_upsert_leaves_no_document_and_no_chunk_row(
     policy_db_url: str,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Catches decision C's order reversed: with Postgres written first, a
+    """Catches the order reversed: with Postgres written first, a
     Qdrant failure leaves `policy_chunks` rows whose `qdrant_point_id` names
-    a point that does not exist — 14a decision F's forbidden state. Deleting
+    a point that does not exist — the forbidden state. Deleting
     only the "upsert before the writes" ordering flips this case; the
     transaction's rollback alone cannot, because a pipeline that wrote first
     and committed before upserting would still leave the rows."""
@@ -582,8 +580,8 @@ def test_a_version_directory_that_is_not_vn_is_refused_before_any_effect(
     policy_db_url: str,  # noqa: F811
     tmp_path: Path,
 ) -> None:
-    """Catches an `ingest_version` that skips 14a's `check_version`: `1.0` is
-    the corpus front-matter spelling decision G rejects, and a run that
+    """Catches an `ingest_version` that skips `check_version`: `1.0` is
+    the corpus front-matter spelling that is rejected, and a run that
     accepted it would register rows carrying a version string the Qdrant
     payload filter can never match. The directory EXISTS here, so only the
     version pre-check can refuse this call — the missing-directory guard
@@ -640,19 +638,19 @@ def test_ingest_version_ingests_every_markdown_file_in_the_directory(
     assert _drive(policy_db_url, work) == slugs
 
 
-# --- an earlier change: one document, addressed by slug and version --------------------
+# --- one document, addressed by slug and version ------------------------------
 #
 # Expected implementation surface (written before it exists):
 #
 # ``helpdesk.rag.pipeline``
 #     ``class CorpusDocumentNotFoundError(ToolError)`` - ``code =
 #     ErrorCode.NOT_FOUND``, raised before any effect when the corpus file is
-#     not on disk (an earlier change decision C: the FILE is the source of truth, so a
+#     not on disk (the FILE is the source of truth, so a
 #     missing `policy_documents` row is not the absence).
 #     ``async def ingest_one_document(session, client, *, corpus_root: Path,
 #     tenant_slug: str, slug: str, version: str, redactor: Redactor,
 #     embedder: Embedder, ingested_at: datetime) -> IngestResult`` - the
-#     single-file twin of ``ingest_version`` (decision H). It owns the same two
+#     single-file twin of ``ingest_version``. It owns the same two
 #     things that function owns and nothing else: WHERE a corpus file lives
 #     (``{corpus_root}/{tenant_slug}/{version}/{slug}.md``) and what its
 #     ``source_path`` string is (``{tenant_slug}/{version}/{slug}.md``,
@@ -665,14 +663,14 @@ def test_ingest_version_ingests_every_markdown_file_in_the_directory(
 # observed at zero calls, never merely that an error was raised.
 
 TRAVERSING_SLUGS: tuple[str, ...] = ("..", "a/b", "../../etc/passwd", "policy\n")
-"""a project rule's rejection table for the one argument that is a PATH
+"""The rejection table for the one argument that is a PATH
 segment: the two dot forms, a separator, and a trailing newline."""
 
 REFUSED_VERSIONS: tuple[str, ...] = ("v0", "1.0", "v1\n")
-"""`VERSION_PATTERN` is the narrower gate, not `VERSION_LENGTH` (standing rule
-32): all three fit the 8-character column and none matches `v[1-9][0-9]{0,3}`.
-`1.0` is the front-matter spelling 14a decision G rejects, and `v1\\n` is the
-trailing character a project rule asks for."""
+"""`VERSION_PATTERN` is the narrower gate, not `VERSION_LENGTH`: all three fit the
+8-character column and none matches `v[1-9][0-9]{0,3}`.
+`1.0` is the front-matter spelling that is rejected, and `v1\\n` is the
+trailing character the table asks for."""
 
 SOURCE_ONE = (
     b"# Fake Single Document Policy\n\n"
@@ -734,15 +732,15 @@ def _plant(path: Path, source: bytes) -> bool:
 
 
 def _corpus(root: Path, tenant_slug: str, version: str, slug: str) -> Path:
-    """The one path an earlier change fixes: `{root}/{tenant}/{version}/{slug}.md`."""
+    """The one corpus path: `{root}/{tenant}/{version}/{slug}.md`."""
     return root / tenant_slug / version / f"{slug}.md"
 
 
 def _sixty_four_character_slug() -> str:
     """A slug of EXACTLY `SLUG_LENGTH` characters that `SLUG_PATTERN` admits.
 
-    Namespaced by a uuid4 stem like every other slug in this file (standing
-    rule 7: the database and the collection are shared and never rebuilt), then
+    Namespaced by a uuid4 stem like every other slug in this file (the database and the collection
+    are shared and never rebuilt), then
     padded to the cap with lowercase letters the pattern accepts.
     """
     stem = f"fake-boundary-{uuid.uuid4().hex[:12]}-"
@@ -880,9 +878,9 @@ def test_a_missing_corpus_file_is_not_found_before_any_effect(
     telling the admin the platform broke.
 
     The version DIRECTORY exists and both names are valid, so neither name
-    check can decide this row and only the file's own absence can (standing
-    rule 16). `NOT_FOUND` is asserted as the code rather than the class alone,
-    and all three stand-ins at zero calls, which is decision C's other half:
+    check can decide this row and only the file's own absence can. `NOT_FOUND` is asserted as the
+    code rather than the class alone,
+    and all three stand-ins at zero calls, which is the other half:
     the file is the source of truth, so nothing may be written or sent before
     it has been found.
     """
@@ -1014,7 +1012,7 @@ def test_a_version_that_is_not_vn_is_refused(
     tmp_path: Path,
     version: str,
 ) -> None:
-    """a project rule: `VERSION_PATTERN` is the narrower gate, and all three
+    """`VERSION_PATTERN` is the narrower gate, and all three
     of these fit `VERSION_LENGTH` (8) comfortably.
 
     KILL: deleting the `check_version` call. Each row plants the version
@@ -1023,8 +1021,8 @@ def test_a_version_that_is_not_vn_is_refused(
     these would be ingested and registered under a version string the Qdrant
     payload filter can never match, which is a document that is stored, is
     `is_current`, and can never be retrieved. `v0` is the row the pattern's
-    `[1-9]` lead decides and a `v\\d+` spelling would admit; `1.0` is 14a
-    decision G's front-matter spelling; `v1\\n` is a project rule's trailing
+    `[1-9]` lead decides and a `v\\d+` spelling would admit; `1.0` is the
+    rejected front-matter spelling; `v1\\n` is the trailing
     character, which `re.match` would accept and `re.fullmatch` refuses.
     """
     document_slug = _namespace_slug()
@@ -1045,7 +1043,7 @@ def test_re_ingesting_one_unchanged_document_writes_nothing_to_either_store(
     pipeline_collection: str,
     tmp_path: Path,
 ) -> None:
-    """Criterion 8, on BOTH stores and on the store's CALLS.
+    """On BOTH stores and on the store's CALLS.
 
     Catches a tool that re-registers an unchanged source (a second
     `policy_documents` row and a second set of chunk rows for one file, so the
@@ -1111,7 +1109,7 @@ def test_re_ingesting_a_changed_source_makes_the_new_row_current(
     pipeline_collection: str,
     tmp_path: Path,
 ) -> None:
-    """Criterion 9 and decision E: re-ingesting an OLDER version makes it live
+    """Re-ingesting an OLDER version makes it live
     again, through the pipeline's own `supersede_points` and
     `register_document_version`.
 

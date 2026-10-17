@@ -1,11 +1,11 @@
-"""An earlier change §6: the redaction client in `helpdesk/rag/gateway.py`, plus the
+"""The redaction client in `helpdesk/rag/gateway.py`, plus the
 three `Settings` fields it is configured from.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``helpdesk.rag.gateway``
     ``MAX_REDACTION_CHARS: int = 16_384`` — a COPY of the console's
-        ``opsconsole.redaction.MAX_REDACTION_INPUT_CHARS`` (plan §5).
+        ``opsconsole.redaction.MAX_REDACTION_INPUT_CHARS``.
     ``CONNECT_TIMEOUT_SECONDS: float = 5.0`` / ``READ_TIMEOUT_SECONDS: float = 30.0``
     ``DATA_CLASS: str = "internal"`` — the ``X-Data-Class`` header value.
     ``GatewayForbiddenError(ToolError)``   — ``code = ErrorCode.FORBIDDEN``
@@ -17,7 +17,8 @@ Expected implementation surface (the implementer must provide exactly this):
         ``__init__(self, *, base_url: str, api_keys: Mapping[str, str],
                    transport: httpx.AsyncBaseTransport | None = None) -> None``
         ``client: httpx.AsyncClient`` — the constructed client, public, so both
-            timeout halves are asserted on IT and not on the constants.
+            timeout halves are asserted on IT and not on the constants
+.
         ``async def redact_document(self, text: str, tenant_slug: str) -> RedactedDocument``
         ``async def aclose(self) -> None``
         ``@classmethod from_settings(cls, settings: Settings) -> RedactionClient``
@@ -63,7 +64,7 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 BASE_URL = "http://gateway.invalid:8080"
 TENANT = "nordlicht"
 OTHER_TENANT = "cuan"
-# Obviously fake, tests only (a project rule/8): these are not credentials.
+# Obviously fake, tests only (no real keys): these are not credentials.
 API_KEYS: dict[str, str] = {TENANT: "fake-key-nordlicht", OTHER_TENANT: "fake-key-cuan"}
 
 DOCUMENT = "Contact Erika Musterfrau at erika@nordlicht.example for badge access.\n"
@@ -129,7 +130,7 @@ def _redact(client: RedactionClient, text: str, tenant: str = TENANT) -> Redacte
     return asyncio.run(scenario())
 
 
-# --- constants ----------------------------------------------
+# --- constants ----------------------------------------------------------------
 
 
 def test_the_gateway_constants_are_exactly_the_planned_values() -> None:
@@ -179,7 +180,7 @@ def test_redact_document_posts_the_documented_path_headers_and_body() -> None:
 def test_the_other_tenants_key_is_used_for_the_other_tenant() -> None:
     """Catches a client that picks the first configured key (or a single
     module-level key) instead of looking the caller's tenant up in the map,
-    which is the whole point of a design note's per-tenant keys."""
+    which is the whole point of per-tenant keys."""
     recorder = _Recorder(httpx.Response(200, json=_ok_body()))
     client = _client(recorder)
 
@@ -285,7 +286,7 @@ def test_no_gateway_wording_and_no_url_reaches_the_message(status: int) -> None:
 )
 def test_an_unreachable_gateway_is_the_typed_internal_error(exception: Exception) -> None:
     """Catches a client that lets httpx's own transport exception escape:
-    the ingest caller would see `httpx.ConnectError` instead of a the design
+    the ingest caller would see `httpx.ConnectError` instead of a the contract
     code, and the MCP boundary has no mapping for it."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -442,8 +443,8 @@ def test_the_embedding_cache_dir_defaults_inside_the_repo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a default of `None` or of `~/.cache/fastembed`: fastembed
-    would then download ~130 MB outside this project folder, which hard rule
-    12 forbids."""
+    would then download ~130 MB outside this project folder, which the project rules
+    forbid."""
     _set_env(monkeypatch, VALID_ENV)
 
     settings = Settings(_env_file=None)  # type: ignore[call-arg]

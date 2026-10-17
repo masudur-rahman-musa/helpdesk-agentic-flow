@@ -10,10 +10,8 @@ _hasher = PasswordHasher()
 def hash_password(password: str, *, salt: bytes | None = None) -> str:
     """Hash `password` with argon2id using the library's current defaults.
 
-    `salt` exists solely so the seed script can produce byte-identical hashes
-    across runs (its determinism contract). Real account flows must leave it
-    None: a caller-fixed salt defeats the per-password salting that makes
-    hashes non-comparable across users.
+    `salt` is only for the seed script, which needs the same hash every run.
+    Real accounts must leave it None, or hashes become comparable across users.
     """
     if salt is None:
         return _hasher.hash(password)
@@ -29,11 +27,7 @@ def hash_password(password: str, *, salt: bytes | None = None) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """True iff `password` matches `password_hash`.
-
-    Returns False (never raises) on a mismatch or a malformed/foreign hash,
-    so the login path has exactly one failure shape.
-    """
+    """True if `password` matches. Never raises, so login has one failure shape."""
     try:
         return _hasher.verify(password_hash, password)
     except (VerificationError, InvalidHashError):

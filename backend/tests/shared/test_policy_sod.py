@@ -1,4 +1,4 @@
-"""Segregation of duties, the design.
+"""Segregation of duties.
 
 For each rule in `snapshot.sod_rules`, the paired role is the other side of the
 pair when the requested role is one side; rules mentioning neither side are
@@ -248,7 +248,7 @@ def test_no_rules_means_no_conflicts() -> None:
     assert result.decision is Decision.AUTO
 
 
-# --- an earlier change decision D: `held_conflicts` over a set somebody already holds ----
+# --- `held_conflicts` over a set somebody already holds ----
 #
 # A different question from `find_conflicts` above, which asks whether ONE
 # requested role may be added. The review asks it of a set nobody is requesting:

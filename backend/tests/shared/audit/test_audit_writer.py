@@ -1,4 +1,4 @@
-"""An earlier change section 6: the audit writer against Postgres.
+"""The audit writer against Postgres.
 
 Expected implementation surface:
 

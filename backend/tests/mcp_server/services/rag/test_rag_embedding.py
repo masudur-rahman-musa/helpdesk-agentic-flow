@@ -1,4 +1,4 @@
-"""An earlier change §6: the real embedder in `helpdesk/rag/embedding.py`.
+"""The real embedder in `helpdesk/rag/embedding.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -15,15 +15,14 @@ Expected implementation surface (the implementer must provide exactly this):
         implements ``Embedder``, loads BOTH models from `cache_dir`.
     ``def cosine(a: Sequence[float], b: Sequence[float]) -> float``
 
-This is the only file in an earlier change that loads a model. Both fastembed models
+This is the only file in this group that loads a model. Both fastembed models
 are built in ONE session-scoped fixture: rebuilding them
 per test would re-read ~130 MB of weights for every case. Per-case isolation
 is not needed at all here, because an embedder holds no mutable state the
 cases can see.
 
 The cache directory comes from `Settings.embedding_cache_dir`, resolved
-against the repo root, so fastembed never writes to `~/.cache` (decision E,
-a project rule).
+against the repo root, so fastembed never writes to `~/.cache`.
 """
 
 from pathlib import Path
@@ -66,12 +65,12 @@ def embedder() -> FastEmbedEmbedder:
     return FastEmbedEmbedder(cache_dir)
 
 
-# --- constants -----------------------------------------------
+# --- constants ----------------------------------------------------------------
 
 
 def test_the_model_names_and_dimension_are_exactly_the_spec_values() -> None:
     """Catches a swap to a different model or dimension: the Qdrant
-    collection 14c creates is sized from DENSE_DIMENSION, so a mismatch
+    collection the store creates is sized from DENSE_DIMENSION, so a mismatch
     between the constant and the model would surface as a rejected upsert
     against a collection that is already live."""
     assert DENSE_MODEL == "BAAI/bge-small-en-v1.5"
@@ -119,7 +118,7 @@ def test_the_sparse_vector_has_paired_indices_and_values(
 ) -> None:
     """Catches an embedder that builds `SparseVector` from the wrong halves of
     fastembed's output (indices and values swapped or truncated): Qdrant
-    accepts only equal-length pairs, so 14c's upsert would fail for reasons
+    accepts only equal-length pairs, so upsert would fail for reasons
     invisible at this layer."""
     sparse = embedder.embed_sparse([BADGE_SENTENCE])
 
@@ -170,7 +169,7 @@ def test_count_tokens_uses_a_real_tokenizer(embedder: FastEmbedEmbedder) -> None
     the model, so writing a number would be inventing one. The property this
     asserts instead — strictly more tokens than whitespace-separated words,
     strictly fewer than characters — still catches the two implementations
-    decision C rejects: `len(text.split())` (a word count, which under-counts
+    that are rejected: `len(text.split())` (a word count, which under-counts
     sub-word pieces and would let a 400-token chunk exceed the model's 512
     limit) and a character heuristic."""
     words = len(KNOWN_STRING.split())
@@ -191,7 +190,7 @@ def test_count_tokens_grows_with_the_text(embedder: FastEmbedEmbedder) -> None:
 
 def test_the_models_are_cached_inside_the_repository() -> None:
     """Catches a cache directory resolved against the process working
-    directory or defaulted to `~/.cache/fastembed`: a project rule forbids this
+    directory or defaulted to `~/.cache/fastembed`: the project rules forbid this
     project writing ~130 MB outside its own folder, and nothing else in the
     suite would notice where the weights landed."""
     settings = load_settings()

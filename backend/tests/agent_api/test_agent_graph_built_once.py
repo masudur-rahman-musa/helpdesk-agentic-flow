@@ -1,4 +1,4 @@
-"""An earlier change: graph cached by checkpointer, and agent imports nothing from the API layer.
+"""Graph cached by checkpointer, and agent imports nothing from the API layer.
 
 Three tests, no database, no graph execution, no I/O beyond AST parsing.
 """

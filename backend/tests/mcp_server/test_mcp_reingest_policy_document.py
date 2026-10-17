@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `reingest_policy_document`, through the transport.
+"""`reingest_policy_document`, through the transport.
 
 Surface under test (written before it exists; every case here is red on one of
 these names until steps 1 to 5 land):
@@ -10,15 +10,15 @@ these names until steps 1 to 5 land):
     token's and the corpus layout is the pipeline's.
     ``ReingestPolicyDocumentOutput(BaseModel)`` - exactly ``slug``,
     ``version``, ``created``, ``chunk_count``, ``is_current``, ``sha256``,
-    ``ingested_at`` and a human-readable ``summary`` (SPEC section 8.1: the
+    ``ingested_at`` and a human-readable ``summary`` (the
     summary is a FIELD, never the whole response).
     ``reingest_policy_document`` - a registered MUTATING tool whose wire name
     is ``reingest_policy_document`` and whose registry ``event_type`` is the
-    declared ``policy.reingested`` (decision D).
+    declared ``policy.reingested``.
 
 ``mcp_server.core.rag_clients``
-    ``redactor(settings)`` - the pooled `RedactionClient` accessor (decision
-    F), read through the MODULE by the handler exactly as ``qdrant`` and
+    ``redactor(settings)`` - the pooled `RedactionClient` accessor,
+    read through the MODULE by the handler exactly as ``qdrant`` and
     ``embedder`` are, which is what lets this file substitute it. The stub
     below is written to accept the nullary form too, so a ``redactor()``
     taking no settings is not a second red on top of the ones this file is
@@ -33,20 +33,20 @@ these names until steps 1 to 5 land):
 
 ``helpdesk.auth.rbac``
     ``Tool.REINGEST_POLICY_DOCUMENT`` with exactly two cells, ``it_admin``
-    and ``platform_admin`` at ``Scope.ANY`` - SPEC section 14's
+    and ``platform_admin`` at ``Scope.ANY`` - the
     ``/admin/policies`` audience, the same pair ``list_policy_documents``
-    holds (a design note, cited rather than re-opened).
+    holds.
 
 There is NO scope helper on this tool: both cells are ``Scope.ANY``, so the
 pipeline's matrix stage IS the whole permission check and the five-principal
-case below is its kill (a project rule - the handler never re-runs
+case below is its kill (the handler never re-runs
 ``rbac.authorize``, so there is no second copy of that guard to hide behind).
 
 The corpus root is ``POLICY_DIR``, pointed at this case's ``tmp_path``: no
 test writes into the repository's own ``policies/`` tree, and the file a case
 plants is the only thing on disk under the tenant it plants for.
 
-What is faked and why (plan section 6's cost paragraph): the redaction gateway
+What is faked and why: the redaction gateway
 and the embedder, both through ``rag_clients``' module attributes, so no
 gateway is reached and no ONNX model is loaded. Qdrant, Postgres and Redis are
 REAL and session-scoped: the mutation's whole claim is that
@@ -98,10 +98,10 @@ REINGESTED_EVENT = "policy.reingested"
 DENIED_EVENT = "tool.denied"
 REPLAYED_EVENT = "tool.replayed"
 
-# SPEC section 8.1's kill switch key shape, as a literal for the same reason.
+# The kill switch key shape, as a literal for the same reason.
 KEY_PREFIX_LITERAL = "killswitch"
 
-# The input's exact field set (criterion 2) and the output's (criterion 10):
+# The input's exact field set and the output's:
 # seven values plus the summary. Written out rather than derived from the
 # models, so a field added or renamed on both sides at once is still red here.
 INPUT_FIELDS = {"slug", "version", "idempotency_key"}
@@ -116,8 +116,8 @@ OUTPUT_FIELDS = {
     "summary",
 }
 
-# SPEC section 7's `reingest_policy_document` row: the two cells SPEC section
-# 14 gives `/admin/policies`, the same pair `list_policy_documents` holds.
+# the `reingest_policy_document` row: the two cells
+# the `/admin/policies` page needs, the same pair `list_policy_documents` holds.
 ALLOWED_PRINCIPALS = ("it_admin", "platform_admin")
 DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "hr", "auditor")
 
@@ -160,7 +160,7 @@ def _stub_gateway_and_model(monkeypatch: pytest.MonkeyPatch) -> None:
     file, both stores, the idempotency guard, the kill switch and the audit
     chain are all real.
 
-    Qdrant is deliberately NOT stubbed. Criterion 8 is a claim about what was
+    Qdrant is deliberately NOT stubbed. The ingest claim is about what was
     written to the vector store as well as to Postgres, and a stubbed store
     would leave that half asserted against a recording object instead of
     against the platform's own.
@@ -177,8 +177,8 @@ def corpus_root(
 ) -> Path:
     """`POLICY_DIR` pointed at this case's own empty directory.
 
-    Per-test isolation is a namespace, never a rebuilt anything (standing rule
-    7): the database, Redis and Qdrant are the session's, and what varies per
+    Per-test isolation is a namespace, never a rebuilt anything:
+    the database, Redis and Qdrant are the session's, and what varies per
     case is this root plus a uuid4-suffixed document slug inside it. Pointing
     the setting rather than the repository's `policies/` tree also means no
     case can ingest a real corpus file into the shared test database.
@@ -267,10 +267,11 @@ def _key() -> str:
 
 
 def _plant_corpus_file(root: Path, env: SeededMcp, slug: str, *, source: bytes = SOURCE) -> Path:
-    """The one path an earlier change fixes: `{POLICY_DIR}/{tenant}/{version}/{slug}.md`.
+    """The one corpus path: `{POLICY_DIR}/{tenant}/{version}/{slug}.md`.
 
     The tenant directory is resolved from `env.tenant_a.tenant_slug` - the
-    handle the seeding fixture read back - and never from a slug named here, so the file a case plants and the token a case calls
+    handle the seeding fixture read back - and never from a slug named here
+    , so the file a case plants and the token a case calls
     with are the same tenant by construction.
     """
     path = root / env.tenant_a.tenant_slug / VERSION / f"{slug}.md"
@@ -280,7 +281,7 @@ def _plant_corpus_file(root: Path, env: SeededMcp, slug: str, *, source: bytes =
 
 
 def _token(env: SeededMcp, principal: str = "it_admin") -> dict[str, str]:
-    """A tenant-A token carrying ONE of SPEC section 7's cells on this row."""
+    """A tenant-A token carrying ONE of the cells on this row."""
     return bearer(token_for(env.tenant_a, principals=(principal,)))
 
 
@@ -309,17 +310,17 @@ def _response_text(result: Any) -> str:
     return str(block.text)
 
 
-# --- the input model (criterion 2, a project rule) ----------------------------------
+# --- the input model ----------------------------------
 
 
 def test_the_input_declares_exactly_slug_version_and_idempotency_key(
     mcp_env: SeededMcp,  # noqa: F811
     corpus_root: Path,
 ) -> None:
-    """Criterion 2, as an EXACT field set and then at the wire.
+    """The input as an EXACT field set and then at the wire.
 
     KILL: an input that grew a `tenant_id` (the call would then name whose
-    corpus to rewrite, which only the token may decide - a project rule) or a
+    corpus to rewrite, which only the token may decide) or a
     `source_path` (the caller would choose which FILE on the ingest host is
     read, which is the traversal `check_slug` exists to stop, one layer above
     it). Equally an input written `BaseModel` rather than `MutatingToolInput`:
@@ -350,7 +351,7 @@ def test_the_input_declares_exactly_slug_version_and_idempotency_key(
     assert _chunk_count(mcp_env.database_url, mcp_env.tenant_a.tenant_id, slug) == 0
 
 
-# --- SPEC section 7's row, both directions (criterion 12) ------------------------
+# --- the row, both directions ------------------------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -360,7 +361,7 @@ def test_the_two_permitted_principals_re_ingest_and_the_other_five_are_refused(
     corpus_root: Path,
     principal: str,
 ) -> None:
-    """The two cells of SPEC section 7's row, each pinned by a SUCCESS.
+    """The two cells of the row, each pinned by a SUCCESS.
 
     KILL: a matrix row carrying `platform_admin` alone (or `it_admin` alone).
     Either passes the denial sweep below and every other case in this file,
@@ -393,15 +394,15 @@ def test_the_five_denied_principals_re_ingest_nothing_whatever_is_on_disk(
     principal: str,
     planted: bool,
 ) -> None:
-    """SPEC section 7's five empty cells on this row, and criterion 12's "not
+    """The five empty cells on this row, and the "not
     an existence oracle for a tenant's corpus".
 
     KILL: adding this principal to the `reingest_policy_document` cell of the
     RBAC matrix. This handler runs no scope helper and therefore never re-runs
     `rbac.authorize`, so the pipeline's matrix stage is the only guard that
     can refuse here and deleting it hands every one of these five a tool that
-    rewrites the evidence every access decision cites (a project rule does
-    not apply: there is no second copy of the guard). `auditor` is the cell
+    rewrites the evidence every access decision cites (there
+    is no second copy of the guard). `auditor` is the cell
     that matters most - it holds one on `search_audit` and none here, because
     the corpus is configuration and not a record of what happened.
 
@@ -431,7 +432,7 @@ def test_the_five_denied_principals_re_ingest_nothing_whatever_is_on_disk(
     ]
 
 
-# --- the idempotency guard (criterion 11) ----------------------------------------
+# --- the idempotency guard ----------------------------------------
 
 
 def test_a_replayed_call_is_byte_identical_and_ingests_once(
@@ -439,7 +440,7 @@ def test_a_replayed_call_is_byte_identical_and_ingests_once(
     mcp_policy_collections: tuple[str, str],  # noqa: F811
     corpus_root: Path,
 ) -> None:
-    """Criterion 11's first half.
+    """The first half.
 
     KILL: registering the tool with `mutating=False`, which is what makes the
     pipeline run the body instead of answering from the stored idempotency
@@ -479,7 +480,7 @@ def test_the_same_key_with_a_different_slug_is_an_idempotency_conflict(
     mcp_policy_collections: tuple[str, str],  # noqa: F811
     corpus_root: Path,
 ) -> None:
-    """Criterion 11's second half.
+    """The second half.
 
     KILL: a fingerprint built from the idempotency key alone, which would
     answer a call naming a DIFFERENT document with the first document's stored
@@ -508,7 +509,7 @@ def test_the_same_key_with_a_different_slug_is_an_idempotency_conflict(
     assert _versions(mcp_env.database_url, mcp_env.tenant_a.tenant_id, second_slug) == []
 
 
-# --- the tool is stoppable like any other (criterion 13) -------------------------
+# --- the tool is stoppable like any other -------------------------
 
 
 def test_the_tool_is_stopped_by_its_own_kill_switch(
@@ -516,13 +517,13 @@ def test_the_tool_is_stopped_by_its_own_kill_switch(
     mcp_redis_url: str,  # noqa: F811
     corpus_root: Path,
 ) -> None:
-    """Criterion 13: this mutation is not special, and it is not protected.
+    """This mutation is not special, and it is not protected.
 
     The switch is tripped through `set_kill_switch` rather than planted in
     Redis, which is what makes this two kills in one:
 
     * adding `reingest_policy_document` to
-      `helpdesk.killswitch.change.PROTECTED_TOOLS` - the plan adds nothing to
+      `helpdesk.killswitch.change.PROTECTED_TOOLS` - nothing is added to
       that frozenset - turns the trip itself into `POLICY_BLOCKED` and this
       case red. `PROTECTED_TOOLS` is compared against its exact contents as
       well, so the membership is pinned in both directions;
@@ -577,7 +578,7 @@ def test_the_audit_event_type_is_policy_reingested(
     mcp_policy_collections: tuple[str, str],  # noqa: F811
     corpus_root: Path,
 ) -> None:
-    """Decision D, and a project rule: the event type, its subject and its
+    """The event type, its subject and its
     actor, for one re-ingest.
 
     KILL: a registry entry declaring the generic `tool.succeeded`. The corpus
@@ -609,7 +610,7 @@ def test_the_audit_event_type_is_policy_reingested(
     assert str(delta[0].actor_ref) == str(mcp_env.tenant_a.user_id)
 
 
-# --- the output (criterion 10) ---------------------------------------------------
+# --- the output ---------------------------------------------------
 
 
 def test_the_output_carries_all_seven_fields_and_a_summary(
@@ -617,16 +618,16 @@ def test_the_output_carries_all_seven_fields_and_a_summary(
     mcp_policy_collections: tuple[str, str],  # noqa: F811
     corpus_root: Path,
 ) -> None:
-    """Criterion 10, on the MODEL and on the wire.
+    """Check the output on the MODEL and on the wire.
 
     KILL: an output short of `chunk_count` or `created` - the two fields that
-    say whether the ingest actually landed, which is the only reason decision
-    B runs this synchronously at all; short of `is_current`, which is how the
-    page shows that re-ingesting an older version made it live again
-    (decision E); or short of `sha256`, the only evidence on this surface that
+    say whether the ingest actually landed, which is the only reason the
+    ingest runs this synchronously at all; short of `is_current`, which is how the
+    page shows that re-ingesting an older version made it live again;
+    or short of `sha256`, the only evidence on this surface that
     the file on disk differed from the registered one. An output that WAS the
     summary - a bare sentence instead of a field beside the values - is caught
-    by the same exact key set, and is what SPEC section 8.1 forbids.
+    by the same exact key set, and is what the response rules forbid.
 
     The values are asserted against the row the call wrote, not merely
     present: a handler echoing its own arguments back would satisfy a key-set

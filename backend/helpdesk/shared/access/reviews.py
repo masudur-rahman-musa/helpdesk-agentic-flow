@@ -1,4 +1,4 @@
-"""Opening and deciding access reviews (the design, an earlier change, an earlier change split). The read half lives in review_queries.py."""
+"""Opening and deciding access reviews. Reads are in `review_queries.py`."""
 
 import uuid
 from collections.abc import Sequence
@@ -71,15 +71,8 @@ async def _resolve_scope(
 ) -> ReviewScope:
     """Lock the scope row and read its owner, or answer `NOT_FOUND`.
 
-    The lock is taken before anything is read, because the duplicate refusal
-    below is a read-compute-write that two callers would otherwise both win
-    (decision G). It runs through the ORM, so the tenant guard makes a scope
-    id in another tenant answer exactly like a missing one (pinned by
-    `test_mcp_reviews.py::test_a_missing_and_another_tenants_scope_answer_the_same_not_found`).
-
-    Exactly one id is set by the time this runs — the input model refuses
-    neither and both before any effect — so the `else` here is the system
-    branch rather than a third case.
+    Locked first, so two callers cannot both pass the duplicate check below.
+    Another tenant's id reads as missing.
     """
     if department_id is not None:
         department = await lock_department(session, department_id)
@@ -99,16 +92,11 @@ async def _resolve_scope(
 
 
 async def _refuse_if_open(session: AsyncSession, scope: ReviewScope, period: str) -> None:
-    """Decision G: one open review per (scope, period), and no second write.
+    """One open review per scope and period.
 
-    Runs after the scope row is locked and before any write, so two concurrent
-    openers serialise on the lock and the loser re-reads the review the winner
-    committed. A partial unique index would refuse the same case with an
-    `IntegrityError` mid-transaction rather than one of the eight typed SPEC
-    §8.1 codes, which is why the check is here. Pinned by
-    `test_access_reviews.py::test_a_second_open_review_for_the_same_scope_and_period_is_refused`
-    and, on two connections, by
-    `test_mcp_reviews.py::test_two_callers_racing_the_same_review_leave_exactly_one`.
+    Checked under the scope lock, so the second of two callers sees the
+    first one's review. A unique index would fail mid-transaction with a
+    database error instead of a typed refusal.
     """
     existing = await find_open_review_for_scope(
         session,
@@ -139,57 +127,16 @@ async def open_review(
 ) -> OpenReviewResult:
     """Open one review over one scope, with an item per live grant in it.
 
-    The order of effects is forced by the audit record: `review.opened` names
-    the item count and the flag tally (decision K), neither of which is known
-    until every grant has been read and flagged, so the event lands LAST —
-    before the pipeline's `tool.succeeded`, which is the summary.
+    The reviewer is the scope's owner (department manager or system owner),
+    never the caller's pick; the caller is used only when the scope has no
+    owner. The nightly job opens reviews with no caller at all.
 
-    The reviewer is the scope's natural owner and never the caller's choice
-    (decision F): `departments.manager_user_id` or `systems.owner_user_id`,
-    falling back to the caller only when the scope names nobody. the design calls
-    the procedure "what managers must do", and row 21's scheduler opens
-    reviews with no caller at all, so any rule reading the reviewer off the
-    ARGUMENTS would have to be replaced at that row. Pinned by
-    `test_access_reviews.py::test_the_reviewer_is_the_scopes_owner_not_the_caller`
-    and its fallback twin
-    `::test_a_scope_with_no_owner_falls_back_to_the_caller`.
-
-    A scope holding no live grants opens a review with zero items rather than
-    being refused (decision J): "nobody holds anything" is a true answer to a
-    review, and refusing it would leave a department unreviewable precisely
-    when it is clean. That review is written `completed` (decision F), because
-    nothing could ever complete it afterwards — completion happens when the
-    last undecided item is decided, and it has none. Pinned by
-    `test_access_reviews.py::test_a_scope_with_no_active_grants_opens_a_review_already_completed`,
-    with `::test_a_scope_with_one_active_grant_still_opens_open` beside it so
-    "complete every review" cannot satisfy it vacuously.
-
-    `now` is keyword-only and supplied by the caller, so the liveness filter
-    that picked the grants, every staleness comparison and the event all
-    answer for one instant; reading a clock per grant would let two items of
-    one review disagree about the same boundary.
-
-    UNCAPPED on purpose: a department with thousands of live
-    grants writes one item per grant in one transaction. A cap would hide a
-    grant from the only person who can review it, the same reasoning that
-    left `list_pending_for_approver`'s read unbounded; it is recorded as a
-    known issue rather than fixed with a limit.
-
-    `opened_by_user_id` is nullable and `actor_kind` defaults to
-    `USER_ACTOR_KIND`: an earlier change's
-    quarterly generator has no caller at all, and the alternative — a `user`
-    kind carrying a system-shaped ref — would file an automatic sweep among
-    people's decisions. The DEFAULT is what keeps that honest, and it is
-    pinned rather than assumed by
-    `test_access_review_generation.py::test_open_review_with_an_opener_id_and_no_actor_kind_still_writes_the_user_actor`,
-    because no case before this plan read `actor_kind` off this event at all.
-
-    Both are resolved through `revoke.resolve_actor_ref` — one implementation,
-    so this engine and the two lifecycle ones cannot drift on what counts as
-    an actor — and it refuses `VALIDATION` when the id and the ref are BOTH
-    absent, before anything is read or written, so no `review.opened` can name
-    an actor called `None`
-    (`::test_open_review_with_neither_an_opener_id_nor_an_actor_ref_is_refused`).
+    A scope with no live grants still gets a review, marked `completed` at
+    once: nothing could ever complete it later, and "nobody holds anything"
+    is a true answer. No cap on items: a cap would hide a grant from the
+    only person who can review it. The opened event comes last, since it
+    needs the item count and flag tally. A missing opener id and a missing
+    actor ref together are refused before anything is read.
     """
     resolved_actor_ref = resolve_actor_ref(actor_ref, opened_by_user_id)
     scope = await _resolve_scope(session, department_id=department_id, system_id=system_id)
@@ -202,12 +149,8 @@ async def open_review(
     )
     flags = await _flag_grants(session, directory, grants, now=now)
 
-    # Decision F: a review with nothing to decide is answered on arrival.
-    # Completion happens when the LAST undecided item is decided, so a review
-    # that never had an item could never be completed by any call — the design
-    # lists no `complete_review` tool — and would sit open for ever on row
-    # 21's reminder list. Zero items is a true and finished answer to
-    # "who holds what here", not an unfinished one.
+    # A review with nothing to decide is finished on arrival; no later call
+    # could ever complete it.
     empty = not grants
     review = await Repository(session, AccessReview).create(
         reviewer_user_id=_reviewer_for(scope, opened_by_user_id),
@@ -247,14 +190,10 @@ async def open_review(
 
 
 def _reviewer_for(scope: ReviewScope, opened_by_user_id: uuid.UUID | None) -> uuid.UUID:
-    """The scope's owner, or the caller when it names nobody (decision F).
+    """The scope's owner, or the caller when it names nobody.
 
-    `access_reviews.reviewer_user_id` is not nullable, so a scope with no owner
-    opened by a caller with no id has nobody to review it. No registered caller
-    produces that pair: every MCP call passes an opener, and an earlier change's
-    generator skips an ownerless scope before it ever calls here (decision C),
-    which is why this raises rather than inventing a reviewer and why no case
-    reaches the branch.
+    No current caller sends an ownerless scope with no opener; this raises
+    rather than invent a reviewer.
     """
     if scope.owner_user_id is not None:
         return scope.owner_user_id
@@ -281,17 +220,9 @@ async def _flag_grants(
 ) -> list[ReviewFlag]:
     """One flag per grant, in the order the grants came back.
 
-    The template and the held-role set are asked per HOLDER and cached, not
-    per grant: a department review over one person's eight grants asks twice,
-    not sixteen times. The SoD rules are read once for the tenant, because a
-    rule is not about any one holder.
-
-    The conflict question is asked over everything the holder HOLDS — the
-    whole tenant, not the scope, and under the review's own definition of held
-    rather than the directory's liveness one. `list_granted_role_ids` carries
-    both halves of that reasoning; the template question stays on
-    `DirectoryReader`, because what a department is supposed to have is a
-    directory fact with no liveness in it at all.
+    Template and held roles are read once per holder and cached. Conflicts
+    are checked against everything the holder holds in the whole tenant,
+    not just this scope.
     """
     rules = tuple(
         SodRuleSnapshot(
@@ -337,25 +268,11 @@ async def _append_opened(
     session_id: uuid.UUID | None,
     now: datetime,
 ) -> None:
-    """the design's `review.opened`, subject the REVIEW, decision K's keys exactly.
+    """The `review.opened` event, with the review as subject.
 
-    The subject is the review and not the tool, and not the department: an
-    auditor asking "what was this person asked to check, and what did the
-    system already think was wrong" reads all of it here. `item_count` is
-    carried beside `flag_counts` rather than left to be summed from it, so a
-    review with zero items records a scope that was checked and found empty
-    rather than looking like a truncated record. Pinned, subject and every
-    key, by
-    `test_access_reviews.py::test_review_opened_names_the_review_and_carries_exactly_seven_keys`.
-
-    `actor_kind` is passed in rather than fixed to `_ACTOR_KIND` (an earlier change
-    decision D): this is the ONLY event `open_review` composes (standing rule
-    52), so it is also the only place a review opened by the quarterly
-    generator can be told apart from one a manager asked for. Pinned on both
-    sides by
-    `test_access_review_generation.py::test_every_review_opened_event_the_generator_causes_carries_the_system_actor`
-    and its default twin
-    `::test_open_review_with_an_opener_id_and_no_actor_kind_still_writes_the_user_actor`.
+    `item_count` is stored beside the flag tally, so an empty review reads
+    as checked and empty, not as a cut-short record. `actor_kind` comes in
+    so the nightly job's reviews can be told from a manager's.
     """
     await append_event(
         session,
@@ -395,39 +312,16 @@ async def decide_item(
 ) -> DecideItemResult:
     """Record one reviewer's word on one item, and act on it. Caller's transaction.
 
-    This decides nothing about access either: `keep` is a record and nothing
-    else (decision D — extending an expiry IS granting access, and every grant
-    in this system comes from the engine with a decision behind it, so a
-    renewal is a new access request), and `revoke` hands the row to
-    `access/revoke.py`, which stays the only writer of `grant.revoked`.
+    `keep` only records: extending access is a new grant, so it needs a new
+    request. `revoke` hands the row to the revoke module, the only writer
+    of `grant.revoked`.
 
-    The order of effects is forced by the audit record: `review.item_decided`
-    names `revoked_grant_count` and `review_complete`, neither knowable until
-    the revocation has been attempted and the review re-counted, so the event
-    lands LAST — after `grant.revoked` and before the pipeline's
-    `tool.succeeded`. Pinned end to end by
-    `test_mcp_reviews.py::test_the_audit_sequence_is_review_item_decided_then_tool_succeeded`.
-
-    The GRANT row is locked first and the item re-read under that lock
-    (decision I). Locking the grant rather than the item is what keeps one
-    lock order with `lock_live_grants_for_role`, so a review decision and a
-    concurrent `revoke_access` for the same person cannot deadlock; re-reading
-    the item afterwards is what makes the loser of a race see the winner's
-    decision instead of the undecided row it read before waiting, and be
-    refused by `ItemAlreadyDecidedError`. Both halves are pinned on two real
-    connections by
-    `test_access_reviews.py::test_two_concurrent_deciders_leave_one_decided_item_and_one_refusal`,
-    which fails if the lock is taken AFTER the already-decided check.
-
-    Decision B: an item whose grant was revoked between the review opening and
-    this call records the decision, revokes nothing and reports
-    `revoked_grant_count: 0`. Refusing would leave an item nobody can decide
-    and therefore a review nobody can complete, and the reviewer's only
-    remaining move would be `keep`, which would record a lie.
-
-    `now` is keyword-only and supplied by the caller, so `decided_at`, the
-    revocation's `revoked_at`, any completion and the event all answer for one
-    instant.
+    The grant row is locked first, then the item is read again. Locking the
+    grant keeps the same lock order as a manual revoke, so the two cannot
+    deadlock, and the second of two racing reviewers sees the first one's
+    decision and is refused. An item whose grant was already revoked still
+    records the decision and revokes nothing; refusing would leave a review
+    nobody could finish.
     """
     grant = await lock_grant_row(session, item.grant_id)
     if grant is None:  # pragma: no cover - the item's FK guarantees the row
@@ -446,10 +340,9 @@ async def decide_item(
 
     revoked_grant_count = 0
     if decision is ReviewDecision.REVOKE and is_active_grant(grant):
-        # `is_active_grant`, never `is_live_grant`: a lapsed-but-`active` row
-        # is exactly what this review flagged `stale`, and a liveness test
-        # here would leave the most reviewable grant in the tenant the one a
-        # reviewer cannot end (decision A).
+        # `is_active_grant`, not `is_live_grant`: a past-expiry but still
+        # `active` row is what the review flagged `stale`, and the reviewer
+        # must be able to end it.
         await revoke_grant_row(
             session,
             directory,
@@ -484,14 +377,11 @@ async def decide_item(
 
 
 async def _reread_under_lock(session: AsyncSession, item: ReviewItem) -> ReviewItem:
-    """The item's CURRENT row, re-read now that the grant row is held.
+    """The item's current row, read again now the grant row is held.
 
-    `populate_existing=True` is the whole of this function. The caller loaded
-    this item before it waited on the lock, so a plain read would come back
-    from the session's identity map carrying the stale `decision = None` it
-    saw then; the loser of a race would overwrite the winner's decision while
-    every single-caller test still passed. Pinned by
-    `test_access_reviews.py::test_two_concurrent_deciders_leave_one_decided_item_and_one_refusal`.
+    `populate_existing=True` matters: a plain read would return the cached
+    row from before the wait, and the loser of a race would overwrite the
+    winner's decision.
     """
     return await reread_review_item(session, item)
 
@@ -501,14 +391,8 @@ async def _complete_if_finished(
 ) -> tuple[AccessReview, bool]:
     """Close the review if this decision was its last undecided item.
 
-    The count is over THIS review's items only, not the tenant's: a
-    neighbouring review's open item must not hold this one open (pinned by
-    `test_access_reviews.py::test_a_neighbouring_reviews_undecided_item_does_not_hold_this_one_open`).
-    It runs after the item's own write is flushed, so the row just decided is
-    counted as decided.
-
-    Returns the review either way, so the caller reports its status without a
-    second read.
+    Counts only this review's items. Returns the review either way, so the
+    caller needs no second read.
     """
     undecided_id = await find_first_undecided_item_id(session, review_id)
     review = await Repository(session, AccessReview).get(review_id)
@@ -536,17 +420,9 @@ async def _append_item_decided(
     session_id: uuid.UUID | None,
     now: datetime,
 ) -> None:
-    """the design's `review.item_decided`, subject the ITEM, decision G's keys exactly.
+    """The `review.item_decided` event, with the item as subject.
 
-    The subject is the item and not the review, the grant or the tool: an
-    auditor asking "what happened to this item" queries `subject_id`, and an
-    event naming the review answers that for no item at all. `user_id` and
-    `role_id` are read off the GRANT because the item row names only a grant,
-    `flag` says why the grant was in front of a reviewer, `revoked_grant_count`
-    tells decision B's revoke-that-ended-nothing from a real revocation, and
-    `review_complete` is the only record that a review closed. Pinned, subject
-    and every key, by
-    `test_access_reviews.py::test_review_item_decided_names_the_item_and_carries_decision_gs_keys`.
+    User and role come from the grant, since the item names only the grant.
     """
     await append_event(
         session,

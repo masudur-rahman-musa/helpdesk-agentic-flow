@@ -1,4 +1,4 @@
-"""An earlier change §6: the Postgres checkpointer module, with no graph in sight.
+"""The Postgres checkpointer module, with no graph in sight.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -13,12 +13,12 @@ Expected implementation surface (the implementer must provide exactly this):
         not-yet-opened pool, carrying both timeout halves: a connect timeout
         of ``5.0`` seconds as the libpq ``connect_timeout`` connection
         parameter, and a command timeout of ``10.0`` seconds as a
-        ``statement_timeout=10000`` server option (a project rule: both are
+        ``statement_timeout=10000`` server option (both are
         asserted on the pool this function returns, never on a constant).
         The caller opens it (``async with pool:``) and closes it.
     ``def build_checkpointer(pool: AsyncConnectionPool) -> AsyncPostgresSaver``
     ``async def setup_checkpointer(pool: AsyncConnectionPool) -> None`` —
-        creates LangGraph's own checkpoint tables (decision B); running it
+        creates LangGraph's own checkpoint tables; running it
         twice over one database is not an error and changes nothing.
     ``def thread_config(thread_id: str) -> RunnableConfig`` — runs
         ``helpdesk.rag.naming.check_slug`` on the thread id BEFORE returning
@@ -66,9 +66,9 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.core.naming import SLUG_LENGTH
 
 CONNECT_TIMEOUT_SECONDS = 5.0
-"""What the pool's libpq `connect_timeout` must be, exactly (plan §1).
+"""What the pool's libpq `connect_timeout` must be, exactly.
 
-a project rule, 11 and 14: the value is the plan's, it is written out here
+The value is fixed by the design, it is written out here
 as a literal, and it is asserted on the CONSTRUCTED pool rather than on a
 constant the implementation exports.
 """
@@ -76,7 +76,7 @@ constant the implementation exports.
 COMMAND_TIMEOUT_MILLISECONDS = 10_000
 """What the pool's `statement_timeout` server option must be, exactly.
 
-The plan's read/command half is `10.0` seconds; Postgres takes
+The read/command half is `10.0` seconds; Postgres takes
 `statement_timeout` in milliseconds, so the same number is written here in the
 unit the wire uses.
 """
@@ -118,8 +118,8 @@ class CheckpointEnv:
 def checkpoint_env() -> Iterator[CheckpointEnv]:
     """One database with LangGraph's checkpoint tables in it, built ONCE.
 
-    Deliberately a throwaway database rather than the compose one: an earlier change's
-    risk section names `test_models.py` and `test_seed.py`, both of which
+    Deliberately a throwaway database rather than the compose one: the checkpointer's
+    setup names `test_models.py` and `test_seed.py`, both of which
     assert on a database's full table list, and a `setup_checkpointer` run
     against a database they read would break them.
 
@@ -155,7 +155,7 @@ def checkpoint_env() -> Iterator[CheckpointEnv]:
 def _with_pool[T](dsn: str, scenario: Callable[[Any], Awaitable[T]]) -> T:
     """Run one scenario over a pool opened and closed inside its own loop.
 
-    The explicit close matters beyond tidiness: the plan's risk section names
+    The explicit close matters beyond tidiness: the checkpointer's setup names
     a second driver leaking connections into the same compose database, and a
     fixture that left its pool open would be the first place that happened.
     """
@@ -253,7 +253,7 @@ def test_the_pool_carries_both_timeout_halves(checkpoint_env: CheckpointEnv) -> 
     `connect_timeout` a checkpoint write against a wedged Postgres hangs the
     turn for the OS default, and without `statement_timeout` a connection that
     did open holds a query open for ever, which on a second driver into the
-    same compose database is the leak the plan's risk section names.
+    same compose database is the leak the checkpointer's setup guards against.
 
     Read off the CONSTRUCTED pool, so a module that defines the two constants
     and passes neither to psycopg is red."""
@@ -297,7 +297,7 @@ def test_setup_grants_the_restricted_role_access_to_every_checkpoint_table(
     nothing: the three services connect as `helpdesk_app`, which holds no
     privilege on a table it does not own, so every turn fails on its first
     checkpoint read with `InsufficientPrivilege` while `make migrate` reports
-    success. That is an earlier change F1, found only when the MCP transport stopped
+    success. That was found only when the MCP transport stopped
     refusing the call that reached it.
 
     Read out of `information_schema` per table and compared as an exact SET, so
@@ -332,9 +332,9 @@ def test_a_thread_id_that_is_not_a_slug_is_refused_before_any_checkpoint_write(
     checkpoint_env: CheckpointEnv,
 ) -> None:
     """Catches a `thread_config` that hands an unchecked string to LangGraph as
-    the thread id: the thread id is the only value this plan puts into a store
+    the thread id: the thread id is the only value this code puts into a store
     key, `checkpoints.thread_id` has no pattern and no width of its own, and a
-    trailing newline is the case a project rule exists for — it would make one
+    trailing newline is the case the full-match check exists for — it would make one
     session two checkpoint threads.
 
     The row count afterwards is corroboration, not the kill: nothing may have

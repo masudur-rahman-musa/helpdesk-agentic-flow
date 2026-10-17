@@ -10,12 +10,7 @@ const TONE_CLASSES: Record<BadgeTone, string> = {
   danger: "border-transparent bg-danger text-danger-foreground",
 };
 
-/**
- * Status to colour, one table for every page. `approved` is
- * info rather than success because an approved request has not been executed
- * yet. Pinned as an exact mapping by `tests/ui-primitives.test.tsx::maps every
- * known status to its tone`.
- */
+/** Status to colour. `approved` is info, not success: it is not executed yet. */
 const STATUS_TONES: ReadonlyMap<string, BadgeTone> = new Map<string, BadgeTone>([
   ["pending", "warning"],
   ["open", "warning"],
@@ -30,11 +25,7 @@ const STATUS_TONES: ReadonlyMap<string, BadgeTone> = new Map<string, BadgeTone>(
   ["expired", "neutral"],
 ]);
 
-/**
- * A status the table does not know is `neutral`, never missing: a status the
- * backend adds later still renders, just uncoloured (`::maps an unknown status
- * to neutral`). A Map, not an object, so `constructor` is unknown too.
- */
+/** Unknown status is `neutral`. A Map, so `constructor` is unknown too. */
 export function statusTone(status: string): BadgeTone {
   return STATUS_TONES.get(status) ?? "neutral";
 }
@@ -57,11 +48,6 @@ export function Badge({
   );
 }
 
-/**
- * A badge coloured by `status` and labelled by the caller's `children`, so the
- * page decides the wording. An unknown status still renders its text
- * (`::renders an unknown status badge with its text, never blank`).
- */
 export function StatusBadge({
   status,
   ...props

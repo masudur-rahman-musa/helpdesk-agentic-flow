@@ -1,13 +1,7 @@
 /**
- * Every TanStack Query key the web app uses, in one place.
- *
- * A feature's `api.ts` reads its keys from here and no file writes a key by
- * hand, so two screens that show the same data share one cache entry, and a
- * refresh after a write reaches every screen that shows it. A key that is a
- * prefix of others (`notifications`, `myReviews`) is what a write refreshes, so
- * the keys built under it must start with it. `tests/query-keys.test.ts` pins
- * the values and the prefixes; `tests/data-calls.test.ts` checks no other file
- * writes a `queryKey:` array.
+ * Every TanStack Query key, in one place, so screens showing the same data
+ * share a cache entry. A write refreshes a prefix (`notifications`,
+ * `myReviews`), so keys under it must start with it.
  */
 export const queryKeys = {
   me: ["me"] as const,

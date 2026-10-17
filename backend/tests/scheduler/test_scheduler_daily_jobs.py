@@ -1,4 +1,4 @@
-"""An earlier change §6: the two DAILY jobs, their registrations and their wrappers.
+"""The two DAILY jobs, their registrations and their wrappers.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -14,27 +14,27 @@ must provide exactly this):
     return value.
 
 ``scheduler.runner``
-    ``DAILY_CADENCE_SECONDS = 86400`` — the design's "daily", and the `PX` of
+    ``DAILY_CADENCE_SECONDS = 86400`` — the product spec "daily", and the `PX` of
     both lock keys.
     ``REGISTRY`` gains both jobs, each at ``DAILY_CADENCE_SECONDS``, under
     names that pass the existing ``check_job_name``.
 
 What this file deliberately does NOT re-test: `check_job_name`'s inclusive
 boundary (exactly 64 accepted, 65 refused) and its `re.fullmatch` rejection
-table. Both are already pinned in `test_scheduler_runner.py`, and this plan
+table. Both are already pinned in `test_scheduler_runner.py`, and this change
 adds no new value that shapes a key — only two constants of its own, which are
-asserted to PASS that same gate below (plan §5, a project rule's decision
+asserted to PASS that same gate below (a decision
 recorded rather than silently skipped). A copy of those cases here would be
 red and green for exactly the same reasons as the originals.
 
-a project rule: the database and the dedicated Redis index are
+The database and the dedicated Redis index are
 `test_scheduler_runner.py`'s session-scoped fixtures, imported rather than
 rebuilt — seeding two tenants is the slow part of this suite. Per-test
 isolation stays what that file established: the only keys this file writes are
-the two the plan names, and the one case that touches them deletes exactly
+the two the design names, and the one case that touches them deletes exactly
 those two first.
 
-a project rule: this file carries the service in its name, and
+This file carries the service in its name, and
 `test_scheduler_runner.py` and `test_scheduler_daily_jobs.py` are distinct
 basenames that collide with nothing in the tree.
 
@@ -88,7 +88,7 @@ wrapper that opened its own connection pass anyway."""
 def _recorder(
     calls: list[tuple[object, datetime]],
 ) -> Callable[..., Awaitable[list[Any]]]:
-    """An engine double that records how it was called and returns a list.
+    """An engine double that records how it got called and returns a list.
 
     It returns a non-empty-typed value on purpose: both engines answer with a
     list, and a wrapper that returned it instead of dropping it would no
@@ -106,9 +106,9 @@ def _recorder(
 
 
 def test_the_daily_job_constants_are_exactly_the_planned_values() -> None:
-    """Catches every one of this plan's new literals drifting.
+    """Catches every one of this change's new literals drifting.
 
-    The cadence IS the lock TTL by construction (21a decision B), so a
+    The cadence IS the lock TTL by construction, so a
     `DAILY_CADENCE_SECONDS` of 3600 would run both jobs 24 times a day — 24
     expiry warnings per grant, were the dedupe ever dropped — while a value of
     a week would let a leaver keep every account for six days after their last
@@ -134,14 +134,14 @@ def test_the_daily_job_constants_are_exactly_the_planned_values() -> None:
 def test_each_new_job_is_registered_at_the_daily_cadence_under_a_valid_name(
     job_name: str, lock_key: str
 ) -> None:
-    """Criterion 11, per job.
+    """Per job.
 
-    Catches a job written and never registered — the whole plan lands, the
+    Catches a job written and never registered — the whole change lands, the
     tests of the library pass, and nothing ever runs it — and one registered
     with its own cadence literal instead of the constant: the key's TTL IS the
     gate, so a job declaring 86400 while its key is set for 300 runs 288 times
-    a day. `check_job_name` is applied to the registered name (plan §5: the
-    two new names are the only values this plan adds that shape a key, and
+    a day. `check_job_name` is applied to the registered name (the
+    two new names are the only values added here that shape a key, and
     their gate is the existing one), so a name with an underscore-leading
     typo or a hyphen fails here rather than at three in the morning inside a
     `SET`.
@@ -157,8 +157,8 @@ def test_each_new_job_is_registered_at_the_daily_cadence_under_a_valid_name(
 
 def test_the_registry_still_holds_the_five_minute_sweep_beside_the_daily_pair() -> None:
     """Catches a registration that REPLACES the registry rather than extending
-    it — a `REGISTRY = {...}` rebuilt from this plan's two jobs, which silently
-    stops the expiry sweep 21a shipped and would show up nowhere else in this
+    it — a `REGISTRY = {...}` rebuilt from this change's two jobs, which silently
+    stops the expiry sweep and would show up nowhere else in this
     file. Also catches both daily jobs being registered under one name, which
     a per-job case cannot see: a dict keyed by name loses one of them without
     complaining."""
@@ -166,7 +166,7 @@ def test_the_registry_still_holds_the_five_minute_sweep_beside_the_daily_pair() 
     assert len({job.name for job in REGISTRY.values()}) == len(REGISTRY)
 
 
-# --- the cadence gate on the real registry (criterion 11, 21a decision B) ----
+# --- the cadence gate on the real registry ----
 
 
 def test_a_tick_leaves_both_daily_keys_with_a_one_day_ttl(
@@ -174,13 +174,13 @@ def test_a_tick_leaves_both_daily_keys_with_a_one_day_ttl(
     scheduler_redis_url: str,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Criterion 11 end to end, on the REAL registry against real Postgres and
+    """To end, on the REAL registry against real Postgres and
     Redis, so the literal per-tenant key names and the literal TTL are pinned
     together.
 
     Catches a lock taken with no expiry (the job would never run again after
     one tick, for ever), one taken on a key an operator would not find, and a
-    lock RELEASED at the end of the run — 21a decision B makes the key itself
+    lock RELEASED at the end of the run — the key itself is
     the cadence gate, so a released key means these jobs run every 60 seconds
     instead of every 24 hours. Both per-tenant keys are asserted PRESENT for
     each job, so a runner that deletes them all after the run fails here.
@@ -200,7 +200,7 @@ def test_a_tick_leaves_both_daily_keys_with_a_one_day_ttl(
             assert ttl == 86400
 
 
-# --- the wrappers (plan §2: two lines each, deciding nothing) ----------------
+# --- the wrappers (two lines each, deciding nothing) ----------------
 
 
 def test_the_expiry_warnings_wrapper_hands_its_session_and_now_to_the_engine(
@@ -232,7 +232,7 @@ def test_the_leaver_sweep_wrapper_hands_its_session_and_now_to_the_engine(
     """The same claim for the second job, which has its own wrapper and its own
     way of getting it wrong.
 
-    a project rule: one fix at one call site is not the fix. A leaver sweep
+    One fix at one call site is not the fix. A leaver sweep
     reading its own clock would decide "who is due" against a different day
     from the one the tick answers for — the boundary case
     (`end_date < now.date()`) sits exactly there, so a person's last working

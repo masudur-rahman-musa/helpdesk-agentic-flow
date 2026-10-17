@@ -1,6 +1,6 @@
-"""An earlier change: the approval routes call the resume seam after a final decision.
+"""The approval routes call the resume seam after a final decision.
 
-What is under test (does NOT exist yet; every case below is red until an earlier change
+What is under test (does NOT exist yet; every case below is red until it
 lands):
 
 ``agent_api.api.routes.approvals`` gains a module-level seam::

@@ -1,5 +1,4 @@
-"""Tests for helpdesk.core.settings (an earlier change, section 6, step 2; extended by
-an earlier change for ``jwt_secret``).
+"""Tests for helpdesk.core.settings, including ``jwt_secret``.
 
 API under test:
     class helpdesk.core.settings.Settings(pydantic_settings.BaseSettings)
@@ -7,7 +6,7 @@ API under test:
         redis_url: str      <- env REDIS_URL, required, no default
         qdrant_url: str     <- env QDRANT_URL, required, no default
         jwt_secret: str     <- env JWT_SECRET, required, no default,
-                               rejected when shorter than 32 BYTES (the design)
+                               rejected when shorter than 32 BYTES
 
 Tests pass ``_env_file=None`` so a developer's real ``.env`` cannot leak in;
 env vars themselves are controlled with monkeypatch. The ``load_settings``
@@ -84,7 +83,7 @@ def test_all_missing_fails_validation(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings(_env_file=None)
 
 
-# --- an earlier change: jwt_secret length gate (the design: >= 32 BYTES, not characters) --
+# --- jwt_secret length gate (>= 32 BYTES, not characters) --
 
 # Boundary rows: 31 ascii bytes fails, 32 passes; a 16-char string of 2-byte
 # UTF-8 characters is 32 bytes and must pass (the rule counts bytes).
@@ -137,7 +136,7 @@ def test_load_settings_fails_when_jwt_secret_too_short(
         load_settings()
 
 
-# --- an earlier change: MCP_URL, validated at load (decision F) ------------------------
+# --- MCP_URL, validated at load ------------------------
 #
 # `MCP_URL` is not in `ENV_NAMES`: it carries a default, so `_set_env` must not
 # clear it for the tests above. These cases clear it themselves, so a developer
@@ -146,7 +145,7 @@ def test_load_settings_fails_when_jwt_secret_too_short(
 MCP_URL_DEFAULT = "http://localhost:8081/mcp"
 """The default the field declares, written out rather than imported.
 
-a project rule: importing the constant and asserting it equals itself pins
+importing the constant and asserting it equals itself pins
 nothing, and this value is what every agent turn dials when the environment
 says nothing."""
 
@@ -206,8 +205,7 @@ def test_a_malformed_mcp_url_is_refused_at_settings_load(
     netloc and a path without complaint, and the stray byte then surfaces as a
     DNS failure on a user's first turn instead of at process start. The `ftp`,
     scheme-less, relative and empty-netloc rows are each refused by one
-    remaining clause, so deleting any single clause turns at least one row red
-    (a project rule's rejection table, applied to a URL rather than a slug)."""
+    remaining clause, so deleting any single clause turns at least one row red."""
     _set_env_without_mcp_url(monkeypatch)
     monkeypatch.setenv("MCP_URL", value)
 
@@ -220,7 +218,7 @@ def test_a_malformed_mcp_url_is_refused_at_settings_load(
         assert "MCP_URL" in failed_fields
 
 
-# --- an earlier change: WEB_ORIGIN, the one allowed CORS origin (decision A) -----------
+# --- WEB_ORIGIN, the one allowed CORS origin -----------
 #
 # `WEB_ORIGIN` is not in `ENV_NAMES` for `MCP_URL`'s reason: it carries a
 # default, so `_set_env` must not clear it for the cases above, and these cases
@@ -230,7 +228,7 @@ def test_a_malformed_mcp_url_is_refused_at_settings_load(
 WEB_ORIGIN_DEFAULT = "http://localhost:3000"
 """The default the field and `web_origin_from_env` share, written out.
 
-a project rule: importing `DEFAULT_WEB_ORIGIN` and asserting it equals itself
+importing `DEFAULT_WEB_ORIGIN` and asserting it equals itself
 pins nothing, and this value is the exact string agent-api echoes back into
 `access-control-allow-origin` when the environment says nothing."""
 
@@ -276,7 +274,7 @@ def test_an_accepted_web_origin_is_returned_unchanged(
     CORS middleware compares those two strings exactly.
 
     Also catches a validator so strict it refuses a legitimate origin - both
-    rows are shapes the plan's section 1 names as accepted, and `https` with no
+    rows are shapes named as accepted, and `https` with no
     port is the deployed shape a localhost-only check would reject.
     """
     _set_env_without_web_origin(monkeypatch)
@@ -371,7 +369,7 @@ def test_the_settings_field_and_the_helper_share_one_validator(
     assert "WEB_ORIGIN" in failed_fields
 
 
-# --- an earlier change: POLICY_DIR, the bring-your-own policies root (decision A) -------
+# --- POLICY_DIR, the bring-your-own policies root -------
 #
 # `POLICY_DIR` is not in `ENV_NAMES` for `MCP_URL`'s and `WEB_ORIGIN`'s reason:
 # it carries a default, so `_set_env` must not clear it for the cases above,
@@ -383,7 +381,7 @@ def test_the_settings_field_and_the_helper_share_one_validator(
 POLICY_DIR_DEFAULT = Path("policies")
 """The default the field declares, written out rather than imported.
 
-a project rule: importing the field's default and asserting it equals itself
+importing the field's default and asserting it equals itself
 pins nothing, and this path is the corpus root every unconfigured ingest run
 walks."""
 
@@ -452,7 +450,7 @@ def test_an_empty_policy_dir_is_refused_at_load(
 # the accepted `"policies"` only by whitespace at an END. No other clause of
 # the field can decide them: they are non-empty, longer than one character and
 # contain no interior space, so deleting the surrounding-whitespace clause is
-# the only edit that turns them green (a project rule's rejection table,
+# the only edit that turns them green (a rejection table
 # applied to a filesystem path).
 POLICY_DIR_WHITESPACE_CASES: tuple[tuple[str, str], ...] = (
     ("leading space", " policies"),
@@ -498,7 +496,7 @@ def test_a_policy_dir_with_an_interior_space_is_accepted(
     """Catches a validator copied from `WEB_ORIGIN`, which refuses whitespace
     ANYWHERE in the value.
 
-    Decision A splits the two deliberately: `WEB_ORIGIN` lands in a response
+    The two are split deliberately: `WEB_ORIGIN` lands in a response
     header where any space is a defect, but this is a filesystem path and
     `/Users/me/My Policies` is a directory an adopter really has. This is the
     only row of the whole `POLICY_DIR` table that separates the two rules - the
@@ -511,7 +509,7 @@ def test_a_policy_dir_with_an_interior_space_is_accepted(
     assert Settings(_env_file=None).policy_dir == Path("my policies")
 
 
-# --- an earlier change: MCP_ALLOWED_HOSTS, what the transport matches Host against ------
+# --- MCP_ALLOWED_HOSTS, what the transport matches Host against ------
 #
 # `MCP_ALLOWED_HOSTS` is not in `ENV_NAMES` for the reason `MCP_URL`,
 # `WEB_ORIGIN` and `POLICY_DIR` are not: it carries a default, so `_set_env`
@@ -529,13 +527,13 @@ MCP_ALLOWED_HOSTS_DEFAULT = [
 ]
 """The default the field and `mcp_allowed_hosts_from_env` share, written out.
 
-a project rule: importing `DEFAULT_MCP_ALLOWED_HOSTS` and asserting it equals
+importing `DEFAULT_MCP_ALLOWED_HOSTS` and asserting it equals
 itself pins nothing. These four values are exactly what the MCP transport's
 DNS-rebinding middleware matches an incoming `Host` header against when the
 environment says nothing, so this list decides whether the shipped compose
 stack can reach the server at all."""
 
-# The DNS name limit, and the boundary an earlier change criterion 9 makes inclusive. The
+# The DNS name limit, and the boundary that is inclusive. The
 # check is on the HOST PART of an entry, not on the whole entry: a pattern
 # carries a `:*` or a `:<port>` suffix that no DNS name contains, so measuring
 # the whole string would refuse a legal 253-byte name written as `<name>:*`.
@@ -552,7 +550,7 @@ def test_the_default_mcp_allowed_hosts_are_exactly_the_planned_values(
 ) -> None:
     """Catches an implementation whose unconfigured default is the SDK's own
     loopback three - `127.0.0.1:*`, `localhost:*`, `[::1]:*` and nothing else -
-    which is the an earlier change F1 defect exactly: agent-api dials
+    which is a real failure: agent-api dials
     `helpdesk-mcp-server:8081` inside compose, the middleware matches that
     header against a list the service name is not in, and every call is
     answered 421 before any project code runs.
@@ -584,7 +582,7 @@ def test_an_empty_mcp_allowed_hosts_is_refused_at_load(
     configured" and falls back to the default, and equally one that accepts the
     empty list as configuration.
 
-    Both are wrong in the same direction the plan's decision D names: an empty
+    Both are wrong in the same direction: an empty
     allow-list is not a disabled protection, it is a protection that matches
     NOTHING, so `_validate_host` returns False for every header and the server
     answers 421 to its own loopback callers too. An `os.environ.get(name,
@@ -593,7 +591,7 @@ def test_an_empty_mcp_allowed_hosts_is_refused_at_load(
     Nothing else in the load path refuses it: `list[str]` is satisfied.
 
     The message must name the variable so the operator who wrote the empty line
-    is told which line, which is criterion 8's own requirement.
+    is told which line, which is the requirement.
     """
     _set_env_without_mcp_allowed_hosts(monkeypatch)
     monkeypatch.setenv("MCP_ALLOWED_HOSTS", "")
@@ -633,7 +631,7 @@ def test_an_mcp_allowed_host_with_whitespace_is_refused_at_load(
     byte (exact match, or `startswith(base + ":")` for the `host:*` form), so
     `helpdesk-mcp-server:*\\n` copied out of a `.env` matches no request that
     was ever sent. The failure then surfaces as every call answered 421 in the
-    deployed arrangement - the an earlier change F1 symptom again, with a configured
+    deployed arrangement - the same symptom again, with a configured
     value that LOOKS correct in the file that produced it. The newline and CRLF
     rows are the ones that matter most, because they are invisible there.
 
@@ -659,7 +657,7 @@ def test_an_mcp_allowed_host_of_exactly_253_bytes_is_accepted_and_254_is_not(
     written `> 253` and one written `>= 253` agree on every value but 253
     itself, and 253 is the DNS name limit, so a `>= 253` gate refuses the
     longest legal cluster hostname an operator is entitled to configure
-    (criterion 9 makes the boundary inclusive). A `> 254` gate accepts a name
+    (the boundary is inclusive). A `> 254` gate accepts a name
     no resolver will answer, which the middleware then matches against nothing.
 
     Both values are built as `"a" * N + ":*"`, so the entry is two bytes longer
@@ -687,7 +685,7 @@ def test_the_mcp_allowed_hosts_field_and_the_helper_share_one_validator(
     """Catches a diff that validates only in `mcp_allowed_hosts_from_env` and
     leaves `Settings.mcp_allowed_hosts` as a plain `list[str]` field.
 
-    Decision A says one default and one rule in one place. Without a
+    There is one default and one rule, in one place. Without a
     `field_validator` on the field, every service that builds full `Settings`
     (rather than calling the import-time helper `create_app()` needs) accepts a
     malformed pattern, and the two paths drift: the mcp-server refuses a

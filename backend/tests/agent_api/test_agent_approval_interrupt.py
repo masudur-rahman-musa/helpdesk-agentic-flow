@@ -1,20 +1,20 @@
-"""An earlier change §6: the approval branch as a pure gate, then through the graph.
+"""The approval branch as a pure gate, then through the graph.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.graph.state``
     ``TurnOutcome.AWAIT_APPROVAL = "await_approval"`` — the seventh member.
     ``TurnState.awaiting_request_id: uuid.UUID | None`` — the request a paused
-        turn is waiting on, and what an earlier change's resume matches a decision
+        turn is waiting on, and what the resume matches a decision
         against.
 ``agent_api.graph.gates``
     ``def approval_outcome(results: Sequence[ToolResult]) -> TurnOutcome`` —
         PURE, no framework and no store. ``AWAIT_APPROVAL`` when a SUCCESSFUL
         ``create_access_request`` result's payload says
         ``decision == "approval"``; ``FAILED`` when such a payload carries no
-        usable ``request_id``; ``CONTINUE`` otherwise (decision F).
+        usable ``request_id``; ``CONTINUE`` otherwise.
 ``agent_api.graph.nodes.await_approval``
-    ``PENDING_APPROVAL_REPLY: str`` — the node's OWN template (decision E),
+    ``PENDING_APPROVAL_REPLY: str`` — the node's OWN template,
         never a composed reply.
     ``async def await_approval(state, deps) -> TurnState`` — calls LangGraph's
         ``interrupt()`` with the request id.
@@ -30,7 +30,7 @@ gateway socket and no MCP server; the gateway is an ``httpx.MockTransport``
 and the tool caller is a scripted stub. ONE throwaway database, one seeded
 fake tenant and LangGraph's checkpoint tables, all built once for the whole
 module; per-case isolation is a namespace — a fresh
-``session_id``, which IS the checkpoint thread id (decision A1) — never a new
+``session_id``, which IS the checkpoint thread id — never a new
 database and never a new set of tables. A pool and an engine are opened per
 ``asyncio.run``, because each case drives its own event loop and a connection
 pool belongs to the loop it was opened in; that is the shape
@@ -158,7 +158,7 @@ def test_approval_outcome_answers_await_only_for_an_approval_decision(
     which would pause a turn that policy already refused;
     the FAILED row catches a gate reading `payload` without checking `ok`,
     since a refused call carries no decision at all;
-    and the `classify_access_request` row is decision F — the same payload
+    and the `classify_access_request` row is the exception — the same payload
     under a different tool must not pause the turn, so a gate that scanned for
     a `decision` key anywhere in the round is red on it.
 
@@ -274,7 +274,7 @@ def approval_env() -> Iterator[ApprovalEnv]:
     """The conversation schema, one seeded tenant and the checkpoint tables.
 
     Built exactly once. A throwaway database rather than the
-    compose one for the reason the plan's risk section gives: `test_models.py`
+    compose one for this reason: `test_models.py`
     and `test_seed.py` both assert on a database's full table list, and
     LangGraph's tables are outside `Base.metadata` on purpose.
     """
@@ -322,7 +322,7 @@ def approval_env() -> Iterator[ApprovalEnv]:
 def _with_pool[T](dsn: str, scenario: Callable[[Any], Awaitable[T]]) -> T:
     """Run one scenario over a pool opened and closed inside its own loop.
 
-    The explicit close is the plan's answer to its own second risk: a second
+    The explicit close answers a risk: a second
     driver into the shared compose database that never closed its pool is the
     connection leak nothing else in this suite would see.
     """
@@ -352,7 +352,7 @@ class StagedGateway:
     """Answers staged in order; a request past the last one fails the test.
 
     That is how "the turn never composed a reply" is asserted as a hard stop:
-    decision E renders the paused reply from a template, so a run that reached
+    the paused reply is rendered from a template, so a run that reached
     `compose_reply` asks for an answer nobody staged.
     """
 
@@ -384,7 +384,7 @@ class ScriptedToolCaller:
     """A `ToolCaller` answering one scripted payload per call, in order.
 
     A call beyond the script fails the test rather than repeating the last
-    answer, so "no tool was called after the pause" is caught where it happens.
+    answer, so "no tool ran after the pause" is caught where it happens.
     """
 
     def __init__(self, *answers: Mapping[str, Any]) -> None:
@@ -452,7 +452,7 @@ def _extraction_answer() -> str:
 
 
 def _plan_answer(env: ApprovalEnv) -> str:
-    """One planning round proposing exactly the request this plan pauses on."""
+    """One planning round proposing exactly the request this change pauses on."""
     return json.dumps(
         {
             "calls": [
@@ -533,9 +533,9 @@ def _plain(value: Any) -> Any:
 def _checkpointed_state(env: ApprovalEnv, session_id: uuid.UUID) -> dict[str, Any]:
     """The paused thread's channel values, read by a SECOND checkpointer.
 
-    A second pool and a second saver on purpose: this is criterion 2 — the
+    A second pool and a second saver on purpose: this is the key case — the
     state has to be readable after the compiled graph that wrote it is gone,
-    which is what an earlier change's resume depends on. It is not a per-test backing
+    which is what the resume depends on. It is not a per-test backing
     service; the database and its tables are still the
     session fixture's, and only the reader is new.
     """
@@ -561,7 +561,7 @@ def test_a_paused_turn_returns_await_approval_and_the_request_id(
     turn's state, so a mapping that skipped it returns the pre-pause outcome
     and the route answers a waiting user as though the turn were done.
 
-    It also catches decision E going the other way — a paused turn routed
+    It also catches the opposite mistake — a paused turn routed
     through `compose_reply` — because no composition answer is staged, so a
     third gateway request fails the run outright rather than passing quietly.
 
@@ -589,7 +589,7 @@ def test_the_paused_state_is_readable_from_a_second_checkpointer(
     """Catches a pause that only exists in the process that made it: a graph
     compiled with no checkpointer, one compiled with a `MemorySaver`, or a
     `run_turn` that never passes the thread config all return the same paused
-    state to the caller and leave NOTHING in Postgres — so the resume an earlier change
+    state to the caller and leave NOTHING in Postgres — so the resume that
     builds on has nothing to read and every restart drops every pending
     approval.
 

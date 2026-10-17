@@ -7,32 +7,11 @@ import { Input, Label } from "@/components/ui/field";
 import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/features/chat/schema";
 
 /**
- * The message box. Its accessible name is "Message" and its button's is
- * "Send"; both are fixed by an earlier change §6 and queried by those names in
- * `tests/chat-page.test.tsx`.
- *
- * The pre-check is the SAME `chatMessageSchema` the route handler runs, so the
- * sentence a user sees here and the refusal the server would answer cannot
- * disagree about what is sendable. It runs before `onSend`, so an empty or
- * oversized message opens no request at all.
- *
- * There is no `maxLength` on the input: capping the input silently would
- * make the refusal unreachable and the counter a decoration. The count is
- * shown instead, and going over is refused with the same typed code the server
- * uses.
- *
- * `initialValue` is the ONE thing the panel may put in the box: the ask a
- * `/access` renewal link carried. It seeds the state and
- * nothing else — the user still presses Send — and it is already past
- * `chatMessageSchema` by the time it arrives, because the panel refuses an
- * empty or oversized parameter before rendering
- * (`tests/chat-page.test.tsx`'s `ChatPanel — the renewal prefill` block).
- *
- * Neither control is ever disabled — not while a turn streams, and not after
- * one fails (§1's unhappy paths). A turn that failed and locked the composer
- * leaves the user with nothing to do but reload; overlapping turns are
- * prevented by the panel's own re-entry guard, which costs the user nothing
- * they can see.
+ * The message box. It checks with the same `chatMessageSchema` the server
+ * runs, so both agree on what is sendable, and a bad message opens no request.
+ * No `maxLength`: a silent cap would hide the refusal, so the count is shown.
+ * `initialValue` is a renewal ask from `/access`; the user still presses Send.
+ * Nothing is ever disabled, so a failed turn never leaves the user stuck.
  */
 export function Composer({
   onSend,

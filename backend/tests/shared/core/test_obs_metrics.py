@@ -1,12 +1,11 @@
-"""An earlier change section 6: the in-process metrics and the exposition they render.
+"""The in-process metrics and the exposition they render.
 
-Widened by an earlier change (§8): `build_metrics` registers a SIXTH metric,
-`helpdesk_expiries_total`, the counter the scheduler's expiry sweep moves
-(21a decision G). This file is the schema-literal for the exposition in the
+`build_metrics` registers a SIXTH metric,
+`helpdesk_expiries_total`, the counter the scheduler's expiry sweep moves.
+This file is the schema-literal for the exposition in the
 same sense `test_models.py` is for the table list, so the plan that adds a
 metric extends the literal here — the expectation below is a snapshot of a
-deferred set, and an earlier change's own docstring named row 21 as what would land in
-it. Nothing is weakened: the assertion is still an equality over the whole
+deferred set. Nothing is weakened: the assertion is still an equality over the whole
 exposition, and one more name has to be spelled exactly right for it to hold.
 
 Written before the implementation exists. Surface under test:
@@ -16,8 +15,8 @@ Written before the implementation exists. Surface under test:
         ``tool_calls_total``, ``tool_latency_seconds``, ``refusals_total``,
         ``sod_blocks_total`` and ``expiries_total``.
     ``def build_metrics(registry: CollectorRegistry) -> Metrics`` — registers
-        exactly the design's six event metrics on the given registry, with
-        exactly the design's names and label sets.
+        exactly the six event metrics on the given registry, with
+        exactly the expected names and label sets.
     ``REGISTRY: CollectorRegistry`` and ``METRICS: Metrics`` — the module-level
         default pair every call site reads.
     ``def render() -> tuple[str, str]`` — ``(body, content_type)`` off the
@@ -25,23 +24,23 @@ Written before the implementation exists. Surface under test:
     ``class SweepGauges`` — a frozen dataclass carrying ``grants_active`` and
         ``audit_chain_ok``.
     ``def install_sweep_gauges(registry: CollectorRegistry) -> SweepGauges`` —
-        registers the design's two remaining gauges, ``helpdesk_grants_active``
+        registers the two remaining gauges, ``helpdesk_grants_active``
         (label ``tenant``) and ``helpdesk_audit_chain_ok`` (no labels), and is
         IDEMPOTENT per registry: a second call returns the same pair rather
         than raising prometheus's duplicate-registration ``ValueError``.
 ``helpdesk.obs`` re-exports ``Metrics``, ``build_metrics``, ``render`` and
 ``METRICS``.
 
-No backing service: a registry is an in-process object, and an earlier change's §2 says
-nothing in ``helpdesk/obs/`` reaches a network or a store. Per-test isolation
-is a fresh ``CollectorRegistry`` monkeypatched over the module-level pair
-(decision C), never a reset of a shared one, so every assertion below is an
+No backing service: a registry is an in-process object, and nothing in ``helpdesk/obs/`` reaches a
+network or a store. Per-test isolation
+is a fresh ``CollectorRegistry`` monkeypatched over the module-level pair,
+never a reset of a shared one, so every assertion below is an
 absolute value rather than a delta.
 
 Names are asserted as the strings a scraper reads, which for a counter is the
 family name with ``_total`` restored: ``prometheus_client`` strips that suffix
 when it builds the family and puts it back in the exposition, so the exposition
-is where the design's literal spelling can be pinned.
+is where the literal spelling can be pinned.
 """
 
 from collections.abc import Iterator, Mapping
@@ -53,7 +52,7 @@ from prometheus_client import CollectorRegistry, generate_latest
 from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.core.observability.metrics import build_metrics, install_sweep_gauges, render
 
-# the design's six in-process metrics, as the exposition spells them, with the
+# The six in-process metrics, as the exposition spells them, with the
 # type each one must be. A histogram is what makes a latency observable at all,
 # so the type is part of the name assertion and not decoration.
 SPEC_METRICS: Mapping[str, str] = {
@@ -62,14 +61,14 @@ SPEC_METRICS: Mapping[str, str] = {
     "helpdesk_tool_latency_seconds": "histogram",
     "helpdesk_refusals_total": "counter",
     "helpdesk_sod_blocks_total": "counter",
-    # An earlier change decision G: an event counter, moved by the scheduler's sweep.
+    # An event counter, moved by the scheduler's sweep.
     "helpdesk_expiries_total": "counter",
-    # An earlier change a design note: per-job run and failure counters.
+    # Per-job run and failure counters.
     "helpdesk_job_runs_total": "counter",
     "helpdesk_job_failures_total": "counter",
 }
 
-# the design's label sets, as a literal. The field name is how the test reaches
+# The label sets, as a literal. The field name is how the test reaches
 # the metric off `Metrics`; the exposed name is what it is called on the wire.
 LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("turns_total", "helpdesk_turns_total", ("tenant", "intent", "decision")),
@@ -78,13 +77,13 @@ LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("refusals_total", "helpdesk_refusals_total", ("tenant", "reason")),
     ("sod_blocks_total", "helpdesk_sod_blocks_total", ()),
     ("expiries_total", "helpdesk_expiries_total", ()),
-    # An earlier change a design note: per-job run and failure counters.
+    # Per-job run and failure counters.
     ("job_runs_total", "helpdesk_job_runs_total", ("job",)),
     ("job_failures_total", "helpdesk_job_failures_total", ("job",)),
 )
 
-# the design's two remaining gauges, installed by an earlier change's SEPARATE factory
-# (decision F) and NOT by `build_metrics`. Same shape as `SPEC_METRICS` above:
+# The two remaining gauges, installed by a SEPARATE factory
+# and NOT by `build_metrics`. Same shape as `SPEC_METRICS` above:
 # the exposition's spelling, with the type each one must be.
 SWEEP_METRICS: Mapping[str, str] = {
     "helpdesk_grants_active": "gauge",
@@ -99,9 +98,8 @@ so an upgrade that moves the default to OpenMetrics -- or to any other format
 a scraper would stop parsing -- is caught here and not in production.
 
 The version is 1.0.0, the text format prometheus_client has answered with
-since 0.23 and the one the installed 0.26 renders. An earlier change's §1 was written
-against the older 0.0.4 default and the owner decided to take the current one
-(the project notes, a project rule); the two formats are wire-compatible for a
+since 0.23 and the one the installed 0.26 renders. An older 0.0.4 default was
+once expected, and the current one was taken instead; the two formats are wire-compatible for a
 scraper, and pinning the client backwards to keep an older string was the
 alternative rejected.
 """
@@ -125,7 +123,7 @@ def _type_lines(body: str) -> dict[str, str]:
 def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistry]:
     """A registry of this test's own, installed over the module-level pair.
 
-    a project rule's shape one level down: nothing expensive is rebuilt, and
+    Nothing expensive is rebuilt, and
     the isolation is a namespace — this registry — rather than a reset of a
     process-wide one, which would race any other test that had incremented it.
     """
@@ -137,12 +135,12 @@ def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
 
 def test_build_metrics_registers_exactly_the_eight_metrics() -> None:
     """Catches a `build_metrics` that registers fewer or more than eight
-    metrics on the caller's registry, or that misspells one of the design's
-    names (including the two new per-job counters from an earlier change a design note),
+    metrics on the caller's registry, or that misspells one of the expected
+    names (including the two per-job counters),
     either of which makes the dashboard query for that name return nothing.
 
-    The two remaining the design gauges are deliberately NOT here. An earlier change
-    decision F installs them through `install_sweep_gauges`, which only the
+    The two remaining gauges are deliberately NOT here. They are installed through
+    `install_sweep_gauges`, which only the
     process that MOVES them calls: an unlabelled gauge has a sample from the
     moment it is registered, so `helpdesk_audit_chain_ok` declared by
     `build_metrics` would render `0` for ever on agent-api's and mcp-server's
@@ -175,9 +173,9 @@ def test_build_metrics_registers_exactly_the_eight_metrics() -> None:
 def test_each_metric_declares_exactly_its_spec_labels(
     field: str, exposed_name: str, labels: tuple[str, ...]
 ) -> None:
-    """Catches a label set that is not the design's: a missing label loses the
+    """Catches a label set that is not the expected one: a missing label loses the
     dimension every query slices on, and an EXTRA label is the cardinality leak
-    an earlier change's second risk names, because the only values left to fill it with
+    that is a risk here, because the only values left to fill it with
     are the ones nobody declared a closed set for.
 
     Driven through `.labels()` rather than read off a private attribute, so it
@@ -251,11 +249,11 @@ def test_a_metric_with_no_observation_still_appears_in_the_exposition(
     assert render()[0] == body, "an exposition with no observations is stable between scrapes"
 
 
-# --- an earlier change: the two sweep gauges and their separate factory ----------------
+# --- the two sweep gauges and their separate factory ----------------
 
 
 def test_install_sweep_gauges_registers_exactly_the_two_spec_gauges() -> None:
-    """Catches a factory that registers something other than the design's two
+    """Catches a factory that registers something other than the two expected
     remaining names — a third metric smuggled in beside them, a counter where
     the spec says gauge (a counter cannot go DOWN, so a grant count that fell
     when access was revoked would be read by `rate()` as a counter reset), or
@@ -278,16 +276,16 @@ def test_install_sweep_gauges_registers_exactly_the_two_spec_gauges() -> None:
 
 
 def test_each_sweep_gauge_declares_exactly_its_spec_labels() -> None:
-    """Catches a label set that is not the design's, in either direction.
+    """Catches a label set that is not the expected one, in either direction.
 
     `helpdesk_grants_active` without its `tenant` label collapses two tenants'
     counts into one series, so the last sweep of the tick decides what the
     whole deployment shows. With an EXTRA label it is the cardinality leak
-    an earlier change's second risk names — the only values left to fill it with are
+    that is a risk here — the only values left to fill it with are
     ones nobody declared a closed set for.
 
     `helpdesk_audit_chain_ok` is the boundary row, and its unlabelled shape is
-    decision D rather than an oversight: a `tenant` label would make the
+    deliberate, not an oversight: a `tenant` label would make the
     process-wide AND unexpressible, so the gauge must refuse `.labels()`
     outright and move directly.
 
@@ -335,7 +333,7 @@ def test_installing_the_sweep_gauges_twice_on_one_registry_returns_the_same_pair
     assert _type_lines(generate_latest(registry).decode()) == dict(SWEEP_METRICS)
 
 
-# --- an earlier change: per-job run and failure counters --------------------------------
+# --- per-job run and failure counters --------------------------------
 
 
 def test_each_new_job_counter_declares_a_job_label() -> None:

@@ -3,14 +3,13 @@ import { describe, expect, it } from "vitest";
 import { reviewDecisionSchema, reviewItemsSchema, reviewQueueSchema } from "@/features/reviews/schema";
 
 /**
- * An earlier change §6, `reviews-schema.test.ts`: the parser 23f's `/reviews` page
+ * `reviews-schema.test.ts`: the parser the `/reviews` page
  * reads, over the three payloads the new proxies return.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23h's Deviations):
+ * Shapes this file fixes:
  * - `web/src/features/reviews/schema.ts` exports `reviewQueueSchema`,
  *   `reviewItemsSchema` and `reviewDecisionSchema`, one per envelope
- *   (decision E: one file, three envelopes), each written over the WHOLE
+ *   (one file, three envelopes), each written over the WHOLE
  *   envelope rather than over a bare row, so the page runs ONE `safeParse` on
  *   what the proxy returned — `approvals-schema.ts`' own shape.
  * - the queue envelope is `{ reviews: [...] }` with the THIRTEEN
@@ -24,8 +23,8 @@ import { reviewDecisionSchema, reviewItemsSchema, reviewQueueSchema } from "@/fe
  *   never `.optional()`: a missing column would otherwise reach the page as
  *   `undefined` and render as a blank cell instead of a refused payload.
  * - no schema is `.strict()`: an unknown extra key is accepted, because the
- *   wire may grow (23e widened the item list by six fields without touching
- *   this file's predecessors) and a page that refuses a widened payload breaks
+ *   wire may grow (the item list was widened by six fields without touching
+ *   older parsers) and a page that refuses a widened payload breaks
  *   on a deploy that changed nothing it reads.
  *
  * No backing service, no route, no page: this is the parser alone.
@@ -51,7 +50,7 @@ const QUEUE_ROW: Record<string, unknown> = {
   decided_count: 1,
 };
 
-/** The thirteen field names of §1, written out rather than derived from the row. */
+/** The thirteen field names, written out rather than derived from the row. */
 const QUEUE_FIELDS = [
   "review_id",
   "period",
@@ -68,7 +67,7 @@ const QUEUE_FIELDS = [
   "decided_count",
 ] as const;
 
-/** One item as 23e widened it, every field present, obviously fake. */
+/** One item with every field present, obviously fake. */
 const ITEM_ROW: Record<string, unknown> = {
   item_id: ITEM_ID,
   grant_id: "77777777-7777-5777-8777-777777777777",
@@ -83,7 +82,7 @@ const ITEM_ROW: Record<string, unknown> = {
   expires_at: "2026-12-31T09:00:00Z",
 };
 
-/** The eleven field names of §1. */
+/** The eleven field names. */
 const ITEM_FIELDS = [
   "item_id",
   "grant_id",
@@ -128,7 +127,7 @@ describe("reviewQueueSchema", () => {
     // The premise every rejection row below depends on: a schema that refused
     // the complete payload would make all thirteen of them pass while the
     // queue rendered nothing at all. The count is asserted beside it because
-    // §1 fixes it at thirteen.
+    // the row has thirteen.
     expect(reviewQueueSchema.safeParse({ reviews: [QUEUE_ROW] }).success).toBe(true);
     expect(QUEUE_FIELDS).toHaveLength(13);
   });
@@ -165,7 +164,7 @@ describe("reviewQueueSchema", () => {
   it("accepts a completed row carrying a completed_at and rejects a string item_count", () => {
     // Two kills. `completed_at` is null while a review is open and a timestamp
     // once it closes, so a parser that pinned it to `null` would refuse the
-    // history 23e's status filter exists to show. And the two counts are
+    // history the status filter exists to show. And the two counts are
     // NUMBERS: a `z.unknown()` or a coerced string would let the page compute
     // "1 of 4 decided" out of values it cannot subtract.
     const completed = { ...QUEUE_ROW, status: "completed", completed_at: "2026-07-01T09:00:00Z" };
@@ -216,7 +215,7 @@ describe("reviewQueueSchema", () => {
 
 describe("reviewItemsSchema", () => {
   it("accepts the whole eleven-field item", () => {
-    // The premise the eleven rejection rows depend on, and §1's count pinned
+    // The premise the eleven rejection rows depend on, and the count pinned
     // beside it.
     expect(reviewItemsSchema.safeParse({ review_id: REVIEW_ID, items: [ITEM_ROW] }).success).toBe(
       true,
@@ -226,7 +225,7 @@ describe("reviewItemsSchema", () => {
 
   it.each(ITEM_FIELDS)("rejects an item with no %s", (field) => {
     // Catches a parser that declares the field `.optional()`. The six context
-    // fields 23e added are exactly the ones an implementer copying an older
+    // fields added later are exactly the ones an implementer copying an older
     // parser leaves out, and without them a reviewer is asked to keep or
     // revoke a `grant_id` — a decision nobody can make from what is on screen.
     expect(

@@ -1,17 +1,18 @@
-"""An earlier change, sections 1 and 6: `set_kill_switch`, through the transport.
+"""`set_kill_switch`, through the transport.
 
 Surface under test (written before it exists):
 
 ``mcp_server.tools.killswitch``
-    ``SetKillSwitchInput(MutatingToolInput)`` — keyed like every other write, so it carries a
+    ``SetKillSwitchInput(MutatingToolInput)`` — keyed like every other write
+    so it carries a
     required ``idempotency_key`` and forbids extras.
     Fields: ``tool_name: str``, the WIRE name of the tool to stop;
     ``enabled: bool``, describing the SWITCH and not the tool, so
-    ``enabled=True`` means the target is STOPPED (decision B);
+    ``enabled=True`` means the target is STOPPED;
     ``reason: str`` bounded ``1..REASON_MAX_LENGTH`` with the constant
-    IMPORTED from ``helpdesk.killswitch`` rather than retyped (decision H,
-    a project rule), required in BOTH directions; and
-    ``scope: Literal["global"] | uuid.UUID``, REQUIRED (decision A) — a UUID
+    IMPORTED from ``helpdesk.killswitch`` rather than retyped (so the two
+    limits cannot drift), required in BOTH directions; and
+    ``scope: Literal["global"] | uuid.UUID``, REQUIRED — a UUID
     that is not the token's tenant is refused ``FORBIDDEN``.
     ``SetKillSwitchOutput(BaseModel)`` — ``tool_name``, ``stopped``, ``scope``
     (``"global"`` or the tenant uuid as a string) and ``changed_at``.
@@ -22,20 +23,20 @@ Surface under test (written before it exists):
 
 ``helpdesk.killswitch``
     ``change_switch(...)`` and ``KILLSWITCH_CHANGED_EVENT_TYPE``, exported
-    from the package ``__init__`` (decision D: the protected-tool guard, the
-    event and the Redis write live together, so row 24's admin surface cannot
+    from the package ``__init__`` (the protected-tool guard, the
+    event and the Redis write live together, so a later admin page cannot
     reach the write without the guards).
 
-Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the six principals the design
+Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the six principals the permission matrix
 gives no cell on this row and for a ``scope`` naming another tenant,
-``POLICY_BLOCKED`` for ``tool_name="set_kill_switch"`` (decision G: one call
+``POLICY_BLOCKED`` for ``tool_name="set_kill_switch"`` (one call
 would otherwise lock the platform out of the only tool that can undo it), and
 ``VALIDATION`` for a name outside the registry, a name over
 ``TOOL_NAME_MAX_LENGTH`` and a reason outside ``1..REASON_MAX_LENGTH``.
 
-There is NO scope helper on this tool: the design gives the row `platform_admin`
+There is NO scope helper on this tool: the permission matrix gives the row `platform_admin`
 alone, at `Scope.ANY`, so the pipeline's matrix stage IS the whole permission
-check and the six-principal case below is its kill (a project rule — the
+check and the six-principal case below is its kill (the
 handler never re-runs `rbac.authorize`, so there is no second copy of that
 guard to hide behind). The scope check against the token is a SEPARATE guard,
 and its own case is called by a `platform_admin`, the one principal the matrix
@@ -45,7 +46,7 @@ Audit deltas are asserted as exact ordered event-type lists against a before
 snapshot, never as counts: a missing domain event, a duplicated one, or a
 denial filed as an outage is invisible to a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Nothing here plants a database row, so no seeded
 tenant is resolved by name: both tenant handles come from
@@ -90,7 +91,7 @@ DENIED_EVENT = "tool.denied"
 DISABLED_EVENT = "tool.disabled"
 FAILED_EVENT = "tool.failed"
 
-# the design's key shapes, as literals for the same reason.
+# The error contract key shapes, as literals for the same reason.
 KEY_PREFIX_LITERAL = "killswitch"
 GLOBAL_SEGMENT_LITERAL = "global"
 
@@ -106,7 +107,7 @@ TARGET = "get_me"
 CLEAR_ONLY_TARGET = "list_my_access"
 SUBJECT_TARGET = "list_my_requests"
 
-# the design's `set_kill_switch` row, the NARROWEST in the matrix: ONE cell.
+# The permission matrix `set_kill_switch` row, the NARROWEST in the matrix: ONE cell.
 # Checked against `helpdesk/auth/rbac.py::Tool.SET_KILL_SWITCH` before it was
 # written — `platform_admin: Scope.ANY` and nothing else.
 ALLOWED_PRINCIPAL = "platform_admin"
@@ -120,7 +121,7 @@ CLOSED_REDIS_URL = "redis://127.0.0.1:9/0"
 # an auditor gets is the target tool, where it was stopped, which way, why and
 # by whom. An extra key is as much a defect as a missing one — `actor` is
 # `str(user_id)` and an email appearing beside it would leak an admin's
-# identity into a record every audit reader can see (decision I).
+# identity into a record every audit reader can see.
 CHANGED_PAYLOAD_KEYS = {"tool", "scope", "stopped", "reason", "actor"}
 
 
@@ -221,35 +222,35 @@ def _global_key(tool_name: str) -> str:
 
 
 def _admin_token(env: SeededMcp) -> dict[str, str]:
-    """A tenant-A token carrying ONLY the design's single cell on this row."""
+    """A tenant-A token carrying ONLY the permission matrix's single cell on this row."""
     return bearer(token_for(env.tenant_a, principals=(ALLOWED_PRINCIPAL,)))
 
 
-# --- the happy path (criteria 1, 2 and 3) ----------------------------------------
+# --- the happy path ----------------------------------------
 
 
 def test_a_tripped_tool_answers_tool_disabled_with_the_admins_reason(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 1 end to end: the trip, the key, and the stop it produces.
+    """To end: the trip, the key, and the stop it produces.
 
     KILL: a handler that reports `stopped` without writing the key the
     pipeline's `KillSwitch.check` reads — either because it writes nothing, or
-    because it writes a key of a different shape, or because decision B's
+    because it writes a key of a different shape, or because the
     polarity is inverted so `enabled=True` clears instead of trips. The second
     caller's `TOOL_DISABLED` is what catches all three: `get_me` is permitted
-    to every principal the design has, so the kill switch is the only stage in the
+    to every principal the permission matrix has, so the kill switch is the only stage in the
     pipeline that can refuse them.
 
     The stop is read by a DIFFERENT caller than the admin who set it, so a
     switch that somehow only applies to its author fails here. The admin's
     reason and `str(user_id)` as the actor are read off the `tool.disabled`
     event's `detail`, which is the only place the underlying message is kept:
-    the wire carries the code alone (the design). The admin's EMAIL is asserted
+    the wire carries the code alone. The admin's EMAIL is asserted
     absent from that detail — `check` copies `actor` into a message every
     caller of the stopped tool sees, so an email there would leak an admin's
-    identity to the whole tenant (decision I).
+    identity to the whole tenant.
     """
     tenant_id = mcp_env.tenant_a.tenant_id
     key = _tenant_key(tenant_id, TARGET)
@@ -290,7 +291,7 @@ def test_the_global_scope_stops_the_tool_in_the_other_tenant_too(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 2: decision A's `"global"` scope, planted and read across
+    """The `"global"` scope, planted and read across
     both seeded tenants.
 
     KILL: a handler that ignores `scope` and keys every write on the token's
@@ -330,7 +331,7 @@ def test_clearing_a_switch_that_was_never_set_succeeds_and_still_writes_the_even
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 3's second half: an admin's action is recorded whether or not
+    """The second half: an admin's action is recorded whether or not
     it changed anything.
 
     KILL: a handler that reads `status` first and returns early — or refuses
@@ -338,7 +339,7 @@ def test_clearing_a_switch_that_was_never_set_succeeds_and_still_writes_the_even
     answer plausibly, and only the audit delta catches the missing
     `killswitch.changed`: a governance action that leaves no record is
     indistinguishable from one that never happened, and turning a tool back on
-    is as much a governance act as turning it off (decision H).
+    is as much a governance act as turning it off.
 
     The target is never tripped by any case in this file, so the no-op is real
     rather than an artefact of ordering, and the delta is the exact ordered
@@ -370,14 +371,14 @@ def test_clearing_a_switch_that_was_never_set_succeeds_and_still_writes_the_even
     ]
 
 
-# --- what the record says (criterion 1's second half, a project rule) ----------
+# --- what the record says ----------
 
 
 def test_the_event_names_the_target_tool_as_its_subject(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """a project rule: writing an event is not writing a record.
+    """Writing an event is not writing a record.
 
     KILL: declaring `killswitch.changed` as the tool's REGISTRY event type
     instead of appending it in the domain. The pipeline writes its event with
@@ -432,7 +433,7 @@ def test_the_event_names_the_target_tool_as_its_subject(
         _delete_key(mcp_redis_url, key)
 
 
-# --- the design's six empty cells (criterion 4) -------------------------------------
+# --- The permission matrix six empty cells -------------------------------------
 
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
@@ -441,16 +442,16 @@ def test_the_six_denied_principals_change_no_switch(
     mcp_redis_url: str,  # noqa: F811
     principal: str,
 ) -> None:
-    """the design's six empty cells on this row, and the record they leave.
+    """The permission matrix six empty cells on this row, and the record they leave.
 
     KILL: adding this principal to the `set_kill_switch` cell of the RBAC
     matrix. This handler runs no scope helper and therefore never re-runs
-    `rbac.authorize` (plan §2), so the pipeline's matrix stage is the only
+    `rbac.authorize`, so the pipeline's matrix stage is the only
     guard that can refuse here and deleting it hands every one of these six
-    the platform's emergency stop (a project rule does not apply: there is
+    the platform's emergency stop (there is
     no second copy of the guard). `it_admin` is included and matters most — it
     holds a cell on `rollback_request` and none here, so a row copied from
-    that plan by habit fails.
+    that tool by habit fails.
 
     Every argument is valid, the target is a registered tool, the reason is
     inside the bound and the scope is the caller's OWN tenant, so no other
@@ -477,25 +478,26 @@ def test_the_six_denied_principals_change_no_switch(
     ]
 
 
-# --- the two refusals a permitted admin can still earn (criterion 6) -------------
+# --- the two refusals a permitted admin can still earn -------------
 
 
 def test_another_tenants_scope_is_forbidden(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Decision A: a UUID scope that is not the token's tenant.
+    """A UUID scope that is not the token's tenant.
 
-    KILL: deleting the comparison of `scope` against the token's tenant, so
-    the handler hands the client's uuid straight to `key_for`. The caller
-    holds `platform_admin`, the ONE principal the design gives this row, so the
-    matrix cannot be what refuses this call and the scope check is the only
-    guard left standing between the argument and tenant B's Redis key. The key is asserted absent in tenant B's namespace as well
-    as globally: a handler that wrote it and then errored would still have
-    stopped a tool for a tenant this token has no business reaching.
+        KILL: deleting the comparison of `scope` against the token's tenant, so
+        the handler hands the client's uuid straight to `key_for`. The caller
+        holds `platform_admin`, the ONE principal the permission matrix gives this row, so the
+        matrix cannot be what refuses this call and the scope check is the only
+        guard left standing between the argument and tenant B's Redis key
+    . The key is asserted absent in tenant B's namespace as well
+        as globally: a handler that wrote it and then errored would still have
+        stopped a tool for a tenant this token has no business reaching.
 
-    Recorded `tool.denied`, not `tool.failed`: it is a permission decision
-    even though it is raised inside the tool body.
+        Recorded `tool.denied`, not `tool.failed`: it is a permission decision
+        even though it is raised inside the tool body.
     """
     tenant_id = mcp_env.tenant_a.tenant_id
     foreign = mcp_env.tenant_b.tenant_id
@@ -520,7 +522,7 @@ def test_setting_the_kill_switch_on_set_kill_switch_is_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Decision G: the stopper cannot stop itself.
+    """The stopper cannot stop itself.
 
     KILL: dropping the protected-tool guard in `change.py`. Nothing else in
     the pipeline refuses this call — the name IS registered, the caller holds
@@ -550,14 +552,14 @@ def test_setting_the_kill_switch_on_set_kill_switch_is_policy_blocked(
     ]
 
 
-# --- the pre-checks (criteria 5 and 8) -------------------------------------------
+# --- the pre-checks -------------------------------------------
 
 
 def test_an_unregistered_tool_name_is_refused_before_any_key_is_written(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 5's first half: a name no `check` will ever ask about.
+    """The first half: a name no `check` will ever ask about.
 
     KILL: dropping the registry lookup from the handler. The name below is a
     LEGAL kill-switch key target — lower case, underscores only, well inside
@@ -609,10 +611,10 @@ def test_the_reason_boundary_is_inclusive_at_1_and_500(
     length: int,
     accepted: bool,
 ) -> None:
-    """Criterion 8's reason half: both ends, both directions, exact number.
+    """The reason half: both ends, both directions, exact number.
 
     KILL: `Field(min_length=1)` with no `max_length` on `SetKillSwitchInput`,
-    or a `gt`/`lt` where decision H says inclusive. The reason lands in the
+    or a `gt`/`lt` where the limit is inclusive. The reason lands in the
     `SwitchState` that `check` reads on EVERY call of the stopped tool and in
     the unbounded `Text` payload of `killswitch.changed`, so this Pydantic
     bound is the only backstop there is, and a one-sided
@@ -621,9 +623,9 @@ def test_the_reason_boundary_is_inclusive_at_1_and_500(
     nobody can review.
 
     The bound is read off `helpdesk.killswitch.REASON_MAX_LENGTH`, never
-    retyped in the admin module (decision H, a project rule): the store's own
+    retyped in the admin module: the store's own
     cap and the wire's cap drifting apart would let a reason the wire accepts
-    be refused by `SwitchState` at the moment of the write. a project rule:
+    be refused by `SwitchState` at the moment of the write. Because of that,
     500 is asserted explicitly, once, so a widened constant is a decision
     somebody has to make rather than a number that quietly moves.
 
@@ -671,27 +673,28 @@ def test_the_tool_name_length_boundary_is_inclusive_at_64(
     mcp_env: SeededMcp,  # noqa: F811
     mcp_redis_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 5's second half, and the honest limit of it.
+    """The second half, and the honest limit of it.
 
-    The two rows are refused by DIFFERENT checks, which is the point:
-    * the 64-character name is a LEGAL key target and is refused by the
-      REGISTRY lookup, because no tool is registered under it;
-    * the 65-character name is refused by the LENGTH check
-      (`TOOL_NAME_MAX_LENGTH` on the wire model, and `key_for`'s own gate
-      behind it) before the registry is ever consulted.
+        The two rows are refused by DIFFERENT checks, which is the point:
+        * the 64-character name is a LEGAL key target and is refused by the
+          REGISTRY lookup, because no tool is registered under it;
+        * the 65-character name is refused by the LENGTH check
+          (`TOOL_NAME_MAX_LENGTH` on the wire model, and `key_for`'s own gate
+          behind it) before the registry is ever consulted.
 
-    KILL: deleting the length bound. The 65-character row would then reach the
-    registry, which refuses it too — with the SAME `VALIDATION` code — so what
-    the 65 row actually kills is narrower than it looks: it pins that an
-    over-long name never reaches Redis and never reads `INTERNAL`. NO KILL
-    CLAIM for the inclusivity of 64 itself: no registered tool name is 64
-    characters long, so the accepted side of that boundary is unreachable over
-    the wire, and both rows here read `VALIDATION` whether the bound is `<= 64`
-    or `< 64`. The value is pinned instead by asserting the constant exactly, and by `packages/helpdesk`'s own switch tests, which
-    reach `key_for` directly.
+        KILL: deleting the length bound. The 65-character row would then reach the
+        registry, which refuses it too — with the SAME `VALIDATION` code — so what
+        the 65 row actually kills is narrower than it looks: it pins that an
+        over-long name never reaches Redis and never reads `INTERNAL`. NO KILL
+        CLAIM for the inclusivity of 64 itself: no registered tool name is 64
+        characters long, so the accepted side of that boundary is unreachable over
+        the wire, and both rows here read `VALIDATION` whether the bound is `<= 64`
+        or `< 64`. The value is pinned instead by asserting the constant exactly,
+    and by `packages/helpdesk`'s own switch tests, which
+        reach `key_for` directly.
 
-    Neither name may leave a key behind: Redis imposes no length limit at all,
-    so an unchecked name writes a key nothing will ever read or clear.
+        Neither name may leave a key behind: Redis imposes no length limit at all,
+        so an unchecked name writes a key nothing will ever read or clear.
     """
     from helpdesk.shared.services.killswitch import TOOL_NAME_MAX_LENGTH as WIRED_TOOL_NAME_MAX
 
@@ -716,7 +719,7 @@ def test_the_tool_name_length_boundary_is_inclusive_at_64(
     assert _redis_keys(mcp_redis_url, f"*{over_limit}*") == []
 
 
-# --- the outage (criterion 7) ----------------------------------------------------
+# --- the outage ----------------------------------------------------
 
 
 def test_an_unreachable_redis_reads_internal_and_writes_no_change_event(
@@ -724,14 +727,14 @@ def test_an_unreachable_redis_reads_internal_and_writes_no_change_event(
     mcp_redis_url: str,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Criterion 7: the switch state is unknown, so nothing is claimed.
+    """The switch state is unknown, so nothing is claimed.
 
-    NO KILL CLAIM for decision E's append-before-write ordering. The
+    NO KILL CLAIM for the append-before-write ordering. The
     pipeline's own `KillSwitch.check` stage reaches the SAME unreachable Redis
     before the handler is ever entered, so this call is refused before the
     append could run either way: the case passes with the event appended after
-    the Redis write just as it does with the ordering decision E specifies.
-    Decision E's window is pinned where it can be — around
+    the Redis write just as it does with the specified ordering.
+    The window is pinned where it can be — around
     `change_switch` itself, in `packages/helpdesk`'s own tests, with a client
     that fails only on the write.
 
@@ -803,7 +806,7 @@ def test_set_kill_switch_with_no_idempotency_key_is_validation_with_no_write(
 ) -> None:
     """Catches an `idempotency_key` that is optional or defaulted on
     `SetKillSwitchInput`: a keyless call would still trip the switch, so a
-    retried toggle would be unguarded exactly as it was under an earlier change.
+    retried toggle would be unguarded exactly as it was before the key became required.
 
     Every other argument is valid and the caller holds the row's one cell, so
     the missing key is the only thing that can produce `VALIDATION` here.

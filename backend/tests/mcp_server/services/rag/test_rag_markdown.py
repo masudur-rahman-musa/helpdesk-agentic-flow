@@ -1,4 +1,4 @@
-"""An earlier change §6: the structural split in `helpdesk/rag/markdown.py`.
+"""The structural split in `helpdesk/rag/markdown.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -18,7 +18,7 @@ Expected implementation surface (the implementer must provide exactly this):
         where the previous ended, and the last ends at ``len(markdown)``.
 
 The corpus round-trip is asserted PER SECTION over all 40 files under
-`backend/data/policies/*/*/*.md` (plan §5's risk: bytes lost or duplicated at a heading
+`backend/data/policies/*/*/*.md` (risk: bytes lost or duplicated at a heading
 boundary), plus the partition property, which is the half a per-section
 equality alone cannot see.
 
@@ -110,7 +110,7 @@ def test_every_section_of_every_corpus_file_round_trips(path: Path) -> None:
 )
 def test_the_sections_of_every_corpus_file_partition_the_source(path: Path) -> None:
     """Catches a splitter that drops or duplicates bytes at a heading
-    boundary (plan §5's named risk): dropping a heading line, starting a
+    boundary (plan the named risk): dropping a heading line, starting a
     section after its heading, or overlapping two sections all leave every
     per-section round-trip above green."""
     source = path.read_text(encoding="utf-8")

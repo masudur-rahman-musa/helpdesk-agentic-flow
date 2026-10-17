@@ -14,7 +14,7 @@ Expected implementation surface (the implementer must provide exactly this):
     ``def issue_token(claims, secret, now) -> str``
         ``claims`` carries the five identity claims (sub, tenant_id,
         department_id, principals, sid); ``iat`` is ``now`` and ``exp`` is
-        ``now`` + 8 hours (the design). HS256 only.
+        ``now`` + 8 hours. HS256 only.
     ``def verify_token(token, secret, now) -> TokenClaims``
         Validates signature, algorithm (HS256 pinned on decode) and expiry
         against the injected ``now``; raises ``TokenVerificationError`` on any

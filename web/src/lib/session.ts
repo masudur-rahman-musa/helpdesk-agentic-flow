@@ -1,16 +1,8 @@
 /**
- * The session cookie: written, read and cleared in one place.
- *
- * The bearer lives ONLY here. It is `httpOnly`, so no
- * script on the page can read it, and `SameSite=Lax`, so it does not ride a
- * cross-site request. Both attributes are asserted literally, on the
- * serialised header rather than on the value, by `tests/login-route.test.ts`
- * ("serialises the session cookie with HttpOnly, SameSite=Lax and Path=/" and
- * "setSessionCookie writes the flags on the response it is given").
- *
- * No `Max-Age` and no `Expires` on the write: the cookie lasts the browser
- * session and the JWT's own `exp` is the only lifetime that decides anything.
- * A second, longer lifetime here would outlive the token it carries.
+ * The session cookie, written, read and cleared in one place. The bearer lives
+ * only here: `httpOnly` so no page script can read it, `SameSite=Lax` so it
+ * skips cross-site requests. No expiry is set: the JWT's own `exp` is the only
+ * lifetime, and a longer cookie would outlive its token.
  */
 
 import { cookies } from "next/headers";
@@ -40,10 +32,8 @@ export function setSessionCookie(response: NextResponse, token: string): void {
 }
 
 /**
- * Overwrites the cookie with an empty value AND an expiry in the past. Either
- * half alone leaves a live cookie in the browser; pinned by
- * `tests/login-route.test.ts`'s "clearSessionCookie expires the cookie on the
- * response it is given".
+ * Overwrites the cookie with an empty value and a past expiry. Either alone
+ * leaves a live cookie.
  */
 export function clearSessionCookie(response: NextResponse): void {
   response.cookies.set({

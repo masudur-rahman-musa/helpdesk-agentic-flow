@@ -1,4 +1,4 @@
-"""Idempotency: one key, one execution (the design).
+"""Idempotency: one key, one execution.
 
 `fingerprint` says whether two requests are the same request; `run_once`
 wraps a tool's effect so a retry replays the stored response instead of

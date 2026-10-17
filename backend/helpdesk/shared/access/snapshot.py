@@ -1,21 +1,10 @@
-"""`build_request_snapshot`: repository state in, an earlier change's snapshot out.
+"""`build_request_snapshot`: loads everything the policy engine may see.
 
-The first and only consumer of the policy engine's `RequestSnapshot` shape.
-Directory state (target user, template membership, live grants) comes
-through `DirectoryReader`, the port's read half; catalog and request state (role,
-system, SoD rules, manager, approved-pending set) through the repository
-and `helpdesk.access.requests`. The engine itself stays pure — this module
-does all the I/O so `policy/` never has to.
-
-An unknown role or target raises the typed `NotFoundError` (the design); a
-target in another tenant reads as unknown because the session guard filters
-every query, so the same answer covers both and not-found cannot be used as
-a cross-tenant existence oracle (pinned by `test_access_snapshot.py::
-test_a_real_user_of_another_tenant_is_not_found`).
-
-`policy_refs` stays the empty default until row 15 wires citations (plan
-11a decision B); SoD conflicts still carry `sod_rules.policy_ref`, which
-travels inside the snapshot's rule rows.
+This module does all the I/O so the engine can stay pure. An unknown role
+or target raises `NotFoundError`, and another tenant's user reads as
+unknown, so the answer never tells whether an id exists elsewhere.
+`policy_refs` is left empty; SoD conflicts carry their own `policy_ref`
+through the rule rows.
 """
 
 import uuid
@@ -52,10 +41,8 @@ async def build_request_snapshot(
 ) -> RequestSnapshot:
     """Everything `policy.engine.classify` is allowed to see, loaded once.
 
-    `now` is the caller's aware clock, keyword-only: tenure and grant
-    liveness are both read against it, so one call answers for one instant.
-    `requested_expiry_days` was validated at the boundary (gt 0, an earlier change
-    decision C caps it there too) and passes through untouched.
+    Tenure and grant liveness are both read against `now`, so one call
+    answers for one instant.
     """
     target = await directory.lookup_user(target_user_id)
     if target is None:

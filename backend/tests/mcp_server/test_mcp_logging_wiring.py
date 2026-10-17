@@ -1,14 +1,14 @@
-"""An earlier change section 6: `pipeline.dispatch` binds the telemetry context.
+"""`pipeline.dispatch` binds the telemetry context.
 
 Written before the bind exists. Surface under test: `dispatch` binds
 `helpdesk.obs.context` from the identity `identity_from_header` already
-produced — after verification, from the token and from nothing else (hard
-rule 6) — so every line a tool body logs names the tenant and session of that
+produced — after verification, from the token and from nothing else,
+so every line a tool body logs names the tenant and session of that
 call.
 
-Named `test_mcp_logging_wiring.py`, not `test_logging_wiring.py` as section 6
-writes it: pytest imports these non-package test files by basename, and
-agent-api's file of that name would collide (the project notes 2026-09-03, an earlier change).
+Named `test_mcp_logging_wiring.py`, not `test_logging_wiring.py`:
+pytest imports these non-package test files by basename, and
+agent-api's file of that name would collide.
 Same content, service-prefixed name, the way `test_mcp_health.py` already is.
 
 Rides the session-scoped fixtures of this suite: the seeded
@@ -149,7 +149,7 @@ def test_a_record_logged_during_a_dispatched_call_carries_its_tenant_and_session
     assert line["tenant_id"] == str(mcp_env.tenant_a.tenant_id)
     assert line["session_id"] == str(session_id)
 
-    # the design on the wired path: the user id the handler holds is redacted
+    # On the wired path: the user id the handler holds is redacted
     # in place, and neither identity value survives anywhere in the line.
     for key in ("user_id", "email"):
         assert key in FORBIDDEN_KEYS

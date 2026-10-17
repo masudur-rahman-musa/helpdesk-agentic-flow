@@ -1,51 +1,50 @@
-"""An earlier change section 6: the kill switch board and the toggle, over HTTP.
+"""The kill switch board and the toggle, over HTTP.
 
 Surface under test (written before it exists; every case below is red on one
 of these names until steps 1 and 2 land):
 
-``agent_api.killswitch_routes`` (step 1)
+``agent_api.killswitch_routes``
     ``router`` with ``GET /admin/killswitch`` (no parameter at all, tool
     ``list_kill_switches``) and ``POST /admin/killswitch`` (a body of exactly
     ``tool_name``, ``enabled``, ``scope``, ``reason``, tool
     ``set_kill_switch``), registered in ``main.py``. Both go through
     ``agent_api.deps``' existing seam - ``authenticated``, ``unauthenticated``,
-    ``typed_refusal``, ``call_tool_route`` and ``STATUS_FOR_CODE`` (decision B)
+    ``typed_refusal``, ``call_tool_route`` and ``STATUS_FOR_CODE``
     - which is why every case here patches ``deps.build_tool_caller`` and none
     of them opens a socket.
 
-``agent_api.deps`` (step 2, decision D)
-    ``STATUS_FOR_CODE`` gains ``ErrorCode.POLICY_BLOCKED: 409`` (the fifth row
-    at 24cb; an earlier change later folded the map to all eight codes incl
-    ``INTERNAL`` 500, a design note).
+``agent_api.deps``
+    ``STATUS_FOR_CODE`` gains ``ErrorCode.POLICY_BLOCKED: 409`` (the fifth row; the map later grew
+    to all eight codes, incl
+    ``INTERNAL`` 500).
 
-Shapes this file fixes that the plan left open (a project rule and 55;
-these belong in 24cb's Deviations):
-- the tool names are ``list_kill_switches`` and ``set_kill_switch``, their own registry names.
+Shapes this file fixes that the plan left open:
+- the tool names are ``list_kill_switches`` and ``set_kill_switch``
+, their own registry names.
 - the refusal envelope is ``{"code": "<ErrorCode value>"}`` and the bearer
-  refusal a literal ``401``, 23a/23c/23h/24a's shape, unchanged.
+  refusal a literal ``401``, the usual shape, unchanged.
 - the board's arguments are an EXACTLY empty dict, the zero-argument form
   ``me_routes`` uses; ``list_kill_switches`` declares no field and forbids
   extras, so any key at all crosses back as a ``VALIDATION`` from the far side.
 - the set route's arguments are exactly the five keys of
   ``SetKillSwitchInput``: the four the browser names plus an
-  ``idempotency_key`` the ROUTE derives (an earlier change, a design note, which reverses 13c
-  decision C), and no tenant or user id.
+  ``idempotency_key`` the ROUTE derives (the browser no longer picks it), and no tenant or user id.
 - ``scope`` on the wire out of the BROWSER is the literal ``"global"`` or the
   literal ``"tenant"``; ``scope`` on the wire INTO the tool is ``"global"`` or
-  the token's own tenant id, rendered as its string (decision C). The
+  the token's own tenant id, rendered as its string. The
   substitution is asserted against the uuid read back off the fixture's own
   token rather than against a module literal.
 - the two client-supplied strings that land in a store keep the TOOL's own
   bounds, imported from ``helpdesk.killswitch`` and never retyped:
-  ``TOOL_NAME_MAX_LENGTH`` is 64 and ``REASON_MAX_LENGTH`` is 500 (standing
-  rules 1, 2 and 6). Section 1 and section 5 both require the refusal to be
+  ``TOOL_NAME_MAX_LENGTH`` is 64 and ``REASON_MAX_LENGTH`` is 500. Both limits require the refusal
+  to be
   the TYPED ``400 VALIDATION`` and never FastAPI's untyped 422, and to make no
   tool call at all - so the refusal rows below drive a caller scripted with NO
   answers, and the accepted rows drive a caller that applies
   ``SetKillSwitchInput`` itself, which is the only way "what the route sent is
   storable" can be asserted without an MCP server.
-- ``enabled`` describes the SWITCH and ``stopped`` describes the TOOL (13c
-  decision B). The polarity cases drive a caller composing
+- ``enabled`` describes the SWITCH and ``stopped`` describes the TOOL. The polarity cases drive a
+caller composing
   ``SetKillSwitchOutput`` the way the tool does, with a sentinel
   ``changed_at`` the route has no way to invent, so a route answering a body
   of its own rather than the tool's fails them.
@@ -112,7 +111,7 @@ SESSION_ID = uuid.UUID("44444444-4444-5444-8444-444444444444")
 # one verifies its signature and fails on expiry alone.
 EXPIRED_ISSUED_AT = datetime.now(UTC) - timedelta(hours=9)
 
-# The two literals decision C puts on the browser's side of the wire, and the
+# The two literals on the browser's side of the wire, and the
 # one the tool answers a platform-wide switch with.
 GLOBAL_SCOPE = "global"
 TENANT_SCOPE = "tenant"
@@ -243,13 +242,13 @@ class UnreachableToolCaller:
 class SwitchingToolCaller:
     """`set_kill_switch`'s own input model and its own output composition.
 
-    The input half is section 5's fourth risk: `SetKillSwitchInput` is the one
+    The input half is a known risk: `SetKillSwitchInput` is the one
     authority on whether a `tool_name` and a `reason` are storable, so an
     accepted boundary row can only pass if what the route SENT satisfies the
     tool's model - which is what "the pre-check is the tool's own" means when
     no MCP server is running.
 
-    The output half is 13c decision B, read off `killswitch.py`: `stopped` is the
+    The output half is read off `killswitch.py`: `stopped` is the
     ECHO of `enabled`, and `changed_at` is the instant the tool stamped the
     change with. The sentinel below is a value the route has no way to invent,
     so a route rendering a body of its own instead of the tool's fails the
@@ -356,8 +355,8 @@ def _get(
 ) -> tuple[httpx.Response, CallerSpy]:
     """One board read against the app, with the tool caller replaced at the seam.
 
-    The seam is `deps.build_tool_caller` (23c decision C put `call_tool_route`
-    there), and the lifespan is NOT entered: this route reads nothing off
+    The seam is `deps.build_tool_caller` (`call_tool_route` is built there), and the lifespan is NOT
+    entered: this route reads nothing off
     `app.state`, so entering it would buy a psycopg pool, a Redis client and a
     gateway client that no case here uses.
     """
@@ -394,7 +393,7 @@ def _post(
 def _tenant_id_off_the_token(token: str) -> str:
     """The tenant the FIXTURE's own token carries, read back through the verifier.
 
-    a project rule: the expected value of the `"tenant"` substitution is read
+    The expected value of the `"tenant"` substitution is read
     off the claims the route itself will derive it from, never written as a
     second literal beside `TENANT_ID`.
     """
@@ -408,17 +407,17 @@ def test_the_board_route_answers_the_tools_output_unchanged(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a route that reshapes, filters or renames `list_kill_switches`'
-    structured output on the way out (section 1: "returns the tool's structured
+    structured output on the way out (the tool "returns the tool's structured
     output unchanged", each row carrying its six fields), and one that calls a
     different tool.
 
     The reshape that matters most here is collapsing `global_state` and
-    `tenant_state` into one effective state: 24ca decision B carries both
+    `tenant_state` into one effective state: the tool carries both
     because an admin clearing the tenant switch has to be told the global one
     still holds the tool down, and a route that merged them would leave the
     page unable to say so.
 
-    The bearer half is a project rule and decision A: the token the caller
+    The bearer half is the identity-from-token rule: the token the caller
     presented is forwarded VERBATIM, so RBAC and the kill switch apply to this
     read. A route that minted its own service token, or reused a configured
     one, fails on the identity assertion alone.
@@ -437,14 +436,14 @@ def test_the_board_route_answers_the_tools_output_unchanged(
 def test_the_board_route_sends_an_exactly_empty_argument_set(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's second criterion, a project rule, as an EXACT key set.
+    """The second requirement, the identity-from-token rule, as an EXACT key set.
 
     Catches a route that passes the caller's tenant, user or a tool name along
     as an argument. `ListKillSwitchesInput` declares no field and forbids
     extras, so a key riding along would cross back as a `VALIDATION` and the
     board would answer an error on every load - and a `tenant_id` in
     particular is the browser asking to read another tenant's board, which the
-    token is the only authority on (a project rule: nothing here depends on a
+    token is the only authority on (nothing here depends on a
     cross-tenant guard, because the argument must not exist at all).
     """
     caller = ScriptedToolCaller(BOARD_PAYLOAD)
@@ -462,15 +461,15 @@ def test_the_board_route_sends_an_exactly_empty_argument_set(
 def test_the_set_route_sends_exactly_five_keys_for_a_global_switch(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's third, fourth and seventh criteria at once.
+    """The third, fourth and seventh criteria at once.
 
-    Catches three routes: one that sends NO `idempotency_key` (a design note -
-    `SetKillSwitchInput` is a `MutatingToolInput` and forbids extras, so the
+    Catches three routes: one that sends NO `idempotency_key` (`SetKillSwitchInput` is a
+    `MutatingToolInput` and forbids extras, so the
     toggle would answer `VALIDATION` on every click), one that passes the
     caller's tenant or user id along as an argument, and one that
     translates `"global"` into the token's tenant - which would turn an admin's
     platform-wide stop into one tenant's and leave every other tenant running a
-    tool somebody decided to stop (section 5's second risk).
+    tool somebody decided to stop (the second risk).
 
     The argument set is asserted as the exact dict, so a field riding along
     fails the case too.
@@ -506,7 +505,7 @@ def test_the_set_route_sends_exactly_five_keys_for_a_global_switch(
 def test_the_set_route_substitutes_the_tokens_own_tenant_for_the_literal_tenant(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's fourth criterion and decision C, the other direction.
+    """The fourth requirement, the other direction.
 
     Catches a route that forwards the literal string `"tenant"` (which
     `SetKillSwitchInput` refuses, so a tenant-scoped toggle would never work at
@@ -547,18 +546,18 @@ def test_the_set_route_substitutes_the_tokens_own_tenant_for_the_literal_tenant(
 def test_the_set_route_answers_the_polarity_the_tool_decided(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch, enabled: bool
 ) -> None:
-    """Section 1's eighth criterion and section 5's first risk, both directions.
+    """Both directions.
 
-    Catches a route that NEGATES `enabled` between the body and the tool
-    argument: `enabled` describes the switch and `stopped` describes the tool
-    (13c decision B), so an inverted route would stop a tool when an admin
-    meant to release it - the worst possible direction for this particular
-    control, and the one 24d's toggle inherits from here.
+        Catches a route that NEGATES `enabled` between the body and the tool
+        argument: `enabled` describes the switch and `stopped` describes the tool
+    , so an inverted route would stop a tool when an admin
+        meant to release it - the worst possible direction for this particular
+        control, and the one 24d's toggle inherits from here.
 
-    It also catches a route that renders a body of its OWN rather than the
-    tool's: the staged caller stamps `changed_at` with a sentinel instant the
-    route has no way to invent, so a route assembling the answer from the
-    request it just received cannot produce this body at all.
+        It also catches a route that renders a body of its OWN rather than the
+        tool's: the staged caller stamps `changed_at` with a sentinel instant the
+        route has no way to invent, so a route assembling the answer from the
+        request it just received cannot produce this body at all.
     """
     caller = SwitchingToolCaller()
 
@@ -601,11 +600,11 @@ OUT_OF_ENUM_SCOPES: tuple[tuple[str, str], ...] = (
 def test_a_scope_outside_the_two_literals_is_a_typed_400_and_opens_no_session(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch, scope: str
 ) -> None:
-    """Section 1's fifth criterion and section 5's third risk.
+    """A known risk.
 
     The two uuid rows are the dangerous ones: a route that accepted a tenant id
     from the BODY would let the browser name the tenant a switch is written
-    for, which a project rule gives to the token alone. The tool would refuse a
+    for, which the identity-from-token rule gives to the token alone. The tool would refuse a
     foreign tenant `FORBIDDEN`, but the caller's own tenant would be honoured -
     so a route forwarding a uuid is a client-supplied tenant that works, and
     nothing further down would ever report it.
@@ -615,7 +614,7 @@ def test_a_scope_outside_the_two_literals_is_a_typed_400_and_opens_no_session(
 
     Every row also catches the refusal answered as FastAPI's untyped 422: the
     body model is this router's, so a route that let the framework refuse the
-    field would answer a `detail`/`loc` body where SPEC section 8.1's
+    field would answer a `detail`/`loc` body where the spec's
     `VALIDATION` dressed as a 400 is what 24d has a sentence for. The caller is
     scripted with NOTHING, so a route that entered it or called a tool fails
     outright rather than showing up as a count afterwards.
@@ -639,7 +638,7 @@ def test_a_scope_outside_the_two_literals_is_a_typed_400_and_opens_no_session(
 def test_a_tenant_id_riding_along_in_the_body_is_a_typed_400_and_opens_no_session(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's fourth criterion, last sentence ("a tenant id in the body is
+    """The fourth requirement, last sentence ("a tenant id in the body is
     not accepted by the model at all").
 
     Catches a body model declared `extra="ignore"`: the toggle would answer
@@ -666,7 +665,7 @@ def test_a_tenant_id_riding_along_in_the_body_is_a_typed_400_and_opens_no_sessio
     assert caller.calls == []
 
 
-# --- the derived key --------------------------------------
+# --- the derived key ----------------------------------------------------------
 
 
 def _sent_keys(
@@ -735,15 +734,14 @@ def test_the_set_route_derives_the_key_and_the_body_still_forbids_one(
     assert caller.calls == []
 
 
-# --- the two stored strings, pinned THROUGH the route -------
+# --- the two stored strings, pinned THROUGH the route -------------------------
 
 
 def test_a_tool_name_of_exactly_sixty_four_characters_is_accepted(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The INCLUSIVE end of `TOOL_NAME_MAX_LENGTH`, which is 64 (standing rules
-    2 and 39; the constant is IMPORTED from `helpdesk.killswitch`, never
-    retyped).
+    """The INCLUSIVE end of `TOOL_NAME_MAX_LENGTH`, which is 64 (the constant is IMPORTED
+    from `helpdesk.killswitch`, never retyped).
 
     Catches a route that re-declares the cap one short of the store's own - a
     `max_length=63`, or any second opinion narrower than `key_for`'s - which
@@ -777,7 +775,7 @@ def test_a_tool_name_one_character_over_the_cap_is_a_typed_400_with_no_call(
     """The other end of the same boundary, one character outside it.
 
     Catches a route with no pre-check at all: the name would travel to the far
-    side, where the tool's model refuses it - but section 1 asks for the typed
+    side, where the tool's model refuses it - but the route must give the typed
     400 and NO tool call, because `tool_name` is a Redis key segment and a
     client-supplied string that lands in a store gets its pre-check before any
     effect runs. It also catches the refusal answered as
@@ -805,8 +803,8 @@ def test_a_tool_name_one_character_over_the_cap_is_a_typed_400_with_no_call(
 def test_the_inclusive_ends_of_the_reason_bound_are_accepted(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch, length: int
 ) -> None:
-    """Both INCLUSIVE ends of `REASON_MAX_LENGTH`, which is 500 (standing rules
-    2 and 39; the constant is IMPORTED from `helpdesk.killswitch`).
+    """Both INCLUSIVE ends of `REASON_MAX_LENGTH`, which is 500 (the constant is IMPORTED
+    from `helpdesk.killswitch`).
 
     Catches a route re-declaring either end narrower than the store's - a
     `min_length=2` or a `max_length=499` - each of which refuses a reason the
@@ -899,7 +897,7 @@ def test_an_absent_or_malformed_bearer_is_a_typed_401_and_opens_no_session(
     method: str,
     headers: Mapping[str, str],
 ) -> None:
-    """Section 1's ninth criterion, on both verbs. Catches a route with no token
+    """The ninth requirement, on both verbs. Catches a route with no token
     check at all, and one that checks the token AFTER opening the MCP session:
     the caller is scripted with NOTHING, so a route that entered it or called a
     tool fails outright rather than showing up as a count afterwards.
@@ -934,7 +932,7 @@ def test_a_forged_bearer_is_a_typed_401_and_opens_no_session(
     that parsed the claims and trusted them would let anybody who can write a
     JSON object stop every tool on the platform.
 
-    Same a project rule note as the row above: no kill is claimed on the set
+    Same note as the row above: no kill is claimed on the set
     verb, where two copies of the check run.
     """
     caller = ScriptedToolCaller()
@@ -962,7 +960,7 @@ def test_an_expired_bearer_is_a_typed_401_and_opens_no_session(
     comparison is the only thing that can refuse it. A stale token left able to
     trip the platform's kill switch is a session that never ends.
 
-    Same a project rule note as the two rows above.
+    Same note as the two rows above.
     """
     caller = ScriptedToolCaller()
 
@@ -997,7 +995,7 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """Section 1's tenth criterion, one code per row, on both verbs.
+    """The tenth requirement, one code per row, on both verbs.
 
     Catches a route that lets the tool's `ToolError` escape: FastAPI answers an
     untyped 500, so a matrix refusal the caller could act on ("you may not
@@ -1006,7 +1004,7 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     `set_kill_switch` ("the platform refuses to let you lock yourself out") all
     read as one outage.
 
-    The `POLICY_BLOCKED` row is decision D and is the one that cannot pass
+    The `POLICY_BLOCKED` row is the one that cannot pass
     today: with no row in the shared map the code falls through to 500, which
     tells an admin the platform broke when the platform refused - the one
     message that would send somebody looking for an outage.
@@ -1030,7 +1028,7 @@ def test_a_tool_refusal_answers_its_own_typed_code(
 def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor_path(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch, _id: str, method: str
 ) -> None:
-    """Section 1's tenth criterion, last sentence. Catches two failures at once:
+    """The tenth requirement, last sentence. Catches two failures at once:
     a handshake failure left to propagate (an untyped 500 with a traceback
     body), and a body that carries the client's message -
     `TRANSPORT_FAILURE_MESSAGE` is opaque on purpose, and a route rendering the
@@ -1052,19 +1050,19 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
     assert TRANSPORT_FAILURE_MESSAGE not in response.text
 
 
-# --- the shared map, as a whole (decision D) ----------------------------------
+# --- the shared map, as a whole -----------------------------------------------
 
 
 def test_the_shared_status_map_answers_all_eight_codes_with_an_internal_row() -> None:
     """The shared map asserted as a WHOLE, from this router's decision-D angle.
 
-    An earlier change folded the two disagreeing maps into one with a row for every
+    The two once-disagreeing maps are now one with a row for every
     one of the eight codes, so a code no longer falls through to
     500 by accident. This pins that the proxied-route conflicts this router can
     produce each have their 409 row, and that `INTERNAL` is now an explicit 500
     rather than a fall-through. The canonical whole-map pin is
     `test_error_map.py::test_the_one_map_has_a_row_for_every_code`; this one
-    stays because decision D is why this router had the fifth row.
+    stays because this router once needed a fifth row of its own.
 
     Asserted as the exact mapping rather than key by key, so a ninth row added
     by a later plan goes red here, where the behaviour lives, rather than on a

@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: the two notification tools, through the transport.
+"""The two notification tools, through the transport.
 
 Surface under test (written before it exists):
 
@@ -8,7 +8,7 @@ Surface under test (written before it exists):
     the read tools' contract) with ``unread_only: bool = False`` and
     ``limit: int = LIMIT_DEFAULT`` bounded ``ge=LIMIT_MIN, le=LIMIT_MAX``.
     NO user field at all: the caller is the token's user.
-    ``NotificationRow`` — exactly eight fields, in §1's order:
+    ``NotificationRow`` — exactly eight fields, in this order:
     ``notification_id``, ``kind``, ``title``, ``body``, ``subject_type``,
     ``subject_id``, ``created_at``, ``read_at``.
     ``ListNotificationsOutput`` — exactly ``notifications: list[NotificationRow]``
@@ -21,21 +21,21 @@ Surface under test (written before it exists):
     ``list_notifications`` (a READ: registry ``event_type`` the generic
     ``tool.succeeded``, ``mutating=False``, no idempotency key) and
     ``mark_notification_read`` (MUTATING, the same generic event type —
-    decision D adds no event type, because "a person opened their own bell"
+    it adds no event type, because "a person opened their own bell"
     answers no auditor's question).
 
 ``helpdesk.auth.rbac``
     ``Tool.LIST_NOTIFICATIONS`` and ``Tool.MARK_NOTIFICATION_READ``, each
-    ``self_only`` for all seven principals (decision H, a design note): a
+    ``self_only`` for all seven principals: a
     notification is addressed to one person and read by that person.
 
 Refusals: ``NOT_FOUND`` for a `notification_id` belonging to another user of
-this tenant, to another tenant, or to nobody (decision G — the read is
+this tenant, to another tenant, or to nobody (the read is
 filtered by the token's user, so all three are one answer and the id stays a
 non-capability); ``VALIDATION`` for a `limit` outside the inclusive bounds
 and for an over-long idempotency key. An EMPTY bell is never a refusal.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: every case plants its OWN recipient (a uuid4-suffixed user in one
@@ -81,7 +81,7 @@ MARK = "mark_notification_read"
 # the module under test would let a rename pass unnoticed.
 SUCCEEDED_EVENT = "tool.succeeded"
 REPLAYED_EVENT = "tool.replayed"
-# The scope the design gives both rows, as it lands on the audit payload.
+# The scope the matrix gives both rows, as it lands on the audit payload.
 SELF_ONLY_SCOPE = "self_only"
 
 # All seven principals: both rows are `self_only` for every one of them, so
@@ -114,7 +114,7 @@ PLANTED_START = date(2019, 3, 7)
 # credential.
 PLANTED_PASSWORD_HASH = "not-a-real-hash-this-user-never-logs-in"
 
-# §1's row shape and envelope, written out as literals: a
+# The row shape and envelope, written out as literals: a
 # key set read off the model under test would assert nothing.
 ROW_KEYS = {
     "notification_id",
@@ -187,7 +187,7 @@ def _plant_user(env: SeededMcp, *, tenant: SeededUser) -> SeededUser:
             "principals": ["employee"],
             "status": ACTIVE_STATUS,
             # A `date` object, never the string: asyncpg binds by type and
-            # does not coerce (the project notes, an earlier change).
+            # does not coerce (a known trap).
             "start_date": PLANTED_START,
         },
     )
@@ -299,7 +299,7 @@ def test_each_principal_reads_its_own_bell_as_the_eight_key_row_and_two_key_enve
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """Criteria 1, 3 and 4, per principal (the design gives `/notifications` to
+    """Per principal (`/notifications` belongs to
     everyone, so all seven cells are an ALLOW).
 
     Catches three things. A missing matrix cell for any one principal — an
@@ -307,7 +307,7 @@ def test_each_principal_reads_its_own_bell_as_the_eight_key_row_and_two_key_enve
     refused FORBIDDEN here and their bell would never load. A row projection
     that drops, renames or adds a field: without `read_at` the bell cannot
     tell read from unread, and an extra column (a `user_id`, the tenant) would
-    put data on the wire §1 never promised. And an envelope shaped as a bare
+    put data on the wire the tool never promised. And an envelope shaped as a bare
     list, which leaves the count with nowhere to ride and forces a second
     tool.
     """
@@ -334,11 +334,11 @@ def test_each_principal_reads_its_own_bell_as_the_eight_key_row_and_two_key_enve
 def test_the_list_input_declares_no_user_field_at_all(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 1's first half, as a literal key set.
+    """The first half, as a literal key set.
 
     Catches a `user_id` (or a `tenant_id`) added to the read's schema: a field
     on the model is a field the wire advertises and a client will start
-    sending, and a project rule says identity has no argument path at all. The
+    sending, and identity has no argument path at all. The
     two fields that ARE there are the filter and the page size.
     """
     assert set(notifications.ListNotificationsInput.model_fields) == {"unread_only", "limit"}
@@ -347,9 +347,9 @@ def test_the_list_input_declares_no_user_field_at_all(
 def test_a_user_id_in_the_arguments_is_ignored_and_the_token_decides_whose_bell(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule, with the tenant guard taken out of the picture: the caller
-    and the person named in the arguments are in the SAME tenant (standing
-    rule 9), and BOTH hold a real unread notification.
+    """With the tenant guard taken out of the picture: the caller
+    and the person named in the arguments are in the SAME tenant,
+    and BOTH hold a real unread notification.
 
     So an implementation that honoured the argument — or fell back to it —
     answers the colleague's message and its count rather than being saved by
@@ -376,7 +376,7 @@ def test_a_user_id_in_the_arguments_is_ignored_and_the_token_decides_whose_bell(
 def test_a_colleagues_notifications_are_absent_even_with_no_argument(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 2 through the transport, without the argument the case above
+    """Through the transport, without the argument the case above
     sends: the handler's own read must be filtered by the token's user.
 
     Catches a handler filtered by TENANT alone — the filter the session guard
@@ -400,7 +400,7 @@ def test_another_tenants_notifications_are_invisible_to_every_principal(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """the design's isolation row for this table, on all seven cells: every one
+    """The isolation row for this table, on all seven cells: every one
     of them is `self_only`, so no principal — `platform_admin` included — may
     read across the tenant boundary.
 
@@ -408,7 +408,7 @@ def test_another_tenants_notifications_are_invisible_to_every_principal(
     tenant filter rather than from an id nobody could resolve. The COUNT is
     asserted as well as the row set, because the unread total is a separate
     aggregate and a `func.count` over a hand-written query is exactly where
-    the tenant filter slips past the ORM guard (plan §5).
+    the tenant filter slips past the ORM guard.
     """
     caller = _plant_user(mcp_env, tenant=mcp_env.tenant_a)
     foreigner = _plant_user(mcp_env, tenant=mcp_env.tenant_b)
@@ -427,7 +427,7 @@ def test_another_tenants_notifications_are_invisible_to_every_principal(
 def test_an_empty_bell_answers_an_empty_page_and_zero_rather_than_not_found(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 10, as the exact envelope `{"notifications": [], "unread_count": 0}`.
+    """The exact envelope `{"notifications": [], "unread_count": 0}`.
 
     Catches a handler that treats "nothing to show" as a refusal: the list
     takes no id, so there is nothing to be missing, and a `NOT_FOUND` here
@@ -448,8 +448,8 @@ def test_an_empty_bell_answers_an_empty_page_and_zero_rather_than_not_found(
 
 
 def test_the_limit_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
-    """Criterion 6, pinned exactly rather than as a band (a project rule and
-    39): an unbounded `limit` is an unbounded response over the wire, and a
+    """Pinned exactly rather than as a band:
+    an unbounded `limit` is an unbounded response over the wire, and a
     default that drifts changes what every caller who omits it receives. The
     default is read OFF THE INPUT MODEL, so a constant that stops being wired
     into the field fails here while still reading 50 in the module.
@@ -475,7 +475,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
     limit: int,
     accepted: bool,
 ) -> None:
-    """Criterion 6's boundary, both ends in both directions.
+    """The boundary, both ends in both directions.
 
     Catches bounds that are absent (201 accepted, so one caller can ask for
     the whole table) and bounds that are exclusive (1 or 200 refused, so the
@@ -502,7 +502,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
 def test_unread_only_defaults_to_false_and_answers_read_and_unread_alike(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 7's default arm, over a mixed set of two unread rows and one
+    """The default arm, over a mixed set of two unread rows and one
     already read, with `unread_only` ABSENT from the arguments.
 
     Catches a default of `True` — a page that silently hides everything the
@@ -526,12 +526,12 @@ def test_unread_only_defaults_to_false_and_answers_read_and_unread_alike(
 def test_unread_only_true_narrows_the_rows_without_changing_the_unread_count(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 7's other arm, over the SAME mixed set, asserting both
+    """The other arm, over the SAME mixed set, asserting both
     answers in one case so the two counts can be compared.
 
     Catches `unread_only` accepted and ignored (the already-read row still on
-    the page, so a "what is new" view shows everything), and — the risk plan
-    §5 names — the filter applied to the aggregate as well as to the list,
+    the page, so a "what is new" view shows everything), and — the known risk —
+    the filter applied to the aggregate as well as to the list,
     which makes the bell disagree with the page. The count is the same integer
     in both answers: it is the person's whole unread set, never the page's.
     """
@@ -555,7 +555,7 @@ def test_unread_only_true_narrows_the_rows_without_changing_the_unread_count(
 def test_the_unread_count_counts_every_unread_row_and_not_only_the_page(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 5: `limit=1` over three unread rows answers ONE row and
+    """`limit=1` over three unread rows answers ONE row and
     `unread_count == 3`.
 
     Catches a count computed from the returned page (or an aggregate that
@@ -578,10 +578,10 @@ def test_the_unread_count_counts_every_unread_row_and_not_only_the_page(
 
 
 def test_the_stamp_input_declares_only_the_key_and_the_notification_id() -> None:
-    """Criterion 8, as a literal key set.
+    """The input as a literal key set.
 
-    Catches an input carrying a `user_id` — which is exactly the field hard
-    rule 6 forbids, and on a MUTATION an ignored one would stamp a row for
+    Catches an input carrying a `user_id` — which is exactly the field identity
+    rules forbid, and on a MUTATION an ignored one would stamp a row for
     somebody the caller did not name — and an input that forgot
     `MutatingToolInput`, which would leave the mutation with no idempotency
     key for the pipeline's guard to spend.
@@ -597,12 +597,12 @@ def test_each_principal_stamps_its_own_notification_with_the_four_key_output(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """Criteria 8 and 9, per principal: every one of the seven may clear their
+    """Per principal: every one of the seven may clear their
     own bell, and the answer is exactly four keys.
 
     Catches a missing matrix cell (a principal whose bell can be read but
     never cleared, so their badge only ever grows), an output that carries the
-    body and the subject as well — four keys is what §1 fixes, and the page
+    body and the subject as well — four keys is what the tool fixes, and the page
     already holds the text — and a handler that answers a success without
     writing: the row is re-read from the store and must carry the same
     `read_at` the caller was told.
@@ -632,9 +632,9 @@ def test_each_principal_stamps_its_own_notification_with_the_four_key_output(
 def test_the_same_idempotency_key_replays_the_stored_response(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 9 through the GUARD: one key, two calls.
+    """Through the GUARD: one key, two calls.
 
-    The pair of guarantees §6 splits is deliberate. This one catches the tool
+    The pair of guarantees is deliberate. This one catches the tool
     registered as a READ, which skips `run_once` entirely — the response would
     then be rebuilt by the handler rather than replayed from the stored row,
     and the audit log would carry two `tool.succeeded` events for one
@@ -661,7 +661,7 @@ def test_the_same_idempotency_key_replays_the_stored_response(
 def test_two_different_keys_on_an_already_read_row_answer_the_same_read_at(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 9 through the ALREADY-READ BRANCH: two calls, two keys, so
+    """Through the ALREADY-READ BRANCH: two calls, two keys, so
     the idempotency guard never recognises the second one.
 
     This is the guarantee a page that mints a fresh key per click actually
@@ -696,9 +696,9 @@ def test_two_different_keys_on_an_already_read_row_answer_the_same_read_at(
 def test_a_colleagues_notification_id_is_refused_not_found_and_stamps_nothing(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 11 (decision G), with the tenant guard taken out of the
-    picture: the row belongs to a colleague in the SAME tenant (standing rule
-    9), so nothing but the user filter can refuse it.
+    """With the tenant guard taken out of the
+    picture: the row belongs to a colleague in the SAME tenant,
+    so nothing but the user filter can refuse it.
 
     Catches a stamp that reads the row by id under the tenant filter alone:
     any person could then mark any colleague's message read, and the id would
@@ -722,7 +722,7 @@ def test_a_colleagues_notification_id_is_refused_not_found_and_stamps_nothing(
 def test_another_tenants_notification_id_is_refused_not_found_and_stamps_nothing(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 11's cross-tenant half. The id names a REAL unread row in the
+    """The cross-tenant half. The id names a REAL unread row in the
     other seeded tenant, so the refusal has to come from a filter rather than
     from an id nobody could resolve.
 
@@ -747,7 +747,7 @@ def test_another_tenants_notification_id_is_refused_not_found_and_stamps_nothing
 def test_an_unknown_notification_id_is_refused_not_found(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 11's third arrangement: an id that resolves nowhere reads
+    """The third arrangement: an id that resolves nowhere reads
     exactly like a colleague's and like another tenant's.
 
     Catches a handler that lets a missing row reach the update (an
@@ -779,7 +779,7 @@ def test_the_idempotency_key_boundary_is_inclusive_at_key_length(
     length: int,
     accepted: bool,
 ) -> None:
-    """a project rule for the one client string this plan lets reach a store.
+    """The one client string that reaches a store is the idempotency key, and it is length-checked.
 
     The pair catches both sides: a check written `>=` refuses the longest key
     the `idempotency_keys` column is declared to hold, and no check at all
@@ -806,17 +806,17 @@ def test_the_idempotency_key_boundary_is_inclusive_at_key_length(
         assert _read_at_of(mcp_env, planted) is None
 
 
-# --- exactly one audit event per call (criterion 13, a project rule) ----------
+# --- exactly one audit event per call ----------
 
 
 def test_one_audit_event_per_list_call_names_the_tool_and_the_caller(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 13 for the read, asserting the event's SUBJECT and PAYLOAD
+    """The read, asserting the event's SUBJECT and PAYLOAD
     KEYS rather than merely that an event exists.
 
     Catches a handler that appends an event of its own beside the pipeline's
-    (decision D adds no event type, and one row per bell-open would be
+    (no event type is added, and one row per bell-open would be
     measurable noise in a table whose whole value is that every row matters),
     a declared type other than the generic `tool.succeeded`, and an event that
     records the call without recording WHO made it — `actor_ref` is the only
@@ -843,11 +843,11 @@ def test_one_audit_event_per_list_call_names_the_tool_and_the_caller(
 def test_one_audit_event_per_stamp_call_names_the_tool_and_the_caller(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 13 for the mutation, same shape.
+    """The mutation, same shape.
 
     Catches the same three faults on the writing side, where they cost more: a
     dedicated `notification.read` event type would put one row in the hash
-    chain per UI interaction (decision D refused exactly that), and a second
+    chain per UI interaction (refused exactly that), and a second
     event appended by the handler would double-count every click.
     """
     recipient = _plant_user(mcp_env, tenant=mcp_env.tenant_a)

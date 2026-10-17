@@ -1,27 +1,13 @@
-"""Decision and approver chain (the design).
+"""Decision and approver chain.
 
-Two rules bend the plain table. A self-requested admin role escalates one
-class rather than gaining an extra approver: one lever,
-and the expiry cap and the chain then follow from the class on their own.
-And nobody approves their own request.
+A self-requested admin role moves up one risk class instead of gaining an
+extra approver, so the expiry cap and the chain follow from the class.
 
-That second rule is an invariant over the whole chain, not a rule about the
-manager: the design names the manager because that is the common case, but a
-system owner who is the requester would be approving their own request just
-as much. So every slot resolving to the requester or to the person the
-access is for is replaced, falling through system owner to `it_admin`. The
-test that matters is the property, not the case list — no approver's
-`user_id` is ever the requester or the target.
-
-A slot is only replaced when it resolves to one of those two people. An
-unfilled seat is not a conflict of interest, so a department with no manager
-keeps the slot with no id and lets the caller resolve it. The reverse does
-not hold: an unfilled seat is never *chosen* as a replacement, because a
-chain nobody can approve is worse than a shorter one.
-
-Approvers are slots, optionally carrying a resolved user id (decision D).
-The engine is pure and cannot look up "an it_admin"; keeping the slot
-explicit is also what makes the substitution explainable downstream.
+Nobody approves their own request. Any person seat that resolves to the
+requester or the target is swapped, falling back to system owner, then
+`it_admin`. An empty seat is not a conflict, so it is kept for the caller to
+fill; but an empty seat is never picked as a replacement, since a chain
+nobody can approve is worse than a shorter one.
 """
 
 import uuid
@@ -36,8 +22,6 @@ from helpdesk.shared.policy.types import (
     SystemCategory,
 )
 
-# Total by contract, though `admin` is `privileged` at minimum, so only the
-# last two entries are reachable from `escalate_self_admin`.
 _ESCALATION: dict[RiskClass, RiskClass] = {
     RiskClass.LOW: RiskClass.ELEVATED,
     RiskClass.ELEVATED: RiskClass.PRIVILEGED,
@@ -54,38 +38,13 @@ _THIRD_APPROVER: dict[SystemCategory, ApproverSlot | None] = {
 _FALLBACK_SLOTS = (ApproverSlot.SYSTEM_OWNER, ApproverSlot.IT_ADMIN)
 
 _ROLE_WIDE_SLOTS = frozenset({ApproverSlot.IT_ADMIN, ApproverSlot.HR})
-"""Slots that stand for a group, not a person, so the ENGINE never resolves
-one and never substitutes one for being unfilled.
-
-Whether anybody may actually fill such a seat is a the design question, one
-layer up and outside this pure module. An earlier change records the answer for `hr`:
-§7's approval row has no `hr` cell, so a `critical` HRIS chain's `hr` seat is
-fillable by nobody today. That is a conflict between two spec sections, not
-something this module can decide.
-
-They are NOT verified against the requester. Whether the requester belongs to
-the group is not in the snapshot and the engine could not act on it anyway:
-one member being a party does not disqualify the rest, and the engine cannot
-see how many members there are. So the self-approval guard stops at the group
-boundary, and the caller resolving the seat must exclude the requester and the
-target from it. Do not read the absence of a substitution here as a statement
-that the seat is safe.
-
-RESOLVED by an earlier change: `helpdesk.access.approvals.may_fill` is the resolver,
-and it refuses the requester and the target on EVERY seat, group seats
-included, pinned by
-`test_access_approvals.py::test_a_party_to_the_request_fills_no_seat_of_any_kind`
-(every slot kind crossed with both parties) and end to end by
-`test_mcp_approvals.py::test_a_party_to_the_request_is_refused_even_holding_the_seats_principal`."""
+"""Seats that stand for a group, not a person, so the engine never resolves
+or swaps them. It cannot tell whether a party belongs to the group. Whoever
+fills the seat later must refuse the requester and the target."""
 
 
 def escalate_self_admin(snapshot: RequestSnapshot, risk_class: RiskClass) -> RiskClass:
-    """Bump one class when someone asks for admin on themselves.
-
-    Admin is already `privileged` at minimum, so this moves `privileged` to
-    `critical` and leaves `critical` where it is — a self-requested admin
-    role can never be `auto`.
-    """
+    """Bump one class when someone asks for admin on themselves, so it is never `auto`."""
     if snapshot.is_self_request and snapshot.role.privilege is Privilege.ADMIN:
         return _ESCALATION[risk_class]
     return risk_class
@@ -137,13 +96,8 @@ def _slot_is_a_party(snapshot: RequestSnapshot, slot: ApproverSlot) -> bool:
 def _is_usable_fallback(
     snapshot: RequestSnapshot, slot: ApproverSlot, others: list[ApproverSlot]
 ) -> bool:
-    """A replacement must add an approver, not repeat or erase one.
-
-    So it must not already be in the chain (that would collapse two approvers
-    into one person and quietly halve the control), must not be a party, and
-    must actually be fillable — a `system_owner` slot on an ownerless system
-    would leave a request nobody can approve.
-    """
+    """A replacement must add a real approver: not already in the chain, not
+    a party, and fillable (an ownerless system's owner seat is not)."""
     if slot in others:
         return False
     if slot in _ROLE_WIDE_SLOTS:
@@ -155,14 +109,11 @@ def _is_usable_fallback(
 def _substitute_parties(
     snapshot: RequestSnapshot, slots: tuple[ApproverSlot, ...]
 ) -> tuple[ApproverSlot, ...]:
-    """Replace, in place, every slot filled by the requester or the target.
+    """Replace every slot filled by the requester or the target.
 
-    If no fallback is usable the slot is dropped rather than filled with
-    someone disqualified. The floor is one approver, not two: a requester who
-    both manages the target and owns the system leaves only `it_admin` on a
-    `critical` request. That is the honest answer for a pure engine — every
-    other seat is filled by a party — and row 11 owns resolving a delegate.
-    Pinned by `test_a_colliding_critical_request_bottoms_out_at_one_approver`.
+    With no usable fallback the slot is dropped, so a requester who manages
+    the target and owns the system leaves only `it_admin` on a critical
+    request.
     """
     chain: list[ApproverSlot | None] = list(slots)
     for index, slot in enumerate(slots):

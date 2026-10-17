@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { accounts, loginAs, type Principal, sendTurn } from "./_fixtures";
 
 /**
- * Flow 4 of the design, an earlier change criterion 5: the HR demo account offboards a
+ * Flow 4: the HR demo account offboards a
  * leaver in chat, that user holds no active grant afterwards, and
  * `/admin/audit` shows one revoke event per grant that existed before the turn.
  *
@@ -12,11 +12,11 @@ import { accounts, loginAs, type Principal, sendTurn } from "./_fixtures";
  * of grants BEFORE the turn has to be read off a real page, and `/access` is
  * the only surface in the product that lists one person's grants, so the
  * leaver has to be someone who can sign in beforehand. Their template gives
- * them several rows, so the plan's kill ("a fixed count of 1 passes an
+ * them several rows, so the test ("a fixed count of 1 passes an
  * offboard that revoked only the first grant") has something to bite on; the
  * premise assertion below reads that off the page rather than assuming it.
  *
- * DEVIATION (plan §1, "that user holds no active grant afterwards"). There is
+ * DEVIATION from reading that the user holds no active grant afterwards. There is
  * no surface on which anyone can read another person's grants: `/access` is
  * `GET /api/me/access`, there is no user-detail page, and the leaver cannot
  * sign in to read their own — `agent_api/auth_routes.py` refuses a leaver with

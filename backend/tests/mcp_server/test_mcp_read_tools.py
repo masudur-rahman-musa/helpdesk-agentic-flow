@@ -1,4 +1,4 @@
-"""An earlier change, section 1 criterion 3, section 6: `get_me` and `list_my_access`.
+"""`get_me` and `list_my_access`.
 
 Surface under test (written before it exists):
 
@@ -23,7 +23,7 @@ Surface under test (written before it exists):
 
 A token whose ``sub`` names a user in another tenant reads nothing: the
 session is bound to the token's tenant, so the row is not found. That is
-``NOT_FOUND``, one of the eight §8.1 codes — a cross-tenant read must not be
+``NOT_FOUND``, one of the eight typed error codes — a cross-tenant read must not be
 reported as an internal error, and must never return the row.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
@@ -88,7 +88,7 @@ def test_get_me_returns_the_token_users_own_record(
 def test_get_me_ignores_user_id_and_tenant_id_in_its_arguments(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule, with the tenant guard taken out of the picture.
+    """With the tenant guard taken out of the picture.
 
     The user named in the arguments is a real, readable user in the CALLER'S
     OWN tenant, so an implementation that honoured the
@@ -173,7 +173,7 @@ def test_list_my_access_omits_revoked_expired_and_non_active_grants(
 def test_list_my_access_ignores_a_user_id_argument(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule, with the tenant guard taken out of the picture.
+    """With the tenant guard taken out of the picture.
 
     The caller and the user named in the arguments are in the SAME tenant, so
     an implementation that honoured `user_id` would return the probe's rows

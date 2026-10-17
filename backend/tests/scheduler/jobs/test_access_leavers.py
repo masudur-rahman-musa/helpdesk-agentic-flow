@@ -1,4 +1,4 @@
-"""An earlier change §6: `sweep_leavers`, and decision D's system actor on both engines.
+"""`sweep_leavers`, and the system actor on both engines.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -8,11 +8,11 @@ must provide exactly this):
     event this job causes is filed under.
     ``async def sweep_leavers(session, *, now) -> list[User]`` — over the
     BOUND tenant only, it offboards every user whose `status` is `active` and
-    whose `end_date` is strictly before `now.date()` (decision E), calling
+    whose `end_date` is strictly before `now.date()`, calling
     `offboard_user` with a `SimulatedDirectory`, that user's OWN `end_date`
     and the system actor, all in the caller's transaction. A user turned
     `leaver` between the read and their own offboard is SKIPPED
-    (`AlreadyLeaverError` is caught, decision I) and the rest of the tenant is
+    (`AlreadyLeaverError` is caught) and the rest of the tenant is
     still offboarded; every other failure raises to the runner.
 
 ``helpdesk.access.lifecycle.offboard_user`` and
@@ -24,13 +24,13 @@ must provide exactly this):
     in ``actor_ref``, or the audit log gains an event under a system kind with
     nobody named at all.
 
-The default is the whole risk of decision D (plan §5): these are the two
+The default is the whole risk of the system-actor default: these are the two
 most-covered engines in the tree, and a silent flip would relabel every human
 revocation in the log as a system one. That is what the two "default
 preserved" cases below exist for, and they call the engines exactly the way
 the MCP tools do.
 
-a project rule: the session factory is the shared one from `conftest.py` --
+The session factory is the shared one from `conftest.py` --
 one engine for the whole run, schema created once. Per-test isolation is a
 namespace, not a rebuild -- this job sweeps a whole tenant, so every case seeds
 a tenant of its OWN with `_seed.seed_tenant`. That seeded tenant's only user
@@ -75,7 +75,7 @@ NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
 TODAY = NOW.date()
 YESTERDAY = TODAY - timedelta(days=1)
-"""Decision E's inclusive half: the last day of access was yesterday."""
+"""The inclusive half: the last day of access was yesterday."""
 LONG_GONE = TODAY - timedelta(days=10)
 """A second due date, far from `YESTERDAY`, so "each user's OWN end_date" is
 observable: an implementation reusing `now.date()` or the first user's date
@@ -92,7 +92,7 @@ TENURED_START = date(2019, 3, 7)
 
 SYSTEM_ACTOR_KIND = "system"
 USER_ACTOR_KIND = "user"
-"""The two `audit_events.actor_kind` values decision D turns on."""
+"""The two `audit_events.actor_kind` values the system-actor default turns on."""
 
 
 @dataclass(frozen=True)
@@ -221,7 +221,7 @@ def _offboard_directly(
     """`offboard_user` called the way `mcp_server.tools.lifecycle` calls it.
 
     An actor id, no `actor_kind` and no `actor_ref`: the shape every existing
-    caller uses, which decision D's default has to leave unchanged.
+    caller uses, which the default has to leave unchanged.
     """
 
     async def scenario() -> None:
@@ -324,16 +324,16 @@ def _events(shared_engine: AsyncEngine, tenant_id: uuid.UUID, event_type: str) -
     return asyncio.run(scenario())
 
 
-# --- who is due (criterion 6, decision E) -------------------------------------
+# --- who is due -------------------------------------
 
 
 def test_a_user_whose_end_date_has_passed_is_offboarded_with_their_grants_revoked(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 6's main claim: the sweep DELEGATES, it does not decide.
+    """The main claim: the sweep DELEGATES, it does not decide.
 
     Catches a sweep that only writes `status = 'leaver'` — the cheap
-    implementation, and the dangerous one: the design blocks a leaver from
+    implementation, and the dangerous one: the leaver rule blocks a leaver from
     asking for anything new, so the tables would look tidy while every account
     the person already holds stays live after they have gone. The grant is
     asserted `revoked` with `OFFBOARD_REVOKE_REASON`, which is
@@ -363,7 +363,7 @@ def test_a_user_whose_end_date_has_passed_is_offboarded_with_their_grants_revoke
 def test_a_user_whose_end_date_was_yesterday_is_swept(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision E's inclusive half, at the exact day.
+    """The inclusive half, at the exact day.
 
     Catches a bound written `end_date < now.date() - 1` or one comparing the
     stored DATE against the sweep's TIMESTAMP (`end_date < now` in a column of
@@ -384,7 +384,7 @@ def test_a_user_whose_end_date_is_today_is_untouched(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Decision E's exclusive half: `<`, never `<=` (the design's own comparison).
+    """The exclusive half: `<`, never `<=` (the product spec's own comparison).
 
     `end_date` is the LAST day the person holds access, so a `<=` takes every
     account off them in the middle of their final working day — the handover
@@ -439,9 +439,9 @@ def test_a_user_who_is_already_a_leaver_is_not_swept_again(
 ) -> None:
     """The `status = 'active'` half of the due set.
 
-    No kill claim for that conjunct ALONE: decision I's `AlreadyLeaverError`
+    No kill claim for that conjunct ALONE: the `AlreadyLeaverError`
     catch answers this row as well, so the case cannot tell the two apart
-    (the neighbouring-guard trap, a project rule and 31). What it does
+    (the neighbouring-guard trap). What it does
     catch is an implementation with NEITHER — a due set of `end_date < today`
     with the refusal left to propagate, which raises on the first person who
     ever left and rolls back the whole tenant's sweep, every day, for ever.
@@ -490,7 +490,7 @@ def test_each_swept_user_keeps_their_own_end_date(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 6's "that user's OWN end_date", pinned with two dates.
+    """The "that user's OWN end_date", pinned with two dates.
 
     This is the case that catches `now.date()` being reused as everybody's
     departure date, and the subtler one where the loop passes the FIRST due
@@ -519,16 +519,16 @@ def test_each_swept_user_keeps_their_own_end_date(
     }
 
 
-# --- who the audit log says did it (criterion 7, a project rule) ------------
+# --- who the audit log says did it ------------
 
 
 def test_every_event_the_sweep_causes_carries_the_system_actor_and_its_ref(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 7, on BOTH event types the sweep produces.
+    """On BOTH event types the sweep produces.
 
-    Catches decision D's rejected alternative: leaving `actor_kind` at `user`
+    Catches the rejected alternative: leaving `actor_kind` at `user`
     and putting something system-shaped in `actor_ref` only. An auditor
     filtering the log for human decisions would then find an automatic nightly
     sweep among them, which is the exact confusion `expire_grants`' own
@@ -564,10 +564,10 @@ def test_an_offboard_with_an_actor_id_and_no_actor_kind_still_writes_the_user_ac
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 8 for `offboard_user`, called exactly as the MCP tool calls
+    """The system actor for `offboard_user`, called exactly as the MCP tool calls
     it: an actor id, no `actor_kind`.
 
-    Catches decision D's parameter defaulting to `"system"` — one word in a
+    Catches the parameter defaulting to `"system"` — one word in a
     signature that relabels every human departure in every tenant's log as an
     automatic one, and which nothing else in the suite would notice, because
     no existing case reads `actor_kind` on this event. `actor_ref` is asserted
@@ -601,12 +601,12 @@ def test_a_revocation_with_an_actor_id_and_no_actor_kind_still_writes_the_user_a
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 8 for `revoke_role_access`, reached directly rather than
+    """The system actor for `revoke_role_access`, reached directly rather than
     through an offboard.
 
     The engine has its own call site — `mcp_server.tools.access.revoke_access`
     — so a default flipped there is not covered by the offboard case above:
-    the two functions each gain their own parameter (§2), and a manual
+    the two functions each gain their own parameter, and a manual
     revocation relabelled `system` is a person's decision the log no longer
     attributes to anybody. The grant is revoked by a DIFFERENT user from its
     holder, so the ref cannot pass by matching the holder's id.
@@ -631,14 +631,14 @@ def test_a_revocation_with_an_actor_id_and_no_actor_kind_still_writes_the_user_a
     assert revoked[0].actor_ref == str(actor)
 
 
-# --- the refusal decision D has to carry (criterion 8's second half) ----------
+# --- the refusal the system-actor default has to carry ----------
 
 
 def test_an_offboard_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 8's refusal for `offboard_user`, and the price of widening the
+    """The refusal for `offboard_user`, and the price of widening the
     id to `uuid.UUID | None`.
 
     Catches the widening done WITHOUT the check: `str(None)` renders the
@@ -676,7 +676,7 @@ def test_a_revocation_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
     """The same refusal on `revoke_role_access`, which has its own call site
     and therefore its own way of being called with nothing.
 
-    a project rule: the check is applied at BOTH engines the plan widens, or
+    The check is applied at BOTH engines the change widens, or
     the one left out writes `grant.revoked` events with `"None"` in
     `actor_ref` — the per-row events, which are what an auditor reads to find
     who ended a specific grant. The grant is asserted still `active`, so a
@@ -700,7 +700,7 @@ def test_a_revocation_with_neither_an_actor_id_nor_an_actor_ref_is_refused(
     assert _events(shared_engine, tenant.tenant_id, GRANT_REVOKED_EVENT_TYPE) == []
 
 
-# --- the concurrent departure (criterion 9, decision I) -----------------------
+# --- the concurrent departure -----------------------
 
 
 def test_a_user_turned_leaver_mid_sweep_is_skipped_and_the_rest_still_go(
@@ -708,19 +708,19 @@ def test_a_user_turned_leaver_mid_sweep_is_skipped_and_the_rest_still_go(
     shared_engine: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decision I, made deterministic, and the case criterion 9 names.
+    """The concurrent-departure case, made deterministic.
 
     No kill claim for the row lock: a real second caller
     would have to interleave inside a `FOR UPDATE`, which two threads sharing
     a database almost never do on demand. The state is produced instead the
-    way `test_access_offboard.py::_WithPhantomRole` produces decision H's —
+    way `test_access_offboard.py::_WithPhantomRole` produces the —
     `offboard_user` is replaced by a proxy that raises `AlreadyLeaverError`
     for ONE user id and delegates every other call to the real engine, which
     is exactly the shape the engine itself raises in (after `lock_user`,
     before any write).
 
     What it catches is an uncaught refusal: the whole tenant's sweep runs in
-    ONE transaction (plan §5), so one person who happened to be offboarded by
+    ONE transaction, so one person who happened to be offboarded by
     hand this morning would roll back every OTHER departure of that day and
     keep doing so on every tick until somebody noticed. The surviving user's
     status, their revoked grant and a single `user.offboarded` are asserted,
@@ -797,7 +797,7 @@ def _sweep_with_a_concurrent_departure(
 
 
 def test_the_leaver_sweep_constants_are_exactly_the_planned_values() -> None:
-    """a project rule on what this half of the plan introduces.
+    """The constants this half introduces, pinned as literals.
 
     `LEAVER_SWEEP_ACTOR_REF` is the string an auditor greps `actor_ref` for to
     separate the nightly sweep's departures from a person's, and every event

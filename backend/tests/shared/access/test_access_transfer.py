@@ -1,40 +1,40 @@
-"""An earlier change, sections 1 and 6: `transfer_user`, called directly over the seed.
+"""`transfer_user`, called directly over the seed.
 
 Surface under test (written before it exists):
 
 ``helpdesk.access.lifecycle``
-    ``USER_TRANSFERRED_EVENT_TYPE = "user.transferred"`` (the design).
+    ``USER_TRANSFERRED_EVENT_TYPE = "user.transferred"``.
     ``TRANSFER_REVOKE_REASON`` — the `grants.revoke_reason` every revocation
     this tool makes carries, so a transfer's revocations are tellable from a
     manual one in the table and in the event.
-    ``SameDepartmentError(ToolError)`` — `code = POLICY_BLOCKED` (decision E).
-    ``LeaverTransferError(ToolError)`` — `code = POLICY_BLOCKED` (decision F).
+    ``SameDepartmentError(ToolError)`` — `code = POLICY_BLOCKED`.
+    ``LeaverTransferError(ToolError)`` — `code = POLICY_BLOCKED`.
     ``async def transfer_user(session, directory, *, user_id,
     new_department_id, effective_date, transferred_by_user_id,
     actor_ref=None, session_id=None, now) -> TransferResult`` — writes
     `users.department_id` in the BOUND tenant (there is no tenant argument,
-    a project rule), revokes through `helpdesk.access.revoke_role_access`,
+    so the tenant comes from the token), revokes through `helpdesk.access.revoke_role_access`,
     applies through `helpdesk.access.execute_grant`, and appends one
     `user.transferred` naming the USER, all in the caller's transaction.
     ``TransferResult`` carries ``user``, ``from_department_id``,
     ``revoked_role_ids``, ``applied_role_ids``, ``skipped``
-    (``SkippedRole`` records, an earlier change's dataclass), ``retained_role_ids``
+    (``SkippedRole`` records, the dataclass), ``retained_role_ids``
     and ``non_standard_role_ids``.
 
 ``helpdesk.core.repository``
     ``lock_user(session, user_id)`` — the bound tenant's user row, locked
-    `FOR UPDATE` for the caller's transaction (decision D). Its serialising
+    `FOR UPDATE` for the caller's transaction. Its serialising
     half cannot be observed from one session, so it is pinned end to end by
     `test_mcp_transfer_user.py::
     test_two_callers_racing_the_same_transfer_leave_one_move`.
 
-The four sets, at one instant `now` (§1):
+The four sets, at one instant `now`:
     revoke = held & old template, minus the new template;
     apply = new template, minus what is held;
     retained = held & new template, untouched (same grant id, same expiry);
-    non-standard = held, minus both templates, left live (decision H).
+    non-standard = held, minus both templates, left live.
 
-a project rule: the seeded database is `test_access_snapshot.py`'s
+The seeded database is `test_access_snapshot.py`'s
 session-scoped `access_db_url` fixture, imported rather than rebuilt (argon2
 seeding is the slow part of this suite). Per-test isolation inside it is a
 namespace: every case plants its OWN two departments (fresh uuid names) with
@@ -88,13 +88,13 @@ from tests.shared.access.test_access_snapshot import (
 # on when the suite runs. `NOW` comes from the snapshot module, so every file
 # in this suite answers for the same instant.
 TRANSFERRED_AT = NOW
-# Carried in the event and nowhere else (decision G): there is no column for
-# it and no scheduler until row 21. Deliberately NOT `now`'s date, so an
+# Carried in the event and nowhere else: there is no column for
+# it and no scheduler yet. Deliberately NOT `now`'s date, so an
 # implementation that writes `now.date()` into the payload fails.
 EFFECTIVE_DATE = date(2026, 9, 15)
 # Well over the engine's 30-day NEW_JOINER threshold, so no case here is
 # classified by tenure: the template membership is the only thing that moves
-# a class, which is what decision A's case rests on.
+# a class, which is what the case rests on.
 TENURED_START = date(2019, 3, 7)
 
 # Whoever runs the transfer. A seeded HR user, read only — no case writes to
@@ -102,7 +102,7 @@ TENURED_START = date(2019, 3, 7)
 TRANSFERRED_BY = ROWS.users_by_department["HR"][6]
 PLANTED_MANAGER = ROWS.users_by_department["HR"][7]
 
-# The four corners of the diff (§1), each in exactly one of the four sets.
+# The four corners of the diff, each in exactly one of the four sets.
 #   OLD_ONLY       mes.viewer      old template only        -> revoked
 #   BOTH           wiki.viewer     both templates           -> retained
 #   NEW_ONLY       grafana.viewer  new template only        -> applied
@@ -113,7 +113,7 @@ NEW_ONLY_ROLE = ROWS.role_ids[("grafana", "viewer")]
 NON_STANDARD_ROLE = ROWS.role_ids[("crm", "viewer")]
 
 # The engine's numbers for `grafana.viewer` (low sensitivity, read privilege,
-# tenured target), which is what makes decision A observable:
+# tenured target), which is what makes the expiry choice observable:
 #   in the department's template   -> low        -> cap 365
 #   outside it                     -> elevated   -> cap 180
 # Both are asserted against the live engine as premises below, so a policy
@@ -128,14 +128,14 @@ CAPPED_ROLE = ROWS.role_ids[("hris", "viewer")]
 CAPPED_EXPIRY_DAYS = 30
 CAPPED_ROLE_DEFAULT_EXPIRY_DAYS = 365
 
-# The seeded SoD pair (rule SoD-STD §2.1). The target holds the initiator half
+# The seeded SoD pair (the standard separation-of-duties rule). The target holds the initiator half
 # as a NON-STANDARD grant (in neither template, so it is retained rather than
 # revoked) and the new template names the approver half, so the application is
 # refused at execution while everything else stands.
 SOD_HELD_ROLE = ROWS.role_ids[("payments", "initiator")]
 SOD_TEMPLATE_ROLE = ROWS.role_ids[("payments", "approver")]
 
-# §1's payload, exactly nine keys.
+# The payload, exactly nine keys.
 EXPECTED_PAYLOAD_KEYS = {
     "user_id",
     "from_department_id",
@@ -219,7 +219,7 @@ def _transfer(
     Every fact is copied out INSIDE the transaction that wrote it, which is
     also what proves the transaction survived a skipped role: a refusal raised
     after a statement had been issued would poison it, and both this read and
-    the commit at the end of the block would fail (plan §5).
+    the commit at the end of the block would fail.
     """
 
     async def scenario() -> TransferFacts:
@@ -502,7 +502,7 @@ def _transferred_events(url: str) -> list[tuple[str, str, dict[str, Any]]]:
     return asyncio.run(scenario())
 
 
-# --- the four-way diff (criteria 1, 2, 3 and 4) --------------------------------
+# --- the four-way diff --------------------------------
 
 
 def test_the_diff_revokes_applies_retains_and_leaves_the_non_standard_grant(
@@ -518,13 +518,13 @@ def test_the_diff_revokes_applies_retains_and_leaves_the_non_standard_grant(
     return value would still look right. A transfer that revoked everything
     the old template named would take the retained role away; a transfer that
     revoked "everything held" would take the NON-STANDARD grant, which
-    decision H says stays live and untouched. The revoked row is checked as a
+    the design says stays live and untouched. The revoked row is checked as a
     row (`status`, `revoked_at`, `revoke_reason`), not merely as an id in the
     answer, so a transfer that reported a revocation it never wrote fails.
 
     The two grant events are counted as deltas — one `grant.revoked` and one
     `grant.executed` — so a transfer that wrote the rows directly instead of
-    going through `revoke_role_access` and `execute_grant` (criteria 3 and 4)
+    going through `revoke_role_access` and `execute_grant`
     leaves the tables right and the audit log empty, and fails here.
     """
     old_department = _make_department(access_db_url, (OLD_ONLY_ROLE, BOTH_ROLE))
@@ -587,15 +587,15 @@ def test_the_diff_revokes_applies_retains_and_leaves_the_non_standard_grant(
 def test_an_applied_role_gets_the_engines_expiry_not_the_roles_default(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 4: catches a transfer that writes grants directly (or through
+    """Catches a transfer that writes grants directly (or through
     `apply_grant`) with the role's own `default_expiry_days`.
 
     `hris.viewer` is a read role whose column default is 365 days and whose
     engine number is 30, because `hris` is a critical system — so an
     implementation that skipped `execute_grant` would give a mover a year of
-    access to the HR system that the design caps at a month, and every count in
-    the case above still passes. Both numbers are asserted exactly (standing
-    rule 2) and the engine's is cross-checked live as a premise, so a policy
+    access to the HR system that the spec caps at a month, and every count in
+    the case above still passes. Both numbers are asserted exactly (
+    asserted as literals) and the engine's is cross-checked live as a premise, so a policy
     change fails the premise rather than rewriting the expectation.
     """
     old_department = _make_department(access_db_url, ())
@@ -621,20 +621,21 @@ def test_an_applied_role_gets_the_engines_expiry_not_the_roles_default(
 def test_the_applications_are_classified_against_the_new_department(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision A: catches the department write landing AFTER the applications.
+    """Catches the department write landing AFTER the applications.
 
-    `build_request_snapshot` reads `role_in_department_template` off the
-    target's CURRENT department, so a pass that applied first sees every
-    arriving role as out-of-template. `grafana.viewer` is low-sensitivity and
-    read, so in the new template it is `low` (cap 365) and outside it
-    `elevated` (cap 180): the mover would silently get half the access life
-    their new department's own template entitles them to, and every set in the
-    return value would still be correct. Both numbers are asserted exactly and both are cross-checked live — the out-of-template
-    one against a control user still sitting in the old department, so the
-    premise is a fact about the engine and not about this implementation.
+       `build_request_snapshot` reads `role_in_department_template` off the
+       target's CURRENT department, so a pass that applied first sees every
+       arriving role as out-of-template. `grafana.viewer` is low-sensitivity and
+       read, so in the new template it is `low` (cap 365) and outside it
+       `elevated` (cap 180): the mover would silently get half the access life
+       their new department's own template entitles them to, and every set in the
+       return value would still be correct. Both numbers are asserted exactly
+    and both are cross-checked live — the out-of-template
+       one against a control user still sitting in the old department, so the
+       premise is a fact about the engine and not about this implementation.
 
-    This is the case that fails if decision A is reversed, and only this one:
-    the diff case above uses the same role but would pass at either expiry.
+       This is the case that fails if the expiry choice is reversed, and only this one:
+       the diff case above uses the same role but would pass at either expiry.
     """
     old_department = _make_department(access_db_url, ())
     new_department = _make_department(access_db_url, (NEW_ONLY_ROLE,))
@@ -661,12 +662,12 @@ def test_the_applications_are_classified_against_the_new_department(
 def test_a_new_template_role_in_sod_conflict_is_skipped_and_the_rest_stands(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 5: catches a transfer that fails whole on a refused role, one
+    """Catches a transfer that fails whole on a refused role, one
     that swallows the refusal, and one that writes the grant before raising.
 
     The mover holds `payments.initiator` outside both templates, and the new
-    template names `payments.approver`, so seeded rule SoD-STD §2.1 refuses
-    the application at execution. §1 says that costs the ROLE and not the
+    template names `payments.approver`, so the seeded standard separation-of-duties rule refuses
+    the application at execution. the contract says that costs the ROLE and not the
     move: the department change, the revocation of the old-template role and
     the other applied role all still stand, and the refused role is asserted
     absent from the grants table and from the directory's answer — not merely
@@ -700,13 +701,13 @@ def test_a_new_template_role_in_sod_conflict_is_skipped_and_the_rest_stands(
     assert by_role[OLD_ONLY_ROLE][0].status == REVOKED_GRANT_STATUS
 
 
-# --- the two refusals, before any write (criteria 6 and 7) ---------------------
+# --- the two refusals, before any write ---------------------
 
 
 def test_a_transfer_into_the_same_department_is_refused_before_any_write(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision E: catches the "succeed with an empty diff" alternative.
+    """Catches the "succeed with an empty diff" alternative.
 
     Nothing about the tables changes either way — the diff IS empty — so the
     only observable difference is the audit log, which would gain a
@@ -735,9 +736,9 @@ def test_a_transfer_into_the_same_department_is_refused_before_any_write(
 def test_a_leaver_target_is_refused_before_any_revocation(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision F, and the only case that can tell it from doing nothing.
+    """The only case that can tell it from doing nothing.
 
-    The engine blocks every new grant for a leaver on its own (the design), so
+    The engine blocks every new grant for a leaver on its own, so
     a transfer that let the leaver through would report every arriving role in
     `skipped` — but revocations are not policy decisions and would still run,
     stripping the leaver's remaining access under an event that says they
@@ -792,13 +793,13 @@ def test_the_transfer_constants_and_error_codes_are_exactly_the_spec_values(
     assert lifecycle_module.TRANSFER_REVOKE_REASON == TRANSFER_REVOKE_REASON
 
 
-# --- the additive case (criterion 8) -------------------------------------------
+# --- the additive case -------------------------------------------
 
 
 def test_a_user_with_no_department_transfers_additively(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 8: catches a `department_id is None` treated as an error, and
+    """Catches a `department_id is None` treated as an error, and
     a `None` old department read as "revoke everything".
 
     `list_membership_role_ids` answers the empty frozenset for a user with no
@@ -827,7 +828,7 @@ def test_a_user_with_no_department_transfers_additively(
     assert _event_count(access_db_url, GRANT_REVOKED_EVENT_TYPE) == revoked_before
 
 
-# --- the transaction (plan §5) --------------------------------------------------
+# --- the transaction --------------------------------------------------
 
 
 def test_the_transfer_and_its_events_roll_back_together(
@@ -838,9 +839,9 @@ def test_the_transfer_and_its_events_roll_back_together(
 
     The caller fails AFTER `transfer_user` returned, so anything committed in
     its own transaction survives a rollback that must take it — and the
-    instant decision B leaves open, where the mover holds neither the old role
+    instant the design leaves open, where the mover holds neither the old role
     nor the new one, becomes visible state rather than a moment inside one
-    transaction (plan §5). All four effects are re-read: the department, the
+    transaction. All four effects are re-read: the department, the
     revoked row, the applied row and both grant events.
     """
     old_department = _make_department(access_db_url, (OLD_ONLY_ROLE,))
@@ -864,22 +865,22 @@ def test_the_transfer_and_its_events_roll_back_together(
     assert len(_transferred_events(access_db_url)) == transferred_before
 
 
-# --- the audit record (criterion 3, a project rule) --------------------------
+# --- the audit record --------------------------
 
 
 def test_user_transferred_names_the_user_and_carries_exactly_nine_keys(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """a project rule and decision C: catches an event whose subject is the
+    """Catches an event whose subject is the
     department, the caller or the tool rather than the USER, and one whose
-    payload has drifted from §1's nine keys.
+    payload has drifted from the contract's nine keys.
 
     An auditor asking "why does this person hold this" queries `subject_id`;
     an event subject naming anything else answers that for nobody, while a
     count-only assertion still passes. The keys are compared as an exact set,
-    so a dropped `non_standard_role_ids` (decision H's ONLY record of the
+    so a dropped `non_standard_role_ids` (the ONLY record of the
     grants nothing else surfaces until a review runs), a dropped
-    `effective_date` (decision G's only record of it — there is no column) or
+    `effective_date` (the only record of it — there is no column) or
     a dropped `skipped_role_ids` fails here. Every list is compared by value
     against what the same call returned, so an event that reports the template
     rather than what actually happened is caught too, and the department

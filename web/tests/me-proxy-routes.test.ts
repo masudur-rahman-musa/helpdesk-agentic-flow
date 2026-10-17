@@ -7,7 +7,7 @@ import { GET as requestsGET } from "@/app/api/me/requests/route";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change §6, `me-proxy-routes.test.ts`: `GET /api/me/requests` and
+ * `me-proxy-routes.test.ts`: `GET /api/me/requests` and
  * `GET /api/me/access` against a stubbed `fetch`. Node environment, because
  * both handlers are server-side and `NextResponse.redirect` needs the real
  * `Response`.
@@ -17,12 +17,11 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  * `tests/chat-stream-route.test.ts` mock it — the modules under test are the
  * two routes, not Next's store.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23a's Deviations):
+ * Shapes this file fixes:
  * - both handlers are `export async function GET(): Promise<Response>`, the
  *   zero-argument shape `app/api/chat/messages/route.ts` already has. The
- *   `status` and `limit` filters live on the agent-api route (§1) and no page
- *   exists yet to send them; 23b widens this signature if its pages need to.
+ *   `status` and `limit` filters live on the agent-api route and no page
+ *   exists yet to send them; the signature widens if a page needs to.
  * - the upstream paths are `/me/requests` and `/me/access` — agent-api's own,
  *   not the browser-facing `/api/...` prefix.
  * - the transport-failure envelope is `502 { code: "UPSTREAM_UNAVAILABLE" }`,
@@ -54,7 +53,7 @@ const fetchStub = vi.fn<typeof fetch>();
 const routes = [
   { name: "/api/me/requests", handler: requestsGET, upstream: "/me/requests" },
   { name: "/api/me/access", handler: accessGET, upstream: "/me/access" },
-  // An earlier change: the shell's own read. The upstream URL is compared whole, so a
+  // The shell's own read. The upstream URL is compared whole, so a
   // query string or a path suffix on the proxied call fails the bearer row.
   { name: "/api/me", handler: meGET, upstream: "/me" },
 ] as const;
@@ -93,8 +92,8 @@ describe("the two /api/me routes — the bearer", () => {
     "$name sends the bearer from the httpOnly cookie and never in the URL",
     async ({ handler, upstream }) => {
       // Catches a route that reads a token from a header the browser set or
-      // from the query string — the cookie is the only copy of the bearer
-      // (22a decision A), so anything else means the client was handed one,
+      // from the query string — the cookie is the only copy of the bearer, so anything else means
+      // the client was handed one,
       // and a token in a URL lands in every access log. Also catches a route
       // that calls agent-api directly instead of through `proxyAgentApi`: an
       // unrouted call carries no authorization header at all.
@@ -147,7 +146,7 @@ describe("the two /api/me routes — an expired session", () => {
     async ({ handler }) => {
       // Catches a route that passes agent-api's 401 through to the browser:
       // the stale cookie survives, so every later call fails the same way with
-      // nothing telling the user why. This is 22a's `proxyAgentApi` seam, so a
+      // nothing telling the user why. This is the `proxyAgentApi` seam, so a
       // route that opens its own `fetch` is caught here too — an unrouted call
       // answers 401, not a redirect, and clears no cookie.
       fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));

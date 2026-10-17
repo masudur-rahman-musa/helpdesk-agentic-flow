@@ -2,18 +2,9 @@
 
     python -m helpdesk.agent_api.cli
 
-Run beside `alembic upgrade head` from `make migrate`, because that is where
-every other schema change lands. An earlier change decision B: the tables are the
-library's own and it versions them itself, so an Alembic revision copying its
-DDL would drift on every upgrade; running the library's `setup()` from the
-migrate target rather than from application startup is also what keeps several
+The library owns and versions these tables, so an Alembic copy of its DDL
+would drift. Running it from `make migrate`, not app startup, keeps several
 starting processes from racing on `CREATE TABLE`.
-
-Argument parsing there is none, and no logic either: everything happens in
-`helpdesk.agent_api.agent.checkpointer`, so a later admin route can do exactly what this
-script does by calling the same two functions. Exits 1 on a typed refusal,
-printing its code and message — the case being a `DATABASE_URL` the
-checkpointer will not convert.
 """
 
 import asyncio
@@ -25,12 +16,7 @@ from helpdesk.shared.core.errors import ToolError
 
 
 async def _setup(dsn: str) -> None:
-    """Open the pool, create the tables, close the pool.
-
-    The explicit close is the point of the `async with`: this script is run
-    from a migrate target that may be followed by anything, and a pool left
-    open would hold its connections until the interpreter exited.
-    """
+    """Create the tables and close the pool so no connections linger."""
     pool = build_pool(dsn)
     async with pool:
         await setup_checkpointer(pool)

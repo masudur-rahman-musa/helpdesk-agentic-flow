@@ -1,6 +1,6 @@
-"""An earlier change §6, the design: one tenant's corpus is unreachable from another's.
+"""One tenant's corpus is unreachable from another's.
 
-The only file in an earlier change that loads a model. It reuses `test_rag_embedding
+The only file in this group that loads a model. It reuses `test_rag_embedding
 .py`'s session-scoped `embedder` fixture rather than
 building a second `FastEmbedEmbedder`: both models cost seconds of ONNX setup
 even against a warm cache, and the isolation claim needs REAL vectors — a
@@ -11,7 +11,7 @@ Expected implementation surface: `helpdesk.rag.pipeline.ingest_document` and
 `helpdesk.rag.vectors` exactly as `test_rag_pipeline.py` and
 `test_rag_vectors.py` describe them.
 
-Isolation under this shape is the collection NAME (plan §5): one collection
+Isolation under this shape is the collection NAME: one collection
 per tenant means a cross-tenant hit requires naming the other tenant's
 collection. The case therefore searches tenant A's collection for tenant B's
 marker sentence by BOTH routes a retriever has — the lexical one (scroll the
@@ -86,8 +86,8 @@ TENANT_A_SOURCE = (
 def isolation_collections(qdrant_url: str) -> Iterator[tuple[str, str]]:  # noqa: F811
     """Both tenants' collections, dropped at both ends of the session.
 
-    Never a wipe of the instance and never a per-test rebuild (standing rule
-    7): the namespace is the two seeded tenant slugs, which only this test
+    Never a wipe of the instance and never a per-test rebuild: the namespace is the two seeded
+    tenant slugs, which only this test
     database ever ingests.
     """
     names = (collection_name(TENANT_A_SLUG), collection_name(TENANT_B_SLUG))
@@ -144,7 +144,7 @@ def test_tenant_bs_marker_sentence_is_unreachable_from_tenant_a(
 ) -> None:
     """Catches an ingest that writes every tenant's points into one shared
     collection, or that derives the collection name from anything but the
-    tenant the session is bound to — the design's whole claim.
+    tenant the session is bound to — the contract's whole claim.
 
     Three independent routes are asserted, because each catches a different
     wrong implementation: the payload scroll catches a shared collection, the

@@ -1,4 +1,4 @@
-"""An earlier change §6: `register_document_version` in `helpdesk/rag/store.py`.
+"""`register_document_version` in `helpdesk/rag/store.py`.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -14,21 +14,21 @@ Expected implementation surface (the implementer must provide exactly this):
         RegistrationResult``
 
     The session is a `core.db.tenant_session`; the row is written through
-    `core.repository.Repository`, which stamps the BOUND tenant (hard rule
-    6). `tenant_slug` is the corpus directory name and is only ever a
+    `core.repository.Repository`, which stamps the BOUND tenant. `tenant_slug` is the corpus
+    directory name and is only ever a
     cross-check against the bound tenant, never the source of the write —
     pinned by ``test_a_tenant_slug_naming_another_tenant_is_refused``.
 
     Order of effects: the four `rag.naming` pre-checks and the tenant
-    cross-check run BEFORE any write (§1); then `sha256 =
-    hashlib.sha256(source).hexdigest()` (decision D, per source file); an
+    cross-check run BEFORE any write; then `sha256 =
+    hashlib.sha256(source).hexdigest()` (per source file); an
     existing row for (bound tenant, slug, version) with that sha256 is
     returned untouched; otherwise one `policy_documents` row is inserted
     with ``is_current=True`` and every other row of the same (tenant, slug)
-    is set ``is_current=False`` — decision E, in the CALLER's transaction,
+    is set ``is_current=False`` — in the CALLER's transaction,
     never committed separately.
 
-a project rule: the database is `test_policy_models.py`'s session-scoped
+The database is `test_policy_models.py`'s session-scoped
 `policy_db_url`, imported rather than rebuilt. Per-test isolation is a
 namespace: every case registers under its own uuid-suffixed document slug,
 so no two cases share a (tenant, slug) key.
@@ -146,8 +146,8 @@ def _source_path(document_slug: str, version: str) -> str:
 
 def test_a_first_registration_writes_one_current_row(policy_db_url: str) -> None:  # noqa: F811
     """Catches a store that writes the row without `is_current=True`, or that
-    stores a digest of anything but the source bytes (decision D: the sha256
-    of the file, not of its path or its title) — either leaves 14c unable to
+    stores a digest of anything but the source bytes (the sha256
+    of the file, not of its path or its title) — either leaves the store unable to
     tell which version to retrieve or unable to skip an unchanged file."""
     document_slug = _namespace_slug()
 
@@ -180,9 +180,9 @@ def test_a_second_version_flips_the_first_and_leaves_one_current_row(
     policy_db_url: str,  # noqa: F811
 ) -> None:
     """Catches a store that inserts the new version without clearing
-    `is_current` on the old one (plan §5's risk: two current rows for one
+    `is_current` on the old one (risk: two current rows for one
     (tenant, slug)), and one that flips by version comparison rather than by
-    (tenant, slug), which would leave v1 current under decision E."""
+    (tenant, slug), which would leave v1 current."""
     document_slug = _namespace_slug()
 
     async def work(factory: async_sessionmaker[AsyncSession]) -> list[Row]:
@@ -260,7 +260,7 @@ def test_the_flip_is_invisible_until_the_registering_transaction_commits(
 
 def test_re_registering_the_same_sha256_writes_nothing(policy_db_url: str) -> None:  # noqa: F811
     """Catches a store that inserts a second row (or refreshes `ingested_at`)
-    for an unchanged source: the design's skip is what makes re-ingesting
+    for an unchanged source: the contract's skip is what makes re-ingesting
     the corpus cheap, and a new `ingested_at` would claim the file was read
     again when nothing about it changed."""
     document_slug = _namespace_slug()
@@ -353,8 +353,8 @@ def test_a_document_slug_that_is_not_a_lowercase_hyphen_slug_refuses_before_any_
 
 def test_a_version_that_is_not_vn_refuses_before_any_write(policy_db_url: str) -> None:  # noqa: F811
     """Catches a store that skips the `rag.naming` version pre-check: `1.0`
-    is the corpus front-matter spelling decision G rejected, and a row
-    carrying it can never be matched by the `vN` payload filter 14c
+    is the corpus front-matter spelling the store rejects, and a row
+    carrying it can never be matched by the `vN` payload filter the store
     builds."""
     _assert_refused(
         policy_db_url,

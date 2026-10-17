@@ -5,19 +5,8 @@ import { useState } from "react";
 import type { Citation } from "@/features/chat/components/types";
 
 /**
- * What the answer was built from: title, version, heading path and score
- * always, the chunk text only when the reader asks for it.
- *
- * Expandable rather than inline because a settled reply can carry several
- * hundred words of policy prose per citation, which nobody asked to read to
- * find out whether the answer cited the right document. The toggle's
- * accessible name is the citation's TITLE, which is also how
- * `tests/chat-page.test.tsx` finds it; the before-click assertion there is the
- * load-bearing half, since a list that showed everything always would pass the
- * after-click one.
- *
- * The chunk text is rendered as TEXT, never as markup: it is retrieved
- * content, which this app treats as data and never as instructions.
+ * The answer's sources. Text is hidden until asked for, since it can be long.
+ * It renders as plain text: retrieved content is data, never markup.
  */
 export function Citations({ citations }: { citations: Citation[] }) {
   if (citations.length === 0) {

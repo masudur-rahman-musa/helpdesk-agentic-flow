@@ -1,20 +1,9 @@
-"""`classify` — the whole policy engine in one pass (the design).
+"""`classify`: the whole policy engine in one pass.
 
-Order matters and is fixed: §9.2 risk class, then the self-requested-admin
-escalation, then the expiry cap for the resulting class, then the approver
-chain, and only then the two overrides that can block a request. Blocking
-last is deliberate: a blocked request still reports the class and expiry it
-would have had, which is what makes the refusal explainable.
-
-Reasons come out in this canonical order, so callers and golden cases can
-compare tuples rather than sets:
-
-    IN_TEMPLATE | NOT_IN_TEMPLATE, SENSITIVITY_HIGH, CRITICAL_SYSTEM,
-    PRIVILEGE_ADMIN, NEW_JOINER, SELF_ADMIN_ESCALATED, EXPIRY_CAPPED,
-    TARGET_LEAVER, then SOD_CONFLICT:{rule_id} per conflict in rule order.
-
-the design lists the codes as a set; the order here is this engine's, not
-the spec's.
+Order is fixed: risk class, self-admin bump, expiry cap, approver chain, and
+only then the two overrides that block. Blocking last means a refusal still
+shows the class and expiry it would have had. Reasons come out in a fixed
+order so callers can compare tuples, not sets.
 """
 
 from helpdesk.shared.policy import risk as risk_module

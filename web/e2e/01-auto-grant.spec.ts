@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { accounts, decisionCard, loginAs, type Principal, sendTurn, sources } from "./_fixtures";
 
 /**
- * Flow 1 of the design, an earlier change criterion 2: the demo employee asks for a role
+ * Flow 1: the demo employee asks for a role
  * their department template already covers, the card reads granted, at least
  * one citation is listed under Sources, and the role appears on `/access`.
  *
@@ -80,7 +80,7 @@ test("an in-template ask is granted on the spot, cites policy, and lands on /acc
   // grant would mean the chain and the decision disagree.
   await expect(card.getByRole("list", { name: "Approvers" }).getByRole("listitem")).toHaveCount(0);
 
-  // The plan's §6 kill for this flow: delete this and a grant with no policy
+  // The check that matters here: delete this and a grant with no policy
   // behind it passes.
   await expect(sources(page).getByRole("listitem").first()).toBeVisible();
 

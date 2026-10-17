@@ -7,38 +7,36 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
 
 /**
- * An earlier change §6, `killswitch-board.test.tsx`: the read-only `/admin/killswitch`
+ * `killswitch-board.test.tsx`: the read-only `/admin/killswitch`
  * board — one row per registered tool, both layers per row — against a stubbed
- * `fetch`. jsdom, no agent-api, no backing service. (No basename collision in
- * the tree, a project rule: the neighbours are `killswitch-schema.test.ts`
+ * `fetch`. jsdom, no agent-api, no backing service. (The neighbours are `killswitch-schema.test.ts`
  * and `killswitch-proxy-routes.test.ts`.)
  *
  * The unit under test is `KillSwitchBoard` from
  * `web/src/features/admin/killswitch/components/kill-switch-board.tsx`, taking NO props and doing its
- * own read through TanStack Query (§2, decision A), so
+ * own read through TanStack Query, so
  * `app/admin/killswitch/page.tsx` stays a thin `AppShell` wrapper no case here
  * renders. Everything on this surface is a READ: no case posts anything,
- * because nothing here may — the toggle is an earlier change's.
+ * because nothing here may — the toggle is tested apart.
  *
- * The accessible names are the plan's own (§6): the region `Kill switches`, the
+ * The accessible names are the plan's own: the region `Kill switches`, the
  * table `Tool kill switches`, and the four column headers `Tool`, `Status`,
  * `Platform-wide`, `This tenant`. The implementation owes the `<section>` and
  * the `<table>` an `aria-label` each, because neither role takes its name from
  * its contents.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24da's Deviations):
+ * Shapes this file fixes:
  * - "the call's whole argument list" is asserted as: exactly one call, whose
  *   pathname is `/api/admin/killswitch`, whose `search` is the empty string,
  *   whose method is `GET` (absent counts, `fetch`'s own default) and whose
  *   `body` is `undefined`. The relative-versus-absolute form of the URL is NOT
- *   fixed, because the proxy path is what §1 pins and nothing else observes it.
+ *   fixed, because the proxy path is what matters and nothing else observes it.
  * - a row's four cells are asserted BY POSITION in the header order above:
  *   `role="cell"` carries no name of its own, and `within(row)` alone cannot
  *   tell the `Platform-wide` cell from the `This tenant` one — which is the
  *   swap this file exists to catch.
  * - the `Switch value unreadable` text is asserted anywhere in its ROW rather
- *   than in a named cell: §1 says the row carries it and does not say which
+ *   than in a named cell: the row carries it but nothing says which
  *   cell holds it.
  * - the `Status` cell's text is asserted with `toBe` and not
  *   `toHaveTextContent`, so a cell reading "Not stopped" cannot satisfy
@@ -46,7 +44,7 @@ import { KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
  * - an expired session is `response.redirected` with `url` on the INSTANCE and
  *   `location` stubbed through `vi.stubGlobal`.
  *
- * Every fixture parses under `web/src/features/admin/killswitch/schema.ts` as 24cb built it:
+ * Every fixture parses under `web/src/features/admin/killswitch/schema.ts`:
  * the six `KillSwitchRow` fields inside `{ switches: [...] }`, with
  * `global_state` and `tenant_state` the two nullable ones. That parser is
  * pinned by `tests/killswitch-schema.test.ts` and only CONSUMED here.
@@ -60,7 +58,7 @@ const UNREADABLE_TEXT = "Switch value unreadable";
 const PROTECTED_TEXT = "Protected";
 const NO_SWITCH = "No switch";
 
-/** The four columns, in the order §1 fixes them. */
+/** The four columns, in header order. */
 const TOOL_CELL = 0;
 const STATUS_CELL = 1;
 const GLOBAL_CELL = 2;
@@ -238,12 +236,12 @@ afterEach(() => {
 
 describe("KillSwitchBoard — the read it makes", () => {
   it("reads the proxy once on paint, as a GET with no query and no body", async () => {
-    // §1's first criterion and decision A, as the call's whole argument list.
+    // As the call's whole argument list.
     // Kills a board that sends the tenant, the principal or a tool filter along
     // (`?tenant=...`): which board this caller sees is the token's tenant,
-    // decided behind the MCP boundary, and a page that names one is a project rule
+    // decided behind the MCP boundary, and a page that names one is trusting the caller's tenant
     // written into the browser. Kills a POST — nothing on this surface may
-    // write, and 24db's toggle is the only verb that ever will. Kills a board
+    // write, and the toggle is the only verb that ever will. Kills a board
     // that reads on a click instead of on paint (no call at all by the time the
     // table exists), and one that fires twice per paint, which doubles the
     // tool's Redis MGET for a screen nobody interacted with.
@@ -260,11 +258,11 @@ describe("KillSwitchBoard — the read it makes", () => {
   });
 
   it("names the region Kill switches and the table Tool kill switches", async () => {
-    // a project rule's own subject, and the container every count in this
+    // The container every count in this
     // file is scoped to. Kills a board whose table sits outside any named
     // region — a screen-reader user then meets a grid with no announced
     // context — and kills an unnamed `<table>`, which on a page that later
-    // grows a second one (24db's answer line) becomes unaddressable. Every
+    // grows a second one (the answer line) becomes unaddressable. Every
     // `within(region)` query here would otherwise be picking elements out of
     // the whole document.
     renderBoard();
@@ -275,8 +273,8 @@ describe("KillSwitchBoard — the read it makes", () => {
 
 describe("KillSwitchBoard — the shape of the board", () => {
   it("renders the five column headers in order", async () => {
-    // §1's third criterion as an exact sequence. Kills a board that merges the
-    // two layers into one column — decision C's whole point is that an admin
+    // An exact sequence. Kills a board that merges the
+    // two layers into one column — the whole point is that an admin
     // clearing the tenant switch has to be told the global one still holds the
     // tool down, and a merged column cannot say so — and kills one that renames
     // `This tenant` to something an admin reads as platform-wide. The order is
@@ -297,12 +295,12 @@ describe("KillSwitchBoard — the shape of the board", () => {
   ];
 
   it.each(ORDERS)("renders a payload in $name order exactly as it arrived", async ({ tools }) => {
-    // §1's second criterion, with two payload orders because ONE proves
+    // With two payload orders because ONE proves
     // nothing: a board sorting ascending would pass a payload that happened to
-    // arrive sorted. Row 1 kills an ascending sort, row 2 kills a descending
+    // arrive sorted. The first row kills an ascending sort, the second row kills a descending
     // one and any "stopped tools first" grouping — its three tools are in
-    // neither alphabetical direction. The order on the wire is the registry's
-    // (24ca), and this component is not the place that decides what the board
+    // neither alphabetical direction. The order on the wire is the registry's, and this component
+    // is not the place that decides what the board
     // contains or in what order: a tool added by a later plan must not be able
     // to land somewhere an operator does not look.
     boardAnswer = () => board(tools.map((tool) => row({ tool })));
@@ -348,14 +346,14 @@ describe("KillSwitchBoard — the status cell", () => {
     ];
 
   it.each(STATUSES)("reads $status for $name", async ({ entry, status }) => {
-    // §1's fourth criterion and decision C: the cell is read off `stopped` and
-    // NEVER recomputed from the two layer states. Rows 3 and 4 are the kill,
-    // and they are arranged so ONLY that recomputation flips them — row 3 is
+    // The cell is read off `stopped` and
+    // NEVER recomputed from the two layer states. The third and fourth rows are the kill,
+    // and they are arranged so ONLY that recomputation flips them — the third row is
     // stopped with nothing visible to derive it from (a board computing
     // `global_state !== null || tenant_state !== null` renders "Running" over a
-    // tool whose every call is denied, §5's first risk), and row 4 is running
+    // tool whose every call is denied), and the fourth row is running
     // with a layer present (the same board renders "Stopped" and sends an
-    // operator to clear a switch that is holding nothing down). Rows 1 and 2
+    // operator to clear a switch that is holding nothing down). The first and second rows
     // agree with both implementations on purpose: they pin the two words
     // themselves, so a cell rendering `true`/`false`, or "Disabled", is red
     // without either derivation being involved. `toBe` rather than
@@ -370,7 +368,7 @@ describe("KillSwitchBoard — the status cell", () => {
 
 describe("KillSwitchBoard — the two layer cells", () => {
   it("renders each layer's reason, actor and formatted instant in its own cell", async () => {
-    // §1's fifth criterion, with `within(row)` and a POSITION, because
+    // With `within(row)` and a POSITION, because
     // `role="cell"` has no name of its own. The two layers carry different
     // reasons, different actors and different instants, so this kills the swap:
     // a board rendering the platform switch under `This tenant` would tell an
@@ -380,7 +378,7 @@ describe("KillSwitchBoard — the two layer cells", () => {
     // assertion on the row would miss. The instant is asserted as
     // `formatSwitchInstant`'s output and the raw wire string as ABSENT, so a
     // cell printing `2026-09-12T08:00:00+00:00` at an operator is red: that is
-    // the wiring decision B exists for, and the format itself is pinned by
+    // the wiring this exists for, and the format itself is pinned by
     // `killswitch-format.test.ts`.
     boardAnswer = () => board([ROW_BOTH_LAYERS]);
     renderBoard();
@@ -422,7 +420,7 @@ describe("KillSwitchBoard — the two layer cells", () => {
   ];
 
   it.each(EMPTY_LAYERS)("renders No switch for $name", async ({ entry, empty, held }) => {
-    // §1's fifth criterion, the null half, asserted PER CELL. Kills a board
+    // The null half, asserted PER CELL. Kills a board
     // rendering a null layer as an empty cell, where an operator cannot tell
     // "no switch here" from a cell that failed to draw — on the one screen
     // whose job is saying which layer holds a tool down. The held cell is
@@ -440,9 +438,9 @@ describe("KillSwitchBoard — the two layer cells", () => {
 
 describe("KillSwitchBoard — the two row markers", () => {
   it("marks a protected row and leaves an unprotected one unmarked", async () => {
-    // §1's sixth criterion, both directions in one case because the presence
+    // Both directions in one case because the presence
     // assertion alone is green for a board printing `Protected` on every row.
-    // Kills a board that drops the marker — 24db's disabled toggle is meant to
+    // Kills a board that drops the marker — the disabled toggle is meant to
     // read off this row rather than off a second browser-side copy of
     // `PROTECTED_TOOLS`, and a second copy is exactly what an implementer
     // writes when nothing on the row says so. `set_kill_switch` is the tool the
@@ -457,13 +455,13 @@ describe("KillSwitchBoard — the two row markers", () => {
   });
 
   it("renders an unreadable row as stopped, marked, with neither layer shown", async () => {
-    // §1's seventh criterion and §5's second risk, all three facts in one case
+    // All three facts in one case
     // because each alone is survivable. Kills a board that renders a row whose
     // stored value will not parse as a clean running line: every call to that
     // tool is denied and this board is the ONLY surface a bad key can be seen
     // from, so "Running" there is the one answer an operator cannot act on.
     // The two `No switch` cells are asserted because the tool nulls both states
-    // on such a row on purpose (24ca decision D) — a board inventing a
+    // on such a row on purpose — a board inventing a
     // placeholder state, or leaving the cells blank, hides which layer to look
     // at. The marker separates this row from a legitimately stopped one, which
     // the `Stopped` assertion alone cannot.
@@ -483,7 +481,7 @@ describe("KillSwitchBoard — the two row markers", () => {
 
 describe("KillSwitchBoard — nothing to show, and reads that fail", () => {
   it("renders the named empty state with no table and no alert", async () => {
-    // §1's eighth criterion, the successful half. Kills a board rendering an
+    // The successful half. Kills a board rendering an
     // empty grid under its headers, where "no tools registered" looks exactly
     // like a read that broke. The absent alert is the mutual exclusion: a page
     // showing both says two contradictory things about one answer, and an
@@ -532,22 +530,22 @@ describe("KillSwitchBoard — nothing to show, and reads that fail", () => {
   it.each(FAILURES)(
     "$name renders the read message, no table and no empty state",
     async ({ answer }) => {
-      // §1's second unhappy path and decision E, from three directions, all
+      // From three directions, all
       // killing one implementation: a fetcher that answers an EMPTY BOARD when
       // the read fails. It would print "No tools are registered." over a
       // platform whose switches nobody could read — the one sentence on this
       // page an operator acts on by concluding the platform is clean — because
       // a proxy was down.
       //
-      // Row 1 is a row missing `stopped` alone, so it also kills a page that
+      // The first row is a row missing `stopped` alone, so it also kills a page that
       // CASTS the body instead of running `safeParse`: the row would draw with
-      // an undefined status, which renders a stopped tool as running. Row 2
+      // an undefined status, which renders a stopped tool as running. The second row
       // kills one reading the body without checking the status, a 502 envelope
-      // being valid JSON, and it is the decision E discriminator —
-      // `UPSTREAM_UNAVAILABLE` is not one of the design's eight codes, so it is
+      // being valid JSON, and it is how a failure is told from a refusal —
+      // `UPSTREAM_UNAVAILABLE` is not one of the eight typed error codes, so it is
       // a read failure and not a typed refusal, and a board answering
       // `failureMessage(code)` here shows "Something went wrong. Nothing was
-      // changed.", which is red against this constant. Row 3 kills one calling
+      // changed.", which is red against this constant. The third row kills one calling
       // `response.json()` unguarded, where the parse error escapes as an
       // unhandled rejection instead of a sentence.
       boardAnswer = answer;
@@ -581,7 +579,7 @@ describe("KillSwitchBoard — a refused read", () => {
   it.each(REFUSALS)(
     "$name renders its own sentence in an alert, with no table",
     async ({ status, code, sentence }) => {
-      // §1's first unhappy path and decision E, one case per reachable code.
+      // One case per reachable code.
       // Kills a board rendering the CODE at the operator ("TOOL_DISABLED" means
       // nothing to the person reading it), and kills one answering every
       // failure with `KILL_SWITCH_READ_MESSAGE` — a caller who is not a
@@ -589,8 +587,8 @@ describe("KillSwitchBoard — a refused read", () => {
       // no amount of retrying fixes, and `list_kill_switches` held down by a
       // switch of its own would read as a broken proxy rather than as the
       // deliberate stop it is. Both sentences are READ from `FAILURE_MESSAGES`,
-      // so a board inventing its own wording is red without widening 22b's
-      // pinned map, and this surface takes NO override sentence (decision E):
+      // so a board inventing its own wording is red without widening the shared
+      // pinned map, and this surface takes NO override sentence:
       // both shared sentences are true of this read.
       boardAnswer = () => jsonResponse({ code }, status);
       renderBoard();
@@ -607,8 +605,8 @@ describe("KillSwitchBoard — a refused read", () => {
 
 describe("KillSwitchBoard — an expired session", () => {
   it("follows the proxy's redirect to /login instead of rendering a board", async () => {
-    // §1's last unhappy path, and the reason it is `response.redirected` and
-    // never a status (22b decision E, a project rule): the browser has
+    // And the reason it is `response.redirected` and
+    // never a status: the browser has
     // ALREADY followed the proxy's redirect, so what arrives is a 200 carrying
     // the login page. Kills a fetcher checking `response.ok` or
     // `response.status === 401` — both see a successful response, the parser
@@ -632,7 +630,7 @@ describe("KillSwitchBoard — an expired session", () => {
 
 describe("KillSwitchBoard — two failed reads the existing rows do not cover (plan 24ib §6)", () => {
   it("renders the read message for a 500 carrying no body at all", async () => {
-    // An earlier change §5's second risk, named for this board: `readWire` reads the
+    // A risk for this board: `readWire` reads the
     // body of a non-ok response to look for a typed code, and the existing
     // `a 500 carrying no JSON at all` row still hands it HTML BYTES to fail on.
     // This one is `new Response(null, ...)` — nothing to read at all. Kills a
@@ -653,14 +651,14 @@ describe("KillSwitchBoard — two failed reads the existing rows do not cover (p
   }, 10_000);
 
   it("renders the read message for a 200 whose body is not JSON at all", async () => {
-    // An earlier change decision E on this board: today `readJson` guards the parse and
+    // This board: today `readJson` guards the parse and
     // `killSwitchBoardSchema` refuses the `undefined`; through `readWire` the
     // same response takes the same route to the same sentence, and the case is
     // what turns that equivalence from an argument into an assertion. Kills a
     // migration that lets a 200 carrying an HTML error page through the ok
     // branch without a parse — the board would paint from an unvalidated body,
     // and a row whose `stopped` nobody checked renders a stopped tool as
-    // running, which is §5's first risk arriving by a different door.
+    // running, the same risk arriving by a different door.
     boardAnswer = () =>
       new Response("<html>not json</html>", {
         status: 200,

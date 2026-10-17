@@ -1,4 +1,4 @@
-"""An earlier change section 6, first block: `read_sod_rules`, against Postgres.
+"""`read_sod_rules`, against Postgres.
 
 Surface under test (written before it exists). The implementer must provide
 exactly this:
@@ -9,17 +9,17 @@ exactly this:
     ``SodRuleDetail`` - one rule, carrying exactly ``rule_id``, ``role_a_id``,
     ``role_a``, ``role_b_id``, ``role_b``, ``rationale`` and ``policy_ref``.
     The two ids are ALWAYS present; each resolved block is ``SodRuleRole`` or
-    ``None`` (plan decision B).
+    ``None``.
     ``async def read_sod_rules(session) -> tuple[SodRuleDetail, ...]`` - the
     bound tenant's rules, ordered ``policy_ref`` ascending then ``rule_id``
-    ascending (decision C), in exactly three SELECTs whatever the rule count.
+    ascending, in exactly three SELECTs whatever the rule count.
 
 The session is tenant-bound (``helpdesk.core.db.tenant_session``), so the
 helper takes no tenant argument at all: the rules are the token's tenant's own
 rows and the guard in ``helpdesk/core/db.py`` is the only filter.
 
 ``read_sod_rules`` is imported from the PACKAGE and the two models from the
-MODULE on purpose: plan section 3 says both paths exist, and importing one of
+MODULE on purpose: both import paths exist, and importing one of
 each pins the re-export without a case that asserts nothing else.
 
 The plan names the two field sets but not the carrier (a frozen dataclass, as
@@ -28,7 +28,7 @@ The plan names the two field sets but not the carrier (a frozen dataclass, as
 still asserted while the choice stays the implementer's - a value the plan left
 open, recorded here rather than invented.
 
-a project rule: the engine and session factory are the shared ones from
+The engine and session factory are the shared ones from
 `conftest.py` - one engine for the whole run, schema created once. Per-test
 isolation is a namespace, never a rebuild - every case seeds a tenant
 of its OWN with `_seed.seed_tenant`, so no case can read another's rules.
@@ -67,14 +67,14 @@ DETAIL_FIELDS: tuple[str, ...] = (
     "rationale",
     "policy_ref",
 )
-"""Plan criterion 3's seven fields, written out.
+"""The seven fields, written out.
 
-A literal rather than a read of the model under test: the row is what 24eb
-puts on the wire and 24f renders, so a field added or dropped is a red case
+A literal rather than a read of the model under test: the row is what the route
+puts on the wire and the web page renders, so a field added or dropped is a red case
 here rather than a page that breaks on the first rename."""
 
 ROLE_FIELDS: tuple[str, ...] = ("role_id", "slug", "name", "system_slug", "system_name")
-"""Plan criterion 4's five fields, written out for the same reason."""
+"""The five fields, written out for the same reason."""
 
 SEEDED_POLICY_REF = "POL-TEST-1"
 """The `policy_ref` `_seed.seed_tenant` plants, read off `_seed.py`."""
@@ -83,12 +83,12 @@ SEEDED_RATIONALE = "fake rationale for tests"
 """The `rationale` `_seed.seed_tenant` plants, read off `_seed.py`."""
 
 # Two planted refs that sort BEFORE the seeded one on every column of the
-# order, and repeat so the tie-break is exercised (plan criterion 5).
+# order, and repeat so the tie-break is exercised.
 REF_ONE = "FAKE-SOD-1"
 REF_TWO = "FAKE-SOD-2"
 
 EXPECTED_STATEMENTS = 3
-"""Plan criterion 6's number, exactly: the rules, the roles
+"""The number, exactly: the rules, the roles
 by id, the systems by id - whatever the rule count."""
 
 
@@ -204,7 +204,7 @@ def _one(details: Sequence[SodRuleDetail], rule_id: uuid.UUID) -> SodRuleDetail:
 def test_a_rule_comes_back_with_both_sides_resolved_and_the_exact_two_field_sets(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criteria 3 and 4, as the literals 24eb puts on the wire.
+    """The rule and role fields, as the literals the route puts on the wire.
 
     KILL: a helper that hands back the `SodRule` rows with their ids and
     nothing resolved, so the page shows two uuids where two role names belong;
@@ -216,7 +216,7 @@ def test_a_rule_comes_back_with_both_sides_resolved_and_the_exact_two_field_sets
 
     The field sets are asserted EXACTLY, so a row that grew an eighth field -
     a `created_at`, a second copy of the rationale, an `unresolvable` flag
-    decision B deliberately does not carry - is as red as one short of a
+    the tool deliberately does not carry - is as red as one short of a
     field.
     """
 
@@ -257,13 +257,13 @@ def test_a_rule_comes_back_with_both_sides_resolved_and_the_exact_two_field_sets
     asyncio.run(scenario())
 
 
-# --- the one total order, tie-break included (criterion 5) ----------------------
+# --- the one total order, tie-break included ----------------------
 
 
 def test_the_rows_are_ordered_by_policy_ref_then_rule_id(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 5 and decision C, asserted as an exact sequence.
+    """The total order, asserted as an exact sequence.
 
     KILL: an order left to Postgres (no ORDER BY, so insertion order is what
     comes back), an order by `created_at`, or an order on `policy_ref` alone.
@@ -273,7 +273,7 @@ def test_the_rows_are_ordered_by_policy_ref_then_rule_id(
     tie in insertion order and fails here. The seeded row's `POL-TEST-1`
     sorts after both planted refs, so a DESCENDING order fails too.
 
-    Four rules over four roles is also the fixture criterion 6 counts
+    Four rules over four roles is also the fixture the statement count uses
     statements on, which is why they are planted together.
     """
 
@@ -330,14 +330,14 @@ def test_the_rows_are_ordered_by_policy_ref_then_rule_id(
     asyncio.run(scenario())
 
 
-# --- the unresolvable side (criterion 8, decision B) ----------------------------
+# --- the unresolvable side ----------------------------------------------------
 
 
 def test_a_rule_naming_no_role_row_answers_that_side_null_and_keeps_its_id(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 8: one bad reference may not blank the board.
+    """one bad reference may not blank the board.
 
     KILL: a resolution written as `roles[rule.role_a_id]`, which raises
     `KeyError` and fails the whole call, and equally a comprehension that
@@ -401,7 +401,7 @@ def test_a_rule_naming_no_role_row_answers_that_side_null_and_keeps_its_id(
 def test_a_rule_naming_another_tenants_role_answers_null_and_never_that_name(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 7's second half: the resolution obeys the tenant guard too.
+    """The second half: the resolution obeys the tenant guard too.
 
     KILL: a resolution that leaves the tenant-scoped repository - a raw
     `select(Role)` on an unbound session, a lookup through a second engine, a
@@ -442,13 +442,13 @@ def test_a_rule_naming_another_tenants_role_answers_null_and_never_that_name(
     asyncio.run(scenario())
 
 
-# --- tenant isolation of the rules themselves (criterion 7) ---------------------
+# --- tenant isolation of the rules themselves ---------------------
 
 
 def test_another_tenants_rules_are_absent_from_the_answer(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 7's first half: only the bound tenant's rows are read.
+    """The first half: only the bound tenant's rows are read.
 
     KILL: a helper that takes a tenant id and filters on it, or
     one that builds its own `select(SodRule)` outside the repository and so
@@ -475,13 +475,13 @@ def test_another_tenants_rules_are_absent_from_the_answer(
     asyncio.run(scenario())
 
 
-# --- a tenant with no rules (criterion 10) --------------------------------------
+# --- a tenant with no rules --------------------------------------
 
 
 def test_a_tenant_with_no_rules_answers_an_empty_tuple(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 10: an empty configuration is an answer, never a failure.
+    """an empty configuration is an answer, never a failure.
 
     KILL: a helper that raises on the empty read - a `.one()` on the rules
     query, or an unguarded `get_many` over an empty id set (`IN ()` is not
@@ -507,14 +507,14 @@ def test_a_tenant_with_no_rules_answers_an_empty_tuple(
     asyncio.run(scenario())
 
 
-# --- three statements, whatever the rule count (criterion 6) --------------------
+# --- three statements, whatever the rule count --------------------
 
 
 def test_the_whole_read_issues_exactly_three_selects(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 6, counted on the engine rather than read off the source.
+    """The statement count, counted on the engine rather than read off the source.
 
     KILL: the obvious resolution - `Repository.get` per side per rule - which
     is nine statements for the four rules here and grows with the tenant. A

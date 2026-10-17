@@ -1,12 +1,4 @@
-"""The login logic the route calls: tenant/user lookups and the audit emit.
-
-Pulled out of `auth_routes` by an earlier change. `append_event` is a module global
-here so `_emit`'s call reads it, which is why a test stubbing the failing
-audit write patches `agent_api.services.auth.append_event`.
-
-An earlier change adds `LoginRefusedError` and `login` so the route holds no auth
-logic. The route calls `login`, which raises rather than returning responses.
-"""
+"""The login logic: find the tenant and user, check the password, audit, sign."""
 
 import uuid
 from datetime import UTC, datetime
@@ -28,13 +20,7 @@ _DUMMY_HASH = hash_password(uuid.uuid4().hex)
 
 
 class LoginRefusedError(Exception):
-    """Raised when a login attempt is refused.
-
-    Wrong password, unknown email, unknown tenant, wrong-tenant credentials
-    and leaver status all raise this so the response never reveals why.
-    Rendered as a literal 401 {"code": "FORBIDDEN"} by the app-level handler
-    in `router.py`.
-    """
+    """A refused login, whatever the reason, so the answer never says why."""
 
 
 async def _find_tenant(database_url: str, tenant_slug: str) -> Tenant | None:
@@ -75,15 +61,11 @@ async def _emit(
 
 
 async def login(body: LoginRequest, settings: Settings) -> LoginResponse:
-    """Verify credentials and return a JWT, or raise.
+    """Check the credentials and return a signed token, or raise.
 
-    Raises LoginRefusedError when the attempt is refused (wrong credentials,
-    unknown tenant, leaver). Raises ToolError(INTERNAL) when the audit write
-    fails — a login that succeeded unaudited is a hole in the guarantee. Both are rendered by the app-level handlers in
-    `router.py`.
-
-    The dummy argon2 hash is verified on the miss paths so timing cannot
-    distinguish an unknown email from a wrong password.
+    A failed audit write fails the login: a login that succeeded unaudited is a
+    hole in the log. The dummy hash runs on miss paths so timing cannot tell an
+    unknown email from a wrong password.
     """
     tenant = await _find_tenant(settings.database_url, body.tenant_slug)
     if tenant is None:
@@ -110,10 +92,7 @@ async def login(body: LoginRequest, settings: Settings) -> LoginResponse:
             user,
         )
     except Exception:
-        # Broad on purpose for now: nothing may reach the caller as an
-        # untyped error, and with no logging module yet a narrower catch
-        # would turn a programming error into an unhandled 500 instead of
-        # this typed one. Row 20 adds the log line and the narrowing.
+        # Broad on purpose: nothing may reach the caller as an untyped error.
         raise ToolError(ErrorCode.INTERNAL)
 
     if refused or user is None or user.department_id is None:

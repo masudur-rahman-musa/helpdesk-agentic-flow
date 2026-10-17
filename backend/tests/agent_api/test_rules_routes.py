@@ -1,25 +1,24 @@
-"""An earlier change section 6: the SoD rules board, over HTTP.
+"""The SoD rules board, over HTTP.
 
 Surface under test (written before it exists; every case below is red on one of
 these names until step 1 lands):
 
-``agent_api.rules_routes`` (step 1)
+``agent_api.rules_routes``
     ``router`` with ``GET /admin/rules`` - no query parameter, no body, no
     argument at all - calling the ``list_sod_rules`` tool through
     ``agent_api.deps``' existing seam: ``authenticated``, ``unauthenticated``,
-    ``typed_refusal``, ``call_tool_route`` and ``STATUS_FOR_CODE`` (decision
-    B). Registered in ``main.py`` as ``rules_router``. That seam is why every
+    ``typed_refusal``, ``call_tool_route`` and ``STATUS_FOR_CODE``. Registered in ``main.py`` as
+    ``rules_router``. That seam is why every
     case here patches ``deps.build_tool_caller``, enters no lifespan and opens
     no socket.
 
-Shapes this file fixes that the plan left open (a project rule and 55;
-these belong in 24eb's Deviations):
+Shapes this file fixes that the plan left open:
 - the tool name is ``list_sod_rules``, its own registry name, and the path is
-  ``/admin/rules`` (decision C), held here as ``RULES_PATH``.
+  ``/admin/rules``, held here as ``RULES_PATH``.
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``.
 - the bearer refusal is a literal ``401`` carrying ``{"code": "FORBIDDEN"}``,
-  which is what ``deps.unauthenticated()`` answers, 23a/23c/23h/24a/24cb's
-  shape unchanged. The plan's section 6 writes that body as
+  which is what ``deps.unauthenticated()`` answers, the
+  shape unchanged. The expected body is written as
   ``{"code": "UNAUTHENTICATED"}``; ``helpdesk.errors.ErrorCode`` has no such
   member, so the code's own value is asserted here and the
   plan's sentence is the deviation.
@@ -31,8 +30,8 @@ these belong in 24eb's Deviations):
   tool's own ``ListSodRulesOutput`` in a premise assertion, so a row invented
   here rather than read off ``mcp_server/tools/rules.py`` fails this file
   instead of passing against a route that answers the wrong shape.
-- the staged order is ``policy_ref`` ascending then ``rule_id`` ascending (24ea
-  decision C), and the three staged ``rule_id``s are deliberately NOT in
+- the staged order is ``policy_ref`` ascending then ``rule_id`` ascending, and the three staged
+``rule_id``s are deliberately NOT in
   ascending order of their own, so a route that re-sorted on any single field,
   or reversed, fails the order case.
 
@@ -93,7 +92,7 @@ SESSION_ID = uuid.UUID("44444444-4444-5444-8444-444444444444")
 # one verifies its signature and fails on expiry alone.
 EXPIRED_ISSUED_AT = datetime.now(UTC) - timedelta(hours=9)
 
-# The two principals the design gives the row a cell for, and the five
+# The two principals the contract gives the row a cell for, and the five
 # it does not. The five are asserted through the tool's own refusal: the route
 # is not the authority on the matrix, so what these rows pin is that a refusal
 # reaches the caller as a 403 rather than as a 500 or an empty board.
@@ -141,7 +140,7 @@ RESOLVED_ROW: dict[str, Any] = {
     "rationale": "Obviously fake rationale, tests only.",
     "policy_ref": "FAKE-SOD-001",
 }
-"""A rule with both sides resolved: the ordinary row 24f renders in full."""
+"""A rule with both sides resolved: the ordinary row renders in full."""
 
 HALF_RESOLVED_ROW: dict[str, Any] = {
     "rule_id": RULE_A,
@@ -163,17 +162,17 @@ UNRESOLVED_ROW: dict[str, Any] = {
     "rationale": "Obviously fake rationale for two unreadable sides.",
     "policy_ref": "FAKE-SOD-003",
 }
-"""Neither side resolvable. Decision B's point: the rule is still REPORTED."""
+"""Neither side resolvable. The point: the rule is still REPORTED."""
 
 BOARD_PAYLOAD: Mapping[str, Any] = {"rules": [RESOLVED_ROW, HALF_RESOLVED_ROW, UNRESOLVED_ROW]}
 """One board exactly as `list_sod_rules` answers it: the `rules` envelope and
 three `SodRuleRow`s carrying their seven fields, in `policy_ref` ascending
-order (24ea decision C). The route must hand this back UNCHANGED, so the
+order. The route must hand this back UNCHANGED, so the
 equality case is what catches a router that drops the unresolvable rows,
 flattens a block into the row, renames a field or re-sorts the list."""
 
 EMPTY_BOARD: Mapping[str, Any] = {"rules": []}
-"""A tenant with no SoD rules. Section 1: a 200 and an empty list, not a 404."""
+"""A tenant with no SoD rules. A 200 and an empty list, not a 404."""
 
 STAGED_RULE_IDS = [RULE_C, RULE_A, RULE_B]
 """The staged sequence, as the exact list the order case asserts."""
@@ -320,8 +319,8 @@ def _get(
 ) -> tuple[httpx.Response, CallerSpy]:
     """One board read against the app, with the tool caller replaced at the seam.
 
-    The seam is `deps.build_tool_caller` (23c decision C put `call_tool_route`
-    there), and the lifespan is NOT entered: this route reads nothing off
+    The seam is `deps.build_tool_caller` (`call_tool_route` is built there), and the lifespan is NOT
+    entered: this route reads nothing off
     `app.state`, so entering it would buy a psycopg pool, a Redis client and a
     gateway client that no case here uses.
     """
@@ -348,23 +347,24 @@ def _rules(response: httpx.Response) -> list[dict[str, Any]]:
 def test_the_router_names_its_path_its_tool_and_a_fieldless_argument_model(
     rules_env: None,
 ) -> None:
-    """The constants this file drives the route with, pinned at their values rather than read out of the module under test.
+    """The constants this file drives the route with, pinned at their values
+    rather than read out of the module under test.
 
-    Catches three drifts no behavioural case above can see, because each of them
-    would make those cases agree with whatever the implementation chose: a path
-    renamed to `/admin/sod-rules` (decision C fixes the design's own name, and the
-    proxy on the other side of the wire is written against the same literal), a
-    tool name that is not the registry's `list_sod_rules` (the far side would
-    answer `NOT_FOUND` for a tool nobody registered), and an arguments model
-    that declares a field - which is a project rule's whole concern, and would
-    cross back as a `VALIDATION` because `ListSodRulesInput` forbids extras.
+       Catches three drifts no behavioural case above can see, because each of them
+       would make those cases agree with whatever the implementation chose: a path
+       renamed to `/admin/sod-rules` (the path name is fixed by the contract, and the
+       proxy on the other side of the wire is written against the same literal), a
+       tool name that is not the registry's `list_sod_rules` (the far side would
+       answer `NOT_FOUND` for a tool nobody registered), and an arguments model
+       that declares a field - which is the identity-from-token rule's whole concern, and would
+       cross back as a `VALIDATION` because `ListSodRulesInput` forbids extras.
 
-    The registration half catches a router written and never included in
-    `main.py`: every case above would then fail as a 404 with no hint which of
-    the two is missing. It reads `app.openapi()["paths"]` rather than walking
-    `app.routes`: this app includes its routers through a wrapper, so the
-    concrete `APIRoute` is not on `app.routes` at all and the walk answered an
-    empty set for every route in the service.
+       The registration half catches a router written and never included in
+       `main.py`: every case above would then fail as a 404 with no hint which of
+       the two is missing. It reads `app.openapi()["paths"]` rather than walking
+       `app.routes`: this app includes its routers through a wrapper, so the
+       concrete `APIRoute` is not on `app.routes` at all and the walk answered an
+       empty set for every route in the service.
     """
     assert rules_routes.RULES_PATH == "/admin/rules"
     assert rules_routes.LIST_SOD_RULES_TOOL == "list_sod_rules"
@@ -410,17 +410,17 @@ def test_the_board_route_answers_the_tools_output_unchanged(
     rules_env: None, monkeypatch: pytest.MonkeyPatch, principal: str
 ) -> None:
     """Catches a route that reshapes, filters or renames `list_sod_rules`'
-    structured output on the way out (section 1's first criterion: the envelope
+    structured output on the way out (the envelope
     is `rules` and each row carries its exact seven fields), and one that calls
     a different tool.
 
     The reshape that matters most here is dropping the unresolvable rows or
-    flattening a `role_a` block into the row: a design note carries both ids
+    flattening a `role_a` block into the row: the tool carries both ids
     top-level precisely so an admin can act on a rule whose side will not
     resolve, and a route that filtered those rows would hide the only rows this
     page exists to surface.
 
-    The bearer half is a project rule and decision A: the token the caller
+    The bearer half is the identity-from-token rule: the token the caller
     presented is forwarded VERBATIM, so RBAC, the kill switch and the tool's
     audit event apply to this read. A route that minted its own service token,
     or reused a configured one, fails on the identity assertion alone.
@@ -451,14 +451,14 @@ def test_the_board_route_answers_the_tools_output_unchanged(
 def test_the_board_route_sends_an_exactly_empty_argument_set(
     rules_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's second criterion, a project rule, as an EXACT key set.
+    """The second requirement, the identity-from-token rule, as an EXACT key set.
 
     Catches a route that passes the caller's tenant, user id or a rule id along
     as an argument. `ListSodRulesInput` declares no field and forbids extras, so
     a key riding along would cross back as a `VALIDATION` and the board would
     answer an error on every load - and a `tenant_id` in particular is the
     browser asking to read another tenant's rules, which the token is the only
-    authority on (a project rule: nothing here leans on a cross-tenant guard,
+    authority on (nothing here leans on a cross-tenant guard,
     because the argument must not exist at all).
     """
     caller = ScriptedToolCaller(BOARD_PAYLOAD)
@@ -473,13 +473,13 @@ def test_the_board_route_sends_an_exactly_empty_argument_set(
 def test_the_rows_cross_in_the_tools_own_order(
     rules_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's third criterion and 24ea decision C. Catches a route that
+    """The third requirement. Catches a route that
     sorts the rows again on the way out, or reverses them: the three staged
     `rule_id`s are neither ascending nor descending among themselves while their
     `policy_ref`s ascend, so sorting on either field, or reversing, answers a
     different sequence than the one asserted.
 
-    The order is the whole value of 24ea's total order - every caller sees ONE
+    The order is the whole value of total order - every caller sees ONE
     sequence - and a second sort here would give 24f a second contract to
     track.
     """
@@ -499,7 +499,7 @@ def test_the_rows_cross_in_the_tools_own_order(
 def test_an_unresolvable_side_crosses_as_null_with_its_id_intact(
     rules_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's third criterion, second half, and a design note's decision B.
+    """The third requirement, second half.
 
     Catches three routes: one that DROPS a rule whose side will not resolve (the
     row an admin opened this page to fix disappears), one that turns a `null`
@@ -533,7 +533,7 @@ def test_an_unresolvable_side_crosses_as_null_with_its_id_intact(
 def test_a_tenant_with_no_rules_is_a_200_and_an_empty_list(
     rules_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's last unhappy path. Catches a route that treats an empty board
+    """The last unhappy path. Catches a route that treats an empty board
     as a missing resource - a 404, or a typed `NOT_FOUND` - which would leave a
     tenant that has simply not written any SoD rules yet looking at an error
     page, and catches a route that answers `{}` or a bare `[]` instead of the
@@ -566,12 +566,12 @@ BAD_BEARERS: tuple[tuple[str, Mapping[str, str]], ...] = (
 def test_an_absent_or_malformed_bearer_is_a_typed_401_and_opens_no_session(
     rules_env: None, monkeypatch: pytest.MonkeyPatch, headers: Mapping[str, str]
 ) -> None:
-    """Section 1's fourth criterion. Catches a route with no token check at all,
+    """The fourth requirement. Catches a route with no token check at all,
     and one that checks the token AFTER opening the MCP session: the caller is
     scripted with NOTHING, so a route that entered it or called a tool fails
     outright rather than showing up as a count read afterwards.
 
-    KILL (a project rule, via the plan's own section 6): `deps.call_tool_route`
+    KILL: `deps.call_tool_route`
     calls `authenticated` exactly once and this route derives no identity of its
     own, so deleting that single call is the only thing that flips this row -
     there is no second copy of the check to hide behind.
@@ -641,7 +641,7 @@ def test_an_expired_bearer_is_a_typed_401_and_opens_no_session(
 def test_a_principal_with_no_cell_reads_a_typed_403_and_no_rules(
     rules_env: None, monkeypatch: pytest.MonkeyPatch, principal: str
 ) -> None:
-    """Section 1's fifth criterion, first half, one row per principal with no
+    """The fifth requirement, first half, one row per principal with no
     cell on the `list_sod_rules` row.
 
     Catches a route that lets the tool's `ToolError` escape - FastAPI answers an
@@ -681,15 +681,15 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """Section 1's fifth criterion, both codes, read through the SHARED
-    `STATUS_FOR_CODE` (which this plan does not touch).
+    """The fifth requirement, both codes, read through the SHARED
+    `STATUS_FOR_CODE` (which this change does not touch).
 
     Catches a route that maps every refusal onto one status: a matrix denial the
     caller cannot act on and a kill switch tripped on `list_sod_rules` ("try
     again later") are different answers, and a board that reported a tripped
     switch as a permission problem would send an admin looking for the wrong
-    fix. Catches a router that built its own status map too, which is what
-    23c decision C moved the map to stop.
+    fix. Catches a router that built its own status map too, which the shared
+    map exists to stop.
 
     The bearer verifies and the route takes no input at all, so no validation
     and no token gate can decide these rows - only the `except ToolError`
@@ -707,7 +707,7 @@ def test_a_tool_refusal_answers_its_own_typed_code(
 def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor_path(
     rules_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's sixth criterion. Catches two failures at once: a handshake
+    """The sixth requirement. Catches two failures at once: a handshake
     failure left to propagate (an untyped 500 carrying a traceback body), and a
     body that carries the client's own message - `TRANSPORT_FAILURE_MESSAGE` is
     opaque on purpose, and a route rendering the exception's `str` would leak

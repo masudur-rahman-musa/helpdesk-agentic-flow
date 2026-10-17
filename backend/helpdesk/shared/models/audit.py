@@ -1,14 +1,7 @@
-"""The append-only audit tables (the design, §13.1).
+"""The append-only audit tables. A database trigger refuses UPDATE and DELETE.
 
-`seq` is assigned by the database, not the writer: it orders the verify walk
-and stays outside the hash. UPDATE and DELETE are
-rejected by a trigger created in the migration, so nothing this ORM model
-declares can weaken the append-only guarantee.
-
-`AuditChainAnchor` is the second table and the same shape of guarantee: it
-remembers one tenant's verified head, which is the fact a hash chain cannot
-hold about itself. Its grants are SELECT and INSERT only, pinned by
-`test_audit_db_role.py::test_expected_grant_map_covers_exactly_the_metadata_tables`.
+`seq` comes from the database and stays outside the hash. An anchor records a
+verified chain head, which a chain cannot prove about itself.
 """
 
 import uuid
@@ -43,18 +36,9 @@ class AuditEvent(TenantScoped):
 
 
 class AuditChainAnchor(TenantScoped):
-    """One tenant's verified chain head, remembered outside the walk.
+    """One tenant's verified chain head.
 
-    The uniqueness is a unique INDEX rather than a `UniqueConstraint`, so the
-    composite index every tenant-scoped table owes and the constraint that
-    stops two heads at one `audit_seq` are the same object; pinned by
-    `test_models.py::test_tenant_scoped_tables_have_tenant_id_and_composite_index`
-    and
-    `test_audit_anchor.py::test_a_second_anchor_at_the_same_seq_is_refused_by_the_unique_constraint`.
-
-    `anchored_at` carries a timezone: two anchors written either side of a
-    clock change have to stay orderable, and `created_at` is not a substitute
-    because it records the row, not the reading.
+    A unique index, so the tenant index and the one-head-per-seq rule are one object.
     """
 
     __tablename__ = "audit_chain_anchors"

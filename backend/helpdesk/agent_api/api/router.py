@@ -1,15 +1,8 @@
-"""Agent API service. Health, login, audit verify, and the chat surface.
+"""The agent API app: health, login, audit, chat and the web app's routes.
 
-The process-lifetime resources live in a `lifespan` and
-are reached off `app.state`, never off a module global: the checkpointer's
-psycopg pool is the reason — one pool per request would be a connection storm
-and a fresh handshake per message, and an earlier change decision D already fixed "one
-process-wide pool, the caller owns it". The gateway client and the Redis
-client ride along for the same reason and are closed with it.
-
-`auth_routes` and `admin_routes` keep their per-request shape. They open no
-pool, so a startup they never entered costs them nothing, and moving them onto
-the app state would be a refactor this plan does not need.
+Long-lived resources (the checkpointer pool, gateway, Redis and Qdrant
+clients) are built once in `lifespan` and read off `app.state`, since a pool
+per request would flood Postgres with connections.
 """
 
 from collections.abc import AsyncIterator
@@ -51,43 +44,20 @@ from helpdesk.shared.core.observability.context import bind_context
 from helpdesk.shared.core.observability.logging import configure_logging
 
 REDIS_CONNECT_TIMEOUT_SECONDS = 5.0
-"""How long the rate limiter waits to reach Redis at all.
-
-The same connect half `agent_api.checkpointer` gives its pool: this client is
-touched in front of every chat turn, and a Redis that accepts the TCP
-connection and never answers would otherwise hang the turn for the operating
-system's default.
-"""
+"""How long the rate limiter waits to reach Redis. It runs before every
+chat turn, so a silent Redis must not hang the turn."""
 
 REDIS_COMMAND_TIMEOUT_SECONDS = 5.0
-"""The read half of the pair: how long one `INCR` or `EXPIRE` may take.
-
-Equal to the connect half rather than longer, unlike the gateway's and the MCP
-client's: the two commands the limiter sends are single-key integer
-operations, so a Redis taking seconds over one is already the outage the
-fail-closed refusal exists for.
-"""
+"""How long one command may take. Both commands are tiny, so a slow one
+already means the outage the fail-closed refusal is for."""
 
 
 class TelemetryContextMiddleware:
-    """Bind the telemetry context of every HTTP request, from its own token.
+    """Bind each request's log context from its own token.
 
-    A plain ASGI middleware rather than `BaseHTTPMiddleware`: the bind is a
-    `ContextVar`, and this shape runs the downstream app in the SAME task, so
-    what is bound here is what the routes and every node under them read.
-
-    The verification is BEST EFFORT and decides nothing. It never refuses and
-    never authorizes — the routes still verify the same token for themselves,
-    and they remain the only gate. What it buys is the answer to "which tenant
-    and session does this line belong to" for lines emitted before, during and
-    after a route's own checks. A token that does not verify (absent, expired,
-    forged) binds an empty context, which is the honest answer: there is no
-    verified tenant, so the line carries none.
-
-    Identity is derived from the token and from nothing else,
-    and only the four the design fields are bound; the formatter redacts the
-    rest whatever a caller passes. Pinned by
-    `test_logging_wiring.py::test_a_record_logged_during_a_request_carries_that_call_s_tenant_and_session`.
+    Best effort, and it decides nothing: routes still check the token. A token
+    that does not verify binds an empty context, since there is no verified
+    tenant. Plain ASGI, so the bound `ContextVar` is what routes and nodes read.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -107,12 +77,8 @@ class TelemetryContextMiddleware:
 
 
 def _unverified_request_claims(scope: Scope) -> TokenClaims | None:
-    """This request's claims if its bearer token verifies, else `None`.
-
-    Every failure — no header, the wrong scheme, a bad signature, an expired
-    token, a misconfigured process — is the same answer, because the only
-    decision downstream of it is whether a log line names a tenant.
-    """
+    """This request's claims if its token verifies, else `None`. Every failure
+    gives the same answer: it only decides whether a log line names a tenant."""
     headers = Headers(scope=scope)
     scheme, _, token = headers.get("authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
@@ -124,14 +90,8 @@ def _unverified_request_claims(scope: Scope) -> TokenClaims | None:
 
 
 def _principal_kind(claims: TokenClaims) -> str | None:
-    """The caller's principals as one telemetry-safe field.
-
-    A user can hold several principals, so the field is all of them, sorted
-    and comma-joined: sorted so the same caller reads the same on every line,
-    and all of them because a line attributed to "employee" for a caller who
-    is also an approver would misdescribe the call. A principal names a role,
-    never a person, so this carries no identity.
-    """
+    """All the caller's principals, sorted and comma-joined, so a line never
+    names just one role. Roles, never people."""
     if not claims.principals:
         return None
     return ",".join(sorted(claims.principals))
@@ -139,23 +99,14 @@ def _principal_kind(claims: TokenClaims) -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Build the process-lifetime resources once, and close every one at exit.
+    """Build the long-lived resources once, and close each one at exit.
 
-    The close half is not housekeeping: a checkpointer pool left open leaks
-    connections into Postgres for the life of the process (an earlier change's first
-    risk), and a leaked httpx pool does the same to the gateway. Both are read
-    back off the objects this function built by
-    `test_chat_route.py::test_the_lifespan_closes_the_pool_and_the_clients`.
-
-    Shutdown reads `app.state` rather than the local names, so a caller that
-    swapped a client in — which the chat tests do, to stage a gateway — has its
-    replacement closed rather than the original closed twice.
+    An unclosed pool leaks Postgres connections. Shutdown closes what is on
+    `app.state`, so a client a test swapped in is the one closed.
     """
     configure_logging()
     settings = load_settings()
-    # Built once per process, from the settings alone: with no Langfuse keys
-    # configured this constructs nothing and every span in the service is a
-    # no-op.
+    # With no Langfuse keys set, this builds nothing and spans are no-ops.
     configure_tracing(settings=settings)
     engine = create_engine(settings.database_url)
     pool = build_pool(psycopg_dsn(settings.database_url))
@@ -169,18 +120,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         socket_connect_timeout=REDIS_CONNECT_TIMEOUT_SECONDS,
         socket_timeout=REDIS_COMMAND_TIMEOUT_SECONDS,
     )
-    # Qdrant client held for the readiness check: ping_qdrant
-    # probes through this one client rather than building a fresh one per call.
+    # Kept for the readiness check, so it does not build a client per call.
     app.state.qdrant = AsyncQdrantClient(url=settings.qdrant_url)
     app.state.checkpointer_pool = pool
     app.state.checkpointer = build_checkpointer(pool)
     try:
         yield
     finally:
-        # Flushed at shutdown and never on the request path (an earlier change's first
-        # risk): this is what gets the last turns' spans out of the exporter's
-        # batch, and an export awaited inside a turn would put a network round
-        # trip between a user and their reply.
+        # Flush spans only at shutdown; doing it per turn would add a network
+        # round trip before every reply.
         flush_traces()
         await app.state.qdrant.close()
         await app.state.redis.aclose()
@@ -191,25 +139,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="agent-api", lifespan=lifespan)
 app.add_middleware(TelemetryContextMiddleware)
-# The auth check sits between telemetry and CORS: added after
-# telemetry and before CORS, it wraps telemetry (outside the bind, so a blocked
-# request binds no context) and is wrapped by CORS (inside it, so a preflight is
-# answered by CORS and a 401 still carries CORS headers). Every request but the
-# four open paths and an OPTIONS preflight is verified here once, so a new route
-# that forgets its own check is still safe. Pinned by `test_auth_middleware.py`.
+# Added after telemetry and before CORS, so it runs inside CORS (a 401 keeps
+# its CORS headers) and outside the log bind.
 app.add_middleware(RequireAuthMiddleware)
-# Locked to the one web origin and never a wildcard. The
-# origin is read from the environment here rather than from `load_settings()`:
-# `app` is built at import time and Starlette freezes the middleware stack
-# before the first request, so neither the full settings nor `lifespan` can
-# supply it (decision A1). `allow_credentials` stays False because no browser
-# request to this service carries any -- the bearer is attached server-side by
-# the web app's proxy (decision C1). `max_age` is left at CORSMiddleware's own
-# 600 seconds: nothing here depends on how long a browser caches a preflight
-# (decision D, a project rule).
-# Pinned by `test_agent_api_cors.py`, whose foreign-origin case fails if the
-# allow_origins restriction is deleted and whose echo case fails if the whole
-# middleware is.
+# Only the web app's origin, never a wildcard. Read from the environment
+# because the middleware stack is fixed at import time, before `lifespan`.
+# No credentials: the web app's server attaches the bearer, not the browser.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[web_origin_from_env()],
@@ -228,19 +163,9 @@ app.include_router(killswitch_router)
 app.include_router(rules_router)
 app.include_router(policies_router)
 
-
-# ---------------------------------------------------------------------------
-# One-edge error rendering
-# ---------------------------------------------------------------------------
-# Services raise typed errors; these three handlers are the only place that
-# turns them into HTTP responses. Starlette walks the MRO for the most-specific
-# match, so RateLimitExceededError (a ToolError subclass) lands here first,
-# getting its literal 429 rather than the STATUS_FOR_CODE 409 the ToolError
-# handler would give it. LoginRefusedError is NOT a ToolError, so it needs its
-# own registration.
-# Pinned by `test_api_layering.py::test_one_edge_renders_a_tool_error`,
-# `::test_the_rate_limit_is_rendered_by_the_one_edge`, and
-# `::test_a_forbidden_audit_verify_answers_403`.
+# The only place typed errors become HTTP responses. Starlette picks the most
+# specific handler, so a rate limit gets 429, not the generic `ToolError` code.
+# `LoginRefusedError` is not a `ToolError`, so it has its own handler.
 
 
 @app.exception_handler(RateLimitExceededError)
@@ -268,18 +193,10 @@ async def handle_login_refused(_request: Request, _exc: LoginRefusedError) -> JS
 
 
 def _build_agent_api_checks(state: object) -> dict[str, _health._CheckFn]:
-    """Build the four readiness checks for agent-api, reusing its long-lived clients.
+    """The readiness checks, using the clients `lifespan` built.
 
-    Each check is a zero-arg async callable that calls the corresponding
-    `ping_*` function with the client the lifespan already built. `getattr`
-    is used so the function works even when no lifespan ran (tests that drive
-    the app without a lifespan just get False from any unset attribute, which
-    is the safe answer).
-
-    The gateway check passes both the ModelClient's httpx client AND the
-    base URL, so `ping_gateway` can strip the version path and probe the
-    service-level health endpoint. Pinned by
-    `tests/shared/core/test_health.py::test_each_check_reuses_the_passed_client_and_constructs_none`.
+    `getattr` so an app run without `lifespan` reports not ready instead of
+    failing. The gateway check gets the base URL too, to find the health path.
     """
     engine = getattr(state, "engine", None)
     redis = getattr(state, "redis", None)

@@ -1,14 +1,6 @@
 /**
- * GET /api/reviews/[reviewId]/items — one review's rows, proxied.
- *
- * The same `proxyAgentApi` seam as the queue beside it, for the same reasons:
- * the bearer comes off the httpOnly cookie and an expired session clears it
- * and lands the browser on `/login`. Whether this caller may read the review
- * at all is the tool's scope check, never this route's.
- *
- * `limit` is forwarded when asked for, the same presence test the queue makes
- * and for the same reason — the tool's bound is 1..200, so an empty `limit=`
- * would be refused where no page size was asked for at all.
+ * GET /api/reviews/[reviewId]/items: one review's rows, proxied. `limit` is
+ * sent only when asked for, since the tool refuses an empty one.
  */
 
 import { proxyAgentApi } from "@/lib/agent-api";

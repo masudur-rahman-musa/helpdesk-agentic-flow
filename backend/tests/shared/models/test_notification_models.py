@@ -1,4 +1,4 @@
-"""An earlier change §6: the `notifications` table and the constants that bound it.
+"""The `notifications` table and the constants that bound it.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -6,17 +6,17 @@ must provide exactly this):
 ``helpdesk.models.notification`` (re-exported from ``helpdesk.models``)
     ``NOTIFICATION_TITLE_MAX_LENGTH = 200``
     ``NOTIFICATION_BODY_MAX_LENGTH = 2000``
-    ``class NotificationKind(StrEnum)`` — exactly two members after an earlier change
-        (§8), ``GRANT_EXPIRED = "grant_expired"`` and
-        ``GRANT_EXPIRING = "grant_expiring"`` (21a decision F: a member
+    ``class NotificationKind(StrEnum)`` — exactly two members at first,
+        ``GRANT_EXPIRED = "grant_expired"`` and
+        ``GRANT_EXPIRING = "grant_expiring"`` (a member
         nothing writes is a value no test can reach, so each plan adds its
-        own when the code that writes it lands; 21c adds the review kinds).
+        own when the code that writes it lands; the review kinds come later).
     ``class Notification(TenantScoped)`` — ``__tablename__ = "notifications"``;
         columns ``user_id`` (FK ``users.id``), ``kind``, ``title``, ``body``,
         ``subject_type``, ``subject_id`` and a nullable ``read_at``.
 
 ``packages/helpdesk/tests/_seed.py``
-    ``TENANT_SCOPED_TABLES`` gains ``"notifications"`` (a project rule, the
+    ``TENANT_SCOPED_TABLES`` gains ``"notifications"`` (the
     same shape ``test_conversation_models.py`` uses for `sessions`/`messages`).
 
 No backing service is needed here: every case below reads
@@ -27,12 +27,12 @@ Deliberately NOT written here: a second Alembic upgrade/downgrade round trip.
 ``test_models.py::test_migrated_schema_matches_metadata_and_downgrades_clean``
 already compares the migrated schema against the WHOLE of ``Base.metadata``
 and asserts `downgrade base` leaves only ``alembic_version``, so it covers
-this plan's revision the moment the model joins the metadata. A copy of it in
+this revision the moment the model joins the metadata. A copy of it in
 this file would be red and green for exactly the same reasons as the original
 — the neighbouring-guard trap — while costing a second database and two
 `alembic` subprocesses per run.
 
-Column WIDTHS are not asserted. Plan §1 fixes the two lengths as pre-check
+Column WIDTHS are not asserted. The two lengths are as pre-check
 caps, not as column types, and the tree stores a long body
 either way (`tickets.body` is `Text`, `messages.content` is a sized `String`);
 the boundary pair that matters is pinned against the CHECK in
@@ -69,10 +69,10 @@ def test_the_notifications_table_is_in_the_tenant_scoped_allowlist() -> None:
 
 
 def test_the_notification_columns_are_the_planned_columns() -> None:
-    """Catches a table missing the columns §1 fixes: without `subject_type`
+    """Catches a table missing the columns it must have: without `subject_type`
     and `subject_id` a notification names no row an operator can open, and
     without a NULLABLE `read_at` there is no way to store one unread — the
-    web route of row 23 would have nothing to mark."""
+    web route would have nothing to mark."""
     columns = Base.metadata.tables["notifications"].c
     for name in ("tenant_id", "user_id", "kind", "title", "body"):
         assert name in columns, name
@@ -110,15 +110,15 @@ def test_the_notifications_table_carries_the_composite_tenant_index() -> None:
 
 
 def test_the_notification_kind_enum_has_exactly_the_four_planned_members() -> None:
-    """An earlier change §8 widens 21b's set: `review_overdue` and `review_escalated`
-    join it because 21c is the plan whose `send_review_reminders` writes them.
+    """The set is widened by `review_overdue` and `review_escalated`,
+    because `send_review_reminders` writes them.
 
-    Still pinned as an exact set, and still 21a decision F's claim: catches
+    Still pinned as an exact set: catches
     the rest of the lifecycle vocabulary landing early — a member no code path
     writes is a value no test can reach, and a stored row could then carry a
     kind nothing renders. Also catches any of the four values drifting from
     the literals `expire_grants`, `warn_expiring_grants` and
-    `send_review_reminders` write and row 23's route reads; `grant_expiring`
+    `send_review_reminders` write and the web route reads; `grant_expiring`
     is additionally what the warning sweep's own anti-join matches on, so a
     drift there silently disables the dedupe.
     """
@@ -136,7 +136,7 @@ def test_the_notification_kind_enum_has_exactly_the_four_planned_members() -> No
 
 
 def test_the_length_caps_are_exactly_the_planned_values() -> None:
-    """a project rule: catches a cap quietly widened or narrowed, which
+    """Catches a cap quietly widened or narrowed, which
     moves the boundary every case in `test_notifications.py` asserts against
     and, being the only gate on a string that reaches a store, decides what
     a caller can write."""

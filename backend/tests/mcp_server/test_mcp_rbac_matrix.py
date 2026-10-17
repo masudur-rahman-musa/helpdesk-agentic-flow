@@ -1,30 +1,29 @@
-"""An earlier change, section 1 criterion 9, section 6: every tool x every principal.
+"""Every tool x every principal.
 
-An earlier change owed item (a): the matrix was proved through `authorize`, never
+The matrix is proved through `authorize`, never
 through the transport. A guard that holds in the pure function and is not
 wired into the pipeline is not a guard, so every row below is driven through
 a real MCP client session over the real streamable HTTP transport.
 
-The expectation is the design written out literally here, the same way
+The expectation is the matrix written out literally here, the same way
 ``packages/helpdesk/tests/test_rbac.py`` writes it: importing ``_MATRIX`` and
 reimplementing ``authorize`` would make the test drift together with the code
 it is supposed to hold still.
 
-Exhaustiveness is over the tools the registry HOLDS.
-the design asks for every tool; the rest land as the tools land (an earlier change,
-scope note 2). What is exhaustive here is the principal axis: all seven,
+Exhaustiveness is over the tools the registry HOLDS .
+Tools are added to the sweep as they are registered.
+What is exhaustive here is the principal axis: all seven,
 plus the two ways a token can carry no principal the matrix recognises.
 
 A permitted call must actually succeed for the assertion to pin RBAC rather
 than a later stage, so each mutating tool is called with minimally valid
 arguments (a fresh idempotency key per call). Denials need no arguments at
 all: RBAC runs before input validation, which is itself pinned by
-``test_mcp_pipeline.py``'s criterion-5 pair.
+``test_mcp_pipeline.py``'s order pair.
 
-The CROSS-TENANT axis (the design, owed by an earlier change decision B, added by plan
-11d) is the second sweep here: a tenant-A token carrying one principal,
+The CROSS-TENANT axis is the second sweep here: a tenant-A token carrying one principal,
 called with tenant-B arguments, for every tool that ACCEPTS an id and every
-one of the seven principals. An earlier change decision G narrows the tool axis
+one of the seven principals. The sweep narrows the tool axis
 deliberately: a tool whose only input is the token has no cross-tenant call
 to make, so forcing a synthetic id onto it would test the argument parser and
 not the isolation. Those five identity-only tools get one own-tenant case
@@ -87,15 +86,15 @@ PRINCIPALS: tuple[str, ...] = (
     "platform_admin",
 )
 
-# the design, written out per tool and per principal. True = the matrix permits
+# The matrix, written out per tool and per principal. True = the matrix permits
 # this principal to call this tool. All eight registered tools are granted to
-# every principal by the design (the reads are self-scoped, the three helpdesk
+# every principal by the matrix (the reads are self-scoped, the three helpdesk
 # mutations self-only or any, and every principal may classify, list their own
 # requests, and file one for THEMSELVES); a future tool with a narrower row
 # goes here as an explicit dict, never as `dict.fromkeys(..., True)` copied by
 # habit.
 #
-# `create_access_request` is the self row of the design's pair, and the arguments
+# `create_access_request` is the self row of the matrix's pair, and the arguments
 # below name the caller as the target so that is the row this exercises. The
 # on-behalf row (`manager` own_department; `hr`, `it_admin`, `platform_admin`
 # any) is a permission checked inside the handler, not a registered tool, so
@@ -110,10 +109,10 @@ MATRIX: dict[str, dict[str, bool]] = {
     "classify_access_request": dict.fromkeys(PRINCIPALS, True),
     "list_my_requests": dict.fromkeys(PRINCIPALS, True),
     "create_access_request": dict.fromkeys(PRINCIPALS, True),
-    # An earlier change. The first rows on this axis that are not "everyone": the design
+    # The first rows on this axis that are not "everyone": the matrix
     # gives the approval rows five cells and leaves `employee` and `auditor`
-    # without one. `hr` HOLDS a cell here since an earlier change step 5:
-    # the design puts an `hr` seat on a `critical` HRIS chain, and without the
+    # without one. `hr` HOLDS a cell here now:
+    # an `hr` seat sits on a `critical` HRIS chain, and without the
     # cell that seat was fillable by nobody. `auditor` is the cell that
     # matters now — it holds one on the audit row and none here.
     "list_pending_approvals": {
@@ -143,7 +142,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's `onboard_user` row: three cells, and the narrowest
+    # The matrix's `onboard_user` row: three cells, and the narrowest
     # of the lifecycle rows — `manager` and `system_owner` hold nothing here
     # even though the revoke row above gives them both a cell.
     "onboard_user": {
@@ -155,7 +154,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's `transfer_user` row: the same three cells as
+    # The matrix's `transfer_user` row: the same three cells as
     # `onboard_user`, and all three at `Scope.ANY`, so there is no
     # argument-dependent second check to blunt the denial direction.
     "transfer_user": {
@@ -167,7 +166,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's `offboard_user` row: TWO cells, the narrowest
+    # The matrix's `offboard_user` row: TWO cells, the narrowest
     # lifecycle row of the three. `it_admin` holds a cell on both rows above
     # and NONE here, so a row copied from `transfer_user` by habit fails.
     "offboard_user": {
@@ -179,7 +178,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's two review rows, identical to each other and to the
+    # The matrix's two review rows, identical to each other and to the
     # revoke row: five cells, `hr` holds one, `employee` and `auditor` hold
     # none. `auditor` is the cell that matters — it holds one on the audit row
     # and none here, so a row copied from `search_audit` by habit fails.
@@ -201,7 +200,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's `decide_review_item` row, identical to the two
+    # The matrix's `decide_review_item` row, identical to the two
     # review rows above: the tool that turns a flag into a revocation is
     # reachable by exactly the principals who may open the review and read
     # its items, and by no one else.
@@ -214,12 +213,12 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's `list_reviews` row, the same five cells as the three
+    # The matrix's `list_reviews` row, the same five cells as the three
     # review rows above: the queue is reachable by exactly the
     # principals who may open a review, read its items and decide one, and by
     # no one else. `auditor` is the cell that matters — it holds one on the
     # audit row and none here, so a row copied from `search_audit` by habit
-    # fails (a project rule: this literal is the design, and it is part of every
+    # fails (this literal is the matrix, and it is part of every
     # diff that adds a tool or changes a cell).
     "list_reviews": {
         "employee": False,
@@ -230,7 +229,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's revoke row, written out literally rather than
+    # The matrix's revoke row, written out literally rather than
     # derived from `_MATRIX`: five cells, and `hr` DOES hold one here (unlike
     # the approval rows above), so a row copied from `approve_request` by
     # habit fails. `employee` and `auditor` have no cell at all.
@@ -243,7 +242,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's rollback row, the narrowest yet: TWO cells. `hr`
+    # The matrix's rollback row, the narrowest yet: TWO cells. `hr`
     # holds one on `revoke_access` above and none here, and `auditor` reads
     # the audit log without being able to change anything, so a row copied
     # from either by habit fails.
@@ -256,7 +255,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's audit row, the WIDEST in the matrix: six cells, and
+    # The matrix's audit row, the WIDEST in the matrix: six cells, and
     # the only row where `auditor` holds one. `employee` is the single
     # principal without one, so a row copied from any other by habit fails —
     # every other row above denies at least two principals.
@@ -269,7 +268,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": True,
         "platform_admin": True,
     },
-    # An earlier change. the design's kill-switch row, the NARROWEST in the matrix: ONE
+    # The matrix's kill-switch row, the NARROWEST in the matrix: ONE
     # cell. `it_admin` holds one on `rollback_request` and none here, and
     # `auditor` holds one on the row directly above and none here, so a row
     # copied from either by habit fails. The platform's emergency stop is
@@ -283,13 +282,13 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. the design's kill-switch BOARD row, the same single cell as the
-    # write directly above: `platform_admin` alone, matching the design's
+    # The matrix's kill-switch BOARD row, the same single cell as the
+    # write directly above: `platform_admin` alone, matching the
     # `/admin/killswitch` page. `it_admin` and `auditor` are the cells that
     # matter — `it_admin` holds one on `rollback_request` and `auditor` one on
     # `search_audit`, so a read row copied from either by habit shows six
-    # principals a board none of them can act on (a project rule: this
-    # literal is the design, and it is part of every diff that adds a tool or
+    # principals a board none of them can act on (this
+    # literal is the matrix, and it is part of every diff that adds a tool or
     # changes a cell).
     "list_kill_switches": {
         "employee": False,
@@ -300,12 +299,12 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. SPEC section 7's SoD rules board row: the two
-    # cells SPEC section 14 gives `/admin/rules`, both at `Scope.ANY`
-    # (decision E). `auditor` is the cell that matters - it reads what
+    # The SoD rules board row: the two
+    # cells the `/admin/rules` page needs, both at `Scope.ANY`.
+    # `auditor` is the cell that matters - it reads what
     # HAPPENED through `search_audit`, and the rules are configuration, so a
     # row copied from that neighbour by habit hands an auditor a board they
-    # have no route to (a project rule: this literal is SPEC section 7, and
+    # have no route to (this literal is the matrix, and
     # it is part of every diff that adds a tool or changes a cell).
     "list_sod_rules": {
         "employee": False,
@@ -316,15 +315,15 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. SPEC section 7's policy documents board row: the two cells
-    # SPEC section 14 gives `/admin/policies`, both at `Scope.ANY`. `auditor`
+    # The policy documents board row: the two cells
+    # the `/admin/policies` page needs, both at `Scope.ANY`. `auditor`
     # is the cell that matters - it reads what HAPPENED through `search_audit`
     # and the corpus is configuration, so a row copied from that neighbour by
     # habit hands an auditor a board they have no route to. `employee` is the
     # other one: every principal may SEARCH the corpus (`search_policy` is
     # `True` for all seven below), and a row copied from THAT neighbour would
-    # give the whole company the ingest's version history (a project rule:
-    # this literal is SPEC section 7, and it is part of every diff that adds a
+    # give the whole company the ingest's version history
+    # (this literal is the matrix, and it is part of every diff that adds a
     # tool or changes a cell).
     "list_policy_documents": {
         "employee": False,
@@ -335,13 +334,13 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change. SPEC section 7's re-ingest row: the WRITE on `/admin/policies`,
+    # the re-ingest row: the WRITE on `/admin/policies`,
     # with the same two cells as the board directly above. `platform_admin`
     # alone - the shape `set_kill_switch` has, and the one a mutation this
     # dangerous invites by habit - would leave the `it_admin` who reads the
     # board unable to act on it, and any wider row hands somebody a tool that
-    # rewrites the evidence every access decision cites (a project rule:
-    # this literal is SPEC section 7, and it is part of every diff that adds a
+    # rewrites the evidence every access decision cites
+    # (this literal is the matrix, and it is part of every diff that adds a
     # tool or changes a cell).
     "reingest_policy_document": {
         "employee": False,
@@ -352,18 +351,18 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
-    # An earlier change: the design gives the policy search every principal at
+    # The matrix gives the policy search every principal at
     # `Scope.ANY` — everyone who can ask a question can read the policy behind
     # the answer, and a single False here would be a corpus an employee cannot
-    # reach (a project rule: this literal is part of every diff adding a
+    # reach (this literal is part of every diff adding a
     # REGISTRY entry).
     "search_policy": dict.fromkeys(PRINCIPALS, True),
-    # An earlier change: the design gives `/notifications` to every
+    # The `/notifications` page belongs to every
     # principal, and a notification is addressed to ONE person and read by
     # that person — so both rows are `self_only` for all seven, the shape
     # `list_my_access` and `list_my_requests` already have. A single False
     # here would be a person who cannot read (or cannot clear) their own bell
-    # (a project rule: this literal is part of every diff adding a REGISTRY
+    # (this literal is part of every diff adding a REGISTRY
     # entry or changing an RBAC cell).
     "list_notifications": dict.fromkeys(PRINCIPALS, True),
     "mark_notification_read": dict.fromkeys(PRINCIPALS, True),
@@ -380,7 +379,7 @@ MATRIX: dict[str, dict[str, bool]] = {
 # call with a REAL department would hire a person per (tool, principal) cell
 # into the shared seeded database. A department id that resolves nowhere is
 # refused NOT_FOUND by the handler's own lookup, which is the same assertion —
-# the matrix let the caller through and a later stage refused them.
+# The matrix let the caller through and a later stage refused them.
 # `transfer_user` joins for the same reason as `onboard_user`: a
 # permitted call naming a REAL person would move somebody per (tool, principal)
 # cell inside the shared seeded database, so it names a user id that resolves
@@ -397,26 +396,26 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
         "onboard_user",
         "transfer_user",
         "offboard_user",
-        # An earlier change: it runs no scope helper at all (the design gives it two
+        # It runs no scope helper at all (the matrix gives it two
         # `any`-scope cells), so it tests EXISTENCE first and a permitted
         # caller sending a request id that resolves nowhere must read
-        # NOT_FOUND — a project rule's other branch.
+        # NOT_FOUND.
         "rollback_request",
-        # An earlier change. It runs no scope helper at all (the design gives it seven
+        # It runs no scope helper at all (the matrix gives it seven
         # `self_only` cells, so there is no denial cell and no
         # permitted-but-out-of-scope caller to confuse a refusal with —
-        # a project rule keeps it OUT of `SCOPE_BEFORE_EXISTENCE_TOOLS`).
+        # it stays OUT of `SCOPE_BEFORE_EXISTENCE_TOOLS`).
         # The id it is sent below is a REAL notification belonging to ANOTHER
-        # user of the caller's own tenant, which decision G answers NOT_FOUND:
+        # user of the caller's own tenant, which answers NOT_FOUND:
         # the read is filtered by the token's user, so a permitted caller must
         # get past RBAC and be refused by that filter rather than by the
         # matrix. A row of the caller's OWN would succeed instead and the cell
         # would pin nothing about existence.
         "mark_notification_read",
-        # An earlier change. It runs no scope helper at all (SPEC section 7 gives it two
+        # It runs no scope helper at all (the matrix gives it two
         # `Scope.ANY` cells), so it tests EXISTENCE after permission and
-        # belongs here rather than in `SCOPE_BEFORE_EXISTENCE_TOOLS` (standing
-        # rule 25). The slug it is sent below names no corpus file under this
+        # belongs here rather than in `SCOPE_BEFORE_EXISTENCE_TOOLS`.
+        # The slug it is sent below names no corpus file under this
         # run's `POLICY_DIR`, which the pipeline answers NOT_FOUND: a permitted
         # caller must get past RBAC and be refused by that read, and a
         # permitted call that SUCCEEDED would re-ingest a document per
@@ -425,9 +424,9 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
     }
 )
 
-# An earlier change. A third answer this sweep has to allow for, and the reason it
-# exists: both review tools check the design's SCOPE before the id's existence
-#, the opposite order from `revoke_access`. So a
+# A third answer this sweep has to allow for, and the reason it
+# exists: both review tools check the matrix's SCOPE before the id's existence,
+# the opposite order from `revoke_access`. So a
 # permitted `manager` or `system_owner` sending an id they cannot reach is
 # refused FORBIDDEN by the scope gate, not NOT_FOUND by a lookup, and this
 # sweep cannot separate that from a matrix denial for those two cells. It
@@ -437,10 +436,10 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
 # test_each_permitted_principal_opens_a_review_in_their_scope` and
 # `::test_the_two_denied_principals_open_nothing`, and the scope gate's own
 # kill is `::test_a_manager_may_not_open_a_review_for_another_department`.
-# An earlier change adds the third: `decide_review_item` answers the scope question
-# from the item's own review BEFORE the item's existence is tested (decision
-# H), so it belongs here and NOT in `ALLOW_ANSWERS_NOT_FOUND` (standing rule
-# 25) — a permitted-but-out-of-scope caller and a matrix denial would both
+# Another case: `decide_review_item` answers the scope question
+# from the item's own review BEFORE the item's existence is tested,
+# so it belongs here and NOT in `ALLOW_ANSWERS_NOT_FOUND`
+# — a permitted-but-out-of-scope caller and a matrix denial would both
 # read FORBIDDEN and that cell would pin nothing. Its matrix cell is pinned
 # per principal by `test_mcp_reviews.py::
 # test_each_permitted_principal_decides_an_item_in_their_scope` and
@@ -450,7 +449,7 @@ SCOPE_BEFORE_EXISTENCE_TOOLS = frozenset(
     {"open_access_review", "list_review_items", "decide_review_item"}
 )
 
-# An earlier change decision G. The tools that take an id argument, which is the axis
+# The tools that take an id argument, which is the axis
 # the cross-tenant sweep can actually exercise, and the rest. The two sets are
 # asserted to partition the registry, so a new tool has to be classified
 # rather than silently skipped.
@@ -464,19 +463,19 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "onboard_user",
         "transfer_user",
         "offboard_user",
-        # An earlier change: one takes a department or system id, the other a review
+        # One takes a department or system id, the other a review
         # id, so both have a cross-tenant call to make.
         "open_access_review",
         "list_review_items",
-        # An earlier change: it takes a review ITEM id, so it has one too.
+        # It takes a review ITEM id, so it has one too.
         "decide_review_item",
-        # An earlier change: it takes an access REQUEST id.
+        # It takes an access REQUEST id.
         "rollback_request",
-        # An earlier change: it takes a TENANT id as `scope` (decision A), which is the
+        # It takes a TENANT id as `scope`, which is the
         # sharpest cross-tenant argument in the registry — a scope that is not
         # the token's tenant must be refused rather than keyed on.
         "set_kill_switch",
-        # An earlier change: the stamp takes a NOTIFICATION id, so it has a
+        # The stamp takes a NOTIFICATION id, so it has a
         # cross-tenant call to make.
         "mark_notification_read",
     }
@@ -490,21 +489,21 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         "unlock_own_account",
         "create_ticket",
         "list_pending_approvals",
-        # An earlier change: `search_audit` takes ids only as optional FILTERS, and a
+        # `search_audit` takes ids only as optional FILTERS, and a
         # filter naming another tenant's row is answered with an empty page,
-        # not a refusal (criterion 8) — so it cannot join the sweep below,
+        # not a refusal — so it cannot join the sweep below,
         # which asserts every cross-tenant call errors. That empty page is
         # pinned instead by `test_mcp_search_audit.py::
         # test_another_tenants_subject_id_returns_an_empty_page_not_an_error`,
         # which plants a REAL row in the other tenant.
         "search_audit",
-        # An earlier change: its arguments are a question and a page size, and the
+        # Its arguments are a question and a page size, and the
         # tenant is read off the TOKEN — there is no id for a cross-tenant
         # call to carry. The isolation this tool actually needs is a
         # collection name, which no argument can reach, and it is pinned end
         # to end against the real store by `test_mcp_policy_isolation.py`.
         "search_policy",
-        # An earlier change: `list_reviews` takes a page size and an optional status and
+        # `list_reviews` takes a page size and an optional status and
         # nothing else — the scope it answers comes from the TOKEN, so there is
         # no id for a cross-tenant call to carry. That isolation is pinned
         # instead by `test_mcp_reviews.py::
@@ -515,7 +514,7 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # is an answer, never a refusal — so the plain permitted branch of the
         # sweep is the strict assertion and the cell pins the matrix.
         "list_reviews",
-        # An earlier change: `list_notifications` takes a page size and a bool and
+        # `list_notifications` takes a page size and a bool and
         # nothing else — whose bell it answers comes from the TOKEN, so there
         # is no id for a cross-tenant call to carry. That
         # isolation is pinned instead by `test_mcp_notifications.py::
@@ -523,12 +522,12 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # which plants a REAL unread row in the other tenant. It belongs in
         # neither `ALLOW_ANSWERS_NOT_FOUND` nor `SCOPE_BEFORE_EXISTENCE_TOOLS`
         # either: a permitted caller SUCCEEDS here — an
-        # empty bell is an answer, never a refusal (criterion 10) — so the
+        # empty bell is an answer, never a refusal — so the
         # plain permitted branch of the sweep is the strict assertion and the
         # cell pins the matrix.
         "list_notifications",
-        # An earlier change: `list_kill_switches` takes NO arguments at all — no
-        # tenant, no user, no tool name (criterion 2) — so there is no id for
+        # `list_kill_switches` takes NO arguments at all — no
+        # tenant, no user, no tool name — so there is no id for
         # a cross-tenant call to carry. Whose switches it answers comes from
         # the TOKEN, and that isolation is pinned instead by
         # `test_mcp_list_kill_switches.py::
@@ -539,8 +538,8 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # `Scope.ANY`, so a permitted caller SUCCEEDS and the plain permitted
         # branch of the sweep is the strict assertion that pins the cell.
         "list_kill_switches",
-        # An earlier change: `list_sod_rules` takes NO arguments at all - no tenant,
-        # no rule id (criterion 2) - so there is no id for a cross-tenant call
+        # `list_sod_rules` takes NO arguments at all - no tenant,
+        # no rule id - so there is no id for a cross-tenant call
         # to carry. Whose rules it answers comes from the TOKEN,
         # and that isolation is pinned instead by
         # `test_mcp_list_sod_rules.py::
@@ -552,10 +551,10 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # SUCCEEDS and the plain permitted branch of the sweep is the strict
         # assertion that pins the two cells.
         "list_sod_rules",
-        # An earlier change: `list_policy_documents` takes NO arguments at all - no
+        # `list_policy_documents` takes NO arguments at all - no
         # tenant, no slug, no version - so there is no id for a cross-tenant
-        # call to carry. Whose corpus it answers comes from the TOKEN (hard
-        # rule 6), and that isolation is pinned instead by
+        # call to carry. Whose corpus it answers comes from the TOKEN,
+        # and that isolation is pinned instead by
         # `packages/helpdesk/tests/test_rag_documents.py::
         # test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests`,
         # which plants the SAME slug in two tenants and compares titles,
@@ -566,7 +565,7 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # and the plain permitted branch of the sweep is the strict assertion
         # that pins the two cells.
         "list_policy_documents",
-        # An earlier change: `reingest_policy_document` takes a `slug` and a `version`,
+        # `reingest_policy_document` takes a `slug` and a `version`,
         # which name a file inside the TOKEN tenant's own corpus directory and
         # are not ids of anybody's rows - there is no other tenant's slug to
         # send, because the tenant segment of the path is resolved from the
@@ -578,7 +577,7 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         "reingest_policy_document",
     }
 )
-# The five decision G names explicitly: everything they answer is decided by
+# The five identity-only tools: everything they answer is decided by
 # the token alone, so each gets one own-tenant case below. `create_ticket` and
 # `list_pending_approvals` take no id either, but they are not identity-only
 # reads of the caller's own record and are covered by their own suites.
@@ -591,7 +590,7 @@ IDENTITY_ONLY_TOOLS: tuple[str, ...] = (
 )
 
 
-# A period no other call in this sweep uses: decision H's shape admits four
+# A period no other call in this sweep uses: the period shape admits four
 # quarters, so the YEAR is what varies.
 _MATRIX_PERIOD_YEARS = itertools.count(2201)
 
@@ -630,7 +629,7 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "role_id": str(rows.role_ids[("wiki", "viewer")]),
         }
         if tool_name == "create_access_request":
-            # The caller names THEMSELVES, so this row exercises the design's
+            # The caller names THEMSELVES, so this row exercises the matrix's
             # self path only; the on-behalf permission is never reached.
             arguments["justification"] = f"fake matrix request {uuid.uuid4().hex}"
             arguments["idempotency_key"] = f"fake-key-{uuid.uuid4().hex}"
@@ -675,13 +674,13 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
     if tool_name == "list_review_items":
         return {"review_id": str(uuid.uuid4())}
     if tool_name == "list_reviews":
-        # An earlier change. No arguments at all: the queue takes no id, and both of its
+        # No arguments at all: the queue takes no id, and both of its
         # optional arguments have defaults, so a permitted caller reaches the
         # handler and SUCCEEDS with whatever their own scope reaches (an empty
         # list for a seeded caller with no review). Written out rather than
         # left to the fallthrough so the tool's classification is a decision on
         # the page: an id forced onto it would test the argument parser and not
-        # the matrix.
+        # The matrix.
         return {}
     if tool_name == "decide_review_item":
         # An item id that resolves nowhere, so no principal ends anybody's
@@ -695,7 +694,7 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "set_kill_switch":
-        # An earlier change. A CLEAR of a switch no case in this suite ever trips,
+        # A CLEAR of a switch no case in this suite ever trips,
         # scoped to the caller's OWN tenant: a no-op for the one permitted
         # principal and FORBIDDEN for the other six, so this sweep leaves no
         # tenant with a stopped tool in the shared seeded database.
@@ -713,32 +712,32 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "list_kill_switches":
-        # An earlier change. No arguments at all, and no OPTIONAL ones either: the
+        # No arguments at all, and no OPTIONAL ones either: the
         # input model carries no fields, so anything sent here would be
         # refused VALIDATION where this sweep asserts a success for the one
-        # permitted principal, and the cell would pin nothing (standing rule
-        # 27). A read of the shared namespace changes nothing in it, so this
+        # permitted principal, and the cell would pin nothing.
+        # A read of the shared namespace changes nothing in it, so this
         # sweep leaves no tenant with a stopped tool.
         return {}
     if tool_name == "list_sod_rules":
-        # An earlier change. No arguments at all, and no OPTIONAL ones either: the
+        # No arguments at all, and no OPTIONAL ones either: the
         # input model carries no fields, so anything sent here would be
         # refused VALIDATION where this sweep asserts a success for the two
-        # permitted principals, and both cells would pin nothing (standing
-        # rule 27). The call is a READ of the tenant's own rules and changes
+        # permitted principals, and both cells would pin nothing.
+        # The call is a READ of the tenant's own rules and changes
         # nothing, so the sweep leaves the shared database as it found it.
         return {}
     if tool_name == "list_policy_documents":
-        # An earlier change. No arguments at all, and no OPTIONAL ones either: the
+        # No arguments at all, and no OPTIONAL ones either: the
         # input model carries no fields, so anything sent here would be
         # refused VALIDATION where this sweep asserts a success for the two
-        # permitted principals, and both cells would pin nothing (standing
-        # rule 27). The call is a READ of `policy_documents` and
+        # permitted principals, and both cells would pin nothing.
+        # The call is a READ of `policy_documents` and
         # `policy_chunks` and changes nothing, so the sweep leaves the shared
         # database as it found it.
         return {}
     if tool_name == "reingest_policy_document":
-        # An earlier change. A slug that is VALID (so `check_slug` cannot answer) and
+        # A slug that is VALID (so `check_slug` cannot answer) and
         # names no file under this run's `POLICY_DIR` (so the pipeline answers
         # NOT_FOUND), with a fresh idempotency key per call: a permitted
         # principal is refused by the corpus read rather than re-ingesting a
@@ -752,18 +751,18 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "list_notifications":
-        # An earlier change. No arguments at all: the list takes no id, and both of
+        # No arguments at all: the list takes no id, and both of
         # its optional arguments have defaults, so a permitted caller reaches
         # the handler and SUCCEEDS with whatever their own bell holds (an
-        # empty page for a seeded caller with no notification — criterion 10).
+        # empty page for a seeded caller with no notification).
         # Written out rather than left to the fallthrough so the tool's
         # classification is a decision on the page: an id forced onto it would
         # test the argument parser and not the matrix.
         return {}
     if tool_name == "mark_notification_read":
-        # An earlier change. A REAL notification belonging to ANOTHER user of the
+        # A REAL notification belonging to ANOTHER user of the
         # caller's own tenant, so a permitted principal is refused NOT_FOUND
-        # by the user filter (decision G) rather than stamping their own bell
+        # by the user filter rather than stamping their own bell
         # read per matrix cell. A random uuid would be refused the same way
         # whether that filter exists or not; a row of the caller's own would
         # SUCCEED and this tool is in `ALLOW_ANSWERS_NOT_FOUND`.
@@ -772,7 +771,7 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "search_policy":
-        # An earlier change. A `query` is required, so without this row a permitted
+        # A `query` is required, so without this row a permitted
         # caller would be refused VALIDATION where this sweep asserts a
         # success and the cell would pin nothing. The
         # store is stubbed for this file (`_stub_policy_search` below), so
@@ -808,7 +807,7 @@ CASES = [(tool_name, principal) for tool_name in sorted(REGISTRY) for principal 
 
 
 class _RefusingRedactor:
-    """A `Redactor` that fails if it is ever called.
+    """A `Redactor` that fails if it is ever called .
 
     `reingest_policy_document` is the second tool in the registry that reaches
     beyond Postgres and Redis, and this file calls every tool once per
@@ -830,11 +829,11 @@ class _RefusingRedactor:
 
 @pytest.fixture(autouse=True)
 def _stub_policy_search(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An earlier change: this sweep never loads a model and never reaches Qdrant.
+    """This sweep never loads a model and never reaches Qdrant.
 
-    An earlier change adds the redaction gateway to the same fixture, as narrowly as
+    The same fixture also stubs the redaction gateway, as narrowly as
     these fixtures allow: one module attribute, replaced for
-    the duration of one case, and named in STATUS.
+    the duration of one case.
 
     `search_policy` is the one registered tool with an external dependency,
     and this file calls every tool once per principal. Left real, each of
@@ -862,8 +861,8 @@ def test_the_principal_axis_is_the_whole_enum() -> None:
 def test_every_registered_tool_has_a_matrix_row() -> None:
     """A tool registered without a row here would go untested rather than fail.
 
-    The same exhaustiveness now covers the cross-tenant axis (an earlier change
-    decision G): a new tool must be classified as id-taking or not, or the
+    The same exhaustiveness now covers the cross-tenant axis:
+    a new tool must be classified as id-taking or not, or the
     sweep below would quietly skip it and the isolation claim would be about
     fewer tools than the registry holds.
     """
@@ -928,7 +927,7 @@ def test_a_token_with_no_recognised_principal_is_refused(
     assert error_code(result) == "FORBIDDEN", label
 
 
-# --- the cross-tenant axis (the design, an earlier change decision G) ----------------------
+# --- the cross-tenant axis ----------------------
 
 
 def _write(database_url: str, statement: Any) -> None:
@@ -965,7 +964,7 @@ def _pending_request(
 ) -> uuid.UUID:
     """One pending request in the named tenant, planted once for the sweep.
 
-    a project rule: the namespace is this row, not a rebuilt database. A
+    The namespace is this row, not a rebuilt database. A
     random uuid would test nothing here — every tool answers NOT_FOUND for one
     whether the tenant guard exists or not, so the id the sweep sends has to
     be a real row in the other tenant.
@@ -1053,7 +1052,7 @@ def _colleagues_notification(env: SeededMcp) -> uuid.UUID:
     caller's OWN tenant, planted once for the sweep.
 
     The sweep's token is minted for `env.tenant_a`; this row is addressed to
-    `env.probe`, who the fixture seeded in the SAME tenant. Decision G makes
+    `env.probe`, who the fixture seeded in the SAME tenant. The user filter makes
     that `NOT_FOUND` — the stamp reads the row filtered by the token's user
     before anything else — which is the answer `ALLOW_ANSWERS_NOT_FOUND`
     asserts for every permitted principal. A random uuid would be refused
@@ -1177,7 +1176,7 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "set_kill_switch":
-        # An earlier change. The same harmless CLEAR, scoped to tenant B: a real tenant
+        # The same harmless CLEAR, scoped to tenant B: a real tenant
         # id, so the refusal has to come from the scope check against the
         # token rather than from an id nobody could resolve. Still a clear of
         # a switch nothing trips, so even a handler that wrongly honoured it
@@ -1190,7 +1189,7 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "mark_notification_read":
-        # An earlier change. Tenant B's notification, a real unread row there: the
+        # Tenant B's notification, a real unread row there: the
         # refusal has to come from the tenant guard rather than from an id
         # nobody could resolve anyway.
         return {
@@ -1235,14 +1234,14 @@ def test_cross_tenant_arguments_are_refused_for_every_tool_and_principal(
     tool_name: str,
     principal: str,
 ) -> None:
-    """the design's isolation row, owed by an earlier change decision B: a tenant-A token
+    """The isolation row: a tenant-A token
     carrying tenant-B arguments answers with a refusal and never with data,
     for every tool that takes an id and every one of the seven principals.
 
     The ids are REAL rows in tenant B, not random uuids, so the refusal has to
     come from the tenant guard rather than from an id nobody could resolve
     anyway. `platform_admin` is the case that matters most: the widest
-    principal the design has is still confined to its own tenant, and a handler
+    principal the matrix has is still confined to its own tenant, and a handler
     reading `Scope.ANY` as "any tenant" passes every other case in this file.
 
     Either code is accepted because the two refusals are deliberately
@@ -1266,7 +1265,7 @@ def test_an_identity_only_tool_answers_about_the_callers_own_tenant(
     mcp_env: SeededMcp,  # noqa: F811
     tool_name: str,
 ) -> None:
-    """Decision G's other half: the five tools whose only input is the token.
+    """The other half: the five tools whose only input is the token.
 
     There is no cross-tenant call to make here, so the claim under test is
     that the answer is about the CALLER's own tenant. Each case names a

@@ -1,40 +1,11 @@
-"""`validate_tool_calls`: the round accepted whole, or refused whole (§10.1 step 6).
+"""`validate_tool_calls`: accept the whole round, or refuse it whole.
 
-Decision C, and the reason this node has no third answer. A round of three
-proposals where one is malformed is a plan the model did not think through,
-and running its valid two would leave a half-done mutation nobody asked for —
-a ticket filed about a request that was never created, or a revoke with no
-listing behind it. Refusing the round costs one turn and offers a person;
-running two thirds of it costs a wrong record. Pinned by
-`test_agent_planning.py::test_one_malformed_proposal_takes_the_whole_round_with_it`,
-whose two survivors are legal on their own, so a filtering validator returns
-two where this one returns none.
-
-Three checks, and each has a case only it can decide:
-
-1. the tool is in the intent's `INTENT_TOOLS` row — the only guard that can
-   see `offboard_user` proposed for a password reset, which is the
-   prompt-injection case decision A exists to remove
-   (`::test_a_registered_tool_outside_the_intents_row_is_rejected`);
-2. the arguments validate against that tool's catalogue model — the only
-   guard that can see `onboard_user` missing its manager
-   (`::test_a_proposal_missing_a_required_argument_is_rejected`);
-3. the model named no `idempotency_key` — the only guard that can see the
-   field the WIRE model does declare and require
-   (`::test_a_proposal_that_names_its_own_idempotency_key_is_rejected`).
-
-A tool that is not catalogued at all is refused by check 1, because a row can
-only ever contain catalogued names; no kill claim is made for a separate
-registration check.
-
-**The key is the agent's** (decision D). Every accepted mutating call goes out
-with a `uuid5` derived from the turn's own values, checked against the store's
-column before it can reach the wire. Nothing here is executed and nothing is
-said: 17d owns both.
-
-Pure but for the state it is handed — no database, no gateway, no tool caller.
-`test_agent_planning.py` hands it a `TurnDeps` whose members are all `None`,
-so an implementation that reached for one raises rather than passing quietly.
+Running the valid part of a round would leave a half-done change, like a
+ticket about a request never filed. Three checks per call: the tool is
+allowed for this intent (blocks a prompt-injected `offboard_user`), the
+arguments fit its input model, and the model did not name its own
+idempotency key. The agent derives the key instead. Pure: no database,
+gateway or tool calls.
 """
 
 from typing import Any
@@ -55,12 +26,8 @@ from helpdesk.agent_api.agent.turn_deps import TurnDeps
 def _validated(
     proposal: ProposedCall, index: int, allowed: frozenset[str], state: TurnState
 ) -> ValidatedCall | None:
-    """One proposal as the call it would become, or `None` if it may not be made.
-
-    `None` rather than a raise: the caller refuses the whole round on the
-    first one, and a control-flow exception would make "which check failed"
-    the interesting thing when the only decision is whether the round stands.
-    """
+    """One proposal as the call it would become, or `None` if it may not be
+    made."""
     if proposal.tool not in allowed:
         return None
     if IDEMPOTENCY_KEY in proposal.arguments:
@@ -85,26 +52,11 @@ def _validated(
 
 
 async def validate_tool_calls(state: TurnState, deps: TurnDeps) -> TurnState:
-    """Judge the round the planner proposed; accept all of it or none of it.
+    """Judge the planned round; accept all of it or none of it.
 
-    An EMPTY round is accepted and validates nothing: a planner with nothing
-    left to call is the ordinary end of a turn, and refusing it would send
-    every clean `request_access` turn to the refusal template
-    (`test_agent_planning.py::test_an_empty_round_is_accepted_and_validates_nothing`).
-
-    An accepted round is then routed by what it has to EXECUTE rather than by
-    the verdict alone: `gates.execution_outcome` answers
-    `DONE` for the empty round, which composes, and `CONTINUE` for a round with
-    calls, which executes and cycles back to `plan_tools`. A single `CONTINUE`
-    for both would send the empty round through `execute_tools` over an empty
-    tuple and round again until the recursion limit aborted it. Pinned by
-    `test_agent_gates.py::test_execution_outcome_sends_only_a_non_empty_round_to_execution`
-    and through the graph by
-    `test_agent_turn.py::test_a_request_access_turn_plans_executes_replans_and_composes`.
-
-    Order is preserved, because order is the plan: a classification before the
-    request it justifies, a listing before the thing it identifies. Pinned by
-    `::test_a_valid_round_of_two_yields_two_validated_calls_in_the_proposed_order`.
+    An empty round is accepted and goes to the reply; it is the normal end of a
+    turn. A round with calls goes to execution. Order is kept, since it is the
+    plan.
     """
     extraction = state.extraction
     if extraction is None:  # pragma: no cover - the graph never routes here

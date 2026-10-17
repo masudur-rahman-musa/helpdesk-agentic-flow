@@ -1,16 +1,16 @@
-"""An earlier change, sections 1 and 6: `execute_grant`, called directly over the seed.
+"""`execute_grant`, called directly over the seed.
 
 Surface under test (written before it exists):
 
 ``helpdesk.access.execute``
     ``SodConflictAtExecutionError(ToolError)`` — `code = SOD_CONFLICT`.
     ``PolicyBlockedAtExecutionError(ToolError)`` — `code = POLICY_BLOCKED`.
-    ``GRANT_EXECUTED_EVENT_TYPE = "grant.executed"`` (the design).
+    ``GRANT_EXECUTED_EVENT_TYPE = "grant.executed"``.
     ``async def execute_grant(session, directory, *, request_id,
     requester_user_id, target_user_id, role_id, requested_expiry_days=None,
     granted_by_user_id=None, actor_ref=None, session_id=None, now) -> Grant``
-    — rebuilds an earlier change's snapshot, re-runs the FULL `policy.engine.classify`
-    on it (decision G, not `policy/sod.py` alone), then: any `sod_conflicts`
+    — rebuilds the access snapshot, re-runs the FULL `policy.engine.classify`
+    on it (not `policy/sod.py` alone), then: any `sod_conflicts`
     raises `SodConflictAtExecutionError` and writes no grant; a fresh
     `Decision.BLOCKED` raises `PolicyBlockedAtExecutionError` and writes no
     grant; otherwise it writes ONE `grants` row through the directory port's
@@ -19,7 +19,7 @@ Surface under test (written before it exists):
     `request_id` it was given, appends ONE `grant.executed` audit event in the
     SAME transaction, and returns the `Grant`.
 
-a project rule: the seeded database is `test_access_snapshot.py`'s
+The seeded database is `test_access_snapshot.py`'s
 session-scoped `access_db_url` fixture, imported rather than rebuilt (argon2
 seeding is the slow part of this suite). Per-test isolation inside it is a
 namespace: each case owns a Production user index nothing else touches, and
@@ -78,7 +78,7 @@ ROLLBACK_TARGET = ROWS.users_by_department["Production"][13]
 REQUESTER = ROWS.users_by_department["Production"][14]
 
 # The SoD pair the re-check must find: `payments.initiator` and
-# `payments.approver` (seeded rule SoD-STD §2.1). Production's template holds
+# `payments.approver` (the seeded SoD-STD rule). Production's template holds
 # neither, so the conflict exists only because this module creates it.
 REQUESTED_ROLE = ROWS.role_ids[("payments", "approver")]
 CONFLICTING_ROLE = ROWS.role_ids[("payments", "initiator")]
@@ -363,7 +363,7 @@ def _set_user_status(url: str, user_id: uuid.UUID, status: str) -> None:
     asyncio.run(scenario())
 
 
-# --- the SoD re-check (the design, requirement #8) -------------------------------
+# --- the SoD re-check -------------------------------
 
 
 def test_a_conflict_created_after_classification_refuses_and_writes_no_grant(
@@ -378,7 +378,7 @@ def test_a_conflict_created_after_classification_refuses_and_writes_no_grant(
     conflict exists ONLY in the state a re-check would see. The fresh
     decision is `approval`, never `blocked` on its own, so the neighbouring
     blocked-decision guard cannot produce this refusal: only the SoD half
-    can. Zero new `grants` rows is the second half of §9.5's promise.
+    can. Zero new `grants` rows is the second half of the promise.
     """
     before = _classify(access_db_url, target_user_id=SOD_TARGET.id, role_id=REQUESTED_ROLE)
     assert before.sod_conflicts == (), "premise: the request must classify clean first"
@@ -405,11 +405,11 @@ def test_the_execution_errors_carry_their_spec_error_codes() -> None:
     """Pins both codes exactly.
 
     `test_errors.py`'s `TYPED_ERRORS` table is the repo's usual home for this
-    pin, and an earlier change §8 forbids editing that file, so this assertion is the
+    pin, and that file is not edited here, so this assertion is the
     only pin these two errors get. An executor raising `SOD_CONFLICT` for a
     policy block (or `INTERNAL` for either, which is what inheriting
     `ToolError` without setting `code` produces) crosses the MCP boundary as
-    the wrong the design answer, and every other test here would still pass.
+    the wrong error answer, and every other test here would still pass.
     """
     assert SodConflictAtExecutionError.code is ErrorCode.SOD_CONFLICT
     assert PolicyBlockedAtExecutionError.code is ErrorCode.POLICY_BLOCKED
@@ -419,7 +419,7 @@ def test_a_target_who_became_a_leaver_is_refused_and_writes_no_grant(
     access_db_url: str,  # noqa: F811
 ) -> None:
     """Catches an executor that re-runs `policy/sod.py` alone instead of a
-    full fresh `classify` (decision G): the target turns `leaver` between the
+    full fresh `classify`: the target turns `leaver` between the
     two moments and the role is named by no SoD rule, so the conflict half of
     the re-check finds nothing and only a re-run of the whole engine refuses.
     Also catches a refusal that still writes the row before raising.

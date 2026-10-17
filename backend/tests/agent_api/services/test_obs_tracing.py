@@ -1,4 +1,4 @@
-"""An earlier change §6: the tracing facade in `helpdesk/obs/tracing.py`.
+"""The tracing facade in `helpdesk/obs/tracing.py`.
 
 Written before the module exists. Expected implementation surface (the
 implementer must provide exactly this, re-exported from ``helpdesk.obs``):
@@ -22,7 +22,7 @@ implementer must provide exactly this, re-exported from ``helpdesk.obs``):
         currently active span.
     ``def current_trace_id() -> str | None`` · ``def current_span_id() -> str | None``
     ``def flush() -> None``
-    Every one of them swallows whatever the client raises (decision C, fail
+    Every one of them swallows whatever the client raises (fail
     open) and passes ``attributes`` to the client as ``metadata``, dropping
     the entries whose value is ``None``.
 
@@ -270,7 +270,7 @@ def test_settings_without_keys_construct_no_client_at_all(
     """Catches a facade that builds a `Langfuse` first and decides afterwards
     whether to use it: an unconfigured deployment would then construct an SDK
     client (and its exporter thread) on every startup, which is exactly the
-    "opens no client" half of §1's unconfigured criterion — a `tracing_enabled()`
+    "opens no client" half of the unconfigured case — a `tracing_enabled()`
     that answered False would hide it."""
     configure_tracing(settings=_settings())
 
@@ -358,8 +358,8 @@ def test_a_half_configured_deployment_builds_no_client(
 
 
 def test_a_client_whose_every_method_raises_never_reaches_the_caller() -> None:
-    """Catches a facade that lets the SDK's exception out (decision C's
-    rejected option): a Langfuse outage would then fail the chat turn it was
+    """Catches a facade that lets the SDK's exception out:
+    a Langfuse outage would then fail the chat turn it was
     only supposed to describe, and every node inside the block would be
     skipped. The client here raises from `start_as_current_observation`, so
     only a swallow AROUND the context manager keeps the body running — a
@@ -394,7 +394,7 @@ def test_the_names_and_attributes_reach_the_client_nested_in_call_order() -> Non
     under the node that made it — and one that passes `attributes` under some
     other key than `metadata`, which loses every attribute silently.
 
-    The order is asserted as a list, not a set: §1 says the child spans are
+    The order is asserted as a list, not a set: the child spans are
     the nodes "in the order it ran them"."""
     client = FakeTraceClient()
     configure_tracing(client=client)
@@ -487,7 +487,7 @@ def test_two_traces_do_not_share_a_trace_id() -> None:
     """Catches a facade holding ONE trace for the process (a client-level
     trace opened at `configure_tracing`): every turn the service ever runs
     would then be one unreadable trace, and the resume-is-its-own-turn rule
-    §1 states could not hold."""
+    could not hold."""
     client = FakeTraceClient()
     configure_tracing(client=client)
 

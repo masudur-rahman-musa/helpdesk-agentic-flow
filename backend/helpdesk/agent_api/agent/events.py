@@ -1,11 +1,7 @@
-"""Typed events the turn graph yields, one per visited node or terminal.
+"""Typed events the turn graph yields, one per visited node or ending.
 
-The API layer reads these and turns each one into its wire frames (an earlier change,
-a design note). Nothing here knows what SSE is: each event carries the values a
-frame needs, and the encoder in ``api/sse.py`` builds the strings.
-
-The dependency points down: ``api/sse.py`` imports these types, not the
-other way around.
+Nothing here knows about SSE: ``api/sse.py`` imports these and builds the
+frames.
 """
 
 from dataclasses import dataclass
@@ -27,12 +23,10 @@ class StepEvent:
 
 @dataclass(frozen=True)
 class ReplyEvent:
-    """The turn is finished; its reply ready to stream as tokens then confirm.
+    """The finished turn's reply, ready to stream as tokens.
 
-    ``reply`` is the text to cut into ``token`` events. ``reply_data`` is the
-    pre-rendered dict that fills the ``reply`` SSE frame — the same five keys
-    ``/chat`` returns, so a streaming client and a polling one read one shape
-    (19a decision E1, an earlier change).
+    ``reply_data`` has the same keys ``/chat`` returns, so streaming and polling
+    clients read one shape.
     """
 
     reply: str | None
@@ -41,7 +35,7 @@ class ReplyEvent:
 
 @dataclass(frozen=True)
 class ErrorEvent:
-    """A failure after the first byte."""
+    """A failure after the first byte was sent."""
 
     code: ErrorCode
 

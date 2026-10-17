@@ -13,25 +13,23 @@ import {
 } from "@/features/reviews/labels";
 
 /**
- * An earlier change §6, `reviews-page.test.tsx`: the `/reviews` queue, the items of the
+ * `reviews-page.test.tsx`: the `/reviews` queue, the items of the
  * selected review and the keep/revoke decision, against a stubbed `fetch`.
- * jsdom, no agent-api, no backing service. (No basename collision in the tree,
- * a project rule.)
+ * jsdom, no agent-api, no backing service. (No basename collision in the tree.)
  *
  * The unit under test is `ReviewQueue` from
  * `web/src/features/reviews/components/review-queue.tsx`, taking NO props and doing its own
- * reads and its own mutations through TanStack Query (§2, 23d decision A), so
+ * reads and its own mutations through TanStack Query, so
  * `app/reviews/page.tsx` stays a thin wrapper no case here renders.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23f's Deviations):
+ * Shapes this file fixes:
  * - the `Status` control is a NATIVE select — located as
  *   `role="combobox"` named `Status`, its three choices as `role="option"`
- *   named `All`, `Open` and `Completed`. §1 fixes the names and the parameter
+ *   named `All`, `Open` and `Completed`. The names and the parameter
  *   each sends; it does not fix the widget, and a listbox-based one would not
  *   be findable by the same query.
  * - the option VALUES are never asserted. What `All` means is "no `status` in
- *   the url" (§1), which is asserted on the request, so the page is free to
+ *   the url", which is asserted on the request, so the page is free to
  *   carry any value it likes behind the label.
  * - a refused DECISION's sentence is a `role="alert"` inside that ITEM's
  *   listitem; a failed item READ's sentence is an alert inside the region but
@@ -43,7 +41,7 @@ import {
  * - dates are the ISO prefix (`2026-07-01`), never `toLocaleDateString`, which
  *   under jsdom answers `7/1/2026` — a different day in half the world.
  *
- * The wire shape is 23h's as BUILT and every fixture here parses under
+ * The wire shape is the as BUILT and every fixture here parses under
  * `web/src/features/reviews/schema.ts`: thirteen fields per queue row inside
  * `{ reviews: [...] }`, `{ review_id, items: [...] }` with eleven fields per
  * item, the decision's six-field answer, and a failed proxy answering
@@ -52,7 +50,7 @@ import {
  * id), which is why one fixture row is a department and the other a system.
  *
  * The labels are read through `lib/review-labels.ts` rather than retyped, the
- * way `approvals-page.test.tsx` reads `reasonSentence`: §6 fixes no label
+ * way `approvals-page.test.tsx` reads `reasonSentence`: no label
  * text, and `review-labels.test.ts` is what pins each one as a label rather
  * than as the raw wire code.
  */
@@ -90,7 +88,7 @@ const ROW_ONE: Record<string, unknown> = {
 
 /**
  * A COMPLETED review over a SYSTEM scope, with no due date: the department
- * pair is null and `due_at` is null, so the two halves §5 warns about (a blank
+ * pair is null and `due_at` is null, so the two halves to watch (a blank
  * cell for the null scope pair, a blank cell for a null due date) are both
  * visible on one row.
  */
@@ -139,7 +137,7 @@ const ITEM_B: Record<string, unknown> = {
   expires_at: "2026-12-31T00:00:00Z",
 };
 
-/** An item already decided `keep`: §1 says it carries NEITHER control. */
+/** An item already decided `keep`: it carries NEITHER control. */
 const ITEM_C: Record<string, unknown> = {
   ...ITEM_A,
   item_id: ITEM_THREE,
@@ -390,7 +388,7 @@ afterEach(() => {
 
 describe("ReviewQueue — the queue and its status filter", () => {
   it("reads /api/me/reviews?status=open on first paint", async () => {
-    // Decision D as a request, not as a rendering. Kills a page that paints the
+    // A request, not as a rendering. Kills a page that paints the
     // WHOLE table — after two quarters a completed review is most of it, and
     // the work waiting on the reviewer is buried — and kills one that sends
     // `status=` empty or `status=Open`, either of which reaches the tool's enum
@@ -403,7 +401,7 @@ describe("ReviewQueue — the queue and its status filter", () => {
   });
 
   it("offers exactly All, Open and Completed under the name Status", async () => {
-    // §1's third criterion as the control itself. Kills a filter offering the
+    // The control itself. Kills a filter offering the
     // tool's raw enum (`open`, `completed`) at the reviewer, and one with no
     // `All` at all — without it the two statuses are the only views and a
     // reviewer cannot see one screen holding both. Scoped to the combobox, so
@@ -426,7 +424,7 @@ describe("ReviewQueue — the queue and its status filter", () => {
 
   it.each(FILTERS)("choosing $choice refetches the queue for it", async (filter) => {
     // Two things at once. That a SECOND read happens at all is what pins the
-    // query key carrying the status (§6: `["me", "reviews", status]`) — a key
+    // query key carrying the status (`["me", "reviews", status]`) — a key
     // of `["me", "reviews"]` alone answers the cached first page and the
     // reviewer's click does nothing for thirty seconds, with no request to
     // see. And the url is what pins WHICH read: the `All` row kills a page
@@ -455,7 +453,7 @@ describe("ReviewQueue — the queue and its status filter", () => {
 
   it("renders one row per review, with the non-null scope name, the period, the status, the due date and the progress", async () => {
     // Kills a queue rendering only `reviews[0]`, and kills four row-level
-    // wrongs §5 names. A row reading `department_name` unconditionally leaves a
+    // wrongs. A row reading `department_name` unconditionally leaves a
     // blank cell on every SYSTEM review — the fixture's second row is exactly
     // that shape, and `Fake Warehouse` is what only a page picking the non-null
     // pair renders. A row printing `review.status` raw shows the reviewer the
@@ -488,7 +486,7 @@ describe("ReviewQueue — the queue and its status filter", () => {
   });
 
   it("reads no due date for a review whose due_at is null", async () => {
-    // The null half of §1's second criterion, on the row that carries it.
+    // The null half, on the row that carries it.
     // Kills a page interpolating the null — `null` or `Invalid Date` in the
     // due column — and one leaving the cell empty, where a review with no
     // deadline looks exactly like a rendering bug and a reviewer cannot tell
@@ -506,7 +504,7 @@ describe("ReviewQueue — the queue and its status filter", () => {
 
 describe("ReviewQueue — reading one review's items", () => {
   it("reads no items at all until a review is selected", async () => {
-    // §5's first risk, from the side that is invisible once it ships: a child
+    // From the side that is invisible once it ships: a child
     // mounting its query for EVERY row turns a queue of fifty into fifty calls
     // on first paint, each one an MCP round trip and a rate-limit slot, and the
     // page still looks right. Only the absence of a call catches it, and it has
@@ -521,7 +519,7 @@ describe("ReviewQueue — reading one review's items", () => {
   });
 
   it("selecting a review reads that review's items exactly once", async () => {
-    // The other side of §5's first risk, and the kill for a child keyed on
+    // The other side of the first risk, and the kill for a child keyed on
     // nothing: the url must carry the SELECTED review's id, so a page closing
     // over the first row (or over a loop variable) reads the wrong review's
     // items and shows the reviewer four grants that belong to someone else's
@@ -541,7 +539,7 @@ describe("ReviewQueue — reading one review's items", () => {
   });
 
   it("selecting a second review replaces the first review's items", async () => {
-    // §1's "exactly ONE review's items are read at a time". Kills a page that
+    // Exactly ONE review's items are read at a time. Kills a page that
     // accumulates expanded lists: two `Items in review` lists on screen, or one
     // list holding both reviews' items, puts a grant from another scope beside
     // the Keep and Revoke controls of this one — the reviewer decides on the
@@ -570,7 +568,7 @@ describe("ReviewQueue — reading one review's items", () => {
   });
 
   it("renders each item with its flag label, its names, its privilege and its dates", async () => {
-    // §1's fourth criterion, one assertion per field, and the kill for a list
+    // One assertion per field, and the kill for a list
     // that renders the wire: `sod_conflict` in front of a reviewer explains
     // nothing and is the exact drift `lib/review-labels.ts` exists to stop, so
     // the raw code's ABSENCE is asserted beside the label's presence. The
@@ -603,7 +601,7 @@ describe("ReviewQueue — reading one review's items", () => {
   });
 
   it("shows a decided item's decision label and gives it neither control", async () => {
-    // §1's seventh criterion, both halves on the one item that has them. Kills
+    // Both halves on the one item that has them. Kills
     // a list offering Keep and Revoke on an item the tool has already decided:
     // the second decision is refused upstream, so what the reviewer gets for
     // clicking is an error sentence on a row that was never theirs to act on,
@@ -645,7 +643,7 @@ describe("ReviewQueue — filing a decision", () => {
       // other ITEM's id, the shape a handler closing over a loop variable
       // produces. The exact key set kills a page inventing an idempotency key
       // in the body: agent-api derives it from the verified reviewer, the item
-      // and the word (23h), so a client-chosen one is both ignored and a
+      // and the word, so a client-chosen one is both ignored and a
       // client-supplied string the page has no business minting. Method and
       // content type are asserted because the proxy forwards the body verbatim
       // and a form-encoded post is refused upstream.
@@ -674,7 +672,7 @@ describe("ReviewQueue — filing a decision", () => {
   );
 
   it("disables both controls of the deciding item while its decision is in flight, and no other item's", async () => {
-    // §1's seventh criterion. Kills a page holding ONE in-flight flag for the
+    // Kills a page holding ONE in-flight flag for the
     // whole list — every control greys out while one item is being decided, so
     // a reviewer with forty grants waits for each — and a page with no flag at
     // all, where the Revoke beside an in-flight Keep is still live and files
@@ -734,13 +732,13 @@ describe("ReviewQueue — filing a decision", () => {
   });
 
   it("refetches both the items and the queue after a decision, so the progress moves", async () => {
-    // §5's third risk, which is the one an item-only invalidation ships
+    // Which is the one an item-only invalidation ships
     // silently: the counts live on the QUEUE payload, so a page invalidating
     // `["reviews", id, "items"]` alone leaves `1 of 4 decided` sitting under an
     // item the reviewer just decided, and the only way to see the truth is a
     // manual reload. Kills that, and kills a mutation with no invalidation at
     // all (the item would keep its two controls). The progress assertion reads
-    // the refetch's OWN answer, never an optimistic guess — §1 says
+    // the refetch's OWN answer, never an optimistic guess:
     // `review_complete` and the new decision are only ever what the refetch
     // says. Arithmetic: queue reads 1 -> 2, item reads
     // 1 -> 2, decision calls = 1; the second queue read answers `2 of 4`.
@@ -795,12 +793,12 @@ describe("ReviewQueue — a refused decision", () => {
       // ("TOOL_DISABLED" means nothing to the person reading it) — the
       // sentences are READ from `FAILURE_MESSAGES` rather than retyped, so a
       // page inventing its own wording for `FORBIDDEN` is red without widening
-      // 22b's pinned map. A page whose mutation error clears the rows the two
+      // the pinned map. A page whose mutation error clears the rows the two
       // reads answered: the counts after the refusal are what catch a queue or
       // an item list emptied by a 403. And, on the VALIDATION row, a page that
       // used the SHARED sentence — "That message could not be sent." is about a
       // chat message and says nothing true about a refused decision, which is
-      // the whole of decision E; that row asserts the override AND the absence
+      // the whole point; that row asserts the override AND the absence
       // of the shared string, so reusing the map is red in both directions. The
       // alert is located INSIDE the item, so a page showing one refusal banner
       // for the whole list (the reviewer cannot tell which of forty items was
@@ -829,7 +827,7 @@ describe("ReviewQueue — a refused decision", () => {
   );
 
   it("pins the VALIDATION override sentence exactly", async () => {
-    // a project rule on the one string this plan introduces. Kills an
+    // The exact literal for the one new string. Kills an
     // implementation that exports the constant but fills it with the shared
     // map's sentence, or with a reworded variant: the parametrised row above
     // READS the constant, so it stays green for any value the module chooses,
@@ -846,7 +844,7 @@ describe("ReviewQueue — nothing to show, and reads that fail", () => {
   it("renders the named empty queue with no list and no alert", async () => {
     // Kills a page rendering an empty list under its heading: "no reviews are
     // waiting" then looks exactly like a read that returned nothing because it
-    // broke. The absent alert is the other half of §1's mutual exclusion — a
+    // broke. The absent alert is the other half of the mutual exclusion — a
     // page showing both says two contradictory things at once.
     queueAnswer = () => jsonResponse({ reviews: [] }, 200);
     renderQueue();
@@ -925,7 +923,7 @@ describe("ReviewQueue — nothing to show, and reads that fail", () => {
   it.each(ITEM_FAILURES)(
     "$name renders the item alert while the queue stays rendered",
     async (row) => {
-      // §1's second unhappy path, and the half that makes it its OWN sentence:
+      // And the half that makes it its OWN sentence:
       // a failed item read must not read like a failed queue read, because the
       // queue on screen is fine and only the selected review is unreadable. The
       // queue rows still being there is what kills a page whose item error
@@ -951,9 +949,9 @@ describe("ReviewQueue — nothing to show, and reads that fail", () => {
 
 describe("ReviewQueue — an expired session", () => {
   it("follows the proxy's redirect to /login instead of rendering the queue", async () => {
-    // §1's last unhappy path at the QUEUE read, and the reason it is
-    // `response.redirected` and never a status (22b decision E, standing rule
-    // 59): the browser has ALREADY followed the proxy's redirect, so what
+    // The last unhappy path at the QUEUE read, and the reason it is
+    // `response.redirected` and never a status: the browser has ALREADY followed the proxy's
+    // redirect, so what
     // arrives is a 200 carrying the login page. Kills a fetcher checking
     // `response.ok` or `response.status === 401` — both see a successful
     // response, the parser then refuses the HTML, and the reviewer sits on
@@ -1010,7 +1008,7 @@ describe("ReviewQueue — an expired session", () => {
 });
 
 /**
- * An earlier change §6, added to 23f's file and rewriting none of it (§8): three cases
+ * Cases added to the file, rewriting none of it: three cases
  * per read for the TWO reads this component owns — the queue
  * (`readWire("/api/me/reviews?status=...", reviewQueueSchema)`) and the items
  * (`readWire("/api/reviews/{id}/items", reviewItemsSchema)`). The decision POST
@@ -1021,7 +1019,7 @@ describe("ReviewQueue — the queue read through the shared wire reader", () => 
   const ORIGIN = "http://localhost:3000";
 
   it("a 403 FORBIDDEN on the queue renders the queue alert, not the code's sentence", async () => {
-    // Decision B on the surface that already renders `FAILURE_MESSAGES`
+    // The surface that already renders `FAILURE_MESSAGES`
     // sentences for a refused DECISION, so reusing that dressing for the READ is
     // one import away. Kills exactly that migration — "You are not allowed to do
     // that." in the region alert reads as "you may not review", when what failed
@@ -1045,7 +1043,7 @@ describe("ReviewQueue — the queue read through the shared wire reader", () => 
     // exact `search` rather than as `toContain` (the case above this file's
     // fixtures asserts it that way, and `?status=open&limit=50` would satisfy
     // it). Kills a migration that drops the filter while moving the call into
-    // `readWire` — decision D's first paint is the OPEN reviews, and after two
+    // `readWire` — the first paint is the OPEN reviews, and after two
     // quarters the whole table is mostly completed ones — and kills one that
     // sends `?status=` or `?status=Open`, either of which reaches the tool's
     // enum as a word it has no member for. Arithmetic: the
@@ -1062,7 +1060,7 @@ describe("ReviewQueue — the queue read through the shared wire reader", () => 
   });
 
   it("a bodyless 500 on the queue renders the same queue alert", async () => {
-    // §5's second risk at the first of this component's two reads: `readWire`
+    // A risk at the first of this component's two reads: `readWire`
     // reads the body of every non-ok response looking for a typed code, and
     // `fetchReviews` reads it for none. Kills a refusal branch awaiting an
     // unguarded `json()`, and kills one that treats an unreadable body as a
@@ -1083,7 +1081,7 @@ describe("ReviewQueue — the item read through the shared wire reader", () => {
   const ORIGIN = "http://localhost:3000";
 
   it("a 403 FORBIDDEN on the items renders the item alert, not the code's sentence", async () => {
-    // The same decision B at the SECOND read, which a migration fixed in one
+    // The same check at the SECOND read, which a migration fixed in one
     // place misses. The queue read succeeds here, so only the item path can
     // produce this alert and the queue's own error branch cannot stand in for
     // it. Kills an item reader dressing the typed code (the reviewer would be
@@ -1130,7 +1128,7 @@ describe("ReviewQueue — the item read through the shared wire reader", () => {
   });
 
   it("a bodyless 500 on the items renders the same item alert", async () => {
-    // §5's second risk at the second read. `fetchItems` is the one of the eight
+    // The same risk at the second read. `fetchItems` is the one of the eight
     // that reads no body on failure at all today, so a migration routing it
     // through `readWire` newly parses one; a response carrying none is where
     // that shows. Kills an unguarded `json()` in the refusal branch, and kills

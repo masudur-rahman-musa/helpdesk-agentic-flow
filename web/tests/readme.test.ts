@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * An earlier change: `web/README.md` stays true to the code. It has four sections in
+ * `web/README.md` stays true to the code. It has four sections in
  * order, every path it names exists, every feature folder is named, the request
  * flow names its steps in order, every pnpm script and make target it names is
  * real, and it names no private working file. Reads files by path, no render,
  * no service.
  *
- * input validation: §5 n/a — no input here shapes a key, identifier, path or
+ * Input validation does not apply: no input here shapes a key, identifier, path or
  * stored value.
  */
 

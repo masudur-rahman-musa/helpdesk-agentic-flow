@@ -4,33 +4,29 @@ import { AUDIT_CSV_HEADER, AUDIT_CSV_MIME, csvFilename, toCsv } from "@/features
 import { type AuditEventRow } from "@/features/admin/audit/schema";
 
 /**
- * An earlier change §6, `audit-csv.test.ts`: the bytes of the exported file, over
- * `@/features/admin/audit/csv` and nothing else. No DOM, no fetch, no clock. (No basename
- * collision in the tree, a project rule: the neighbours are
- * `audit-filters.test.ts`, `audit-proxy-routes.test.ts`, `audit-schema.test.ts`
- * and `audit-search-page.test.tsx`.)
+ * The bytes of the exported file, over
+ * `@/features/admin/audit/csv` and nothing else. No DOM, no fetch, no clock.
  *
- * The unit under test is the four symbols §6 names — `AUDIT_CSV_HEADER`,
+ * The unit under test is four symbols: `AUDIT_CSV_HEADER`,
  * `AUDIT_CSV_MIME`, `toCsv(events)` and `csvFilename(events)` — taking the
  * parsed `AuditEventRow`s of `lib/audit-schema.ts` and answering a string. The
  * component owes only the download (`audit-export.test.tsx`); every byte of the
  * file is pinned here, where a literal can hold it.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24bb's Deviations):
+ * Shapes this file fixes:
  * - the varying value of the quoting and injection rows lives in `actor_ref`,
- *   one of the three fields §1 names as carrying text a user typed. Every other
+ *   one of the three fields that carry text a user typed. Every other
  *   cell of the base row is a value needing neither the guard nor the quoting,
  *   so a row that is wrapped or prefixed is wrapped or prefixed for the reason
  *   the case is about.
  * - the expectation of each of those rows is the WHOLE file, composed from the
- *   row's literal cell by `fileWith`. §6 asks for "the exact cell text", and
+ *   row's literal cell by `fileWith`. the test wants the exact cell text, and
  *   splitting a file whose cells may contain CR or LF on commas would be a
  *   second CSV parser inside the test.
  * - `toCsv` and `csvFilename` are never called to produce an expectation: every
  *   expected string is written out here, because an assertion computed by the
  *   code under test is green for whatever that code chose.
- * - `csvFilename([])` is NOT pinned: §1 says `Export CSV` is absent on an empty
+ * - `csvFilename([])` is NOT pinned: `Export CSV` is absent on an empty
  *   page, so no caller can reach it and a case here would invent a behaviour
  *   nothing asks for.
  *
@@ -71,7 +67,7 @@ function fileWith(cell: string): string {
 
 describe("the header and the media type", () => {
   it("heads the file with the nine wire field names in the tool's order", () => {
-    // §1's second criterion and a project rule and 39, as the one literal
+    // The one literal
     // that fixes it. Kills a header written in the TABLE's order or with the
     // table's own words (`Seq,Occurred,Event,Actor kind,Actor,...`, which is
     // the order `EventTable` renders and puts `event_type` third): a value
@@ -86,8 +82,7 @@ describe("the header and the media type", () => {
   });
 
   it("declares the media type as text/csv with the utf-8 charset", () => {
-    // a project rule on the second constant this plan introduces, and decision
-    // G's other half: the charset lives HERE because no BOM is written. Kills a
+    // The second constant, and the other half of the BOM choice: the charset lives HERE because no BOM is written. Kills a
     // bare `text/csv` (a browser saving the file then guesses the encoding, and
     // the guess is wrong for any non-ASCII actor a tenant types), and kills
     // `application/octet-stream`, which downloads as an unnamed binary.
@@ -97,7 +92,7 @@ describe("the header and the media type", () => {
 
 describe("toCsv — the wire values, not the screen's labels", () => {
   it("writes nulls as empty cells, the full timestamp and hash, and a compact payload", () => {
-    // §1's third criterion and decision H, as ONE literal covering the whole
+    // ONE literal covering the whole
     // file. Four kills in one assertion, each of which is a real implementation
     // reusing what `EventTable` already renders: `no actor` and `no subject id`
     // in the two null cells (a spreadsheet filter would then read a literal
@@ -128,20 +123,20 @@ describe("toCsv — the wire values, not the screen's labels", () => {
   });
 
   it("writes the header and one CRLF for an empty list", () => {
-    // §6's empty case. Kills a `toCsv` that answers "" for no rows — a file
+    // The empty case. Kills a `toCsv` that answers "" for no rows — a file
     // with no header is not a CSV anyone can read a column out of — and kills
     // one that joins rows with a SEPARATOR rather than a terminator, which
     // shows up here as a header with no line ending at all. `Export CSV` is
-    // absent on an empty page (§1), so this is the shape of the function and
+    // absent on an empty page, so this is the shape of the function and
     // not a path the button reaches.
     expect(toCsv([])).toBe(`${AUDIT_CSV_HEADER}\r\n`);
   });
 
   it("joins rows with CRLF and ends the file with one", () => {
-    // §1's fourth criterion, from the side a whole-file literal cannot show.
+    // From the side a whole-file literal cannot show.
     // Kills a file joined with bare LF: RFC 4180 says CRLF, and the split here
     // would answer one part holding both rows. The fourth part is the empty
-    // string AFTER the trailing CRLF (hand count, a project rule: three
+    // string AFTER the trailing CRLF (hand count: three
     // terminated lines split on their terminator give four parts), so a file
     // whose last row is unterminated gives three parts and is red.
     const first = eventWith("fake-person-one");
@@ -166,7 +161,7 @@ describe("toCsv — RFC 4180 quoting", () => {
   ] as const;
 
   it.each(QUOTING)("wraps a cell containing $name exactly as RFC 4180 says", ({ value, cell }) => {
-    // §1's fourth criterion, one row per character plus the bare row that is
+    // One row per character plus the bare row that is
     // the rule's other side. The comma row kills the obvious
     // `values.join(",")`, which turns one nine-column row into ten columns and
     // shifts every later cell under the wrong header — the fault that makes an
@@ -193,8 +188,7 @@ describe("toCsv — the formula injection guard", () => {
   ] as const;
 
   it.each(GUARD)("prefixes a cell beginning with $name", ({ value, cell }) => {
-    // §1's fifth criterion and decision B, one case per character (standing
-    // rule 1's inclusive boundary, from the accepted side). Kills a guard
+    // One case per character (the inclusive boundary, from the accepted side). Kills a guard
     // written for `=` alone, which is the shape everyone writes first and which
     // leaves `+HYPERLINK(...)`, `-2+3+cmd|...` and `@SUM(...)` live in a
     // spreadsheet an auditor opens; a tenant's own `actor_ref` is where that
@@ -227,7 +221,7 @@ describe("toCsv — the formula injection guard", () => {
   });
 
   it("prefixes and wraps a cell that needs both, in that order", () => {
-    // §5's first risk, spelled out in §6 as one literal. Kills the two orders
+    // One literal. Kills the two orders
     // that are each defensible on their own and wrong together: quoting first
     // gives `'"=a,b"`, whose leading apostrophe is outside the cell and which
     // every parser reads as a malformed field, and prefixing a value that was
@@ -241,10 +235,10 @@ describe("toCsv — the formula injection guard", () => {
 
 describe("csvFilename", () => {
   it("names the file for the seq range of the rows it holds", () => {
-    // §1's sixth criterion and decision F, as the literal §6 fixes. Kills a
+    // Kills a
     // name built from a clock (`audit-2026-09-13.csv`), which says nothing
     // about WHICH slice of the log the file holds and collides the moment an
-    // auditor exports two pages on one day — the exact case decision A's
+    // auditor exports two pages on one day — the exact case a
     // page-at-a-time export makes routine. It also kills a name built from the
     // row COUNT or from the first row alone, neither of which tells a reader
     // where the export stops, which is the one thing that makes a partial

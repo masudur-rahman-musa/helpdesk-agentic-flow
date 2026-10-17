@@ -1,11 +1,11 @@
-"""An earlier change section 6: the policy documents board, over HTTP.
+"""The policy documents board, over HTTP.
 
 Surface under test (written before it exists; every case below is red on one of
 these names until step 4 lands):
 
-``agent_api.policies_routes`` (step 4)
+``agent_api.policies_routes``
     ``router`` with ``GET /admin/policies`` - no query parameter, no body, no
-    argument at all - calling the ``list_policy_documents`` tool (step 3)
+    argument at all - calling the ``list_policy_documents`` tool
     through ``agent_api.deps``' existing seam: ``authenticated``,
     ``unauthenticated``, ``typed_refusal``, ``call_tool_route`` and
     ``STATUS_FOR_CODE``. Registered in ``main.py`` beside the rules router.
@@ -15,23 +15,22 @@ these names until step 4 lands):
     ``LIST_POLICY_DOCUMENTS_TOOL = "list_policy_documents"`` and
     ``ListPolicyDocumentsArgs`` (no fields).
 
-Shapes this file fixes that the plan left open (a project rule and 55;
-these belong in 24g's Deviations):
+Shapes this file fixes that the plan left open:
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``, and the bearer
   refusal is a literal ``401`` carrying ``{"code": "FORBIDDEN"}`` - what
-  ``deps.unauthenticated()`` answers, 24eb's shape unchanged.
+  ``deps.unauthenticated()`` answers, the usual shape unchanged.
 - the staged board is literal-accurate: it is validated against the tool's own
   ``ListPolicyDocumentsOutput`` in a premise assertion, so a row invented here
   rather than read off ``mcp_server/tools/policy_docs.py`` fails this file instead of
   passing against a route that answers the wrong shape.
-- the staged version order is ``ingested_at`` descending (24g decision C) over
+- the staged version order is ``ingested_at`` descending over
   ``v9``, ``v10``, ``v2``, whose own string order is neither that sequence nor
   its reverse: a route that re-sorted the versions on any single field, or
   reversed them, answers a different list.
 - the staged documents are slug ascending while their TITLES sort the other
   way round, so a route that re-sorted the documents by title is red too.
 
-Not asserted here, and why (a project rule - already pinned, not duplicated):
+Not asserted here, and why (already pinned, not duplicated):
 - ``deps.STATUS_FOR_CODE`` gaining no row is pinned as an EXACT mapping by
   ``test_error_map.py::test_the_one_map_has_a_row_for_every_code``,
   which goes red for any ninth row whoever adds it.
@@ -42,10 +41,10 @@ Not asserted here, and why (a project rule - already pinned, not duplicated):
   absent-or-malformed row below is kept because it is the one that also pins
   that THIS router reaches the seam at all.
 
-An earlier change extends this file with the re-ingest POST (``POST
+The re-ingest POST is added at the end of this file (``POST
 /admin/policies/reingest``); its own expected surface is written out above its
 three cases, at the end of the file. Its bearer and refusal cases carry their
-own names rather than 31a section 6's, because the board's cases already hold
+own names rather than the earlier tests', because the board's cases already hold
 those names in this module and a duplicate definition would silently replace
 one of them.
 
@@ -102,7 +101,7 @@ ADMIN_ID = uuid.UUID("22222222-2222-5222-8222-222222222222")
 DEPARTMENT_ID = uuid.UUID("33333333-3333-5333-8333-333333333333")
 SESSION_ID = uuid.UUID("44444444-4444-5444-8444-444444444444")
 
-# The two principals SPEC section 7 gives the row a cell for, and the five it
+# The two principals the policy table gives the row a cell for, and the five it
 # does not. The five are asserted through the tool's own refusal: the route is
 # not the authority on the matrix, so what these rows pin is that a refusal
 # reaches the caller as a 403 rather than as a 500 or an empty board.
@@ -189,7 +188,7 @@ LEAVE_DOCUMENT: dict[str, Any] = {
     ],
 }
 """A document with NO current version: every flag false, still on the board
-(criterion 6). Its title sorts before the other document's, while its slug
+Its title sorts before the other document's, while its slug
 sorts after - which is what catches a route that re-sorts by title."""
 
 BOARD_PAYLOAD: Mapping[str, Any] = {"documents": [ACCESS_DOCUMENT, LEAVE_DOCUMENT]}
@@ -198,7 +197,7 @@ envelope, slug ascending, versions `ingested_at` descending. The route must
 hand this back UNCHANGED."""
 
 EMPTY_BOARD: Mapping[str, Any] = {"documents": []}
-"""A tenant with no corpus. Section 1: a 200 and an empty list, not a 404."""
+"""A tenant with no corpus. A 200 and an empty list, not a 404."""
 
 STAGED_SLUGS = ["fake-aa-access-policy", "fake-zz-leave-policy"]
 """The staged document sequence, as the exact list the order case asserts."""
@@ -331,8 +330,8 @@ def _get(
 ) -> tuple[httpx.Response, CallerSpy]:
     """One board read against the app, with the tool caller replaced at the seam.
 
-    The seam is `deps.build_tool_caller` (23c decision C put `call_tool_route`
-    there), and the lifespan is NOT entered: this route reads nothing off
+    The seam is `deps.build_tool_caller` (`call_tool_route` is built there), and the lifespan is NOT
+    entered: this route reads nothing off
     `app.state`, so entering it would buy a psycopg pool, a Redis client and a
     gateway client that no case here uses.
     """
@@ -359,24 +358,25 @@ def _documents(response: httpx.Response) -> list[dict[str, Any]]:
 def test_the_router_names_its_path_its_tool_and_a_fieldless_argument_model(
     policies_env: None,
 ) -> None:
-    """The constants this file drives the route with, pinned at their values rather than read out of the module under test.
+    """The constants this file drives the route with, pinned at their values
+    rather than read out of the module under test.
 
-    Catches three drifts no behavioural case below can see, because each of
-    them would make those cases agree with whatever the implementation chose: a
-    path renamed to `/admin/policy-documents` (SPEC section 14's own name is
-    `/admin/policies`, and the proxy on the other side of the wire is written
-    against the same literal), a tool name that is not the registry's
-    `list_policy_documents` (the far side would answer `NOT_FOUND` for a tool
-    nobody registered), and an arguments model that declares a field - which is
-    a project rule's whole concern, and would cross back as a `VALIDATION` because
-    `ListPolicyDocumentsInput` forbids extras.
+       Catches three drifts no behavioural case below can see, because each of
+       them would make those cases agree with whatever the implementation chose: a
+       path renamed to `/admin/policy-documents` (the spec's own name is
+       `/admin/policies`, and the proxy on the other side of the wire is written
+       against the same literal), a tool name that is not the registry's
+       `list_policy_documents` (the far side would answer `NOT_FOUND` for a tool
+       nobody registered), and an arguments model that declares a field - which is
+       the identity-from-token rule's whole concern, and would cross back as a `VALIDATION` because
+       `ListPolicyDocumentsInput` forbids extras.
 
-    The registration half catches a router written and never included in
-    `main.py`: every case below would then fail as a 404 with no hint which of
-    the two is missing. It reads `app.openapi()["paths"]` rather than walking
-    `app.routes`: this app includes its routers through a wrapper, so the
-    concrete `APIRoute` is not on `app.routes` at all and the walk answered an
-    empty set for every route in the service.
+       The registration half catches a router written and never included in
+       `main.py`: every case below would then fail as a 404 with no hint which of
+       the two is missing. It reads `app.openapi()["paths"]` rather than walking
+       `app.routes`: this app includes its routers through a wrapper, so the
+       concrete `APIRoute` is not on `app.routes` at all and the walk answered an
+       empty set for every route in the service.
     """
     assert policies_routes.POLICIES_PATH == "/admin/policies"
     assert policies_routes.LIST_POLICY_DOCUMENTS_TOOL == "list_policy_documents"
@@ -428,7 +428,7 @@ def test_the_staged_board_is_exactly_what_the_tool_model_produces() -> None:
 def test_the_board_route_answers_the_tools_output_unchanged(
     policies_env: None, monkeypatch: pytest.MonkeyPatch, principal: str
 ) -> None:
-    """Section 1's "reshapes nothing", and the bearer half of the same
+    """The "reshapes nothing", and the bearer half of the same
     criterion.
 
     Catches a route that reshapes, filters or renames `list_policy_documents`'
@@ -439,7 +439,7 @@ def test_the_board_route_answers_the_tools_output_unchanged(
     current version: those are the two rows this page exists to surface, and a
     route that filtered either would report a broken corpus as clean.
 
-    The bearer half is a project rule: the token the caller presented is forwarded
+    The bearer half is the identity-from-token rule: the token the caller presented is forwarded
     VERBATIM, so RBAC, the kill switch and the tool's audit event apply to this
     read. A route that minted its own service token, or reused a configured
     one, fails on that assertion alone.
@@ -472,15 +472,15 @@ def test_the_board_route_answers_the_tools_output_unchanged(
 def test_the_board_route_sends_an_exactly_empty_argument_set(
     policies_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's "hands `call_tool_route` an exactly empty argument set",
-    a project rule, as an EXACT key set.
+    """The "hands `call_tool_route` an exactly empty argument set",
+    the identity-from-token rule, as an EXACT key set.
 
     Catches a route that passes the caller's tenant, user id or a slug along as
     an argument. `ListPolicyDocumentsInput` declares no field and forbids
     extras, so a key riding along would cross back as a `VALIDATION` and the
     board would answer an error on every load - and a `tenant_id` in particular
     is the browser asking to read another tenant's corpus, which the token is
-    the only authority on (a project rule: nothing here leans on a
+    the only authority on (nothing here leans on a
     cross-tenant guard, because the argument must not exist at all).
     """
     caller = ScriptedToolCaller(BOARD_PAYLOAD)
@@ -495,13 +495,13 @@ def test_the_board_route_sends_an_exactly_empty_argument_set(
 def test_the_rows_cross_in_the_tools_own_order(
     policies_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's "crosses the rows in the tool's own order" and decision C.
+    """The "crosses the rows in the tool's own order" and the total order.
 
     Catches a route that sorts again on the way out. The documents are staged
     slug ascending while their TITLES sort the other way round, so a title sort
     answers the reverse; and the three staged versions are in `ingested_at`
     descending order whose own string order is neither that sequence nor its
-    reverse, so a sort on the `version` string - the mistake decision C exists
+    reverse, so a sort on the `version` string - the mistake the total order exists
     to stop, because `v10` sorts before `v2` - answers a third sequence.
 
     The order is the whole value of the helper's total order: every caller sees
@@ -530,7 +530,7 @@ def test_the_rows_cross_in_the_tools_own_order(
 def test_a_tenant_with_no_corpus_is_a_200_and_an_empty_list(
     policies_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's unhappy path, first half. Catches a route that treats an
+    """The unhappy path, first half. Catches a route that treats an
     empty corpus as a missing resource - a 404, or a typed `NOT_FOUND` - which
     would leave a tenant that has simply never been ingested looking at an
     error page, and catches a route that answers `{}` or a bare `[]` instead of
@@ -592,7 +592,7 @@ def test_an_absent_or_malformed_bearer_is_a_typed_401_and_opens_no_session(
 def test_a_principal_with_no_cell_reads_a_typed_403_and_no_documents(
     policies_env: None, monkeypatch: pytest.MonkeyPatch, principal: str
 ) -> None:
-    """Section 1's unhappy path, second half, one row per principal with no
+    """The unhappy path, second half, one row per principal with no
     cell on the `list_policy_documents` row.
 
     Catches a route that lets the tool's `ToolError` escape - FastAPI answers
@@ -635,16 +635,15 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """Section 1's "answers `FORBIDDEN` 403 and `TOOL_DISABLED` 503", read
-    through the SHARED `deps.STATUS_FOR_CODE` (which this plan does not touch;
-    an earlier change later folded it to all eight codes, a design note).
+    """The "answers `FORBIDDEN` 403 and `TOOL_DISABLED` 503", read
+    through the SHARED `deps.STATUS_FOR_CODE` (which holds a row for all eight codes).
 
     Catches a route that maps every refusal onto one status: a matrix denial
     the caller cannot act on and a kill switch tripped on
     `list_policy_documents` ("try again later") are different answers, and a
     board that reported a tripped switch as a permission problem would send an
     admin looking for the wrong fix. Catches a router that built its own status
-    map too, which is what 23c decision C moved the map to stop.
+    map too, which the shared map exists to stop.
 
     The bearer verifies and the route takes no input at all, so no validation
     and no token gate can decide these rows - only the `except ToolError`
@@ -659,15 +658,14 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     assert caller.entered == 1
 
 
-# --- an earlier change: the re-ingest POST ---------------------------------------------
+# --- the re-ingest POST -------------------------------------------------------
 #
 # Surface under test (written before it exists; the three cases below are red
 # on one of these names until step 6 lands):
 #
 # ``agent_api.policies_routes``
-#     ``REINGEST_PATH = "/admin/policies/reingest"`` - SPEC section 14's page
-#     with the action appended, identical upstream and browser-side (24eb
-#     decision C, 31a decision I).
+#     ``REINGEST_PATH = "/admin/policies/reingest"`` - the policies page
+#     with the action appended, identical upstream and browser-side.
 #     ``REINGEST_POLICY_DOCUMENT_TOOL = "reingest_policy_document"``.
 #     ``ReingestPolicyDocumentArgs(BaseModel)`` - exactly ``slug``, ``version``
 #     and ``idempotency_key``, the three keys the tool's own input declares.
@@ -675,10 +673,10 @@ def test_a_tool_refusal_answers_its_own_typed_code(
 #     ``call_tool_route`` verifies the bearer, opens ONE session under the
 #     caller's own token and renders the tool's structured output unchanged.
 #
-# Nothing new in ``deps.STATUS_FOR_CODE`` (31a criterion 15): four of its
+# Nothing new in ``deps.STATUS_FOR_CODE`` (four of its
 # eight codes cross this route, and the map itself is pinned as an exact
 # mapping by ``test_error_map.py::test_the_one_map_has_a_row_for_every_code``
-# (a project rule - already held, not duplicated here).
+# (already held, not duplicated here).
 
 REINGEST_PATH = "/admin/policies/reingest"
 REINGEST_POLICY_DOCUMENT = "reingest_policy_document"
@@ -705,7 +703,7 @@ REINGEST_PAYLOAD: Mapping[str, Any] = {
     "summary": "Re-ingested fake-aa-access-policy v9: 4 chunks, now current.",
 }
 """One re-ingest exactly as `reingest_policy_document` answers it (31a
-criterion 10): seven values and the human-readable summary FIELD."""
+seven values and the human-readable summary FIELD."""
 
 
 def _post(
@@ -736,33 +734,34 @@ def _post(
 def test_the_reingest_route_sends_its_exact_three_key_argument_set(
     policies_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Section 1's "hands `call_tool_route` exactly `{slug, version,
-    idempotency_key}` and the caller's own `Authorization` header, reshapes
-    nothing on the way out", as an EXACT dict.
+    """The "hands `call_tool_route` exactly `{slug, version,
+        idempotency_key}` and the caller's own `Authorization` header, reshapes
+        nothing on the way out", as an EXACT dict.
 
-    Catches a route that passes the caller's tenant or user id along as a
-    fourth argument: `ReingestPolicyDocumentInput` forbids extras, so the call
-    would cross back as a `VALIDATION` and the control would never work - and a
-    `tenant_id` in particular is the browser asking to rewrite another tenant's
-    corpus, which the token is the only authority on (a project rule: nothing
-    here leans on a cross-tenant guard, because the argument must not exist at
-    all). It equally catches a route that DROPS the idempotency key or mints
-    one of its own, which would turn every retry of a re-ingest into a second
-    ingest rather than a replay.
+        Catches a route that passes the caller's tenant or user id along as a
+        fourth argument: `ReingestPolicyDocumentInput` forbids extras, so the call
+        would cross back as a `VALIDATION` and the control would never work - and a
+        `tenant_id` in particular is the browser asking to rewrite another tenant's
+        corpus, which the token is the only authority on (nothing
+        here leans on a cross-tenant guard, because the argument must not exist at
+        all). It equally catches a route that DROPS the idempotency key or mints
+        one of its own, which would turn every retry of a re-ingest into a second
+        ingest rather than a replay.
 
-    The bearer half is a project rule: the token the caller presented is forwarded
-    VERBATIM, so RBAC, the kill switch and the tool's `policy.reingested` event
-    name this admin. A route that minted a service token fails on that
-    assertion alone.
+        The bearer half is the identity-from-token rule: the token the caller presented is forwarded
+        VERBATIM, so RBAC, the kill switch and the tool's `policy.reingested` event
+        name this admin. A route that minted a service token fails on that
+        assertion alone.
 
-    The staged answer is validated against the tool's own output model first: a payload invented here rather than read off
-    `mcp_server/tools/policy_docs.py` would let the body assertion pass while the
-    route answered a shape the web parser refuses.
+        The staged answer is validated against the tool's own output model first
+    : a payload invented here rather than read off
+        `mcp_server/tools/policy_docs.py` would let the body assertion pass while the
+        route answered a shape the web parser refuses.
 
-    The registration half reads `app.openapi()["paths"]` rather than walking
-    `app.routes`: this app includes its routers through a wrapper, so the
-    concrete `APIRoute` is not on `app.routes` at all and the walk answered an
-    empty set for every route in the service.
+        The registration half reads `app.openapi()["paths"]` rather than walking
+        `app.routes`: this app includes its routers through a wrapper, so the
+        concrete `APIRoute` is not on `app.routes` at all and the walk answered an
+        empty set for every route in the service.
     """
     assert ReingestPolicyDocumentOutput.model_validate(REINGEST_PAYLOAD).model_dump(
         mode="json"
@@ -800,7 +799,7 @@ def test_a_reingest_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """Section 1's criterion 15: four of `deps.STATUS_FOR_CODE`'s eight codes
+    """Four of `deps.STATUS_FOR_CODE`'s eight codes
     cross THIS route, each as its own typed code.
 
     Catches a route that maps every refusal onto one status. All four are
@@ -813,8 +812,8 @@ def test_a_reingest_tool_refusal_answers_its_own_typed_code(
     FastAPI's untyped 500 - sends every one of those admins to look for an
     outage.
 
-    Catches a router that built its own status map too, which is what 23c
-    decision C moved the map to stop. The bearer verifies and the body is
+    Catches a router that built its own status map too, which the shared
+    map exists to stop. The bearer verifies and the body is
     valid, so neither the token gate nor FastAPI's own validation can decide
     these rows: only the `except ToolError` branch can.
     """

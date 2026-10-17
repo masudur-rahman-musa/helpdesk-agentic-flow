@@ -1,50 +1,9 @@
 """The three approval tools: the queue and the two decisions.
 
-`list_pending_approvals` answers "what is waiting for ME" (decision G):
-pending requests in the caller's scope that carry an open seat this caller
-may actually fill. It re-reads `rbac.authorize` — not as a second permission
-check, the pipeline already made that decision, but for
-`Authorization.scopes`, the un-collapsed set. A caller who is both a manager
-and a system owner has two incomparable scopes and `Authorization.scope`
-keeps only the wider one, which would silently drop every request on the
-systems they own (the narrowing an earlier change recorded and an earlier change re-owed).
-Pinned by
-`test_mcp_approvals.py::test_a_manager_and_system_owner_caller_sees_the_union_of_both_queues`.
-
-`approve_request` and `reject_request` record the caller against exactly ONE
-open seat of the chain, then act on what that leaves:
-
-    still open seats  -> the row stays `pending`, nothing is granted
-    every seat approved -> `approved`, and `execute_grant` runs in the SAME
-                           transaction, so the request and the grant commit
-                           or roll back together
-    rejected            -> `rejected`; one rejection ends the chain and a
-                           later approve on that row is refused typed
-
-Both take the row with `SELECT … FOR UPDATE` first (decision F). Two
-approvers deciding the same last seat send two DIFFERENT idempotency keys, so
-the guard cannot serialise them; the row lock is the only thing that can, and
-`test_mcp_approvals.py::test_two_approvers_racing_the_last_slot_produce_exactly_one_grant`
-is what tells us it does.
-
-Execution failing on the last approval keeps the row and marks it `failed`
-(decision E): the approval really happened and the audit trail must keep it,
-so the call SUCCEEDS carrying `failure_code`. The consequence is that the
-idempotency row stores a `failed` outcome and every retry of that key
-replays it rather than re-attempting the decision — deliberate, since a
-retry must not re-run a decision, and pinned by
-`test_a_replay_of_a_failed_approval_returns_the_stored_response`.
-
-Nobody approves their own request, one person fills at most one seat of a
-chain, and a caller's the design scope has to reach the request as well as the
-seat naming them. All of those rules live in `helpdesk.access.approvals`, so
-the queue and the two deciding tools cannot answer them differently.
-
-The two decision events (`request.approved`, `request.rejected`) are appended
-by these handlers rather than declared as the registry `event_type`: the
-pipeline's own event carries a fixed payload and the TOOL as its subject,
-which would record that somebody called a tool and not which request they
-decided.
+Both decisions lock the row first: two approvers on the last seat send
+different idempotency keys, so only the lock stops a double grant. When
+the last approval's grant is refused, the row is `failed` but the call
+succeeds, because the approval really happened.
 """
 
 import uuid
@@ -89,29 +48,8 @@ from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, Sy
 from helpdesk.shared.policy.types import ApproverSlot
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
-"""the design's two decision events, appended by these handlers (decision I).
-
-`REQUEST_REJECTED_EVENT_TYPE` is imported from `helpdesk.access.requests`
-rather than defined here, because an earlier change gave it a second writer:
-`offboard_user` closes every request still open against a leaver. Two
-spellings of one event type would let an auditor's filter miss half the
-closures.
-
-Appended here rather than declared as the registry `event_type` because the
-pipeline's own event carries a fixed payload (`{"tool", "scope"}`) and a
-subject of the TOOL name: as the declared event it would record that somebody
-called `approve_request`, and not which request they approved or which seat
-they filled. The domain event carries all of that, the same way an earlier change's
-`request.queued` does; the pipeline's generic `tool.succeeded` lands after it.
-
-The decision is appended BEFORE execution, so the chain reads in the order the
-facts happened — `request.approved`, then `grant.executed` if the chain
-completed and the fresh the design check allowed it. An approval that completed
-a chain and then FAILED execution (decision E) is therefore distinguishable
-from one that granted: same `request.approved`, no `grant.executed` after it.
-Both orders are pinned exactly, as whole event lists, by
-`test_mcp_approvals.py::test_approving_the_last_open_slot_grants_once_with_the_fresh_expiry`
-and `::test_a_conflict_planted_while_the_request_waits_fails_the_row_without_a_grant`."""
+"""Decision event, appended by the handler so it names the request and
+the seat, which the pipeline's own event cannot."""
 
 _ACTOR_KIND = "user"
 _SUBJECT_TYPE = "access_request"
@@ -119,32 +57,17 @@ _SUBJECT_TYPE = "access_request"
 LIMIT_MIN = 1
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
-"""Bounds on the queue size (decision H).
-
-`list_pending_approvals` returns rows over the wire and nothing downstream
-bounds them, so an absent cap is an unbounded response. Pinned exactly, and
-the default read off the input model, by
-`test_mcp_approvals.py::test_the_limit_boundary_is_inclusive_at_1_and_200`
-and `::test_the_default_limit_is_exactly_fifty`."""
+"""Bounds on the queue size, so a response is never unbounded."""
 
 COMMENT_MAX_LENGTH = 2000
-"""Cap on `approve_request.comment`.
-
-The comment lands inside the unbounded `access_requests.approvals` JSONB, so
-this Pydantic bound is the only backstop there is. Pinned inclusively by
-`test_mcp_approvals.py::test_the_comment_boundary_is_inclusive_at_2000`."""
+"""Cap on `approve_request.comment`, stored in JSONB."""
 
 REASON_MAX_LENGTH = 2000
-"""Cap on `reject_request.reason`, in the same unbounded JSONB column.
-
-The lower bound is 1, not 0: a rejection with an empty reason is a refusal
-nobody can audit. Both ends pinned by
-`test_mcp_approvals.py::test_the_reason_boundary_is_inclusive_at_1_and_2000`."""
+"""Cap on `reject_request.reason`, in the same JSONB column. At least one
+character, since a refusal with no reason cannot be audited."""
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
-"""The read tools' contract: identity arrives on the token, so a spare
-argument is data to discard rather than a reason to fail the call. The two
-mutating inputs below FORBID extras instead, through `MutatingToolInput`."""
+"""Read inputs drop extra arguments; mutating inputs refuse them."""
 
 
 class ListPendingApprovalsInput(BaseModel):
@@ -154,26 +77,8 @@ class ListPendingApprovalsInput(BaseModel):
 
 
 class PendingApproval(BaseModel):
-    """One request waiting on this caller: twenty fields, ids and names both.
-
-    Widened by an earlier change from the twelve it began as (decision D), the same
-    widening `mcp_server.tools.access.AccessRequestSummary` took in 23a and
-    for the same reason: the browser has no directory lookup and must never
-    gain one, so the role, the system and the two PEOPLE are named here rather
-    than left as uuids for a second read per row. The names are resolved from
-    the rows the ids point at, never echoed from the request row, pinned by
-    `test_mcp_approvals.py::test_the_queue_names_come_from_the_directory_rows_the_ids_point_at`.
-
-    `decision_reasons` and `citations` are the stored engine trace, so SPEC
-    §14's "full decision trace" — the reasons, the risk class and the SoD
-    outcome — is on the row an approver decides from rather than behind a
-    second call. Pinned by `::test_the_queue_row_carries_the_stored_decision_trace`,
-    the only case here that plants a request the engine queued WITH a trace.
-
-    The exact field set is pinned by
-    `::test_the_widened_queue_row_carries_exactly_the_twenty_planned_fields`,
-    which fails for a dropped field and for a spare one alike.
-    """
+    """One request waiting on this caller, with names joined in, since the
+    browser has no directory lookup."""
 
     request_id: uuid.UUID
     requester_user_id: uuid.UUID
@@ -186,12 +91,10 @@ class PendingApproval(BaseModel):
     status: str
     created_at: datetime
     my_slot: ApproverSlot
-    """Which seat of the chain this caller may fill. Without it an approver
-    is shown a row and cannot tell what they are being asked to decide."""
+    """Which seat of the chain this caller may fill."""
 
     approvals: list[SlotState]
-    """The whole chain, decided seats included, so the caller can see who
-    else has to act."""
+    """The whole chain, so the caller can see who else has to act."""
 
     role_slug: str
     role_name: str
@@ -201,10 +104,7 @@ class PendingApproval(BaseModel):
     requester_display_name: str
     decision_reasons: list[Any]
     citations: list[Any]
-    """The two JSONB columns as they were stored, rendered the way 23a renders
-    them on a request row: a list of reason strings and a list of citation
-    objects. Typed `Any` rather than re-declared here, because the shape is
-    the ENGINE's and a second model would be a second contract."""
+    """The stored JSONB columns as they are; the shape is the engine's."""
 
 
 class ListPendingApprovalsOutput(BaseModel):
@@ -212,17 +112,13 @@ class ListPendingApprovalsOutput(BaseModel):
 
 
 class RequestDecisionInput(MutatingToolInput):
-    """What approve and reject share: the one request being decided.
-
-    Declared once here so the two decisions cannot drift on its type. Pinned by
-    `test_mcp_tool_inputs.py::test_approve_and_reject_declare_request_id_once`.
-    """
+    """What approve and reject share: the one request being decided."""
 
     request_id: uuid.UUID
 
 
 class ApproveRequestInput(RequestDecisionInput):
-    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`."""
+    """Input for `approve_request`."""
 
     comment: str | None = Field(default=None, max_length=COMMENT_MAX_LENGTH)
 
@@ -237,10 +133,8 @@ class ApproveRequestOutput(BaseModel):
     grant_id: uuid.UUID | None
     expires_at: datetime | None
     failure_code: ErrorCode | None
-    """Set only on decision E's path: the chain completed, execution was
-    refused by the fresh the design check, the approval was kept and the row
-    is `failed`. The call itself succeeds, so this is how the caller is told
-    `SOD_CONFLICT`."""
+    """Set only when the chain completed but the fresh check refused the
+grant. The row is `failed`; the call still succeeds."""
 
 
 class RejectRequestInput(RequestDecisionInput):
@@ -258,15 +152,8 @@ async def list_pending_approvals(
 ) -> ListPendingApprovalsOutput:
     """The caller's actionable approval queue, oldest first.
 
-    The `authorize` call here is not a second permission gate — the pipeline
-    already ran the matrix and a caller with no cell never reaches this
-    function. It is how the handler gets `scopes`, the set the pipeline's own
-    check discards, which is the only enforcement narrow enough to be right
-    for a caller holding two incomparable scopes.
-
-    The caller's department is read from the directory inside
-    `list_pending_for_approver`, never from the token's `department_id`
-    claim; the user id itself still comes only from the token.
+    Uses the full `scopes` set: a manager who also owns a system holds two
+    scopes, and keeping only the wider one would hide their systems.
     """
     authorization = rbac.authorize(ctx.identity.claims, rbac.Tool.LIST_PENDING_APPROVALS)
     rows = await list_pending_with_context_for_approver(
@@ -281,12 +168,7 @@ async def list_pending_approvals(
 
 
 def _pending(row: PendingWithContext) -> PendingApproval:
-    """One queue row, its names taken from the JOIN and never from the request.
-
-    Every name argument below reads off `row`, which is what the four joins
-    answered, so nothing here can echo a slug or reuse one id for both people
-    (`test_mcp_approvals.py::test_the_queue_names_come_from_the_directory_rows_the_ids_point_at`).
-    """
+    """One queue row, its names taken from the join, never from the request."""
     request = row.request
     return PendingApproval(
         request_id=request.id,
@@ -320,13 +202,7 @@ async def _append(
     extra: dict[str, Any],
     now: datetime,
 ) -> None:
-    """One decision event, subject the REQUEST, in the tool's own transaction.
-
-    Subject and payload are what the pipeline's generic event cannot carry:
-    without them the audit log records that somebody called a tool, not which
-    request they decided. Pinned by
-    `test_mcp_approvals.py::test_the_decision_event_names_the_request_and_the_seat`.
-    """
+    """One decision event naming the request and seat."""
     await append_event(
         session,
         identity.tenant_id,
@@ -350,21 +226,8 @@ async def _append(
 
 
 async def _in_scope(ctx: ToolContext, tool: rbac.Tool, request: AccessRequest) -> bool:
-    """Does the design's scope on this row still reach this request?
-
-    The seat and the scope are two obligations, not one. The seat says the
-    chain asked for this person; the scope says the person still has reach.
-    A manager named on a `department_manager` seat who transferred yesterday
-    passes the seat rule and must fail here, or they decide a request in a
-    department the directory says they left — the same hole the queue closes,
-    which would otherwise be open to anyone holding a request id.
-
-    The caller's department and the target's are read from the DIRECTORY, not
-    from the token's `department_id` claim (the same reasoning as
-    `tools/access.py::_authorize_target`); only the user id comes from the
-    token. Pinned by
-    `test_mcp_approvals.py::test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department`.
-    """
+    """Does the caller's scope still reach this request? A manager moved to
+    another department passes the seat rule and must fail here."""
     approver = await ctx.directory.lookup_user(ctx.identity.user_id)
     target = await ctx.directory.lookup_user(request.target_user_id)
     role = await Repository(ctx.session, Role).get(request.role_id)
@@ -383,33 +246,8 @@ async def _claim_seat(
 ) -> tuple[AccessRequest, tuple[SlotState, ...], int]:
     """Lock the row, refuse anything that is not a decision this caller may take.
 
-    Three refusals, each a different the design code and each with a case no
-    other guard can decide:
-
-    `NOT_FOUND` covers both "no such request" and "a request in another
-    tenant" — the lock runs through the ORM, so the tenant guard makes the
-    two indistinguishable and the id cannot be used as an existence oracle
-    (`test_another_tenants_request_and_a_missing_one_answer_the_same_way`).
-
-    `POLICY_BLOCKED` is a row that is not `pending` any more (decision J),
-    including a chain somebody has already rejected
-    (`test_a_row_that_is_not_pending_is_refused_policy_blocked`,
-    `test_one_rejection_ends_the_chain_for_a_later_approver`).
-
-    `FORBIDDEN` is a caller who holds no open seat, or whose the design scope no
-    longer reaches the request. The seat half covers a seat naming somebody
-    else, a group's principal the caller does not hold, a party to the
-    request, and a caller who has already decided another seat of this chain;
-    the scope half covers a manager who has transferred. One shared refusal
-    for all of them, so no branch can drift into telling the caller which
-    rule refused them.
-    `test_a_caller_matching_no_open_slot_is_refused_and_writes_nothing` uses a
-    `platform_admin` on a pending row, so the matrix and the status check both
-    admit that call and only the seat rule can refuse it;
-    `test_a_party_to_the_request_is_refused_even_holding_the_seats_principal`,
-    `test_one_person_cannot_fill_two_seats_of_the_same_chain` and
-    `test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department`
-    do the same for the other three, each admitted by every guard but its own.
+    `NOT_FOUND`, `POLICY_BLOCKED` when no longer pending, or one shared
+    `FORBIDDEN` that does not say which seat rule refused.
     """
     request = await lock_request(ctx.session, request_id)
     if request is None:
@@ -433,14 +271,7 @@ async def _claim_seat(
 
 
 async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> ApproveRequestOutput:
-    """Record one approval, and execute the grant when it was the last one.
-
-    Everything below runs in the one transaction the pipeline opened, so the
-    decided chain, the row's status and the grant land together or not at
-    all. `now` is the call's one instant (`ctx.now`), so the decision
-    timestamp, the fresh classification, `granted_at` and `expires_at` all
-    answer alike.
-    """
+    """Record one approval, and execute the grant when it was the last one."""
     request, slots, index = await _claim_seat(ctx, rbac.Tool.APPROVE_REQUEST, args.request_id)
     now = ctx.now
     decided = decide_slot(
@@ -469,10 +300,8 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
     try:
         grant = await _execute(ctx, request)
     except (SodConflictAtExecutionError, PolicyBlockedAtExecutionError) as exc:
-        # Decision E: the approval happened, so the row keeps it and moves to
-        # `failed` rather than rolling back to `pending`. Returning instead of
-        # raising is what lets both the decided chain and the stored
-        # idempotency response survive.
+        # The approval happened, so keep it and mark the row `failed`.
+        # Returning, not raising, keeps the chain and the stored response.
         await set_request_status(
             ctx.session, request.id, status=RequestStatus.FAILED, approvals=dump_slots(decided)
         )
@@ -485,14 +314,8 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
 
 
 async def _execute(ctx: ToolContext, request: AccessRequest) -> Grant:
-    """An earlier change's `execute_grant`, called with the request's own parameters.
-
-    The requester is the person who FILED the request, not the approver: the
-    the design re-check has to classify the same request that was queued, and
-    passing the approver here would re-run it as somebody else's request.
-    `granted_by_user_id` is the approver, because that is who caused the
-    grant.
-    """
+    """Run `execute_grant` as the original request, so the fresh check judges
+    what was filed. The approver is `granted_by_user_id`."""
     return await execute_grant(
         ctx.session,
         ctx.directory,
@@ -528,14 +351,8 @@ def _approved(
 
 
 async def reject_request(ctx: ToolContext, args: RejectRequestInput) -> RejectRequestOutput:
-    """Refuse the request, keeping who refused it and why.
-
-    One rejection ends the chain: the row goes `rejected` even while other
-    seats are still open, and the status check in `_claim_seat` is what
-    refuses a later approver typed. The reason is stored on the seat the
-    rejecter filled, so the audit record says who refused and why in the same
-    place — no migration, and nothing about the rest of the chain is rewritten.
-    """
+    """Refuse the request; one rejection ends the chain. The reason is
+    stored on the rejecter's seat."""
     request, slots, index = await _claim_seat(ctx, rbac.Tool.REJECT_REQUEST, args.request_id)
     now = ctx.now
     decided = decide_slot(

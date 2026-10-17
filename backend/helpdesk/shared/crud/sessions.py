@@ -1,9 +1,4 @@
-"""The conversation session row.
-
-A named helper rather than a plain `Repository` because the session row's
-primary key is supplied by the caller (it is the token's `sid`, and
-`Repository.create` refuses `id` on purpose).
-"""
+"""The chat session row. Its id comes from the token, which `Repository.create` refuses."""
 
 import uuid
 from datetime import datetime
@@ -24,25 +19,10 @@ async def get_or_create_session(
     user_id: uuid.UUID,
     now: datetime,
 ) -> Session:
-    """The bound tenant's conversation row for `session_id`, created if absent.
+    """The session row for the token's `sid`, created if missing; bumps `last_seen_at`.
 
-    The id is the token's `sid` (a project rule: nothing here comes from a tool
-    argument), so it is written explicitly instead of defaulted — the value
-    the gateway sees as `X-Session` and the value this row is stored under
-    have to be one. `Repository.create` refuses `id` by design, which is why
-    this helper builds the model itself.
-
-    `started_at` is stamped once and never moved; `last_seen_at` moves on
-    every turn. Pinned by
-    `test_conversation_models.py::test_get_or_create_session_reuses_the_row_and_moves_last_seen_at`,
-    which fails both for a helper that inserts a second row and for one that
-    loads without touching `last_seen_at`.
-
-    A `session_id` that already names ANOTHER tenant's row is neither loaded
-    nor overwritten: the guarded read cannot see it, so the insert collides on
-    the primary key and becomes a typed `SessionConflictError`. That is the
-    only reachable answer — `sessions.id` is table-wide, so "create a new row
-    instead" is not something the schema allows.
+    An id already used by another tenant cannot be read, so the insert clashes
+    and raises `SessionConflictError` instead of touching that row.
     """
     existing = await Repository(session, Session).get(session_id)
     if existing is not None:

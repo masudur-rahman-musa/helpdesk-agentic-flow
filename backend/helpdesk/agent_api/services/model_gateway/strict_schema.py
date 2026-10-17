@@ -1,28 +1,9 @@
-"""The strict-mode schema checker: what OpenAI's `strict: true` refuses, found here first.
+"""Find what OpenAI's strict mode would refuse in a schema, before sending it.
 
-`complete_json` asks for strict mode, and a provider in strict mode answers a
-schema that breaks its rules with a 400 for the whole request. Three rules,
-each checked on every node the walk reaches:
-
-- every object carries `additionalProperties: false`;
-- every object's `required` lists every key of its `properties`, no more and
-  no fewer, so an optional field is `anyOf [X, null]` and still required;
-- no node carries a `default` key, which Pydantic emits for any field with a
-  default and strict mode rejects.
-
-The walk covers the root, `$defs`, `properties`, `items` and `anyOf`, the
-constructs Pydantic generates for this repo's models. Each problem names its
-JSON path rooted at `$`, so a refusal says which field to fix. Pinned by
-`test_gateway_strict_schema.py::test_a_problem_nested_in_defs_items_and_any_of_is_found`,
-`::test_a_default_key_is_a_problem`, `::test_a_property_left_out_of_required_is_a_problem`,
-`::test_additional_properties_true_is_a_problem` and
-`::test_an_object_without_additional_properties_is_a_problem`; a legal
-`$ref` or nullable branch is not flagged, pinned by
-`::test_a_compliant_schema_has_no_problems`.
-
-Pure: no I/O. The client runs it before sending
-(`test_gateway_client.py::test_a_non_strict_schema_is_refused_before_any_request`),
-and the test fakes and the e2e stub run the same function to answer 400.
+Strict mode answers a bad schema with a 400 for the whole request. The rules:
+every object has `additionalProperties: false`, lists every property in
+`required` (an optional field is `anyOf [X, null]`), and no node has a
+`default`. Each problem names its JSON path so the refusal says what to fix.
 """
 
 from collections.abc import Mapping

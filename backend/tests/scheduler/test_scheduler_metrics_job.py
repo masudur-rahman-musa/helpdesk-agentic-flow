@@ -1,4 +1,4 @@
-"""An earlier change §6: the metrics sweep job, its registration and its wrapper.
+"""The metrics sweep job, its registration and its wrapper.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -13,27 +13,27 @@ must provide exactly this):
     other service's.
 
 ``scheduler.runner``
-    ``METRICS_SWEEP_CADENCE_SECONDS = 300`` (decision C) — the cadence and,
-    by 21a decision B, the `PX` of the lock key.
+    ``METRICS_SWEEP_CADENCE_SECONDS = 300`` — the cadence and,
+    by design, the `PX` of the lock key.
     ``METRICS_SWEEP_JOB`` and one more ``REGISTRY`` row, under a name that
     passes the existing ``check_job_name``.
 
 What this file deliberately does NOT re-test: `check_job_name`'s inclusive
 boundary (exactly 64 accepted, 65 refused) and its `re.fullmatch` rejection
-table. Both are pinned in `test_scheduler_runner.py`, and this plan adds one
+table. Both are pinned in `test_scheduler_runner.py`, and this change adds one
 new value that shapes a key — the job name — which is asserted to PASS that
-same gate below (plan §1's input-validation criterion, recorded rather than
+same gate below (the input-validation criterion, recorded rather than
 silently skipped). Copying the boundary cases here would put them red and
 green for exactly the same reasons as the originals: the neighbouring-guard
 trap.
 
-a project rule: the database and the dedicated Redis index are
+The database and the dedicated Redis index are
 `test_scheduler_runner.py`'s session-scoped fixtures, imported rather than
 rebuilt. Per-test isolation stays what that file established: the only key
-this file writes is the one the plan names, and the case that touches it
+this file writes is the one the design names, and the case that touches it
 deletes exactly that key first.
 
-a project rule: `test_scheduler_runner.py`, `test_scheduler_daily_jobs.py`,
+`test_scheduler_runner.py`, `test_scheduler_daily_jobs.py`,
 `test_scheduler_review_jobs.py` and `test_scheduler_metrics_job.py` are four
 distinct basenames, and none collides with anything in the tree.
 
@@ -87,9 +87,9 @@ ALL_JOB_NAMES = frozenset(
         "anchor_retention",
     }
 )
-"""Every job this service runs, counted off the code: 21a's
-five-minute sweep, 21b's daily pair, 21c's pair, this plan's, an earlier change's
-`chain_anchor`, and an earlier change's `anchor_retention`."""
+"""Every job this service runs, counted off the code: the
+five-minute sweep, the daily pair, the review pair, this one's, the
+`chain_anchor`, and the `anchor_retention`."""
 
 _FAKE_SESSION = object()
 """The session double the wrapper case hands through.
@@ -129,10 +129,10 @@ def _chain_recorder(calls: list[object]) -> Callable[..., Awaitable[None]]:
 
 
 def test_the_metrics_job_constants_are_exactly_the_planned_values() -> None:
-    """Catches this plan's two new literals drifting.
+    """Catches this change's two new literals drifting.
 
-    `METRICS_SWEEP_CADENCE_SECONDS` is the lock TTL by construction (21a
-    decision B), and decision C chose 300 over reusing `DAILY_CADENCE_SECONDS`
+    `METRICS_SWEEP_CADENCE_SECONDS` is the lock TTL by construction,
+    and the design chose 300 over reusing `DAILY_CADENCE_SECONDS`
     for a stated reason: a gauge is read as "now", so a daily refresh means
     `helpdesk_grants_active` is a WRONG number for 23 hours rather than a
     missing one, and `helpdesk_audit_chain_ok` would report a chain nobody has
@@ -150,9 +150,9 @@ def test_the_metrics_job_constants_are_exactly_the_planned_values() -> None:
 
 
 def test_the_metrics_job_is_registered_at_its_cadence_under_a_valid_name() -> None:
-    """Plan §1's registration criterion.
+    """The registration criterion.
 
-    Catches a job written and never registered — the whole plan lands, every
+    Catches a job written and never registered — the whole change lands, every
     other case in this file passes, and nothing ever runs it, so both gauges
     sit at their registration defaults for ever: `helpdesk_grants_active` has
     no series at all and `helpdesk_audit_chain_ok` reads `0`, which an alert
@@ -163,7 +163,7 @@ def test_the_metrics_job_is_registered_at_its_cadence_under_a_valid_name() -> No
     is set for 86400 refreshes both gauges once a day.
 
     And it applies `check_job_name` to the REGISTERED name, which is where
-    plan §1 puts the input validation for this plan's one new key-shaping
+    the input validation for the one new key-shaping
     value — a name with a hyphen, a capital or a trailing newline would then
     fail at import rather than inside a `SET` at three in the morning.
     """
@@ -178,8 +178,8 @@ def test_the_metrics_job_is_registered_at_its_cadence_under_a_valid_name() -> No
 
 def test_the_registry_holds_all_eight_jobs_under_eight_distinct_names() -> None:
     """Catches a registration that REPLACES the registry rather than extending
-    it — a `REGISTRY = {...}` rebuilt from this plan's job, which silently
-    stops 21a's expiry sweep, 21b's daily pair and 21c's review pair and would
+    it — a `REGISTRY = {...}` rebuilt from this change's job, which silently
+    stops the expiry sweep, the daily pair and the review pair and would
     show up nowhere else in this file.
 
     Also catches the new job being registered under a name another job already
@@ -189,9 +189,9 @@ def test_the_registry_holds_all_eight_jobs_under_eight_distinct_names() -> None:
 
     Eight is counted off the code, not carried over from this file's previous
     row: `expire_grants`, `expiry_warnings`, `leaver_sweep`,
-    `review_generation`, `review_reminders`, this plan's `metrics_sweep`, plan
-    30bb's `chain_anchor`, and an earlier change's `anchor_retention`. This is the ONE
-    case in the tree that names the whole set, so an earlier change's job is registered
+    `review_generation`, `review_reminders`, this one's `metrics_sweep`, the
+    `chain_anchor`, and the `anchor_retention`. This is the ONE
+    case in the tree that names the whole set, so the job is registered
     beside the other seven here and nowhere else.
     """
     assert set(REGISTRY) == set(ALL_JOB_NAMES)
@@ -200,7 +200,7 @@ def test_the_registry_holds_all_eight_jobs_under_eight_distinct_names() -> None:
     assert len(REGISTRY) == 8
 
 
-# --- the wrapper (plan §1: it decides nothing) -------------------------------
+# --- the wrapper (it decides nothing) -------------------------------
 
 
 def test_the_metrics_sweep_wrapper_hands_its_session_and_now_to_both_engines(
@@ -237,7 +237,7 @@ def test_the_metrics_sweep_wrapper_hands_its_session_and_now_to_both_engines(
     assert chain_calls == [_FAKE_SESSION]
 
 
-# --- the cadence gate on the real registry (21a decision B) ------------------
+# --- the cadence gate on the real registry ------------------
 
 
 def test_a_tick_leaves_the_metrics_key_with_a_three_hundred_second_ttl(
@@ -251,7 +251,7 @@ def test_a_tick_leaves_the_metrics_key_with_a_three_hundred_second_ttl(
 
     Catches a lock taken with no expiry (the job would never run again after
     one tick, for ever), one taken on a key an operator would not find, and a
-    lock RELEASED at the end of the run — 21a decision B makes the key itself
+    lock RELEASED at the end of the run — the key itself is
     the cadence gate, so a released key means this job re-walks every audit
     event every 60 seconds instead of every 300. Per-tenant keys are asserted
     PRESENT for both tenants, so a runner that deletes all keys after a run

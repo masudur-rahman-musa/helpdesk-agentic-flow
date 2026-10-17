@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: the approval slot state machine and the queue.
+"""The approval slot state machine and the queue.
 
 Surface under test (written before it exists):
 
@@ -8,20 +8,20 @@ Surface under test (written before it exists):
     ``user_id``, ``decision``, ``decided_by_user_id``, ``decided_at``,
     ``comment``, the last five defaulting to ``None``.
     ``GROUP_SLOTS: frozenset[ApproverSlot]`` — exactly ``{it_admin, hr}``.
-    ``RequestNotPendingError(ToolError)`` — ``POLICY_BLOCKED`` (decision J).
+    ``RequestNotPendingError(ToolError)`` — ``POLICY_BLOCKED``.
     ``NotAnApproverError(ToolError)`` — ``FORBIDDEN``.
     ``parse_slots`` / ``dump_slots`` — the ``access_requests.approvals`` JSONB
-    an earlier change writes, read back and written out; ``may_fill``,
+    the request flow writes, read back and written out; ``may_fill``,
     ``first_fillable_index``, ``chain_is_complete``, ``is_rejected``,
     ``decide_slot`` — the pure state machine; ``lock_request`` (``SELECT …
-    FOR UPDATE``, tenant-scoped) and ``list_pending_for_approver`` (decision
-    G: pending, in scope, AND carrying an open slot this caller may fill).
+    FOR UPDATE``, tenant-scoped) and ``list_pending_for_approver`` (
+    pending, in scope, AND carrying an open slot this caller may fill).
 
 ``helpdesk.access.requests``
     ``set_request_status(session, request_id, *, status, approvals=None)`` —
     flushed, not committed, through the tenant-scoped repository.
 
-a project rule: the seeded database is ``test_access_snapshot.py``'s
+The seeded database is ``test_access_snapshot.py``'s
 session-scoped ``access_db_url`` fixture, imported rather than rebuilt.
 Per-test isolation inside it is a namespace: each case owns seeded users
 nothing else approves for, and every planted row carries a unique
@@ -145,7 +145,7 @@ OTHER_TENANT_ROLE = next(iter(OTHER_TENANT_ROWS.role_ids.values()))
 
 
 def _open(slot: ApproverSlot, user_id: uuid.UUID | None = None) -> SlotState:
-    """An undecided seat, exactly as an earlier change writes it."""
+    """An undecided seat, exactly as the request flow writes it."""
     return SlotState(slot=slot, user_id=user_id)
 
 
@@ -185,12 +185,12 @@ def _fillable(
 
 
 def test_the_group_slots_are_exactly_it_admin_and_hr() -> None:
-    """Catches a set that has drifted from the design's two role-wide seats.
+    """Catches a set that has drifted from the approval chain's two role-wide seats.
 
     `department_manager` sliding into it would let ANY caller holding some
     principal fill a seat that names one person; `hr` sliding out would make
     the HRIS seat a named slot with no id, fillable by nobody in a different
-    way than plan §5 records. Asserted as the exact set,
+    way than the design records. Asserted as the exact set,
     not by membership, so both directions fail here.
     """
     assert frozenset({ApproverSlot.IT_ADMIN, ApproverSlot.HR}) == GROUP_SLOTS
@@ -204,10 +204,10 @@ def test_the_slot_decision_values_are_exactly_approve_and_reject() -> None:
 
 
 def test_the_approval_errors_carry_their_spec_error_codes() -> None:
-    """Pins both codes exactly (a project rule, decision J).
+    """Pins both codes exactly.
 
     `POLICY_BLOCKED` on a row that is no longer pending is the whole point of
-    decision J: `FORBIDDEN` would tell an approver who simply arrived second
+    the chosen error: `FORBIDDEN` would tell an approver who simply arrived second
     that they lack permission, and the audit log would file a race as a
     denial. Inheriting `ToolError` without setting `code` yields `INTERNAL`,
     which is what this catches.
@@ -221,7 +221,7 @@ def test_the_approval_errors_carry_their_spec_error_codes() -> None:
 
 def test_the_chain_plan_11b_wrote_parses_with_every_decision_field_unset() -> None:
     """Catches a parser that cannot read the rows already in the database:
-    an earlier change writes `{"slot", "user_id"}` and nothing else, so a model
+    the request flow writes `{"slot", "user_id"}` and nothing else, so a model
     requiring `decision` or `decided_at` would fail on every existing
     pending request rather than reading it as an open seat."""
     raw: list[dict[str, Any]] = [
@@ -325,7 +325,7 @@ def test_a_group_seat_is_fillable_only_by_a_holder_of_its_own_principal(
 ) -> None:
     """Catches a group seat matched against the wrong principal or against
     "any group principal": an `it_admin` filling an `hr` seat defeats the
-    HRIS control the design adds the seat for, and the reverse defeats the
+    HRIS control the approval chain adds the seat for, and the reverse defeats the
     prod-infra one. Both directions are asserted, so neither can pass by
     being the only case."""
     own = PRINCIPAL_FOR_SLOT[slot]
@@ -341,10 +341,10 @@ def test_a_group_seat_is_fillable_only_by_a_holder_of_its_own_principal(
 def test_a_platform_admin_holding_neither_group_principal_fills_neither_seat(
     slot: ApproverSlot,
 ) -> None:
-    """Catches "the widest principal may do anything": the design gives
+    """Catches "the widest principal may do anything": the permission matrix gives
     `platform_admin` the `any` SCOPE on `approve_request`, which says which
     requests they may reach, not which SEATS they may occupy. A
-    platform_admin filling an `hr` seat would be the §9.3 chain silently
+    platform_admin filling an `hr` seat would be the approval chain silently
     shortened for the one principal that most needs auditing."""
     assert _fillable(_open(slot), caller_principals=frozenset({Principal.PLATFORM_ADMIN})) is False
 
@@ -364,7 +364,7 @@ def test_a_group_seat_ignores_a_resolved_id_it_never_carries(slot: ApproverSlot)
     assert _fillable(_open(slot, CALLER), caller_principals=frozenset()) is False
 
 
-# --- eligibility: nobody approves their own request -----
+# --- eligibility: nobody approves their own request (the owed marker) -----
 
 
 @pytest.mark.parametrize("slot", ALL_SLOTS)
@@ -510,7 +510,7 @@ def test_a_chain_with_every_seat_approved_is_complete() -> None:
 
 def test_a_chain_with_one_open_seat_is_not_complete() -> None:
     """Catches a predicate reading only the seat just decided: the grant must
-    not execute while a seat is still open, which is criterion 7."""
+    not execute while a seat is still open, which is the rule being tested."""
     slots = (
         _decided(ApproverSlot.DEPARTMENT_MANAGER, CALLER),
         _open(ApproverSlot.IT_ADMIN),
@@ -522,7 +522,7 @@ def test_a_chain_with_one_open_seat_is_not_complete() -> None:
 def test_a_rejected_chain_is_never_complete_even_with_no_open_seat() -> None:
     """Catches "complete = no open seats", which would execute the grant for
     a chain whose last decision was a REJECTION. One rejection ends the
-    chain (criterion 8), so this is the difference between a refused request
+    chain, so this is the difference between a refused request
     and a granted one."""
     slots = (
         _decided(ApproverSlot.DEPARTMENT_MANAGER, CALLER, SlotDecision.APPROVE),
@@ -646,7 +646,7 @@ def _insert_request(
 
 
 def _seat(slot: ApproverSlot, user_id: uuid.UUID | None = None) -> dict[str, Any]:
-    """One stored open seat, exactly the JSONB shape an earlier change writes."""
+    """One stored open seat, exactly the JSONB shape the request flow writes."""
     return {"slot": slot.value, "user_id": None if user_id is None else str(user_id)}
 
 
@@ -695,7 +695,7 @@ def _read_row(url: str, request_id: uuid.UUID) -> tuple[str, list[Any]]:
     return asyncio.run(scenario())
 
 
-# --- the scoped queue (decision G) ---------------------------------------------
+# --- the scoped queue ---------------------------------------------
 
 
 def test_a_manager_sees_a_pending_row_in_their_department_that_names_them(
@@ -726,7 +726,7 @@ def test_a_manager_sees_a_pending_row_in_their_department_that_names_them(
 def test_the_scope_filter_alone_hides_a_row_whose_seat_names_the_caller(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """a project rule: the seat NAMES the caller, so the eligibility filter
+    """The seat NAMES the caller, so the eligibility filter
     would return this row. Only the `own_department` scope refuses it — the
     target sits in Sales while the caller manages Production — so deleting
     the scope filter is the one change that flips this case."""
@@ -751,7 +751,7 @@ def test_the_scope_filter_alone_hides_a_row_whose_seat_names_the_caller(
 def test_the_seat_filter_alone_hides_a_row_in_the_callers_own_department(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """a project rule, the other half: the target IS in the caller's
+    """The other half: the target IS in the caller's
     department, so the scope filter admits this row and only the eligibility
     filter refuses it — the open seat names somebody else. Without this case
     a queue with no eligibility filter passes every other queue test."""
@@ -801,7 +801,7 @@ def test_two_scopes_return_the_union_and_one_scope_returns_only_its_half(
     access_db_url: str,  # noqa: F811
 ) -> None:
     """Catches the queue consuming a single widest scope instead of the whole
-    set — the narrowing an earlier change recorded and 11a re-owed.
+    set — the narrowing the earlier design recorded.
 
     `own_department` is wider than `own_systems` in the total order, so a
     manager+system_owner caller collapsed to one scope loses the systems row
@@ -849,7 +849,7 @@ def test_two_scopes_return_the_union_and_one_scope_returns_only_its_half(
 def test_the_any_scope_reaches_a_group_seat_in_a_department_the_caller_is_not_in(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Catches `Scope.ANY` narrowed to the caller's own department (the design
+    """Catches `Scope.ANY` narrowed to the caller's own department (the permission matrix
     gives `it_admin` and `platform_admin` the whole tenant) and a group seat
     the queue cannot match — an `it_admin` seat is exactly the seat no named
     id can find."""
@@ -962,7 +962,7 @@ def test_the_queue_is_oldest_first_and_stops_at_the_limit(
 ) -> None:
     """Catches an unordered queue (an approver would work a random order and
     the oldest request would starve) and a `limit` accepted but ignored,
-    which is decision H's unbounded response over the wire.
+    which is the unbounded response over the wire.
 
     The approver here is named on no other case's seat, so this queue holds
     exactly these two rows and the order is asserted as an exact list.
@@ -1211,7 +1211,7 @@ def test_a_caller_who_already_decided_a_seat_gets_no_second_one(
     request is approved almost single-handed — exactly what
     `policy/decision.py::_is_usable_fallback` refuses to let the ENGINE build
     ("that would collapse two approvers into one person and quietly halve the
-    control"), inherited here because 11c fills seats by whoever acts.
+    control"), inherited here because the approval flow fills seats by whoever acts.
 
     Seat 1 names the caller and is open, so `may_fill` says yes to it; only
     the chain-level rule can refuse. Both decisions are crossed: a rejection
@@ -1248,7 +1248,7 @@ def test_a_second_approver_is_still_offered_the_seat_after_someone_else_decided(
     """The allow direction of the rule above: catches a chain rule keyed on
     "any decided seat" rather than "a seat decided by THIS caller", which
     would freeze every multi-seat chain after its first approval and make
-    criterion 6 unreachable."""
+    the rule unreachable."""
     slots = (
         _decided(ApproverSlot.DEPARTMENT_MANAGER, OTHER_PERSON),
         _open(ApproverSlot.SYSTEM_OWNER, CALLER),
@@ -1289,7 +1289,7 @@ def _reaches(
 
 
 def test_the_any_scope_reaches_every_request() -> None:
-    """`it_admin` and `platform_admin` hold the whole tenant (the design);
+    """`it_admin` and `platform_admin` hold the whole tenant;
     catches `any` narrowed to the caller's own department, which would hide
     every cross-department request from the two principals that exist to
     unblock them."""
@@ -1335,7 +1335,7 @@ def test_two_scopes_reach_what_either_one_reaches() -> None:
 
 @pytest.mark.parametrize("scope", [Scope.SELF_ONLY, Scope.SYSTEM_ONLY])
 def test_a_scope_this_row_never_carries_reaches_nothing(scope: Scope) -> None:
-    """An earlier change's "unknown is not safe": a scope no approval row uses must
+    """A scope no approval row uses must
     narrow to nothing rather than fall through to a permissive default, so a
     later matrix edit cannot widen these tools by accident."""
     assert _reaches(frozenset({scope}), target_department_id=_DEPARTMENT) is False

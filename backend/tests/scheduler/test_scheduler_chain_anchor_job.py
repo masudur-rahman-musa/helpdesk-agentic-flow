@@ -1,4 +1,4 @@
-"""An earlier change section 6: the chain-anchor job, its registration and its wrapper.
+"""The chain-anchor job, its registration and its wrapper.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -12,8 +12,8 @@ must provide exactly this):
     can replace it.
 
 ``scheduler.runner``
-    ``CHAIN_ANCHOR_CADENCE_SECONDS = 900`` (plan §1) — the cadence and, by
-    21a decision B, the ``PX`` of the lock key.
+    ``CHAIN_ANCHOR_CADENCE_SECONDS = 900`` — the cadence and, by
+    design, the ``PX`` of the lock key.
     ``CHAIN_ANCHOR_JOB`` and a seventh ``REGISTRY`` row, under a name that
     passes the existing ``check_job_name``.
 
@@ -23,13 +23,13 @@ What this file deliberately does NOT re-test:
   ``test_scheduler_runner.py``. The one new key-shaping value here is the job
   name, which is asserted to PASS that same gate below rather than copied
   through the neighbouring guard's cases.
-- "the registry holds SEVEN jobs under seven distinct names" (plan §1 and
-  §6). That pin already exists and plan §8 moves it in place:
+- "the registry holds SEVEN jobs under seven distinct names".
+  That pin already exists and was moved in place:
   ``test_scheduler_metrics_job.py::test_the_registry_holds_all_eight_jobs_
-  under_eight_distinct_names``, which an earlier change moved on to eight when it
-  registered the retention sweep. Writing it twice would make one of the two
+  under_eight_distinct_names``, which moved on to eight when
+  the retention sweep was registered. Writing it twice would make one of the two
   green for the other's reason.
-- "the wrapper verifies before it anchors, asserted on the call order" (§6).
+- "the wrapper verifies before it anchors, asserted on the call order".
   The wrapper makes ONE call: ``anchor_tenant_chain`` verifies inside itself,
   and a wrapper that verified as well would be a guard the handler runs twice
   and therefore unkillable. The ordering is pinned where
@@ -37,12 +37,12 @@ What this file deliberately does NOT re-test:
   ``packages/helpdesk/tests/test_audit_anchor.py::test_a_tampered_chain_
   writes_no_anchor``, which stores no anchor for a log that does not verify.
 
-a project rule: the database and the dedicated Redis index are
+The database and the dedicated Redis index are
 ``test_scheduler_runner.py``'s session-scoped fixtures, imported rather than
-rebuilt. The only key this file writes is the one the plan names, and the case
+rebuilt. The only key this file writes is the one the design names, and the case
 that touches it deletes exactly that key first.
 
-a project rule: ``test_scheduler_chain_anchor_job.py`` carries the service in
+``test_scheduler_chain_anchor_job.py`` carries the service in
 its name and collides with no basename in the tree.
 
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
@@ -110,13 +110,13 @@ def _anchor_recorder(calls: list[object]) -> Callable[..., Awaitable[None]]:
 
 
 def test_the_chain_anchor_job_constants_are_exactly_the_planned_values() -> None:
-    """Catches this plan's two new literals drifting.
+    """Catches this change's two new literals drifting.
 
-    `CHAIN_ANCHOR_CADENCE_SECONDS` is the lock TTL by construction (21a
-    decision B), so it is also the window in which a truncation is invisible:
+    `CHAIN_ANCHOR_CADENCE_SECONDS` is the lock TTL by construction,
+    so it is also the window in which a truncation is invisible:
     at 86400 an attacker has a whole day between the last anchored head and
     the next one, and everything they delete inside it is never covered by any
-    anchor. 900 is the number plan §1 fixes, and nothing else in the suite
+    anchor. 900 is the agreed number, and nothing else in the suite
     would show it moving.
 
     The name is asserted with the key it produces, because the name is the
@@ -130,12 +130,12 @@ def test_the_chain_anchor_job_constants_are_exactly_the_planned_values() -> None
 
 
 def test_the_chain_anchor_job_is_registered_at_its_cadence_under_a_valid_name() -> None:
-    """Plan §1's registration criterion.
+    """The registration criterion.
 
-    Catches a job written and never registered — the whole plan lands, every
+    Catches a job written and never registered — the whole change lands, every
     other case in this file passes, and no head is ever anchored, so
     `verify_tenant_chain` keeps answering `ok` on a truncated log exactly as
-    it did before the plan. That is the one failure mode a green suite would
+    it did before the change. That is the one failure mode a green suite would
     otherwise hide completely.
 
     Catches a job registered with its own cadence literal instead of the
@@ -143,7 +143,7 @@ def test_the_chain_anchor_job_is_registered_at_its_cadence_under_a_valid_name() 
     is set for 86400 anchors once a day.
 
     And it applies `check_job_name` to the REGISTERED name, which is where
-    plan §1's input validation for this plan's one new key-shaping value
+    the input validation for the one new key-shaping value
     belongs — a name with a hyphen, a capital or a trailing newline would then
     fail at import rather than inside a `SET` at three in the morning.
     """
@@ -157,7 +157,7 @@ def test_the_chain_anchor_job_is_registered_at_its_cadence_under_a_valid_name() 
 
 
 def test_the_chain_anchor_job_is_not_folded_into_the_metrics_sweep() -> None:
-    """Plan decision C, which two docstrings in the source depend on.
+    """Which two docstrings in the source depend on.
 
     Catches the alternative that was rejected: anchoring from inside
     `metrics_sweep`. `jobs.py` says that sweep "changes nothing at all" and
@@ -171,7 +171,7 @@ def test_the_chain_anchor_job_is_not_folded_into_the_metrics_sweep() -> None:
     assert REGISTRY["chain_anchor"].cadence_seconds != REGISTRY["metrics_sweep"].cadence_seconds
 
 
-# --- the wrapper (plan §1: it decides nothing) -------------------------------
+# --- the wrapper (it decides nothing) -------------------------------
 
 
 def test_the_chain_anchor_wrapper_hands_its_session_to_the_engine(
@@ -202,7 +202,7 @@ def test_the_chain_anchor_wrapper_hands_its_session_to_the_engine(
     assert calls == [_FAKE_SESSION]
 
 
-# --- the cadence gate on the real registry (21a decision B) ------------------
+# --- the cadence gate on the real registry ------------------
 
 
 def test_a_tick_leaves_the_chain_anchor_key_with_a_nine_hundred_second_ttl(
@@ -216,7 +216,7 @@ def test_a_tick_leaves_the_chain_anchor_key_with_a_nine_hundred_second_ttl(
 
     Catches a lock taken with no expiry (the job would never run again after
     one tick, for ever), one taken on a key an operator would not find, and a
-    lock RELEASED at the end of the run — 21a decision B makes the key itself
+    lock RELEASED at the end of the run — the key itself is
     the cadence gate, so a released key means this job re-walks and re-anchors
     every tenant every 60 seconds instead of every 900. Per-tenant keys are
     asserted PRESENT for both tenants, so a runner that deletes all keys after

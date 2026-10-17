@@ -1,4 +1,4 @@
-"""An earlier change §6: `notify()`, called directly against Postgres.
+"""`notify()`, called directly against Postgres.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
@@ -7,27 +7,28 @@ must provide exactly this):
     ``async def notify(session, *, user_id, kind, title, body, subject_type,
     subject_id) -> Notification`` — appends ONE `notifications` row inside the
     caller's transaction. The tenant is read off the session with
-    ``helpdesk.core.db.bound_tenant_id`` and never taken from an argument: there is no tenant parameter at all. The row is stored
+    ``helpdesk.core.db.bound_tenant_id`` and never taken from an argument
+: there is no tenant parameter at all. The row is stored
     unread (``read_at is None``).
 
     It refuses, BEFORE anything is added to the session:
       * a `title` longer than ``NOTIFICATION_TITLE_MAX_LENGTH`` and a `body`
         longer than ``NOTIFICATION_BODY_MAX_LENGTH`` — a ``ToolError`` whose
-        ``code`` is ``ErrorCode.VALIDATION`` (a project rule: the check is
+        ``code`` is ``ErrorCode.VALIDATION`` (the check is
         against the store's own constant, and the boundary is inclusive);
       * a `kind` outside ``NotificationKind`` — the same code;
       * a recipient outside the bound tenant — ``NotFoundError``
         (``ErrorCode.NOT_FOUND``), never "created for nobody".
 
 The refusal type is asserted as ``ToolError`` + the typed code rather than as
-a class name: plan §6 writes "ValidationError", which is not a name
-`helpdesk.errors` defines, and the repo's error contract is the the design
+a class name: the requirements write "ValidationError", which is not a name
+`helpdesk.errors` defines, and the repo's error contract is the contract
 code carried by a `ToolError` subclass (the shape
 `models/conversation.py::MessageTooLongError` already uses). Whatever the
 class is called, the code is what crosses the boundary.
 
-An earlier change §6 adds the two READS beside the writer, in the same file and on the
-same fixtures (no new fixture, a project rule):
+The two READS sit beside the writer, in the same file and on the
+same fixtures (no new fixture):
 
 ``helpdesk.notifications.list`` (exported from ``helpdesk.notifications``)
     ``NotificationPage`` — a frozen dataclass carrying
@@ -48,7 +49,7 @@ same fixtures (no new fixture, a project rule):
     ``helpdesk.errors.NotFoundError`` (``ErrorCode.NOT_FOUND``) for a row
     that is absent or belongs to somebody else.
 
-a project rule: the session factory is the shared one from `conftest.py` --
+The session factory is the shared one from `conftest.py` --
 one engine for the whole run, schema created once -- and one session-scoped
 foreign tenant, built once. Per-test isolation is a namespace, not a rebuild -- every
 case seeds its OWN tenant with `_seed.seed_tenant` and asserts over that
@@ -234,12 +235,12 @@ def _rows_of(
 def test_notify_stores_one_unread_row_under_the_sessions_bound_tenant(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """a project rule and criterion 2 together. `notify` takes no tenant
+    """The identity-from-token rule and the tenant rule together. `notify` takes no tenant
     argument, so the only place `tenant_id` can come from is the session:
     catches a row stamped from the RECIPIENT's own user row (which would
     silently follow a mis-resolved id into another tenant) or left to a
     column default. Also catches a row stored already read, which would make
-    every expiry notification invisible to row 23's unread list the moment it
+    every expiry notification invisible to the unread list the moment it
     was written.
     """
     factory, _ = notification_db
@@ -259,7 +260,7 @@ def test_notify_stores_one_unread_row_under_the_sessions_bound_tenant(
     assert row.read_at is None
 
 
-# --- the two length boundaries ----------------------
+# --- the two length boundaries ------------------------------------------------
 
 
 def test_a_title_of_exactly_the_cap_is_accepted(
@@ -335,7 +336,7 @@ def test_a_body_one_character_over_the_cap_is_refused_before_any_row_is_written(
 def test_a_recipient_in_another_tenant_is_refused_not_found_and_writes_nothing(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 4. The session is bound to this case's own tenant and the
+    """The session is bound to this case's own tenant and the
     recipient is a REAL user of the foreign tenant, so the id resolves
     somewhere and only the tenant scope can refuse it.
 
@@ -361,8 +362,8 @@ def test_a_recipient_in_another_tenant_is_refused_not_found_and_writes_nothing(
 def test_a_kind_outside_the_enum_is_refused_before_any_row_is_written(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Decision F's other half: catches a `kind` written straight through to
-    the column, which stores a value row 23's route cannot render and which
+    """The other half: catches a `kind` written straight through to
+    the column, which stores a value the route cannot render and which
     no later query for `grant_expired` will ever find. The string is a
     plausible sibling of the real member, so a check comparing against a
     prefix or a substring fails here too."""
@@ -379,7 +380,7 @@ def test_a_kind_outside_the_enum_is_refused_before_any_row_is_written(
 
 
 # =============================================================================
-# An earlier change: `list_for_user` and `mark_read`, the two reads of the same table.
+# `list_for_user` and `mark_read`, the two reads of the same table.
 # =============================================================================
 #
 # Fixed instants, never `now()`: an order or a stamp that depends on when the
@@ -405,7 +406,7 @@ def _plant_colleague(factory: async_sessionmaker[AsyncSession], tenant: SeededTe
     `seed_tenant` makes exactly one user, and "one person's bell is not
     another's" cannot be asserted with one person. Planted through the ORM on
     the case's own tenant, so it is part of that tenant's namespace and no
-    other case sees it (a project rule: no new fixture).
+    other case sees it (no new fixture).
     """
 
     async def scenario() -> uuid.UUID:
@@ -547,7 +548,7 @@ def _read_at_of(
 def test_list_for_user_answers_one_users_rows_and_not_a_colleagues(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 2, with the tenant guard taken out of the picture: both
+    """With the tenant guard taken out of the picture: both
     people are in the SAME tenant, so the session's tenant
     filter cannot save an implementation that forgot the user filter.
 
@@ -556,7 +557,7 @@ def test_list_for_user_answers_one_users_rows_and_not_a_colleagues(
     one person's bell. The COUNT is asserted too, not only the row set,
     because the unread total is a separate aggregate and a `func.count` over a
     hand-written query is exactly where the user filter goes missing (plan
-    §5).
+    the contract).
     """
     factory, _ = notification_db
     tenant = _own_tenant(factory)
@@ -574,7 +575,7 @@ def test_list_for_user_answers_one_users_rows_and_not_a_colleagues(
 def test_list_for_user_answers_nothing_at_all_for_another_tenants_user(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 2's other half. The named user is a REAL user of the foreign
+    """The other half. The named user is a REAL user of the foreign
     tenant with a REAL unread notification there, so the id resolves
     somewhere and only the tenant scope can hide the row.
 
@@ -597,7 +598,7 @@ def test_list_for_user_answers_nothing_at_all_for_another_tenants_user(
 def test_the_page_is_newest_first_with_the_notification_id_breaking_a_tie(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 3, asserted as an exact id SEQUENCE over two rows sharing a
+    """Asserted as an exact id SEQUENCE over two rows sharing a
     `created_at` to the microsecond.
 
     Catches two things a set comparison cannot see: an order that is
@@ -627,7 +628,7 @@ def test_the_page_is_newest_first_with_the_notification_id_breaking_a_tie(
 def test_unread_only_narrows_the_rows_and_leaves_the_unread_count_alone(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 7 over a MIXED set: two unread rows and one already read.
+    """A MIXED set: two unread rows and one already read.
 
     `unread_only=False` must answer all three and `True` only the two, with
     the SAME `unread_count` in both answers. Catches a filter applied to the
@@ -659,7 +660,7 @@ def test_unread_only_narrows_the_rows_and_leaves_the_unread_count_alone(
 def test_the_unread_count_counts_beyond_the_page(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 4: `limit=1` over three unread rows answers ONE row and
+    """`limit=1` over three unread rows answers ONE row and
     `unread_count == 3`.
 
     Catches an `unread_count` computed as the length of the returned page (or
@@ -681,7 +682,7 @@ def test_the_unread_count_counts_beyond_the_page(
 def test_a_user_with_no_notifications_answers_no_rows_and_a_zero_count(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 10 at the library seam: an empty bell is a fact about the
+    """At the library seam: an empty bell is a fact about the
     person, not a refusal.
 
     Catches a `list_for_user` that raises `NotFoundError` (or `None`) when a
@@ -737,9 +738,9 @@ def test_mark_read_stamps_the_clock_it_was_handed_and_a_second_clock_moves_nothi
 def test_mark_read_refuses_a_colleagues_notification_and_stamps_nothing(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 11 (decision G), with the tenant guard taken out of the
-    picture: the row belongs to a colleague in the SAME tenant (standing rule
-    9), so nothing but the user filter can refuse it.
+    """With the tenant guard taken out of the
+    picture: the row belongs to a colleague in the SAME tenant, so nothing but the user filter can
+    refuse it.
 
     Catches a `mark_read` that reads the row by id under the tenant filter
     alone: any person could then mark any colleague's notification read, and
@@ -762,7 +763,7 @@ def test_mark_read_refuses_a_colleagues_notification_and_stamps_nothing(
 def test_mark_read_refuses_an_unknown_notification_id_with_not_found(
     notification_db: tuple[async_sessionmaker[AsyncSession], SeededTenant],
 ) -> None:
-    """Criterion 11's other half: an id that resolves nowhere reads exactly
+    """The other half: an id that resolves nowhere reads exactly
     like a colleague's, so the argument is not an existence oracle.
 
     Catches a `mark_read` that answers a missing row with something other

@@ -3,21 +3,20 @@ import { describe, expect, it } from "vitest";
 import { daysUntil } from "@/features/access/expiry";
 
 /**
- * An earlier change §6, `expiry.test.ts`: the countdown arithmetic `/access` renders,
+ * The countdown arithmetic `/access` renders,
  * as a pure function. No clock, no component, no fetch.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23b's Deviations):
+ * Shapes this file fixes:
  * - the signature is `daysUntil(expiresAt: string, now: Date): number | null`
  *   — the wire value as a STRING (that is what `myGrantSchema` parses to) and
- *   the clock as an argument (decision D), answering `null` for anything
+ *   the clock as an argument, answering `null` for anything
  *   `Date` cannot read.
  * - "whole days" means TRUNCATED TOWARDS THE PAST (`Math.floor` of the
  *   difference in days), not rounded. Nine days and twenty-three hours is
  *   still "9 days left": a grant that ends tomorrow morning must never read as
  *   two days, and one that ended two hours ago must never read as zero.
  * - `null` is the answer for an unreadable timestamp, so the row can render
- *   the raw value instead of `NaN days` (§5).
+ *   the raw value instead of `NaN days`.
  *
  * Every row passes `NOW` explicitly, so an implementation reading the system
  * clock instead of its own argument fails the whole table on any day but
@@ -60,7 +59,7 @@ const UNREADABLE = ["not a date", "", "2026-13-45T00:00:00Z", "30 days"] as cons
 describe("daysUntil", () => {
   it.each(ROWS)("answers $days for a grant $name", ({ expiresAt, days }) => {
     // The whole table catches an implementation that reads the system clock
-    // instead of its `now` argument (decision D: a component cannot be tested
+    // instead of its `now` argument (a component cannot be tested
     // against a clock it does not own). Row by row: the nine-day pair catches
     // `Math.round`, which turns twenty-three hours into a tenth day the grant
     // does not have; the same-day row catches an implementation counting
@@ -74,7 +73,7 @@ describe("daysUntil", () => {
   it.each(UNREADABLE)("answers null for the unreadable timestamp %j", (expiresAt) => {
     // Catches the bare `Math.floor((Date.parse(x) - now) / DAY)`: `Date.parse`
     // answers `NaN` for every row here, the arithmetic propagates it, and the
-    // grant renders as "NaN days left" (§5). `null` is what lets the row fall
+    // grant renders as "NaN days left". `null` is what lets the row fall
     // back to the raw value, so answering `0` here would be worse than the NaN
     // — it would claim the grant expires today.
     expect(daysUntil(expiresAt, NOW)).toBeNull();

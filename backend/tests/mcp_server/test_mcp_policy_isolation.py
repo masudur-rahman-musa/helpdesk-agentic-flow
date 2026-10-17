@@ -1,7 +1,7 @@
-"""An earlier change §1 (last unhappy path) and §6: the tenant marker, at the TOOL boundary.
+"""The tenant marker, at the TOOL level.
 
-the design's claim is that one tenant's corpus is unreachable from another's,
-and 14c already pinned it inside `packages/helpdesk` (`test_rag_isolation.py`).
+The claim is that one tenant's corpus is unreachable from another's,
+and the RAG layer already pins it in `test_rag_isolation.py`.
 This file asserts it where a CLIENT can reach it: two real tokens, the real MCP
 transport, the real Qdrant, and a marker sentence ingested only into tenant B's
 collection through `vectors.upsert_chunks`.
@@ -11,11 +11,11 @@ Surface under test: `mcp_server.tools.policy_search.search_policy` and
 
 The two callers are the seeded cross-tenant pair `mcp_fixtures` reads back
 (`tenant_a`, `tenant_b`), and both the planting and the assertions resolve their
-slugs from those handles rather than from a slug pinned by name here (standing
-rule 30): the pair is whichever two tenants the seed produced, and a file that
+slugs from those handles rather than from a slug pinned by name here:
+the pair is whichever two tenants the seed produced, and a file that
 planted into one while asserting on the other would be right half the time.
 
-a project rule: nothing is rebuilt per test. The collections are the session's
+Nothing is rebuilt per test. The collections are the session's
 (`mcp_policy_collections`, dropped at both ends), Postgres and Redis are the
 session's, and the per-test namespace is a uuid-suffixed document slug.
 
@@ -113,7 +113,7 @@ def test_tenant_bs_marker_is_returned_to_tenant_b_and_never_to_tenant_a(
     """Catches a handler that names the searched collection from anything but
     the token's tenant — an argument, a default, a single shared collection.
 
-    One collection per tenant IS the isolation (the design): there is no second
+    One collection per tenant IS the isolation: there is no second
     guard behind it, so a tool searching the wrong name returns the other
     tenant's policy text to a user with a perfectly valid token, and no
     permission check anywhere in this repo would refuse it.
@@ -122,8 +122,8 @@ def test_tenant_bs_marker_is_returned_to_tenant_b_and_never_to_tenant_a(
     empty result: the same marker, the same query, the same fake embedder, and
     the ONLY difference is which token was used.
 
-    Both collections' names are asserted to differ first (a project rule,
-    read off the fixture): a seed that gave the two tenants one slug would make
+    Both collections' names are asserted to differ first
+    (read off the fixture): a seed that gave the two tenants one slug would make
     every assertion below pass for the wrong reason.
     """
     monkeypatch.setattr(rag_clients, "embedder", lambda: RecordingEmbedder())

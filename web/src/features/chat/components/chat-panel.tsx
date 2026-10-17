@@ -25,45 +25,10 @@ import { createSseParser } from "@/lib/sse";
 import { Alert } from "@/components/ui/alert";
 
 /**
- * The chat surface: history, the streamed turn, its tool steps, its decision
- * card, its citations and its failures.
- *
- * Two sources, deliberately different (decision D). The history is a TanStack
- * Query read of `GET /api/chat/messages` — a cached read with a key worth
- * invalidating — and the live turn is local state, because a stream has no
- * cache key and settling it into the query cache would mean writing a reply
- * the server has not been asked for again.
- *
- * Both calls go to this app's own routes, never to agent-api: the bearer is an
- * httpOnly cookie the browser cannot read (22a decision A), so a cross-origin
- * call would have nothing to send. An expired session comes back from
- * `proxyAgentApi` as a redirect the browser already followed, never as a
- * status (decision E): the history read reads it as `lib/wire-read.ts`'s `null`
- * and the stream checks `response.redirected` for itself, because
- * `readWire` is a GET.
- *
- * The decision card, the tool steps and the citations share one lifetime
- * (22d decision D): all three belong to the LATEST turn, are cleared when a
- * new one is sent, and are cleared again by an `error` frame — a decision left
- * standing beside "nothing was changed" is the same class of lie as the
- * half-composed token text the error path already drops. `GET
- * /api/chat/messages` carries no decision at all, which is why a card per
- * assistant message was not an option: every message the history read supplies
- * would have a blank one.
- *
- * The composer is seeded once, on mount, from `?ask=` — the parameter a
- * `/access` renewal link carries. It is read off
- * `window.location.search` rather than through `useSearchParams`, which would
- * oblige a router context and a Suspense boundary this surface's tests have no
- * reason to grow, and `readAsk` refuses anything `chatMessageSchema` would, so
- * the box never starts holding a message Send would then reject. Nothing is
- * sent: the user still presses Send, asserted as a call count by
- * `tests/chat-page.test.tsx`'s `::starts the composer carrying the ask and
- * sends nothing until Send is pressed`.
- *
- * The turn's own failures are typed codes, never sentences: `FAILURE_MESSAGES`
- * turns a code into the one sentence the app shows for it, and the alert
- * region holds exactly one at a time.
+ * The chat page. History is a cached query; the live turn is local state, since
+ * a stream has no cache key. The decision card, steps and citations belong to
+ * the latest turn and clear on a new send or an error. The composer starts with
+ * `?ask=` from a renewal link but never sends on its own.
  */
 export function ChatPanel() {
   const history = useChatHistory();
@@ -74,15 +39,7 @@ export function ChatPanel() {
   const [decision, setDecision] = useState<DecisionCardData | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const streaming = useRef(false);
-  // Read once, at mount: a later render must not put text back in a box the
-  // user has since emptied.
-  //
-  // The `typeof window` guard is for the SERVER pass, not for a browser that
-  // might lack the global: a lazy `useState` initialiser runs during the
-  // prerender as well as on mount, and an unguarded read there fails
-  // `next build` with "window is not defined" on this route. The
-  // server has no query string to read, so "" is the right answer for that
-  // pass, and the client's first render supplies the real one.
+  // Read once. The window check covers the server render, which has no URL.
   const [prefill] = useState(() =>
     typeof window === "undefined" ? "" : (readAsk(window.location.search) ?? ""),
   );
@@ -90,18 +47,14 @@ export function ChatPanel() {
   const messages = [...(history.data ?? []), ...turn];
 
   async function send(message: string): Promise<void> {
-    // The composer stays enabled through a turn (§1's unhappy paths), so the
-    // guard against two overlapping streams lives here instead of on the
-    // button. A ref and not state: a second submit in the same tick must see
-    // the first one's decision.
+    // A ref, so a second submit in the same tick sees the first.
     if (streaming.current) {
       return;
     }
 
     const parsed = chatMessageSchema.safeParse({ message });
     if (!parsed.success) {
-      // The same pre-check the route handler runs, before any fetch: an
-      // unsendable message spends neither a round trip nor a rate-limit slot.
+      // Checked before any fetch, so a bad message costs no round trip.
       setFailure("VALIDATION");
       return;
     }
@@ -123,30 +76,23 @@ export function ChatPanel() {
       }
 
       if (!response.ok || response.body === null) {
-        // A refusal before the first byte — 429 `POLICY_BLOCKED` from the rate
-        // limit, 400 `VALIDATION` from the cap — is a JSON envelope, not a
-        // stream. Feeding it to the parser would show a turn that started and
-        // silently produced nothing.
+        // A refusal before the stream starts is a JSON body, not a stream.
         setFailure(await refusalCode(response));
         return;
       }
 
       await consume(response.body);
     } catch {
-      // A dropped socket and an unreachable proxy are the same thing to a
-      // reader: neither says anything about what the turn did, which is what
-      // `INTERNAL` means.
+      // A dropped socket says nothing about what the turn did.
       setFailure("INTERNAL");
     } finally {
       streaming.current = false;
     }
   }
 
-  /** Reads the stream to its end, applying each frame as it arrives. */
   async function consume(body: ReadableStream<Uint8Array>): Promise<void> {
     const reader = body.getReader();
-    // `stream: true` is what joins a multi-byte character split across two
-    // reads; the parser never sees bytes.
+    // `stream: true` joins a character split across two reads.
     const decoder = new TextDecoder();
     const parser = createSseParser();
     let text = "";
@@ -173,9 +119,7 @@ export function ChatPanel() {
         if (event.event === "reply") {
           const reply = readReply(event.data);
           if (reply !== null) {
-            // The tokens are dropped rather than kept: the reply event carries
-            // the CHECKED text, and a regenerated turn streams a composition
-            // the post-check replaced.
+            // The reply holds the checked text, which may replace the streamed draft.
             text = "";
             setLive("");
             setCitations(reply.citations);
@@ -185,17 +129,12 @@ export function ChatPanel() {
           continue;
         }
         if (event.event === "error") {
-          // A half-composed sentence left standing would be prose about a turn
-          // nothing decided, which is why `_failure_frames` sends no `reply`
-          // with an error either.
+          // Drop the half-written text: nothing was decided.
           text = "";
           setLive("");
           setDecision(null);
           setFailure(readCode(event.data));
         }
-        // `done` needs nothing: the socket closing is what ends this loop, and
-        // the frame exists so a client can tell a finished turn from a dropped
-        // one.
       }
     }
   }
@@ -223,7 +162,6 @@ export function ChatPanel() {
   );
 }
 
-/** The typed code of a refusal body, or the default when it carries none. */
 async function refusalCode(response: Response): Promise<string> {
   try {
     return readCode(await response.json());

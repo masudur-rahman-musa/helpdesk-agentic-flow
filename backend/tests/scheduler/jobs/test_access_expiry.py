@@ -1,10 +1,10 @@
-"""An earlier change §6: `expire_grants`, called directly with a fixed `now`.
+"""`expire_grants`, called directly with a fixed `now`.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
 
 ``helpdesk.access.expiry``
-    ``GRANT_EXPIRED_EVENT_TYPE = "grant.expired"`` (the design).
+    ``GRANT_EXPIRED_EVENT_TYPE = "grant.expired"``.
     ``async def expire_grants(session, *, now) -> ...`` — over the BOUND
     tenant only, it locks the lapsed set (`status = 'active'`,
     `revoked_at IS NULL`, `expires_at IS NOT NULL AND expires_at <= now`,
@@ -19,19 +19,19 @@ must provide exactly this):
 
 ``helpdesk.obs.metrics``
     a counter exposed as ``helpdesk_expiries_total``, registered by
-    ``build_metrics`` on the registry it is handed (the plan-20b factory
+    ``build_metrics`` on the registry it is handed (the metrics factory
     shape) and read at CALL time through the module-level pair, so a test can
     install its own registry and assert an ABSOLUTE value.
 
-The return value is deliberately never asserted: plan §6 fixes no return
+The return value is deliberately never asserted: the contract fixes no return
 shape, and every claim below is readable from the database, the audit chain,
 the notifications or the registry.
 
-Decision D is the boundary this file exists for: `expires_at <= now`, the
+The boundary is what this file exists for: `expires_at <= now`, the
 exact complement of `core.repository.is_live_grant`'s `expires_at > now`, so
 a grant is never both not-live and not-expired.
 
-a project rule: the engine and session factory are the shared ones from
+The engine and session factory are the shared ones from
 `conftest.py` -- one engine for the whole run, schema created once. Per-test
 isolation is a namespace, not a rebuild -- `expire_grants` sweeps a whole
 tenant, so every case seeds a tenant of its OWN with `_seed.seed_tenant` and
@@ -69,13 +69,13 @@ GRANTED_AT = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
 LAPSED_AT = NOW - timedelta(days=1)
 """Comfortably past `NOW`: the ordinary lapsed grant."""
 JUST_AHEAD = NOW + timedelta(microseconds=1)
-"""The narrowest value that must survive decision D's `<=`."""
+"""The narrowest value that must survive the `<=`."""
 
 EXPIRED_GRANT_STATUS = "expired"
-"""What `grants.status` reads once the sweep has been through (plan §1).
+"""What `grants.status` reads once the sweep has been through.
 
 A literal rather than an import: expiry is not revocation, and the only thing
-that makes this string right is that §1 fixes it."""
+that makes this string right is that the contract fixes it."""
 
 EXPECTED_PAYLOAD_KEYS = {"user_id", "role_id", "expires_at"}
 EXPIRIES_TOTAL = "helpdesk_expiries_total"
@@ -107,7 +107,7 @@ class NotificationFacts:
 def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistry]:
     """A registry of this test's own, installed over the module-level pair.
 
-    An earlier change decision C: the call sites read `helpdesk.obs.metrics.METRICS` at
+    The call sites read `helpdesk.obs.metrics.METRICS` at
     call time, so replacing both names here is what makes an ABSOLUTE
     assertion possible. Against the process-wide registry the same case could
     only assert a delta, which passes just as happily when the wrong site did
@@ -271,13 +271,13 @@ def _notifications(
     return asyncio.run(scenario())
 
 
-# --- the status write and its boundary (criteria 5 and 6, decision D) ---------
+# --- the status write and its boundary ---------
 
 
 def test_a_lapsed_grant_becomes_expired_without_being_revoked(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 5. Catches a sweep that reuses the revocation path: expiry
+    """Catches a sweep that reuses the revocation path: expiry
     is not revocation, so a row stamped `revoked` — or `expired` with a
     `revoked_at` and a reason — records a human decision that nobody took,
     and the audit trail then shows a revocation with no revoker. Both fields
@@ -298,7 +298,7 @@ def test_a_lapsed_grant_becomes_expired_without_being_revoked(
 def test_a_grant_expiring_at_exactly_now_is_expired(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision D's inclusive boundary. Catches the design's literal
+    """The inclusive boundary. Catches the product spec literal
     `expires_at < now()`, which leaves a grant whose expiry is exactly the
     sweep's instant neither live (`is_live_grant` compares `expires_at > now`
     and says no) nor expired — a row in a state no query in the codebase
@@ -333,7 +333,7 @@ def test_null_expiry_revoked_and_already_expired_grants_are_untouched(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Criterion 6, one planted row per excluded state.
+    """One planted row per excluded state.
 
     Each catches a dropped conjunct of the lapsed-set filter: without
     `expires_at IS NOT NULL` a permanent grant is swept away (Postgres
@@ -391,14 +391,14 @@ def test_another_tenants_lapsed_grant_is_untouched(
     assert _notifications(session_factory, neighbour.tenant_id) == []
 
 
-# --- the audit record (criterion 7, a project rule) -------------------------
+# --- the audit record -------------------------
 
 
 def test_one_grant_expired_event_per_row_names_the_grant_and_its_expiry(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """a project rule: what the event CARRIES, not that one was written.
+    """What the event CARRIES, not that one was written.
 
     Catches an event whose subject is the user, the sweep or the tenant —
     none of which answers the question an auditor asks of this row ("which
@@ -439,14 +439,14 @@ def test_one_grant_expired_event_per_row_names_the_grant_and_its_expiry(
     assert datetime.fromisoformat(second_payload["expires_at"]) == NOW
 
 
-# --- the notifications (criterion 8, decision E) ------------------------------
+# --- the notifications ------------------------------
 
 
 def test_an_expiry_notifies_the_holder_and_the_department_manager(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision E. Catches a sweep that tells only the holder — the manager
-    is the person who can re-request the access, and the design names both —
+    """Catches a sweep that tells only the holder — the manager
+    is the person who can re-request the access, and the product spec names both —
     and one that writes a single row carrying a list of recipients, which no
     per-user unread query can find. Each row is checked to name the grant, so
     two rows for two different subjects would not satisfy it either."""
@@ -469,7 +469,7 @@ def test_an_expiry_notifies_the_holder_and_the_department_manager(
 def test_a_department_with_no_manager_notifies_the_holder_only(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision E's first skip. `seed_tenant` leaves `manager_user_id` null,
+    """The first skip. `seed_tenant` leaves `manager_user_id` null,
     so this is the ordinary case. Catches a sweep that notifies the manager
     unconditionally: with no manager to resolve, that is either a crash in
     the middle of a batch or a notification row pointing at nobody."""
@@ -486,7 +486,7 @@ def test_a_department_with_no_manager_notifies_the_holder_only(
 def test_a_holder_who_is_their_own_manager_is_notified_once(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Decision E's second skip, and the one a "notify the manager if there
+    """The second skip, and the one a "notify the manager if there
     is one" implementation still fails: the department HAS a manager here, so
     only the holder-equals-manager test can stop the second row. Catches a
     department head being told twice about their own grant."""
@@ -501,14 +501,14 @@ def test_a_holder_who_is_their_own_manager_is_notified_once(
     assert rows[0].subject_id == str(grant_id)
 
 
-# --- the counter (criterion 9) ------------------------------------------------
+# --- the counter ------------------------------------------------
 
 
 def test_the_expiry_counter_rises_by_exactly_the_number_of_grants_expired(
     session_factory: async_sessionmaker[AsyncSession],
     fresh_registry: CollectorRegistry,
 ) -> None:
-    """Criterion 9, as an absolute value off a registry this test built.
+    """As an absolute value off a registry this test built.
 
     Three lapsed rows and one sweep, so the case separates the three
     plausible wrong sites: a counter incremented once per CALL reads 1, one

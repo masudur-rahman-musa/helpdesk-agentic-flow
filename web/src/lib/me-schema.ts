@@ -1,11 +1,7 @@
 /**
- * The parser for what `/api/me` returns.
- *
- * `tabs` is a list of stable keys the server computed from the RBAC matrix;
- * the web owns the names and hrefs (`components/nav.tsx`). Keys are plain
- * strings so a key a newer server adds is ignored by an older shell instead
- * of refusing the whole payload. Nothing here is `.strict()` for the same
- * reason as `access-schema.ts`.
+ * The parser for `/api/me`. `tabs` are keys the server derives from roles; the
+ * web owns their names and links. Plain strings, so a new key is ignored
+ * instead of failing the whole payload.
  */
 
 import { z } from "zod";

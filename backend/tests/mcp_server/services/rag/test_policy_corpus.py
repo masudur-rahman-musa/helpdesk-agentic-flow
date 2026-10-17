@@ -1,4 +1,4 @@
-"""Corpus-shape tests for an earlier change (policy corpus), section 6.
+"""Corpus-shape tests for the seed policy corpus.
 
 Guards the seed policy corpus under the repo-root ``policies/`` directory:
     policies/{tenant}/{version}/{slug}.md

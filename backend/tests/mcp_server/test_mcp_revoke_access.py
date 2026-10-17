@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `revoke_access`, through the transport.
+"""`revoke_access`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -7,17 +7,17 @@ Surface under test (written before it exists):
     ``1..REASON_MAX_LENGTH`` (2000), plus the idempotency key and
     ``extra="forbid"`` from ``MutatingToolInput``.
     ``RevokeAccessOutput`` — ``revoked_grant_ids`` (EVERY live row revoked for
-    that ``(user, role)``, the named one included, decision A) and
+    that ``(user, role)``, the named one included) and
     ``revoked_count``.
     ``revoke_access`` — a registered MUTATING tool whose registry
     ``event_type`` is ``tool.succeeded``; it appends one ``grant.revoked`` per
-    revoked row itself (decision D), so the pipeline's summary event lands
+    revoked row itself, so the pipeline's summary event lands
     last.
 
-Refusals, each a different the design code: ``NOT_FOUND`` for a grant that does
+Refusals, each a different typed error code: ``NOT_FOUND`` for a grant that does
 not exist and for another tenant's (identical answers, so the id is not an
-existence oracle), ``FORBIDDEN`` for a caller whose the design scope does not
-reach the grant, ``POLICY_BLOCKED`` for a grant that is not live (decision C),
+existence oracle), ``FORBIDDEN`` for a caller whose the matrix scope does not
+reach the grant, ``POLICY_BLOCKED`` for a grant that is not live,
 with the scope check running FIRST so an out-of-scope id cannot be probed for
 its state.
 
@@ -25,7 +25,7 @@ Audit deltas are asserted as exact ordered event-type lists against a before
 snapshot, never as counts: a missing domain event, a duplicated one, or a
 denial filed as an outage is invisible to a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: each case owns a `(user, role)` pair no other case revokes (proven
@@ -65,8 +65,8 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
 
 REVOKE = "revoke_access"
 
-# the design's revocation event, appended per revoked row by the handler
-# (decision D), and the pipeline's own events. Literals rather than imports:
+# The revocation event, appended per revoked row by the handler,
+# and the pipeline's own events. Literals rather than imports:
 # these strings are the audit contract, and reading them from the module under
 # test would let a rename pass unnoticed.
 GRANT_REVOKED_EVENT = "grant.revoked"
@@ -314,23 +314,23 @@ def _premise_no_grants(database_url: str, user_id: uuid.UUID, role_id: uuid.UUID
     )
 
 
-# --- the happy path (criteria 1, 2, 3 and 4) -----------------------------------
+# --- the happy path -----------------------------------
 
 
 def test_a_manager_revokes_in_their_own_department(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """The allow direction every refusal below depends on, and decision A end
-    to end: catches a handler that revokes only the grant it was NAMED,
-    leaving the user holding the role under an audit event saying access
-    ended, and a response that reports one id when two rows died.
+    """The allow direction every refusal below depends on, and the revoke-all rule end
+       to end: catches a handler that revokes only the grant it was NAMED,
+       leaving the user holding the role under an audit event saying access
+       ended, and a response that reports one id when two rows died.
 
-    Two live rows are planted for one `(user, role)`, which is the state plan
-    11b leaves reachable (two requests, two idempotency keys). The audit delta
-    is the exact ordered list, so the per-row `grant.revoked` events
-    (decision D) and the pipeline's single summary `tool.succeeded` LAST are
-    both pinned; a handler declaring `grant.revoked` as its registry event
-    would write one event naming the tool and fail here.
+       Two live rows are planted for one `(user, role)`, which is the state the
+       create tool leaves reachable (two requests, two idempotency keys). The audit delta
+       is the exact ordered list, so the per-row `grant.revoked` events
+    and the pipeline's single summary `tool.succeeded` LAST are
+       both pinned; a handler declaring `grant.revoked` as its registry event
+       would write one event naming the tool and fail here.
     """
     manager = _seeded(PRODUCTION_MANAGER)
     target = _seeded(HAPPY_TARGET)
@@ -366,13 +366,13 @@ def test_a_manager_revokes_in_their_own_department(
     assert {str(record.subject_id) for record in records} == {str(named), str(sibling)}
 
 
-# --- the design's scope, and where it comes from (criterion 5) ---------------------
+# --- the matrix's scope, and where it comes from ---------------------
 
 
 def test_a_manager_may_not_revoke_outside_their_department(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """a project rule, the scope half: the caller is a `manager`, whom the
+    """The scope half: the caller is a `manager`, whom the
     RBAC matrix ADMITS on this row, so the matrix cannot produce this refusal
     and only the `own_department` scope check can. Deleting that check is the
     one change that flips this case.
@@ -448,7 +448,7 @@ def test_the_managers_department_comes_from_the_directory_not_the_token(
 def test_a_system_owner_revokes_only_on_systems_they_own(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """the design's `own_systems` cell, both directions.
+    """The matrix's `own_systems` cell, both directions.
 
     The token carries `system_owner` and nothing else, so the caller's only
     scope is `own_systems` and the department comparison cannot reach either
@@ -483,13 +483,13 @@ def test_a_system_owner_revokes_only_on_systems_they_own(
 def test_a_denied_call_writes_tool_denied_and_revokes_nothing(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """The caller holds `employee`, which the design's revoke row gives NO cell at
+    """The caller holds `employee`, which the matrix's revoke row gives NO cell at
     all, so the pipeline's matrix stage refuses them.
 
     NOT a standing-rule-16 kill of that stage, and deliberately not written as
     one: `_grant_in_scope` opens with `rbac.authorize`, which RAISES for a
     principal with no cell, so deleting the pipeline's RBAC stage leaves this
-    answer exactly as it is. On this the design row no principal exists that the
+    answer exactly as it is. On this the matrix row no principal exists that the
     scope check admits and the matrix refuses, so the two guards cannot be
     killed independently. What this case does pin is that a principal with no
     cell is refused before any effect and that the refusal is recorded as
@@ -514,7 +514,7 @@ def test_a_denied_call_writes_tool_denied_and_revokes_nothing(
     assert events_after == [*events_before, DENIED_EVENT]
 
 
-# --- the two absences and the two states (criteria 6 and 7) ---------------------
+# --- the two absences and the two states ---------------------
 
 
 def test_another_tenants_grant_and_a_missing_one_answer_the_same_way(
@@ -549,7 +549,7 @@ def test_another_tenants_grant_and_a_missing_one_answer_the_same_way(
 def test_an_already_revoked_grant_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision C, both halves.
+    """Both halves.
 
     In scope: the caller is the target's own manager and the grant exists, so
     neither the matrix, the scope check nor the lookup can refuse — only the
@@ -595,7 +595,7 @@ def test_an_already_revoked_grant_is_refused_policy_blocked(
         assert row.revoke_reason == HISTORIC_REASON
 
 
-# --- the input surface (criterion 8, a project rule and 2) --------------------
+# --- the input surface --------------------
 
 
 @pytest.mark.parametrize(
@@ -678,7 +678,7 @@ def test_an_unknown_field_is_rejected(
     assert row.revoked_at is None
 
 
-# --- replay and concurrency (criteria 9 and the plan's §5 race) -----------------
+# --- replay and concurrency (and the race) -----------------
 
 
 def test_a_replay_returns_the_stored_response_and_writes_only_tool_replayed(
@@ -716,7 +716,7 @@ def test_a_replay_returns_the_stored_response_and_writes_only_tool_replayed(
 def test_two_callers_racing_the_same_revocation_write_one_event_per_row(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision E, the lock. Two different callers send two different
+    """The lock. Two different callers send two different
     idempotency keys, so the idempotency guard cannot serialise them at all;
     only the `SELECT … FOR UPDATE` on the live set can.
 
@@ -724,9 +724,9 @@ def test_two_callers_racing_the_same_revocation_write_one_event_per_row(
     rows, both revoke them, and the audit log carries FOUR `grant.revoked`
     events for two grants — one revocation recorded twice, which is exactly
     the record an auditor cannot reconcile. Both callers are seeded
-    `it_admin`s, whose the design scope is `any`, so both are genuinely entitled
+    `it_admin`s, whose the matrix scope is `any`, so both are genuinely entitled
     and the race is real; the loser is refused `POLICY_BLOCKED` because by
-    then the live set is empty (decision C), never `FORBIDDEN`.
+    then the live set is empty, never `FORBIDDEN`.
     """
     first_admin = _seeded(IT_ADMIN_ONE)
     second_admin = _seeded(IT_ADMIN_TWO)

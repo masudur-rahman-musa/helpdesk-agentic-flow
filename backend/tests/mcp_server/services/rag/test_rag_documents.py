@@ -1,31 +1,30 @@
-"""An earlier change section 6, first block: `read_policy_documents`, against Postgres.
+"""`read_policy_documents`, against Postgres.
 
 Surface under test (written before it exists). The implementer must provide
 exactly this:
 
-``helpdesk.rag.documents`` (new module, decision D)
+``helpdesk.rag.documents`` (new module)
     ``PolicyVersion`` - one ingested version, carrying exactly ``version``,
     ``is_current``, ``ingested_at``, ``chunk_count``, ``source_path`` and
     ``sha256``.
-    ``PolicyDocumentDetail`` - one document SLUG (decision A), carrying
+    ``PolicyDocumentDetail`` - one document SLUG, carrying
     exactly ``slug``, ``title`` and ``versions``.
     ``async def read_policy_documents(session) -> tuple[PolicyDocumentDetail, ...]``
     - the bound tenant's corpus, documents ordered by ``slug`` ascending and
-    versions by ``ingested_at`` descending (decision C), in exactly two
+    versions by ``ingested_at`` descending, in exactly two
     SELECTs whatever the document count.
 
 ``helpdesk.core.repository``
     ``count_chunks_by_document(session, document_ids)`` - the grouped count
-    behind ``chunk_count`` (decision B). Exercised here only through the
+    behind ``chunk_count``. Exercised here only through the
     helper: its own caller is the helper and nothing else.
 
 The session is tenant-bound (``helpdesk.core.db.tenant_session``), so the
 helper takes no tenant argument at all: the corpus is the token's tenant's own
 rows and the guard in ``helpdesk/core/db.py`` is the only filter.
 
-Shapes the plan left open, fixed here and owed to 24g's Deviations (standing
-rule 39):
-- the VERSION tie-break direction. Section 1 fixes ``ingested_at``
+Shapes the plan left open, fixed here and owed to 24g's Deviations:
+- the VERSION tie-break direction. The contract fixes ``ingested_at``
   descending "tiebroken by `version`" and states no direction for the second
   column, which a total order is only assertable with. This file fixes it as
   ``version`` DESCENDING - the whole order reads newest-first, and the single
@@ -39,7 +38,7 @@ rule 39):
   `_field_names` below reads either, so the exact field set is still asserted
   while the choice stays the implementer's.
 
-a project rule: the engine and session factory are the shared ones from
+The engine and session factory are the shared ones from
 `conftest.py` - one engine for the whole run, schema created once. Per-test
 isolation is a namespace, never a rebuild - every case plants a
 tenant of its OWN and its own corpus, so no case can read another's documents.
@@ -71,7 +70,7 @@ from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.models import PolicyChunk, PolicyDocument, Tenant
 
 DOCUMENT_FIELDS: tuple[str, ...] = ("slug", "title", "versions")
-"""Plan criterion 3's three fields, written out.
+"""The three fields, written out.
 
 A literal rather than a read of the model under test: this row is what the
 tool puts on the wire and 24h renders, so a field added or dropped is a red
@@ -85,10 +84,10 @@ VERSION_FIELDS: tuple[str, ...] = (
     "source_path",
     "sha256",
 )
-"""Plan criterion 3's six version fields, written out for the same reason."""
+"""The six version fields, written out for the same reason."""
 
 EXPECTED_STATEMENTS = 2
-"""Plan section 2's number, exactly: the documents, then one
+"""The number, exactly: the documents, then one
 grouped chunk count over exactly the ids just read - whatever the corpus size."""
 
 # A fixed instant the cases offset from, so every planted `ingested_at` is
@@ -152,7 +151,7 @@ async def _plant_version(
     `is_current=True` and flips every other version of the slug: the corpus
     states this read exists to show - a document with NO current version, a
     version with no chunk at all, two versions sharing one instant - are
-    exactly the ones the writer cannot produce (a project rule: the plant is
+    exactly the ones the writer cannot produce (the plant is
     named here because the shape is not the writer's).
     """
     label = digest_label if digest_label is not None else f"{slug}-{version}-{title}"
@@ -201,19 +200,19 @@ def _versions(document: PolicyDocumentDetail) -> list[PolicyVersion]:
     return list(document.versions)
 
 
-# --- the grouped shape and the two field sets (criterion 3) ---------------------
+# --- the grouped shape and the two field sets ---------------------
 
 
 def test_the_corpus_comes_back_one_row_per_slug_with_the_exact_two_field_sets(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 3 and decision A, as the literals the tool puts on the wire.
+    """The grouped shape, as the literals the tool puts on the wire.
 
-    KILL: a read that answers one FLAT row per version, which decision A
+    KILL: a read that answers one FLAT row per version, which the tool
     rejects - the two versions planted here under one slug would come back as
     two top-level rows, so the length assertion and the nested version list
     both fail, and 24h would be left grouping in the browser on every paint.
-    Also kills a row that drops `sha256` or `source_path` (decision G: the
+    Also kills a row that drops `sha256` or `source_path` (the
     digest is the only evidence on this surface that two versions differ at
     all) and one that drops `chunk_count`.
 
@@ -285,16 +284,16 @@ def test_the_corpus_comes_back_one_row_per_slug_with_the_exact_two_field_sets(
     asyncio.run(scenario())
 
 
-# --- the one total order (criterion 5, decision C) -------------------------------
+# --- the one total order ------------------------------------------------------
 
 
 def test_the_documents_are_slug_ascending_and_the_versions_ingested_at_descending(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 5 and decision C, asserted as exact sequences.
+    """The total order, asserted as exact sequences.
 
     KILL: an order left to Postgres (no ORDER BY, so insertion order comes
-    back) and, the one decision C exists for, a version order taken from the
+    back) and, the one the total order exists for, a version order taken from the
     `version` STRING - `v10` sorts before `v2` bytewise, so a string sort puts
     the tenth ingest in the middle of the list. The two versions here are
     planted with `v10` NEWER than `v2`, so a string sort answers `["v2",
@@ -363,7 +362,7 @@ def test_the_documents_are_slug_ascending_and_the_versions_ingested_at_descendin
 def test_two_versions_ingested_at_one_instant_are_tiebroken_by_version_descending(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 5's tie-break, on the case section 5 says is real: two versions
+    """The tie-break, on a real case: two versions
     of one document ingested in a single transaction.
 
     KILL: an order on `ingested_at` ALONE. Both rows here carry exactly the
@@ -372,7 +371,7 @@ def test_two_versions_ingested_at_one_instant_are_tiebroken_by_version_descendin
     of the expected sequence, so the case flips. Nothing else in this file can
     see it: every other planted version carries a distinct instant.
 
-    DIRECTION (a project rule, owed to 24g's Deviations): the plan names
+    DIRECTION: the requirements name
     `version` as the tie-break column and no direction. Fixed here as
     DESCENDING - the order reads newest-first end to end, and the single
     `sorted(key=(ingested_at, version), reverse=True)` that produces it
@@ -404,13 +403,13 @@ def test_two_versions_ingested_at_one_instant_are_tiebroken_by_version_descendin
     asyncio.run(scenario())
 
 
-# --- chunk_count, zero included (criterion 7, decision B) ------------------------
+# --- chunk_count, zero included -----------------------------------------------
 
 
 def test_each_versions_chunk_count_is_exact_and_a_version_with_no_chunk_is_kept(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 7 and decision B: the failure this page exists to catch.
+    """The failure this page exists to catch.
 
     KILL: a count taken over the whole DOCUMENT SLUG rather than per version
     (both versions here would then read 3), a count that is really the number
@@ -472,13 +471,13 @@ def test_each_versions_chunk_count_is_exact_and_a_version_with_no_chunk_is_kept(
     asyncio.run(scenario())
 
 
-# --- which title the document reads as (criterion 4) -----------------------------
+# --- which title the document reads as -----------------------------
 
 
 def test_the_title_is_the_current_versions_even_when_another_version_is_newer(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 4's first half: a re-titled document reads as its LIVE title.
+    """The first half: a re-titled document reads as its LIVE title.
 
     KILL: a title taken from the newest-INGESTED version, and a title taken
     from the first row the read happens to see. The current version here is
@@ -487,7 +486,7 @@ def test_the_title_is_the_current_versions_even_when_another_version_is_newer(
     separates them (a corpus whose current version is also its newest passes
     under all three rules).
 
-    The state is a real one: section 5 records that `is_current` is per
+    The state is a real one: `is_current` is per
     (tenant, slug), so a re-ingest that registered a new version and has not
     yet flipped the flag leaves exactly this pair.
     """
@@ -597,13 +596,13 @@ def test_a_document_with_no_current_version_appears_with_every_flag_false(
     asyncio.run(scenario())
 
 
-# --- the tenant guard (criterion 8, section 5's first risk) ----------------------
+# --- the tenant guard ----------------------
 
 
 def test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 8 and section 5's first risk, said out loud.
+    """The tenant guard, said out loud.
 
     KILL: a read that leaves the tenant-scoped repository - a raw
     `select(PolicyDocument)` on an unbound session, a chunk count written by
@@ -686,13 +685,13 @@ def test_the_same_slug_in_two_tenants_never_mixes_titles_counts_or_digests(
     asyncio.run(scenario())
 
 
-# --- a tenant with no corpus (criterion 9) ---------------------------------------
+# --- a tenant with no corpus ---------------------------------------
 
 
 def test_a_tenant_with_no_corpus_answers_an_empty_tuple(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Criterion 9's first half: an empty corpus is an answer, never a failure.
+    """The first half: an empty corpus is an answer, never a failure.
 
     KILL: a helper that raises on the empty read - a `.one()` on the document
     query, or an unguarded count over an empty id set (`IN ()` is not valid
@@ -713,14 +712,14 @@ def test_a_tenant_with_no_corpus_answers_an_empty_tuple(
     asyncio.run(scenario())
 
 
-# --- two statements, whatever the corpus size (section 2) ------------------------
+# --- two statements, whatever the corpus size ---------------------------------
 
 
 def test_the_whole_read_issues_exactly_two_selects(
     session_factory: async_sessionmaker[AsyncSession],
     shared_engine: AsyncEngine,
 ) -> None:
-    """Section 2's count, taken off the engine rather than read off the source.
+    """The count, taken off the engine rather than read off the source.
 
     KILL: the obvious count - one `SELECT count(*)` per VERSION, which is five
     statements for the four versions here and grows with the corpus. A board

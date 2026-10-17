@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `transfer_user`, through the transport.
+"""`transfer_user`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -12,21 +12,21 @@ Surface under test (written before it exists):
     ``non_standard_role_ids``.
     ``transfer_user`` — a registered MUTATING tool under the wire name
     ``transfer_user``, whose registry ``event_type`` is the generic
-    ``tool.succeeded`` (decision C): the handler appends ``user.transferred``
+    ``tool.succeeded``: the handler appends ``user.transferred``
     itself, naming the USER, so the pipeline's event lands last as the
     summary.
 
-Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the four principals the design
+Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the four principals the permission matrix
 gives no cell on this row, one shared ``NOT_FOUND`` for a ``user_id`` or a
 ``new_department_id`` that is missing OR another tenant's, ``POLICY_BLOCKED``
-for a move into the department the person is already in (decision E), and
+for a move into the department the person is already in, and
 ``VALIDATION`` for every input the pre-checks refuse — all before any write.
 
 Audit deltas are asserted as exact ordered event-type lists against a before
 snapshot, never as counts: a missing domain event, a duplicated one, or a
 denial filed as an outage is invisible to a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: every case plants its OWN two departments (fresh uuid names), its
@@ -66,7 +66,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
 
 TRANSFER = "transfer_user"
 
-# the design's own name for the move, appended by the handler (decision C),
+# The event catalogue own name for the move, appended by the handler,
 # and the pipeline's own events. Literals rather than imports: these strings
 # are the audit contract, and reading them from the module under test would
 # let a rename pass unnoticed.
@@ -80,14 +80,14 @@ REPLAYED_EVENT = "tool.replayed"
 ROWS = generate_tenant(NORDLICHT)
 OTHER_TENANT_ROWS = generate_tenant(CUAN)
 
-# the design's `transfer_user` row: three principals may call it, four may not.
+# The permission matrix `transfer_user` row: three principals may call it, four may not.
 # All three hold `Scope.ANY`, so there is no argument-dependent second check.
 ALLOWED_PRINCIPALS = ("hr", "it_admin", "platform_admin")
 DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "auditor")
 
 # The callers. Read only — no case writes to these rows — so they cannot
 # collide with another module's namespace. The principal is always forced on
-# the token, so a case pins the the design cell rather than whatever the seed
+# the token, so a case pins the permission matrix's cell rather than whatever the seed
 # happened to give this user.
 CALLER = ROWS.users_by_department["HR"][8]
 PLANTED_MANAGER = ROWS.users_by_department["HR"][9]
@@ -340,7 +340,7 @@ def _plant_move(database_url: str) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     return user_id, old_department, new_department
 
 
-# --- the design's allow set and its refusal direction (criterion 10) ---------------
+# --- The permission matrix allow set and its refusal direction ---------------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -348,7 +348,7 @@ def test_the_three_permitted_principals_each_transfer_somebody(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """The allow direction every refusal below depends on, one row of the design's
+    """The allow direction every refusal below depends on, one row of the permission matrix
     `transfer_user` cell at a time.
 
     Catches a registry entry wired to the wrong matrix member (say
@@ -387,13 +387,13 @@ def test_the_other_four_principals_are_denied_and_move_nobody(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """a project rule: the design's matrix row is the ONLY gate on this tool.
+    """The permission matrix row is the ONLY gate on this tool.
 
     Every argument is valid and both ids resolve in the caller's own tenant,
     so neither the two `NOT_FOUND` lookups, the same-department refusal nor
     the leaver refusal can produce this answer — deleting the pipeline's RBAC
     stage is the one change that flips these four cases from `FORBIDDEN` into
-    completed transfers. the design gives all three permitted principals
+    completed transfers. The permission matrix gives all three permitted principals
     `Scope.ANY`, so there is no second, argument-dependent check here whose
     presence would blunt the kill.
 
@@ -418,28 +418,28 @@ def test_the_other_four_principals_are_denied_and_move_nobody(
     assert events_after == [*events_before, DENIED_EVENT]
 
 
-# --- the audit sequence (criterion 5, decision C, a project rule) -------------
+# --- the audit sequence -------------
 
 
 def test_the_audit_sequence_is_revoked_then_executed_then_transferred_then_succeeded(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 5 as an exact ordered list, which is also the only place
-    decisions B and C are observable together.
+    """An exact ordered list, which is also the only place
+       decisions B and C are observable together.
 
-    Catches the registry declaring `user.transferred` as this tool's event
-    instead of the generic `tool.succeeded`: the pipeline writes its event
-    with the TOOL as subject and a fixed payload, so the log would record that
-    somebody called a tool and not who moved, and the
-    mover's own event would be missing entirely. Catches apply-before-revoke
-    (decision B) — the two grant events would come back swapped — and a
-    `user.transferred` written before the grant events, which would have to
-    name sets nothing had computed yet. Catches a summary event that is not
-    last.
+       Catches the registry declaring `user.transferred` as this tool's event
+       instead of the generic `tool.succeeded`: the pipeline writes its event
+       with the TOOL as subject and a fixed payload, so the log would record that
+       somebody called a tool and not who moved, and the
+       mover's own event would be missing entirely. Catches apply-before-revoke
+    — the two grant events would come back swapped — and a
+       `user.transferred` written before the grant events, which would have to
+       name sets nothing had computed yet. Catches a summary event that is not
+       last.
 
-    The subject and the nine payload keys are asserted here as well as in the
-    core test, because only the transport can show that the event the
-    PIPELINE adds did not overwrite or duplicate the one the handler wrote.
+       The subject and the nine payload keys are asserted here as well as in the
+       core test, because only the transport can show that the event the
+       PIPELINE adds did not overwrite or duplicate the one the handler wrote.
     """
     caller = _seeded(CALLER)
     user_id, old_department, new_department = _plant_move(mcp_env.database_url)
@@ -478,7 +478,7 @@ def test_the_audit_sequence_is_revoked_then_executed_then_transferred_then_succe
     assert payload["effective_date"] == EFFECTIVE_DATE
 
 
-# --- the two absences, twice over (criterion 8) ---------------------------------
+# --- the two absences, twice over ---------------------------------
 
 
 def test_a_missing_and_another_tenants_user_answer_the_same_not_found(
@@ -544,13 +544,13 @@ def test_a_missing_and_another_tenants_department_answer_the_same_not_found(
     assert _live_role_ids(mcp_env.database_url, user_id) == {OLD_ONLY_ROLE}
 
 
-# --- the two typed refusals through the wire (criteria 6 and 7) ----------------
+# --- the two typed refusals through the wire ----------------
 
 
 def test_a_move_into_the_same_department_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision E at the boundary: catches the "succeed with an empty diff"
+    """At the boundary: catches the "succeed with an empty diff"
     alternative, which is invisible in the tables.
 
     The diff IS empty, so nothing about the grants or the department changes
@@ -580,7 +580,7 @@ def test_a_move_into_the_same_department_is_refused_policy_blocked(
 def test_a_leaver_is_refused_policy_blocked_with_their_access_intact(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision F through the wire: catches the alternative that lets a leaver
+    """Through the wire: catches the alternative that lets a leaver
     through and reports every arriving role in `skipped`.
 
     That alternative looks harmless in the return value and is not: the
@@ -609,7 +609,7 @@ def test_a_leaver_is_refused_policy_blocked_with_their_access_intact(
     assert rows[0].revoked_at is None
 
 
-# --- the input surface (criterion 9) -------------------------------------------
+# --- the input surface -------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -634,7 +634,7 @@ def test_the_input_types_are_refused_before_any_effect(
     accepted: bool,
     expected_code: str,
 ) -> None:
-    """Criterion 9, both directions: catches ids typed as `str` and
+    """Both directions: catches ids typed as `str` and
     `effective_date` typed as `str`.
 
     A string `effective_date` reaches the `user.transferred` payload verbatim,
@@ -680,8 +680,8 @@ def test_an_unknown_field_is_refused_with_no_department_change(
     moving somebody inside another tenant.
 
     Dropping it silently would move the person in the TOKEN's tenant while the
-    caller reads success as having acted elsewhere — the one mistake hard rule
-    6 exists to make impossible to make quietly. Catches an input model that
+    caller reads success as having acted elsewhere — the one mistake the
+    tenant-from-token rule exists to make impossible to make quietly. Catches an input model that
     copied `tools/read.py`'s `extra="ignore"` contract: nothing else in this
     call can refuse it, since the caller is permitted and every other argument
     is valid. The department is re-read in BOTH tenants, so a call that
@@ -702,7 +702,7 @@ def test_an_unknown_field_is_refused_with_no_department_change(
     assert _department_of(mcp_env.database_url, OTHER_TENANT_USER.id) == foreign_department_before
 
 
-# --- replay (criterion 11) ------------------------------------------------------
+# --- replay ------------------------------------------------------
 
 
 def test_a_replay_returns_the_stored_response_and_moves_nobody_twice(
@@ -738,13 +738,13 @@ def test_a_replay_returns_the_stored_response_and_moves_nobody_twice(
     ]
 
 
-# --- the lock (decision D) ------------------------------------------------------
+# --- the lock ------------------------------------------------------
 
 
 def test_two_callers_racing_the_same_transfer_leave_one_move(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision D, the `lock_user` row lock. Two different callers send two
+    """The `lock_user` row lock. Two different callers send two
     different idempotency keys, so the guard cannot serialise them at all;
     only `SELECT … FOR UPDATE` on the `users` row can.
 
@@ -754,10 +754,10 @@ def test_two_callers_racing_the_same_transfer_leave_one_move(
     department, both write the new one, both apply the arriving role, and the
     log carries TWO `user.transferred` events and the person holds two live
     grants for one role. That is the state this asserts against — one success,
-    one `POLICY_BLOCKED` from decision E (the loser now sees the winner's
+    one `POLICY_BLOCKED` from the already-in-department check (the loser now sees the winner's
     department), one event, one grant row.
 
-    Both callers are seeded `it_admin`s, whose the design scope is `any`, so both
+    Both callers are seeded `it_admin`s, whose the permission matrix's scope is `any`, so both
     are genuinely entitled and the race is real; the refusal is never
     `FORBIDDEN`.
     """

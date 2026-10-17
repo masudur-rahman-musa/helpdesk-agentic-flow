@@ -5,7 +5,7 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * `workers: 1` and no sharding because flows 4 and 5 destroy state on purpose
  * and `audit_events` takes a per-tenant advisory lock, so two specs mutating
- * at once is a source of flakes rather than of coverage (decision G). The
+ * at once is a source of flakes rather than of coverage. The
  * database is reset ONCE before the run by `make e2e`, never per spec: the
  * namespace here is the run.
  *
@@ -16,7 +16,7 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * Four `webServer` entries, each with its OWN readiness URL and a 60 second
  * timeout, so a service that never comes up fails with its own name instead of
- * surfacing as a selector timeout in flow 1 (plan section 5). `/healthz` is
+ * surfacing as a selector timeout in flow 1. `/healthz` is
  * process-up for the two Python services; the stub answers the same path
  * because that is what agent-api's `/readyz` probes on the gateway. The web
  * app is probed on `/login`, the one route that needs no session.
@@ -28,7 +28,7 @@ import { defineConfig, devices } from "@playwright/test";
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const STUB_PORT = process.env.E2E_STUB_GATEWAY_PORT ?? "8099";
 
-/** Every server gets the same 60 seconds, named once (plan section 5). */
+/** Every server gets the same 60 seconds, named once. */
 const SERVER_TIMEOUT_MS = 60_000;
 
 const reuse = !process.env.CI;
@@ -52,7 +52,7 @@ export default defineConfig({
 
   webServer: [
     {
-      // The model, and nothing else about the stack (decision C).
+      // The model, and nothing else about the stack.
       command: "uv run python dev/scripts/e2e/gateway_stub.py",
       url: `http://127.0.0.1:${STUB_PORT}/healthz`,
       cwd: "..",
@@ -77,7 +77,7 @@ export default defineConfig({
       // The one override that makes this a stubbed run: agent-api's model
       // client talks to the canned gateway instead of the real one. Nothing
       // else about the process changes, and no other service is pointed
-      // anywhere new (decision C).
+      // anywhere new.
       env: { GATEWAY_URL: `http://127.0.0.1:${STUB_PORT}` },
       timeout: SERVER_TIMEOUT_MS,
       reuseExistingServer: reuse,

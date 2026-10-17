@@ -1,11 +1,11 @@
-"""An earlier change §6: the execution node and its plain-language error table.
+"""The execution node and its plain-language error table.
 
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.graph.plain_errors``
     ``PLAIN_ERRORS: Mapping[ErrorCode, str]`` — a row for EVERY one of the
         eight ``helpdesk.errors.ErrorCode`` members, read through no ``.get()``
-        default (criterion 6). One plain sentence each, in this service's own
+        default. One plain sentence each, in this service's own
         words: never the server's message, never the exception's text, and
         naming no host, scheme, status code, port, tool name or tool argument.
 
@@ -15,9 +15,9 @@ Expected implementation surface (the implementer must provide exactly this):
         ``deps.tools``, rebuilding each call's arguments through
         ``agent_api.tools.catalogue.TOOL_INPUTS``; writes one ``ToolResult``
         per call and increments ``tool_calls_made`` by the number of calls
-        ATTEMPTED (decision F). A ``ToolError`` whose code is not ``INTERNAL``
+        ATTEMPTED. A ``ToolError`` whose code is not ``INTERNAL``
         is recorded as ``ok=False`` with that code, the REMAINING calls of the
-        round are dropped (decision B) and the turn continues; an ``INTERNAL``
+        round are dropped and the turn continues; an ``INTERNAL``
         ends the turn as state — ``TurnOutcome.FAILED``, ``error_code``
         ``INTERNAL`` and the templated ``FAILURE_REPLY`` — with no further
         call made. The node never raises.
@@ -83,9 +83,9 @@ NON_INTERNAL_CODES: tuple[ErrorCode, ...] = tuple(
 )
 """Seven of the eight: every code that is an answer a person can act on.
 
-Derived from the enum rather than listed, so a ninth code added to the design
+Derived from the enum rather than listed, so a ninth code added to the error list
 is executed by these rows on the day it lands instead of quietly falling into
-the untested half of decision B.
+the untested half.
 """
 
 
@@ -98,10 +98,10 @@ def _classify_call() -> ValidatedCall:
 
 
 def _create_request_call() -> ValidatedCall:
-    """A MUTATING call, carrying the key the agent derived (decision D).
+    """A MUTATING call, carrying the key the agent derived.
 
     Deliberately second in every round below: the pair is a classification and
-    the request it justifies, which is the exact case decision B's "drop the
+    the request it justifies, which is the exact case the "drop the
     rest of the round" exists for.
     """
     return ValidatedCall(
@@ -198,7 +198,7 @@ def _execute(state: TurnState, caller: ScriptedToolCaller) -> TurnState:
     return asyncio.run(execute_tools(state, deps))
 
 
-# --- criterion 1: every call, in order, counted as attempted -------------------
+# --- every call, in order, counted as attempted -------------------
 
 
 def test_a_round_of_two_makes_both_calls_in_order_and_records_both() -> None:
@@ -225,7 +225,7 @@ def test_a_round_of_two_makes_both_calls_in_order_and_records_both() -> None:
 
 
 def test_tool_calls_made_rises_by_the_number_of_calls_attempted() -> None:
-    """Decision F, from the side the cap reads. Catches a counter left at zero
+    """From the side the cap reads. Catches a counter left at zero
     or reset per round: `may_plan_another_round` would then never see the
     budget spent, and the only thing left stopping the cycle would be the
     recursion limit.
@@ -241,7 +241,7 @@ def test_tool_calls_made_rises_by_the_number_of_calls_attempted() -> None:
 
 
 def test_the_call_goes_out_as_the_catalogues_own_model_carrying_the_derived_key() -> None:
-    """Criterion 1's "through `deps.tools`" half. The protocol takes a
+    """The "through `deps.tools`" half. The protocol takes a
     `BaseModel`, so a node handing it the raw `arguments` dict would fail at
     the real `McpToolCaller` and nowhere else — the stub in
     `test_agent_turn.py` would accept it.
@@ -266,12 +266,12 @@ def test_the_call_goes_out_as_the_catalogues_own_model_carrying_the_derived_key(
     assert caller.calls[1][1].model_dump(mode="json")[IDEMPOTENCY_KEY] == DERIVED_KEY
 
 
-# --- criterion 2 and decision B: a typed failure is an answer ------------------
+# --- a typed failure is an answer ------------------
 
 
 @pytest.mark.parametrize("code", NON_INTERNAL_CODES, ids=[c.value for c in NON_INTERNAL_CODES])
 def test_a_typed_failure_records_its_code_drops_the_rest_and_continues(code: ErrorCode) -> None:
-    """Decision B on the seven codes that are decisions a person can act on.
+    """The seven codes that are decisions a person can act on.
 
     Catches three implementations at once. One that ends the turn on any
     typed error replaces the policy engine's answer — a `POLICY_BLOCKED` or a
@@ -319,11 +319,11 @@ def test_a_typed_failure_keeps_the_results_of_the_calls_that_already_ran() -> No
     assert state.outcome is TurnOutcome.CONTINUE
 
 
-# --- criterion 3: the one code that is an outage -------------------------------
+# --- the one code that is an outage -------------------------------
 
 
 def test_an_internal_failure_ends_the_turn_and_makes_no_further_call() -> None:
-    """Criterion 3, and the one code decision B exempts. Catches a node that
+    """And the one code that is exempt. Catches a node that
     treats `INTERNAL` like the other seven: the turn would compose a reply
     over a result carrying nothing worth composing, and the user would be
     answered about an outage as though it were a policy decision.
@@ -345,7 +345,7 @@ def test_an_internal_failure_ends_the_turn_and_makes_no_further_call() -> None:
     assert state.tool_calls_made == 1
 
 
-# --- criterion 6: the plain-language table -------------------------------------
+# --- the plain-language table -------------------------------------
 
 _FORBIDDEN_SUBSTRINGS: tuple[str, ...] = ("http", "://", ".invalid", "localhost", "traceback")
 _STATUS_OR_PORT = re.compile(r"\d{3,}")
@@ -357,13 +357,13 @@ SNAKE_CASE_ARGUMENTS: frozenset[str] = frozenset(
 
 The snake_case half only: a plain sentence may perfectly well contain the word
 `reason` or `title`, but `target_user_id` and `idempotency_key` are this
-system's vocabulary and belong in no chat window (criterion 6).
+system's vocabulary and belong in no chat window.
 """
 
 
 def test_plain_errors_covers_exactly_the_eight_error_codes() -> None:
-    """Criterion 6. Catches a table keyed only by the codes this plan's own
-    cases exercise: read through a `.get(code, "something went wrong")`
+    """Catches a table keyed only by the codes the other cases exercise:
+    read through a `.get(code, "something went wrong")`
     default, a `SOD_CONFLICT` the user could act on — the one refusal an
     auditor and a user both need in words — becomes the generic sentence, and
     nothing in the suite would see it. The same shape `REMOTE_ERRORS`,
@@ -374,7 +374,7 @@ def test_plain_errors_covers_exactly_the_eight_error_codes() -> None:
 
 @pytest.mark.parametrize("code", list(ErrorCode), ids=[c.value for c in ErrorCode])
 def test_every_plain_sentence_is_this_services_own_words(code: ErrorCode) -> None:
-    """Plan §5's fourth risk, swept row by row. Catches a table built from the
+    """Swept row by row. Catches a table built from the
     exception's own text or from the server's message: those carry a host, a
     URL, a status code and the tool that raised, and this string goes into a
     prompt and from there into a chat window.
@@ -402,10 +402,10 @@ def test_the_eight_sentences_are_eight_different_sentences() -> None:
 
 
 def test_the_plain_error_module_reads_its_table_through_no_default() -> None:
-    """Criterion 6's "no `.get()`" half, statically. A `.get()` with a default
+    """The "no `.get()`" half, statically. A `.get()` with a default
     is exactly the shape that makes a missing row invisible: the module keeps
-    compiling, every existing case passes, and the next code added to SPEC
-    §8.1 answers with whatever the default says.
+    compiling, every existing case passes, and the next code added to the error list
+    answers with whatever the default says.
 
     Read off the source rather than the behaviour because a default can only
     be seen when a row is MISSING, and the case above guarantees none is."""
@@ -426,7 +426,7 @@ def test_the_plain_error_module_reads_its_table_through_no_default() -> None:
 
 
 def test_execute_tools_imports_no_store_and_no_gateway() -> None:
-    """Criterion 1's "through `deps.tools`" half, statically. Catches a node
+    """The "through `deps.tools`" half, statically. Catches a node
     that writes its own message row, audit row or model call while it runs the
     round: every effect of this turn other than the tool calls themselves
     belongs to a node the graph's edges can see, and a store reached from

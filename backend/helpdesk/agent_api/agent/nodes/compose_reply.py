@@ -1,65 +1,16 @@
-"""`compose_reply`: the turn said in plain words (the design step 8).
+"""`compose_reply`: the turn said in plain words.
 
-At most TWO gateway calls, under the `agent-default` alias (17d decisions D
-and E; an earlier change's post-check is the second).
-The decision was made by the policy engine and by the tools that ran; this call
-writes it down. A stronger alias is paid on every turn that gets this far for
-judgment that has already happened, and the decision-word post-check — not a
-bigger model — is what catches a composition contradicting the engine. Plain
-`complete` rather than `complete_json`, because the reply is prose: a JSON
-wrapper buys no structure and the `ModelAnswer` is what the token budget reads.
-Both pinned by
-`test_agent_compose.py::test_the_composition_makes_exactly_one_call_under_the_default_alias`.
+The decision is already made; this call only writes it down, so it uses the
+default model. A post-check, not a bigger model, catches a reply that
+contradicts the result: each decision word must match what the turn returned.
+A contradiction is retried once with the allowed words quoted, and a second
+one ends on a fixed template.
 
-**A reply may not claim a decision the turn did not return** (the design step
-8). Every decision word in the answer is checked against `postcheck.
-permitted_words`, which reads the turn's SUCCESSFUL tool results and its
-outcome. A contradiction is regenerated ONCE with the permitted words quoted as
-data, and a second contradiction ends on `POSTCHECK_FALLBACK_REPLY` rather than
-on prose nothing could vouch for — the answer the user sees is never the one
-the check refused. Pinned by
-`::test_a_contradicting_reply_is_regenerated_once_and_only_the_second_is_stored`
-and `::test_a_second_contradicting_reply_ends_the_turn_on_the_template`; that
-the ordinary answer still costs one call is pinned by
-`::test_a_permitted_reply_is_stored_unchanged_after_a_single_call`.
-
-**Everything the turn gathered is quoted as DATA** (the design). The intent and
-entities, the resolved directory ids, the citations, the tool results and each
-failure's plain sentence ride in `user` messages; the only `system` messages
-are the two prompt files this service ships. This is the one call whose input
-includes both a tool's output and somebody else's policy text, and material
-merged into a system prompt becomes an instruction the model obeys. Pinned by
-`::test_everything_the_turn_gathered_is_quoted_as_data_and_not_as_instructions`.
-
-**A failure reaches the model as a SENTENCE, never as its code** (criterion 6).
-`PLAIN_ERRORS` is this service's own words; the tool caller's message is the
-server's, and `SOD_CONFLICT` read back to a user is internal vocabulary.
-Pinned by `::test_a_failure_reaches_the_prompt_in_plain_words_and_never_as_its_code`.
-
-**Every composed reply is pre-checked before any row is written** (standing
-rule 1), the regenerated one exactly as the first — ONE gate against ONE
-constant, at both call sites. `check_message_content` gates
-it against the `messages.content` column's own cap, so a model that answered
-past `MAX_MESSAGE_CHARS` ends the turn as state rather than raising inside the
-turn's transaction with the row already added. The inclusive boundary is pinned
-from both sides on both paths by
-`::test_a_composed_reply_of_exactly_the_cap_is_stored`,
-`::test_a_composed_reply_one_character_over_the_cap_writes_no_row_at_all`,
-`::test_a_regenerated_reply_of_exactly_the_cap_is_stored` and
-`::test_a_regenerated_reply_one_character_over_the_cap_writes_no_row_at_all`.
-
-The node does not raise, on either call. A gateway that cannot answer, and a
-reply too long to store, both end the TURN as state with a typed code and the
-templated reply, and neither writes a row: the templated reply is `fail_turn`'s
-to store, and a node that wrote one as well would leave two assistant messages
-for one question (`::test_a_gateway_failure_ends_the_turn_and_leaves_no_partial_reply`,
-and on the regeneration
-`::test_a_gateway_failure_on_the_regeneration_ends_the_turn_with_no_row`).
-
-BOTH calls' `total_tokens` are ADDED to `tokens_used` (criterion 8): the spend
-happened whether or not the prose it bought was usable, and a turn that
-understated itself by a whole call could pass `MAX_TURN_TOKENS` having spent
-past it.
+Everything the turn gathered goes in as `user` data, never `system`, since
+it includes tool output and policy text. Failures reach the model as plain
+sentences, not codes. Every reply is size-checked before a row is written.
+The node never raises: a gateway failure or an oversized reply ends the turn
+as state with no row. Tokens from both calls are counted, used or not.
 """
 
 import json
@@ -83,36 +34,19 @@ from helpdesk.shared.models.conversation import MessageRole, check_message_conte
 COMPOSITION_PROMPT = "reply_composition"
 
 COMPOSITION_ATTEMPTS = 2
-"""The hard bound on gateway calls from this node, ever (criterion 6).
-
-Compose, and regenerate once when the answer contradicts what the turn
-returned. A third attempt would multiply this node's latency and its bill on
-turns that are already going badly, and a model that contradicted itself twice
-running is not one a third prompt fixes — the template is. a project rule
-pins the value (`test_agent_compose.py::test_the_composition_bound_is_exactly_two_attempts`),
-and the staged gateway refuses a third request, so the bound holds from both
-sides.
-"""
+"""Compose, then retry once on a contradiction. A model wrong twice running
+is fixed by the template, not a third try."""
 
 
 def _as_data(label: str, value: Any) -> dict[str, str]:
-    """One `user` message carrying gathered material, labelled and serialised.
-
-    The same shape `plan_tools._as_data` uses, and for the same reason: a
-    `user` role and never `system`, with a label that is this service's own
-    word so the model can tell the kinds of material apart without any of them
-    being able to claim it is an instruction.
-    """
+    """One labelled `user` message of gathered material, so none of it can pass
+    as an instruction."""
     return {"role": "user", "content": f"{label}:\n{json.dumps(value, default=str)}"}
 
 
 def _failure_sentences(results: tuple[ToolResult, ...]) -> list[str]:
-    """One plain sentence per failed call, in the order the calls were made.
-
-    Read through `PLAIN_ERRORS` with no default: a code with no row raises here
-    rather than reaching a user as a generic shrug
-    (`test_agent_execution.py::test_plain_errors_covers_exactly_the_eight_error_codes`).
-    """
+    """One plain sentence per failed call, in call order. No default: an unknown
+    code raises instead of reaching the user as a shrug."""
     return [
         PLAIN_ERRORS[result.error_code]
         for result in results
@@ -121,18 +55,10 @@ def _failure_sentences(results: tuple[ToolResult, ...]) -> list[str]:
 
 
 def _regeneration_note(state: TurnState) -> dict[str, str]:
-    """The one message the second attempt adds, quoting what may be claimed.
+    """The message the retry adds, quoting the allowed words as data.
 
-    A `user` message and never `system` (decision D): these are this service's
-    own words about this turn, and a `system` message assembled per turn is
-    the shape the design's data-quoting rule exists against. The permitted
-    words are sorted so the added message is deterministic for a given turn.
-
-    Re-sending the identical prompt instead would mostly reproduce the same
-    contradiction and spend the second call reaching the same fallback, which
-    is what `test_agent_compose.py`'s
-    `::test_the_regeneration_names_the_permitted_words_as_data_and_adds_no_system_message`
-    fails on: with nothing added, the second request is the first one again.
+    Without it the retry would be the same prompt and likely the same mistake.
+    Sorted so the message is the same for a given turn.
     """
     return _as_data(
         "your previous answer used a decision word this turn did not return; "
@@ -156,9 +82,8 @@ def _failed(state: TurnState, exc: ToolError) -> TurnState:
 async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     """Say what happened, store it once, and carry it on the state.
 
-    The assistant row is written HERE rather than by an ending node: this is
-    the only path that produces a reply nothing templated, so a user would
-    otherwise see an answer the next turn's history has no record of.
+    The row is written here because this is the only path whose reply is not a
+    template stored by an ending node.
     """
     prompt = load_prompt(COMPOSITION_PROMPT)
     system = load_prompt(SYSTEM_PROMPT)

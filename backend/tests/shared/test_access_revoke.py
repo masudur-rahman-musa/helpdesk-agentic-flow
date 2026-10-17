@@ -1,10 +1,10 @@
-"""An earlier change, sections 1 and 6: `revoke_role_access`, called directly over the seed.
+"""`revoke_role_access`, called directly over the seed.
 
 Surface under test (written before it exists):
 
 ``helpdesk.access.revoke``
-    ``GrantNotActiveError(ToolError)`` — `code = POLICY_BLOCKED` (decision C).
-    ``GRANT_REVOKED_EVENT_TYPE = "grant.revoked"`` (the design).
+    ``GrantNotActiveError(ToolError)`` — `code = POLICY_BLOCKED`.
+    ``GRANT_REVOKED_EVENT_TYPE = "grant.revoked"``.
     ``REVOKED_GRANT_STATUS = "revoked"`` — the `grants.status` a revoked row
     carries.
     ``async def revoke_role_access(session, directory, *, user_id, role_id,
@@ -12,16 +12,16 @@ Surface under test (written before it exists):
     — locks the LIVE set for `(user_id, role_id)`
     (`core.repository.lock_live_grants_for_role`, `SELECT … FOR UPDATE`),
     raises `GrantNotActiveError` when that set is empty, and otherwise revokes
-    EVERY row in it through the directory port's `revoke_grant` (decision A
-    and F), appending one `grant.revoked` audit event per row, all in the
+    EVERY row in it through the directory port's `revoke_grant`, appending one `grant.revoked` audit
+    event per row, all in the
     caller's transaction.
 
-Decision A is the whole point of this module: an earlier change leaves two live rows
+Revoking every live row is the whole point of this module: granting can leave two live rows
 for one `(user, role)` reachable (two requests under two idempotency keys),
 so a revocation that touches only one row reports success while access
 survives.
 
-a project rule: the seeded database is `test_access_snapshot.py`'s
+The seeded database is `test_access_snapshot.py`'s
 session-scoped `access_db_url` fixture, imported rather than rebuilt (argon2
 seeding is the slow part of this suite). Per-test isolation inside it is a
 namespace: each case owns a Production user index nothing else revokes for,
@@ -98,11 +98,10 @@ EVENT_TARGET = ROWS.users_by_department["Production"][38]
 ROLLBACK_TARGET = ROWS.users_by_department["Production"][39]
 DIRECTORY_TARGET = ROWS.users_by_department["Production"][40]
 REVOKER = ROWS.users_by_department["Production"][42]
-# Added at review round 1, for the two cases below that pin claims the first
-# eight made without one.
+# For the two cases below that pin claims the first eight made without one.
 PREDICATE_TARGET = ROWS.users_by_department["Production"][43]
 ORDER_TARGET = ROWS.users_by_department["Production"][44]
-# An earlier change: the row `revoke_role_access` cannot reach at all (decision A).
+# The row `revoke_role_access` cannot reach at all.
 LAPSED_TARGET = ROWS.users_by_department["Production"][45]
 
 # Distinct instants for the ordering case, both before `REVOKED_AT`.
@@ -402,9 +401,9 @@ def test_revoking_marks_the_row_revoked_with_the_reason_and_timestamp(
 def test_a_second_live_row_for_the_same_role_is_revoked_too(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Catches decision A regressing to one row.
+    """Catches a revoker that stops after one row.
 
-    An earlier change leaves two live rows for one `(user, role)` reachable — two
+    Granting can leave two live rows for one `(user, role)` reachable — two
     requests under two idempotency keys both execute — so a revoker that
     takes the first row it finds reports success, writes an audit event
     saying access ended, and leaves the user holding the role. Both ids are
@@ -432,7 +431,7 @@ def test_an_expired_and_an_already_revoked_row_are_left_alone(
 ) -> None:
     """Catches a revocation written as an unfiltered UPDATE over the pair.
 
-    Decision A says "every LIVE row", not "every row". A statement without
+    The rule is "every LIVE row", not "every row". A statement without
     the liveness conjuncts rewrites a historical revocation's reason and
     timestamp — erasing who ended that access and why, which is the one thing
     the column exists to keep — and stamps a fresh `revoked_at` on a grant
@@ -477,7 +476,7 @@ def test_an_expired_and_an_already_revoked_row_are_left_alone(
     assert neighbour_row.revoked_at is None
 
 
-# --- the refusal (decision C) --------------------------------------------------
+# --- the refusal --------------------------------------------------
 
 
 def test_revoking_an_inactive_grant_raises_policy_blocked(
@@ -521,7 +520,7 @@ def test_the_revoke_errors_carry_their_spec_error_codes() -> None:
     """Pins the code exactly, as the enum member and as the
     string that crosses the MCP boundary.
 
-    Decision C reserves `NOT_FOUND` for "missing, or another tenant's", which
+    `NOT_FOUND` is reserved for "missing, or another tenant's", which
     is what keeps a grant id from being an existence oracle. A
     `GrantNotActiveError` carrying `NOT_FOUND` would tell a caller who
     legitimately reached the grant that it never existed, and one that
@@ -533,7 +532,7 @@ def test_the_revoke_errors_carry_their_spec_error_codes() -> None:
     assert GrantNotActiveError.code.value == "POLICY_BLOCKED"
 
 
-# --- the audit record (criterion 4, a project rule) ---------------------------
+# --- the audit record ---------------------------
 
 
 def test_one_event_per_revoked_row_names_the_grant_and_the_reason(
@@ -544,10 +543,11 @@ def test_one_event_per_revoked_row_names_the_grant_and_the_reason(
 
     An auditor asking "what happened to grant X" queries `subject_id`; one
     event per call, or an event subject naming the user, answers nothing for
-    every revocation in the tenant while a count-only assertion still passes. The payload keys are asserted as an exact set, so a
+    every revocation in the tenant while a count-only assertion still passes. The payload keys are
+    asserted as an exact set, so a
     dropped `reason` (the only record of WHY the access ended) or a
     `revoked_count` that reports 1 for a set of 2 fails here. The event type
-    itself is pinned to the exact the design string: every
+    itself is pinned to the exact event type string: every
     query in this file reads the constant, so a renamed one would leave the
     file green and the audit log unqueryable. `request_id` is
     read per row — one planted grant points at a request and the other at
@@ -714,7 +714,7 @@ def test_the_revoked_set_comes_back_oldest_first(
     assert [facts.grant_id for facts in revoked] == [older, newer]
 
 
-# --- the directory's own answer (criterion 3) -----------------------------------
+# --- the directory's own answer -----------------------------------
 
 
 def test_the_role_is_gone_from_the_directorys_account_roles(
@@ -747,20 +747,20 @@ def test_the_role_is_gone_from_the_directorys_account_roles(
     assert NEIGHBOUR_ROLE in held, "only the revoked role may disappear"
 
 
-# --- an earlier change: the one row unit (`revoke_grant_row`, decision A) -----------------
+# --- the one row unit (`revoke_grant_row`) -----------------
 
 
 def test_revoke_grant_row_revokes_a_lapsed_but_active_row_the_live_set_cannot_reach(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """An earlier change decision A: the case that forced the extraction, and the only
+    """The case that forced the extraction, and the only
     case in this file that `revoke_role_access` answers differently.
 
     The row is `status = 'active'` with an expiry already in the past, so
     `lock_live_grants_for_role` returns nothing for its (user, role) and
     `revoke_role_access` refuses it `POLICY_BLOCKED` — asserted here as the
     premise, because that refusal IS why a second entry point exists. A
-    review item is exactly such a row (12c flags it `stale`), so an
+    review item is exactly such a row (the review flags it `stale`), so an
     implementation of `revoke_grant_row` that re-applied the liveness filter,
     or that delegated back to the live set, would leave the most reviewable
     grant in the tenant unrevocable while every other case here still passed.

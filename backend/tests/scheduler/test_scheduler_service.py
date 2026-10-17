@@ -1,10 +1,10 @@
-"""An earlier change §6: the scheduler's HTTP surface and its lifespan task (decision H).
+"""The scheduler's HTTP surface and its lifespan task.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
 
 ``scheduler.main``
-    ``PORT = 8082`` — the port §1 fixes for this service.
+    ``PORT = 8082`` — the port this service is fixed on.
     ``def create_app() -> FastAPI`` — ``GET /healthz`` (200,
         ``{"status": "ok"}``), ``GET /readyz`` (postgres and redis, 200 when
         both are reachable and 503 when either is not, body
@@ -18,16 +18,16 @@ must provide exactly this):
     ``runner`` module attribute, again so a test can replace it — and cancels
     it on shutdown.
 
-An earlier change moved the readiness checks into `shared.core.health` as `ping_*`
-functions. The faking seam is now those functions: tests patch
-`health.ping_postgres` and `health.ping_redis` instead of the old
-`readiness.check_*` names. The `_build_scheduler_checks` function in
+The readiness checks are `ping_*` functions in `shared.core.health`.
+The faking seam is those functions: tests patch
+`health.ping_postgres` and `health.ping_redis`.
+The `_build_scheduler_checks` function in
 `scheduler/main.py` calls them through the `_health` module attribute.
 
 No backing service is needed here: both readiness checks are faked at the
 module seam and `/metrics` renders an in-process registry.
 
-a project rule: this file carries the service in its name; `test_health.py`
+This file carries the service in its name; `test_health.py`
 and `test_readiness.py` already exist under agent-api, which is exactly why
 neither of those basenames is reused here.
 
@@ -54,7 +54,7 @@ def _get(app: Any, path: str) -> httpx.Response:
 
 
 def test_the_service_port_is_exactly_the_planned_one() -> None:
-    """a project rule. Catches the scheduler landing on 8000 or 8081, where
+    """Catches the scheduler landing on 8000 or 8081, where
     it would collide with agent-api or mcp-server: the process that loses the
     bind is the one that never runs a job, and nothing else in the system
     reports its absence."""
@@ -64,7 +64,7 @@ def test_the_service_port_is_exactly_the_planned_one() -> None:
 def test_healthz_answers_ok() -> None:
     """Catches a service whose only endpoint is the loop: without `/healthz`
     an orchestrator has nothing to restart on, so a scheduler wedged in a
-    dead loop keeps its container up for ever (REQUIREMENTS #17)."""
+    dead loop keeps its container up for ever."""
     response = _get(main.app, "/healthz")
 
     assert response.status_code == 200
@@ -118,7 +118,7 @@ def test_readyz_answers_503_when_either_dependency_is_unreachable(
 
 
 def test_metrics_renders_and_carries_the_expiry_counter() -> None:
-    """Decision G: `helpdesk_expiries_total` is exposed on THIS service's
+    """`helpdesk_expiries_total` is exposed on THIS service's
     scrape and nowhere else, so a counter the sweep increments with no route
     to read it is a metric no dashboard can ever show. Asserted on the `#
     TYPE` line, which is emitted for a family with no samples at all — the
@@ -194,7 +194,7 @@ def test_healthz_stays_ok_while_the_loop_runs(
 def test_the_lifespan_starts_the_loop_and_cancels_it_on_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decision H. Catches an app that serves the three endpoints while no
+    """Catches an app that serves the three endpoints while no
     loop runs at all — the service would pass every health check and expire
     nothing, which is the worst of the failure modes here because it is
     silent — and one that starts the loop without cancelling it, leaving a

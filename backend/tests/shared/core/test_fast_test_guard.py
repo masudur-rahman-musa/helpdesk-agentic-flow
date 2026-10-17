@@ -9,7 +9,7 @@ fails too, so the list never rots and never grows silently.
 Why the check is static rather than runtime: a test that builds an engine inside
 a body no run reaches is invisible at runtime, but its source still carries the
 builder call. Scanning the text reads the code that exists, not the code that
-ran. It is the shape `test_tenant_guard_static.py` established for an earlier change.
+ran. It is the same shape as `test_tenant_guard_static.py`.
 
 The scan uses six patterns: the four BUILDER patterns are held identical to the
 editor hook `.claude/hooks/test_speed.py`, pinned by
@@ -165,11 +165,11 @@ EXEMPT_BUILDERS: frozenset[str] = frozenset(
 )
 """The test files sanctioned to build their own backing service, as repo-relative paths.
 
-Read off the tree as it stands today, not carried from 57a's prose:
+Read off the tree as it stands today:
 these 63 files each match a builder or schema pattern now. Grouped by the reason
 each still builds its own rather than taking the shared fixtures. Asserted as an
-EXACT set by `test_the_builders_are_exactly_the_exempt_list`, per standing rule
-2: a file that reverts to building its own and is not here reddens, and a file
+EXACT set by `test_the_builders_are_exactly_the_exempt_list`: a file that reverts to building its
+own and is not here reddens, and a file
 here that converts and stops building reddens until it is dropped."""
 
 

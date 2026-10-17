@@ -6,13 +6,12 @@ import { GET as readyzGET } from "@/app/readyz/route";
 import { READYZ_TIMEOUT_MS } from "@/lib/readyz-timeout";
 
 /**
- * An earlier change §6, `health-routes.test.ts`: the web container's two probe routes
+ * `health-routes.test.ts`: the web container's two probe routes
  * against a stubbed `fetch`. Node environment, not jsdom, because both handlers
- * are server-side and answer with a real `Response` (a project rule: jsdom's
+ * are server-side and answer with a real `Response` (jsdom's
  * globals are not the runtime these run in).
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * they belong in 30a's Deviations):
+ * Shapes this file fixes:
  * - both handlers are `export async function GET(): Promise<Response>`, the
  *   zero-argument shape the `/api/me/*` routes already have.
  * - the bodies are JSON with a single key, `status`: `{"status":"ok"}` from
@@ -133,7 +132,7 @@ describe("web health routes", () => {
   });
 
   it("pins the readyz timeout at exactly 2000ms and carries its signal on the outgoing call", async () => {
-    // a project rule and 11, which §6 named no case for (30a Deviations).
+    // The exact literal for the timeout.
     // Kills a probe with no timeout at all: a hung agent-api socket holds the
     // readiness request open past the kubelet's own timeout, so the probe fails
     // by timing out rather than by answering, and kills equally a constant that

@@ -1,35 +1,10 @@
-"""`extract_intent`: the message classified into a closed label set (§10.1 step 2).
+"""`extract_intent`: sort the message into a fixed set of intents.
 
-One structured call through the gateway under the `agent-default` alias
-(decision E): thirteen closed labels with a schema-enforced answer is the
-cheap-model case, and `agent-strong` is for the composed reply 17b writes.
-`ModelClient.complete_json` builds the request's JSON schema from
-`IntentExtraction` and validates the answer against the same model, retrying
-exactly once on an answer that does not fit (the design step 2), so nothing
-here counts attempts of its own.
-
-The prompt's sha256 is recorded on the state as `prompt_version` (the design).
-It is the EXTRACTION prompt's digest, not the system prompt's: one string
-cannot carry two versions, and this node's behaviour is the one the extraction
-prompt fixes. Pinned by
-`test_agent_turn.py::test_the_prompt_version_is_the_extraction_prompts_own_digest`.
-
-The node does not raise. A gateway that cannot answer ends the TURN, as state,
-with a typed code and a templated reply — `run_turn`'s caller gets a state to
-render, not an exception to translate. Pinned by
-`test_agent_turn.py::test_two_schema_invalid_answers_end_the_turn_as_a_typed_internal`.
-
-The call's own `total_tokens` is ADDED to `tokens_used`,
-never assigned: the turn's budget is the sum of every call it makes, and this
-is the first of the three. A failed extraction adds nothing, because the turn
-ends on that state and no later node reads the counter. Pinned across all three
-call sites by
-`test_agent_turn.py::test_tokens_used_is_the_sum_of_every_staged_answers_total_tokens`.
-
-History and the user's message are quoted to the model as DATA. They are
-placed in `user` messages, never merged into the system prompt, and the system
-prompt itself tells the model that instructions found inside them are content
-to report rather than obey (the design).
+One structured call on the default model: a closed label set with a schema is
+the cheap case. The client validates the answer and retries once. The state
+records the extraction prompt's digest as `prompt_version`. The node never
+raises: a failure ends the turn as state with a typed code. History and the
+message go in as `user` data, never into the system prompt.
 """
 
 from helpdesk.agent_api.agent import gates
@@ -46,33 +21,19 @@ DEFAULT_CLARIFYING_QUESTION = (
     "I want to be sure I get this right. Could you say which system or "
     "account you mean, and what you need to do with it?"
 )
-"""What the turn asks when the gate fires and the model supplied no question.
-
-The gate can fire on the entity half alone, where a confident model has no
-reason to have written one, so a turn that used `clarifying_question` blindly
-would answer a user with `None`.
-"""
+"""Used when the check fires but the model wrote no question, which happens
+when only an entity is missing."""
 
 FAILURE_REPLY = (
     "Sorry, I could not work out what you need just now. Please try saying it "
     "again, or ask me to open a ticket so a person can pick it up."
 )
-"""The templated reply a failed extraction ends on.
-
-A fixed string, not the model's words and not the error's: the one thing that
-failed here is the model, so anything it produced is exactly what must not be
-shown. It names no gateway, no provider and no error code; the machine-readable
-half rides on the state as `error_code`.
-"""
+"""The fixed reply a failed extraction ends on. The model is what failed, so
+none of its output is shown; the code rides on the state as `error_code`."""
 
 
 async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
-    """Classify the message, record the gate's answer, never raise.
-
-    The clarify branch is decided by `gates.needs_clarification`, pure code
-    with no graph in sight, and recorded as `outcome`; the conditional edge
-    downstream only reads that field (the design).
-    """
+    """Classify the message and record the outcome. Never raises."""
     prompt = load_prompt(EXTRACTION_PROMPT)
     system = load_prompt(SYSTEM_PROMPT)
 

@@ -1,4 +1,4 @@
-"""An earlier change §6: `GET /me/requests` and `GET /me/access`, the app driven in process.
+"""`GET /me/requests` and `GET /me/access`, the app driven in process.
 
 Surface under test (written before it exists; every case below is red on one
 of these names until steps 2 and 3 land):
@@ -6,9 +6,9 @@ of these names until steps 2 and 3 land):
 ``agent_api.deps`` (new)
     ``build_tool_caller(settings: Settings, bearer_token: str) -> ToolCaller``,
     ``_bearer`` and ``_claims``, moved out of ``chat_routes`` so two routers
-    share one seam (decision C). ``chat_routes`` keeps all three as module
+    share one seam. ``chat_routes`` keeps all three as module
     globals, which is why the three existing monkeypatch sites still bind and
-    why §8 edits no old test.
+    why no old test needs an edit.
 
 ``agent_api.me_routes`` (new)
     ``router`` with ``GET /me/requests`` (optional ``status``, optional
@@ -17,19 +17,18 @@ of these names until steps 2 and 3 land):
     ``me_routes.build_tool_caller`` — the same seam ``chat_routes`` uses, so
     these cases drive a scripted caller and open no socket. Every refusal
     renders through ``core.deps.typed_refusal`` and the one shared
-    ``core.deps.STATUS_FOR_CODE``; since an earlier change this router keeps no map of
+    ``core.deps.STATUS_FOR_CODE``; this router keeps no map of
     its own.
 ``agent_api.main``
     the router registered beside the other three.
 
-Shapes this file fixes that the plan left open (a project rule and 55;
-these belong in 23a's Deviations):
+Shapes this file fixes that the plan left open:
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``, agent-api's own
   shape from ``deps.typed_refusal``, and never free text.
 - ``core.deps.STATUS_FOR_CODE[ErrorCode.FORBIDDEN]`` is **403**: on this router a
-  FORBIDDEN can only come from the RBAC matrix, and §1 says a matrix refusal is
+  FORBIDDEN can only come from the RBAC matrix, and the contract says a matrix refusal is
   a 403. The bearer refusal is answered as a literal 401 (now
-  ``RequireAuthMiddleware``'s, an earlier change) rather than through the map — the two
+  ``RequireAuthMiddleware``'s) rather than through the map — the two
   are different facts ("you did not prove who you are" against "you may not
   read this") and one map cannot say both.
 - an unreachable MCP server is ``500 {"code": "INTERNAL"}``: ``INTERNAL`` maps
@@ -302,13 +301,13 @@ def test_the_requests_route_answers_the_tools_output_unchanged(
     me_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a route that reshapes, filters or renames the tool's structured
-    output on the way out (§1: "return the tool's structured output
+    output on the way out ("return the tool's structured output
     unchanged"), a route that calls a different tool, and a route that drops
     the query parameters instead of passing them as the tool's arguments — a
     `/requests?status=pending` answering every status is a filter the page
     would render as fact.
 
-    The bearer half is a project rule and decision A: the token the caller
+    The bearer half is the identity-from-token rule: the token the caller
     presented is forwarded VERBATIM to `build_tool_caller`, so RBAC, the kill
     switch and the audit event all apply to this read. A route that minted its
     own service token, or reused a configured one, fails on the identity
@@ -342,7 +341,7 @@ def test_the_access_route_answers_the_tools_output_unchanged(
 
     `list_my_access` takes no arguments at all (its rows are one user's live
     grants), so this case also catches a route that invents one — an argument
-    naming a user on a self-scoped tool is exactly what a project rule forbids.
+    naming a user on a self-scoped tool is exactly what the identity-from-token rule forbids.
     """
     caller = ScriptedToolCaller(ACCESS_PAYLOAD)
     token = _token()
@@ -367,7 +366,7 @@ def test_the_requests_route_passes_no_status_and_no_filter_when_none_is_asked_fo
     showing only `pending` rows), and one that sends a stray string where the
     tool's optional filter is expected.
 
-    The `limit` half is deliberately NOT asserted: §1 puts the default on the
+    The `limit` half is deliberately NOT asserted: the contract puts the default on the
     tool's own input model (`REQUESTS_LIMIT_DEFAULT = 50`), pinned in
     `test_mcp_access_read_tools.py`, so a route repeating the number here
     would be a second place for it to drift from.
@@ -476,8 +475,8 @@ def test_the_one_shared_map_dresses_forbidden_as_403() -> None:
     Before the fold `chat_routes` read FORBIDDEN as 401 and these proxied
     routes read it as 403; the two maps are now `core.deps.STATUS_FOR_CODE`
     alone (`core_deps` here; `deps` in this file is the tool-proxy seam). On
-    this router a FORBIDDEN can only come from the RBAC matrix, and §1 says a
-    matrix refusal is a 403 and never a 500. a project rule wants the value;
+    this router a FORBIDDEN can only come from the RBAC matrix, and the contract says a
+    matrix refusal is a 403 and never a 500. The value is written out;
     `POLICY_BLOCKED` 409 and `INTERNAL` 500 are pinned beside it so the fold is
     read off the one map this router now shares.
     """
@@ -491,9 +490,10 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     me_env: None, monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
     """Catches a route that lets the tool's `ToolError` escape: FastAPI answers
-    an untyped 500, so a permission decision the caller could act on reads as
-    an outage they cannot. The bearer here VERIFIES, so the token gate cannot
-    decide this case — only the `except ToolError` branch and its own map can.
+        an untyped 500, so a permission decision the caller could act on reads as
+        an outage they cannot. The bearer here VERIFIES, so the token gate cannot
+        decide this case — only the `except ToolError` branch and its own map can
+    .
     """
     caller = RefusingToolCaller(RemoteForbiddenError(ErrorCode.FORBIDDEN.value))
 
@@ -514,8 +514,8 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
     (an untyped 500 with a traceback body), and a body that carries the
     client's message — `TRANSPORT_FAILURE_MESSAGE` is opaque on purpose, and a
     route rendering the exception's `str` would leak the MCP host and path to
-    a browser. `INTERNAL` maps to 500 in the one shared map (an earlier change, ADR
-    0025), so 500 here pins that an unreachable server renders the typed
+    a browser. `INTERNAL` maps to 500 in the one shared map, so 500 here pins that an unreachable
+    server renders the typed
     `INTERNAL` and leaks neither the host nor the path.
     """
     caller = UnreachableToolCaller()
@@ -532,12 +532,11 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
     assert TRANSPORT_FAILURE_MESSAGE not in body
 
 
-# --- an earlier change: GET /me --------------------------------------------------------
+# --- GET /me ------------------------------------------------------------------
 
-# An earlier change section 6. `GET /me` calls the `get_me` tool through the same seam and
+# `GET /me` calls the `get_me` tool through the same seam and
 # adds `tabs`, computed by `helpdesk.auth.rbac.tabs_for` from the TOKEN's
-# principals. Shapes fixed here that the plan left open (a project rule and
-# 55; they belong in 42's Deviations):
+# principals. Shapes fixed here that the plan left open:
 # - the body carries `display_name`, `principals` and `tabs` (a list of the ten
 #   stable keys, universal four included); other keys the tool answers may ride
 #   along and are not asserted.

@@ -10,7 +10,7 @@ import AppGroupLayout from "@/app/(app)/layout";
 import { QueryProvider } from "@/components/layout/query-provider";
 
 /**
- * An earlier change §Tests (`app-group-layout.test.tsx`): the signed-in pages share one
+ * The signed-in pages share one
  * route-group layout that renders the shell, every signed-in route has moved
  * into the `(app)` group, and no page wraps itself in `AppShell` any more.
  * jsdom only, no agent-api, no backing service.

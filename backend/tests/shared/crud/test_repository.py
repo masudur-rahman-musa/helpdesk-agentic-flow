@@ -1,4 +1,4 @@
-"""An earlier change acceptance: repository helpers are tenant-scoped by construction.
+"""Repository helpers are tenant-scoped by construction.
 
 Expected surface (``helpdesk.core.repository``):
 

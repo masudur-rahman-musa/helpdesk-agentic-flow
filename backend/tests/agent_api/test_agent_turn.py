@@ -1,4 +1,4 @@
-"""An earlier change §6: the compiled turn graph, end to end.
+"""The compiled turn graph, end to end.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -7,7 +7,7 @@ Expected implementation surface (the implementer must provide exactly this):
         ``model: ModelClient``, ``now: Callable[[], datetime]``.
     ``FAILURE_REPLY: str`` — the templated reply a failed extraction ends on.
     ``def build_graph() -> CompiledStateGraph`` — compiled with NO
-        checkpointer (decision F).
+        checkpointer.
     ``async def run_turn(*, deps, tenant_id, user_id, session_id, tenant_slug,
         message) -> TurnState`` — runs ``check_message_content(message)`` and
         ``check_slug(str(session_id))`` BEFORE anything is written or the
@@ -16,7 +16,7 @@ Expected implementation surface (the implementer must provide exactly this):
 Nodes: ``load_session`` → ``extract_intent`` → ``resolve_entities``, with the
 END nodes ``ask_clarifying`` and ``ask_disambiguation``.
 
-An earlier change extends the same file. ``TurnDeps`` gains ``tools: ToolCaller``, the
+The same file covers the next steps. ``TurnDeps`` gains ``tools: ToolCaller``, the
 turn continues from ``resolve_entities`` into ``retrieve_policy``, and
 ``refuse_and_ticket`` is a fourth END node. Every case here drives a STUB
 caller: the real MCP session is proven once, in
@@ -30,16 +30,16 @@ reaches Qdrant.
 ``agent_api.graph.nodes.endings``
     ``REFUSAL_REPLY: str`` · ``async def refuse_and_ticket(state, deps)``
 
-An earlier change extends it again. The turn continues from ``retrieve_policy`` into
+The turn continues from ``retrieve_policy`` into
 ``plan_tools`` and ``validate_tool_calls``, and ends at the validation
-outcome; nothing is EXECUTED until 17d, so a turn still makes at most the one
+outcome; nothing is EXECUTED at this step, so a turn still makes at most the one
 ``search_policy`` call.
 
 ``agent_api.graph.nodes.plan_tools``
     ``PLANNING_PROMPT = "tool_planning"``
     ``async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState`` —
         one ``complete_json`` call per round under ``ModelAlias.AGENT_STRONG``
-        (decision G), constrained to ``ToolPlanAnswer``; an intent with an empty
+, constrained to ``ToolPlanAnswer``; an intent with an empty
         ``INTENT_TOOLS`` row makes NO call at all; a turn past any of the three
         budgets proposes nothing and records ``TurnOutcome.REFUSE``. Never
         raises: a gateway failure ends the turn as state, like every other
@@ -50,7 +50,7 @@ Every case that stages model answers for an intent whose row is non-empty now
 stages a SECOND answer, the planning round. Those are fixture
 changes: no assertion in them moved.
 
-An earlier change closes the turn. The graph gains ``execute_tools`` (which edges BACK
+The turn closes. The graph gains ``execute_tools`` (which edges BACK
 to ``plan_tools``) and ``compose_reply``, so a turn that used to end at the
 validation handover now executes its round, replans, and composes one
 assistant message:
@@ -58,7 +58,7 @@ assistant message:
 ``agent_api.graph.nodes.execute_tools``
     ``async def execute_tools(state, deps) -> TurnState`` — every validated
         call through ``deps.tools``, ``tool_calls_made`` up by the number
-        ATTEMPTED (decision F).
+        ATTEMPTED.
 ``agent_api.graph.nodes.compose_reply``
     ``COMPOSITION_PROMPT = "reply_composition"``
     ``async def compose_reply(state, deps) -> TurnState`` — one ``complete``
@@ -68,14 +68,14 @@ assistant message:
     ``execution_outcome`` · ``exhausted_outcome`` · ``TurnOutcome.DONE``
 ``agent_api.graph.build``
     ``GRAPH_RECURSION_LIMIT = 50`` — passed by ``run_turn`` in the invocation
-        config (decision G).
+        config.
 
-Two fixture changes carry the whole of an earlier change §8: every case that reaches
+Two fixture changes carry the whole of that step: every case that reaches
 ``plan_tools`` stages one more answer, the composition (``COMPOSED_REPLY``),
 and a turn that ran to the end now finishes on ``TurnOutcome.DONE`` with an
 assistant row rather than on ``CONTINUE`` with none.
 
-An earlier change changes one line of that surface, and nothing else in this file:
+One line of that surface changed, and nothing else in this file:
 ``build_graph(checkpointer=None)`` now TAKES a saver and compiles with it, so
 the argument-free call every case here makes still carries none. The
 checkpointer's own module, the approval interrupt and the paused state live in
@@ -464,7 +464,7 @@ class StubToolCaller:
 
     The recording is what makes "zero tool calls" and "exactly one" assertable
     as counts rather than inferred from the state, and what lets the refusal
-    case prove NO ticket was created (decision E) instead of assuming it.
+    case prove NO ticket was created instead of assuming it.
 
     `entered` and `exited` are counted separately so a turn that opened the
     session and never closed it is a red case, not an invisible leak.
@@ -636,7 +636,7 @@ def _payroll_answer(confidence: float = 0.95) -> str:
     )
 
 
-# --- an earlier change: the planning round the model answers with ----------------------
+# --- the planning round the model answers with ----------------------
 
 TARGET_USER_ID = "44444444-4444-5444-8444-444444444444"
 ROLE_ID = "55555555-5555-5555-8555-555555555555"
@@ -648,21 +648,21 @@ def _plan_json(*calls: dict[str, Any]) -> str:
 
 
 def _proposal(tool: str, **arguments: Any) -> dict[str, Any]:
-    """One planned call; its arguments travel as a JSON string."""
+    """One planned call; its arguments travel as a JSON string ."""
     return {"tool": tool, "arguments": json.dumps(arguments)}
 
 
 EMPTY_PLAN = _plan_json()
-"""A round proposing nothing: the ordinary end of a turn under this plan.
+"""A round proposing nothing: the ordinary end of a turn under this change.
 
-Staged wherever an existing 17a/17b case now reaches `plan_tools` (plan §8).
+Staged wherever an existing 17a/17b case now reaches `plan_tools`.
 Nothing is executed until 17d, so an empty round keeps every one of those
 cases at the same outcome, the same message rows and the same tool calls."""
 
 COMPOSED_REPLY = "I have put your fake payroll request in front of your manager."
 """The composition's answer, staged wherever a turn now reaches `compose_reply`.
 
-Prose, not JSON: decision E makes the composition a plain `complete` call, so
+Prose, not JSON: the composition is a plain `complete` call, so
 an implementation that asked for structured output would be handed this string
 and fail to parse it — which is a red this file should show rather than hide.
 """
@@ -694,19 +694,19 @@ def test_the_happy_path_runs_the_three_nodes_and_resolves_the_entities(turn_env:
     come back `CONTINUE` with nothing resolved, and the tool call would go out
     against a system named only as free text the model produced.
 
-    An earlier change §8: the turn no longer ENDS after `resolve_entities`, it continues
+    The turn no longer ENDS after `resolve_entities`, it continues
     into `retrieve_policy`, so the same case now also catches an
     `_after_entities` left routing `CONTINUE` to `END` — the tool call count
     below is what sees it. Every 17a assertion is unchanged.
 
-    An earlier change §8: it continues once more, through `plan_tools` and
+    It continues once more, through `plan_tools` and
     `validate_tool_calls`, and ends at the validation outcome. The second
     staged answer is the planning round; a graph that still stopped after
     retrieval would leave it unused, which the outcome and the call count
     below cannot see, so `test_a_request_access_turn_plans_exactly_once...`
     is what pins the new edge. No assertion here moved.
 
-    An earlier change §8: it continues to the end. The empty round is accepted as
+    It continues to the end. The empty round is accepted as
     `DONE`, the turn composes, and the third staged answer is the composition
     — so the outcome and the call count both move, and a graph still ending at
     the validation handover leaves the third answer unread and the user with
@@ -740,7 +740,7 @@ def test_the_prompt_version_is_the_extraction_prompts_own_digest(turn_env: TurnE
     """Catches a `prompt_version` invented by the node — a hand-kept string or
     the model's own name — which makes every trace claim a version no file in
     `prompts/` has, so a bad turn cannot be tied to the prompt that produced
-    it (the design)."""
+    it."""
     session_id = uuid.uuid4()
     gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
 
@@ -778,7 +778,7 @@ def test_the_user_message_row_is_written_before_intent_runs(turn_env: TurnEnv) -
 def test_the_history_window_is_the_last_twenty_messages_oldest_first(turn_env: TurnEnv) -> None:
     """Catches a window ordered by `created_at` or handed to the model newest
     first. Twenty-five rows are planted in ONE transaction, so they share a
-    `created_at` and only `ordinal` can order them; the plan's §1 sequence
+    `created_at` and only `ordinal` can order them; sequence
     (load the history, THEN store the incoming message) is what fixes that the
     new message is not one of the twenty."""
     session_id = uuid.uuid4()
@@ -827,8 +827,8 @@ def test_a_message_of_exactly_the_cap_is_accepted_and_stored(turn_env: TurnEnv) 
 
 
 def test_a_message_one_character_over_the_cap_writes_nothing_at_all(turn_env: TurnEnv) -> None:
-    """The exclusive half, and the "before any effect" half of standing rule
-    1: catches a check run inside a node instead of ahead of the graph, which
+    """The exclusive half, and the "before any effect" half of the length limit:
+    catches a check run inside a node instead of ahead of the graph, which
     would leave a session row and a half-written turn behind for a message the
     system then refuses. The staged gateway has NO answers, so any model call
     fails the case too."""
@@ -919,8 +919,8 @@ def test_a_confidence_below_the_gate_asks_the_clarifying_question(turn_env: Turn
 
 
 def test_two_matching_systems_ask_for_disambiguation(turn_env: TurnEnv) -> None:
-    """Catches a resolver that picks the first of several candidates — SPEC
-    §10.1's "never guess a system or role". Tenant C owns two systems sharing
+    """Catches a resolver that picks the first of several candidates — the rule is
+    "never guess a system or role". Tenant C owns two systems sharing
     one display name, so the model's term matches both exactly and no tier
     ordering can separate them; the only correct answer is to ask."""
     session_id = uuid.uuid4()
@@ -951,7 +951,7 @@ def test_two_matching_systems_ask_for_disambiguation(turn_env: TurnEnv) -> None:
 
 
 def test_a_candidate_in_another_tenant_is_not_a_candidate(turn_env: TurnEnv) -> None:
-    """Catches plan §5's third risk: the candidate read issued on an unguarded
+    """Catches third risk: the candidate read issued on an unguarded
     session. Tenant B owns a system with the SAME slug as tenant A's, so an
     unscoped read returns two candidates and the turn would ask tenant A to
     choose between its own system and another company's — or resolve to the
@@ -1006,11 +1006,11 @@ def test_every_row_written_carries_the_callers_tenant_and_user(turn_env: TurnEnv
     assert {row.tenant_id for row in rows} == {turn_env.tenant_a.tenant_id}
 
 
-# --- decision F ---------------------------------------------------------------
+# --- the checkpointer argument ---------------------------------------------------------------
 
 
 def test_run_turn_compiles_with_the_checkpointer_it_is_given() -> None:
-    """An earlier change §8, the edit 17a's decision F asked for by name.
+    """The checkpointer argument.
 
     Two halves, and each catches something the other cannot. The
     argument-free call catches a `build_graph` that reached for a saver of its
@@ -1030,7 +1030,7 @@ def test_run_turn_compiles_with_the_checkpointer_it_is_given() -> None:
     assert build_graph(checkpointer=saver).checkpointer is saver
 
 
-# --- an earlier change: retrieval, its refusal, and the query cut ----------------------
+# --- retrieval, its refusal, and the query cut ----------------------
 
 
 def test_a_request_access_turn_calls_search_policy_exactly_once(turn_env: TurnEnv) -> None:
@@ -1064,7 +1064,7 @@ def test_a_request_access_turn_calls_search_policy_exactly_once(turn_env: TurnEn
 
 
 def test_a_retrieving_turn_writes_exactly_one_assistant_message(turn_env: TurnEnv) -> None:
-    """An earlier change §8, renamed from `..._writes_no_assistant_message`: the reply
+    """The reply
     now exists, and there must be exactly ONE of it.
 
     Catches a `retrieve_policy` or an `execute_tools` that stores a reply of
@@ -1092,7 +1092,7 @@ def test_a_retrieving_turn_writes_exactly_one_assistant_message(turn_env: TurnEn
 
 
 def test_an_ask_policy_turn_also_retrieves(turn_env: TurnEnv) -> None:
-    """The SECOND of the design step 5's two intents. Catches a
+    """The SECOND of two intents. Catches a
     `should_retrieve` written for `request_access` alone: `ask_policy` names no
     system and resolves no entity, so nothing else in the turn would notice
     that the one intent whose whole purpose is the corpus never reads it."""
@@ -1119,16 +1119,16 @@ def test_an_ask_policy_turn_also_retrieves(turn_env: TurnEnv) -> None:
 def test_a_reset_password_turn_makes_no_tool_call_and_carries_no_citations(
     turn_env: TurnEnv,
 ) -> None:
-    """Criterion 4's other half, one of the eleven intents §10.1 step 5 does not
+    """The other half, one of the eleven intents step 5 does not
     name. Catches a node that retrieves unconditionally: the turn would pay an
     embedding and a vector search for a password reset, and would carry policy
-    chunks into 17c's planning for a request nobody asked a policy question
+    chunks into planning for a request nobody asked a policy question
     about. The stub would ANSWER such a call, so only the count can see it.
 
-    An earlier change §8: `reset_password` has a non-empty `INTENT_TOOLS` row, so the
+    `reset_password` has a non-empty `INTENT_TOOLS` row, so the
     turn now plans and a second answer is staged.
 
-    An earlier change §8: execution exists from this plan on, so the assertion is that
+    Execution exists now, so the assertion is that
     no `search_policy` call was made rather than that no call was made at all.
     The planner proposes nothing here, so the count would agree either way;
     the citation half does not move, and it is the half that matters — a
@@ -1161,10 +1161,10 @@ def test_a_reset_password_turn_makes_no_tool_call_and_carries_no_citations(
 def test_a_refused_page_ends_on_the_templated_refusal_and_creates_no_ticket(
     turn_env: TurnEnv,
 ) -> None:
-    """Criterion 6, all four halves. Catches a turn that ignores `refused` and
-    hands 17c an empty citation list as though it were an answer; one that
+    """All four halves. Catches a turn that ignores `refused` and
+    hands the planning step an empty citation list as though it were an answer; one that
     stores citations alongside the refusal, which is how chunks the threshold
-    rejected reach a reply; and — decision E — one that OPENS the ticket rather
+    rejected reach a reply; and one that OPENS the ticket rather
     than offering to. The stub records every call by name, so a `create_ticket`
     is visible whether or not it succeeded.
 
@@ -1195,10 +1195,10 @@ def test_a_refused_page_ends_on_the_templated_refusal_and_creates_no_ticket(
 
 
 def test_the_refusal_reply_is_a_fixed_string_offering_a_person() -> None:
-    """a project rule on a message rather than a number, and decision E in the
+    """A message rather than a number, in the
     words the user reads. Catches a `REFUSAL_REPLY` that promises a ticket has
     been opened ("I have raised a ticket"), which is a mutation the user did not
-    request and one this plan never performs — the turn would be lying about an
+    request and one this change never performs — the turn would be lying about an
     effect. Kept as a separate case from the turn above because that one pins
     WHICH string is stored, and this one pins what the string may say."""
     assert isinstance(REFUSAL_REPLY, str)
@@ -1210,10 +1210,10 @@ def test_the_refusal_reply_is_a_fixed_string_offering_a_person() -> None:
 
 
 def test_a_tool_error_ends_the_turn_through_fail_turn(turn_env: TurnEnv) -> None:
-    """Criterion 9. Catches a `retrieve_policy` that lets the caller's
+    """Catches a `retrieve_policy` that lets the caller's
     `ToolError` escape — `run_turn` would raise where every other failure comes
     back as state, so the route would have an exception to translate — and one
-    that swallows it into `CONTINUE`, which sends 17c to plan tools against a
+    that swallows it into `CONTINUE`, which sends the turn on to plan tools against a
     corpus that answered nothing.
 
     Exactly one assistant row proves there is no half-written state: the user
@@ -1241,14 +1241,14 @@ def test_a_tool_error_ends_the_turn_through_fail_turn(turn_env: TurnEnv) -> None
     assert assistant_rows[0].content == FAILURE_REPLY
 
 
-# --- decision G: the query cut ------------------------------------------------
+# --- the query cut ------------------------------------------------
 
 
 def test_the_query_cap_is_exactly_the_planned_value() -> None:
-    """a project rule. Catches `MAX_QUERY_CHARS` set to `MAX_MESSAGE_CHARS`,
-    which would make decision G a no-op, and a cap so small that a real
+    """Catches `MAX_QUERY_CHARS` set to `MAX_MESSAGE_CHARS`,
+    which would make the query cut a no-op, and a cap so small that a real
     question is cut mid-sentence. The two caps are asserted to differ, because
-    decision G only exists where they do."""
+    the cut only exists where they do."""
     assert MAX_QUERY_CHARS == 1000
     assert MAX_QUERY_CHARS < MAX_MESSAGE_CHARS
 
@@ -1265,7 +1265,7 @@ def test_the_query_cap_is_exactly_the_planned_value() -> None:
 def test_query_for_cuts_at_the_cap_inclusively(length: int, expected: int) -> None:
     """The inclusive boundary as a pure call. Catches an off-by-one written as
     `message[: MAX_QUERY_CHARS - 1]`, which shortens every long query by a
-    character for no reason, and a cut written as a REFUSAL, which decision G
+    character for no reason, and a cut written as a REFUSAL, which the design
     rejects: a 4000-character message is legal by construction, so refusing it
     would make two of our own caps contradict each other."""
     assert len(query_for("x" * length)) == expected
@@ -1274,7 +1274,7 @@ def test_query_for_cuts_at_the_cap_inclusively(length: int, expected: int) -> No
 def test_a_message_at_the_query_cap_is_sent_whole(turn_env: TurnEnv) -> None:
     """The same boundary through the real turn, which the pure call cannot
     reach: catches a node that cuts twice, or that sends `state.user_message`
-    unchanged and lets the SERVER's `check_query` refuse it. Criterion 5 says
+    unchanged and lets the SERVER's `check_query` refuse it. The rule says
     neither length refuses the turn, so the outcome is asserted too."""
     session_id = uuid.uuid4()
     gateway = StagedGateway([_payroll_answer(), EMPTY_PLAN, COMPOSED_REPLY])
@@ -1298,7 +1298,7 @@ def test_a_message_at_the_query_cap_is_sent_whole(turn_env: TurnEnv) -> None:
 def test_a_message_one_character_over_the_query_cap_is_cut_not_refused(
     turn_env: TurnEnv,
 ) -> None:
-    """The exclusive half, and decision G's whole point. Catches a node that
+    """The exclusive half, and the whole point. Catches a node that
     answers an over-long QUERY with `VALIDATION`: the message is well under
     `MAX_MESSAGE_CHARS`, so the user was told it was allowed, and the turn must
     still resolve. The stored message keeps every character — the cut is on the
@@ -1324,11 +1324,11 @@ def test_a_message_one_character_over_the_query_cap_is_cut_not_refused(
     assert len(rows[0].content) == MAX_QUERY_CHARS + 1
 
 
-# --- decision B: the session is opened and closed by `run_turn` ---------------
+# --- the session is opened and closed by `run_turn` ---------------
 
 
 def test_run_turn_opens_and_closes_the_caller_exactly_once(turn_env: TurnEnv) -> None:
-    """Decision B as a count. Catches a session opened per NODE (17c makes up
+    """As a count. Catches a session opened per NODE (planning makes up
     to six calls and would pay six handshakes) and one opened per call inside
     `McpToolCaller`, which is the same cost wearing a different hat. Also
     catches a `run_turn` that never enters the caller at all — the stub answers
@@ -1350,7 +1350,7 @@ def test_run_turn_opens_and_closes_the_caller_exactly_once(turn_env: TurnEnv) ->
 
 
 def test_the_caller_is_closed_when_a_node_raises(turn_env: TurnEnv) -> None:
-    """Plan §5's fourth risk, from the graph's side. A `RuntimeError` is used
+    """Plan fourth risk, from the graph's side. A `RuntimeError` is used
     deliberately: `retrieve_policy` converts a `ToolError` to state, so only a
     non-`ToolError` still escapes the graph, and that is the exact path on which
     a `finally`-less `run_turn` would leak the turn's MCP session. Catches an
@@ -1374,7 +1374,7 @@ def test_the_caller_is_closed_when_a_node_raises(turn_env: TurnEnv) -> None:
 
 
 def test_the_pre_checks_still_run_before_the_caller_is_opened(turn_env: TurnEnv) -> None:
-    """a project rule, with a new effect to guard. Catches a `run_turn` that
+    """With a new effect to guard. Catches a `run_turn` that
     opens the MCP session BEFORE `check_message_content`: an over-long message
     would then pay a network handshake, and the "no effect before the check"
     property this file already pins for the database would hold for rows and
@@ -1398,7 +1398,7 @@ def test_the_pre_checks_still_run_before_the_caller_is_opened(turn_env: TurnEnv)
     assert tools.calls == []
 
 
-# --- an earlier change: planning, validation and loop control --------------------------
+# --- planning, validation and loop control --------------------------
 
 
 def _planning_state(
@@ -1465,7 +1465,7 @@ def _run_plan_tools(state: TurnState, gateway: StagedGateway) -> TurnState:
 def test_a_request_access_turn_plans_executes_replans_and_composes(
     turn_env: TurnEnv,
 ) -> None:
-    """An earlier change criteria 1, 4 and 7, and an earlier change §8: this case used to end at
+    """This case used to end at
     the validation handover with nothing executed and nothing said.
 
     The cycle is what it pins. Four answers are staged — the classification,
@@ -1509,15 +1509,15 @@ def test_a_request_access_turn_plans_executes_replans_and_composes(
 def test_the_planner_asks_the_strong_alias_and_the_classifier_the_default_one(
     turn_env: TurnEnv,
 ) -> None:
-    """Decision G, and the only case that can see it: both calls succeed
+    """And the only case that can see it: both calls succeed
     whichever alias is named, and no state field records which was used.
     Catches a planner copied from `extract_intent` and left on
     `agent-default` — choosing which mutation to call is the riskiest
     judgment in the turn, and the cheap alias is the one that classifies into
     a closed label set.
 
-    An earlier change adds the third: decision D puts the composition back on
-    `agent-default`, which is the whole of that decision and is invisible
+    The third entry: the composition goes back on
+    `agent-default`, which is invisible
     anywhere else. The list is asserted in ORDER, so a composition left on the
     strong alias — paid on every turn that gets this far — fails here."""
     gateway = StagedGateway(
@@ -1544,7 +1544,7 @@ def test_the_planner_asks_the_strong_alias_and_the_classifier_the_default_one(
 def test_the_planning_call_quotes_the_citations_as_data_and_not_as_instructions(
     turn_env: TurnEnv,
 ) -> None:
-    """the design, criterion 3's "AS DATA" half. Retrieved policy text is
+    """The "AS DATA" half. Retrieved policy text is
     somebody else's writing; merged into the system prompt it becomes an
     instruction the model obeys, which is the prompt-injection path straight
     to a mutation. Catches a planner that formats the citations into its
@@ -1573,14 +1573,14 @@ def test_the_planning_call_quotes_the_citations_as_data_and_not_as_instructions(
 
 
 def test_an_ask_policy_turn_makes_no_planning_call_at_all(turn_env: TurnEnv) -> None:
-    """Criterion 4. `ask_policy`'s row is empty, so the round is decided by a
+    """`ask_policy`'s row is empty, so the round is decided by a
     pure predicate BEFORE the gateway is touched. Catches a planner that calls
     the model first and filters its proposals afterwards: only ONE answer is
     staged, so a second request fails the case outright — and the turn would
     otherwise pay a strong-alias call per policy question to be told there was
     nothing to call.
 
-    An earlier change §8: the second staged answer is the COMPOSITION, so the hard stop
+    The second staged answer is the COMPOSITION, so the hard stop
     still holds — a planner that called the model would take the composition's
     slot and the turn would then ask for a third answer that is not there."""
     session_id = uuid.uuid4()
@@ -1608,7 +1608,7 @@ def test_an_ask_policy_turn_makes_no_planning_call_at_all(turn_env: TurnEnv) -> 
 def test_a_rejected_round_ends_on_the_refusal_with_exactly_one_assistant_message(
     turn_env: TurnEnv,
 ) -> None:
-    """Plan §5's fifth risk, end to end. The proposal is a catalogued tool
+    """Plan fifth risk, end to end. The proposal is a catalogued tool
     outside `request_access`'s row, so only the row check refuses it.
 
     Catches a rejected round that ends the turn SILENTLY — the user would see
@@ -1646,7 +1646,7 @@ def test_a_rejected_round_ends_on_the_refusal_with_exactly_one_assistant_message
 def test_a_gateway_failure_in_planning_ends_the_turn_through_fail_turn(
     turn_env: TurnEnv,
 ) -> None:
-    """Criterion 9. Two schema-invalid planning answers exhaust
+    """Two schema-invalid planning answers exhaust
     `complete_json`'s single retry, so the node meets a `ToolError`.
 
     Catches a `plan_tools` that lets it escape — `run_turn` would raise where
@@ -1698,7 +1698,7 @@ def test_run_turn_stamps_started_at_from_the_injected_clock(turn_env: TurnEnv) -
 
 
 def test_the_planning_prompt_version_rides_on_its_own_state_field(turn_env: TurnEnv) -> None:
-    """Criterion 8. One string cannot carry two versions: catches a
+    """One string cannot carry two versions: catches a
     `plan_tools` that overwrites `prompt_version` with its own digest, which
     would make 17b's assertion false and every trace name the wrong prompt for
     the classification. The two digests are asserted to DIFFER, because a
@@ -1720,7 +1720,7 @@ def test_the_planning_prompt_version_rides_on_its_own_state_field(turn_env: Turn
 
 
 def test_a_turn_past_the_call_budget_proposes_nothing_and_never_reaches_the_gateway() -> None:
-    """Criterion 7 through the node rather than the predicate: `run_turn`
+    """Through the node rather than the predicate: `run_turn`
     always starts a turn at zero calls, so the only way to stand past the
     budget is to hand `plan_tools` the state 17d's loop would hand it.
 
@@ -1730,10 +1730,10 @@ def test_a_turn_past_the_call_budget_proposes_nothing_and_never_reaches_the_gate
     answer. The other two counters are at zero, so only the call budget can
     decide this case.
 
-    Seven, not six: criterion 7 makes every bound INCLUSIVE, so exactly six
-    executed calls may still plan. The plan's §6 line reading "a turn already
-    at six executed calls proposes nothing" contradicts its own §1 and its own
-    gates row; §1 wins."""
+    Seven, not six: every bound is INCLUSIVE, so exactly six
+    executed calls may still plan. A rule reading "a turn already
+    at six executed calls proposes nothing" would contradict the inclusive
+    bound, which wins."""
     gateway = StagedGateway([])
 
     state = _run_plan_tools(
@@ -1765,13 +1765,12 @@ def test_a_turn_exactly_at_the_call_budget_still_plans() -> None:
 
 
 def test_a_round_over_the_per_round_cap_is_refused_whole() -> None:
-    """`MAX_CALLS_PER_ROUND` as a refusal rather than a trim, and a case the
-    plan's §6 does not list — added with the implementation, recorded in the
-    plan's Deviations.
+    """`MAX_CALLS_PER_ROUND` as a refusal rather than a trim, and a case added
+    with the implementation.
 
     Catches a planner that keeps the first three of an over-long round: those
-    three are a plan the model did not make, and executing them is decision
-    C's failure by another route. Every one of the four proposals here is
+    three are a plan the model did not make, and executing them is
+    the same failure by another route. Every one of the four proposals here is
     legal on its own, so only the count can decide the case, and the zero is
     what separates refusing from trimming."""
     over_the_cap = [CLASSIFY_PROPOSAL] * (MAX_CALLS_PER_ROUND + 1)
@@ -1784,20 +1783,20 @@ def test_a_round_over_the_per_round_cap_is_refused_whole() -> None:
     assert state.proposed == ()
 
 
-# --- an earlier change: the cycle, its three stops and the counters --------------------
+# --- the cycle, its three stops and the counters --------------------
 
 
 def test_a_turn_driven_to_the_call_budget_composes_and_never_trips_the_limit(
     turn_env: TurnEnv,
 ) -> None:
-    """Plan §5's second risk, and decision G's whole reason. Six rounds of one
+    """Six rounds of one
     call each is about twenty-five node visits with the four leading nodes and
     the composition, so LangGraph's DEFAULT recursion limit of 25 aborts this
-    turn with a `GraphRecursionError` — a turn every budget in this plan
+    turn with a `GraphRecursionError` — a turn every budget in this change
     permits, failing on a library default nobody chose.
 
     Catches that default being left in place. It also catches an
-    `execute_tools` that counts successes rather than attempts (decision F):
+    `execute_tools` that counts successes rather than attempts:
     the budget would never be reached, the planner would be asked for an
     eighth round, and the staged answers would run out.
 
@@ -1831,9 +1830,9 @@ def test_a_turn_driven_to_the_call_budget_composes_and_never_trips_the_limit(
 def test_a_spent_budget_with_no_tool_results_ends_on_the_refusal_template(
     turn_env: TurnEnv,
 ) -> None:
-    """Criterion 5's first half, through the whole graph. The extraction alone
+    """The first half, through the whole graph. The extraction alone
     bills one token past `MAX_TURN_TOKENS`, so the turn stands past a budget
-    having called nothing — the state 17c's node test could only build by
+    having called nothing — the state node test could only build by
     hand.
 
     Catches an `exhausted_outcome` wired to compose whatever happened: this
@@ -1868,12 +1867,12 @@ def test_a_spent_budget_with_no_tool_results_ends_on_the_refusal_template(
 def test_a_spent_budget_with_tool_results_composes_instead_of_refusing(
     turn_env: TurnEnv,
 ) -> None:
-    """Criterion 5's second half, and decision C in the words a person reads.
+    """The words a person reads.
     The planning round bills past the budget, so the turn's SECOND planning
     round is refused — but by then a call has been made and its result is on
     the state.
 
-    Catches the design followed literally: `refuse_and_ticket` would answer
+    Catches followed literally: `refuse_and_ticket` would answer
     the person whose access request was just filed with "I could not find
     anything in the current policy documents that covers this", which is a
     false statement about a mutation the same turn performed. Only the
@@ -1914,14 +1913,14 @@ def test_a_spent_budget_with_tool_results_composes_instead_of_refusing(
 def test_tokens_used_is_the_sum_of_every_staged_answers_total_tokens(
     turn_env: TurnEnv,
 ) -> None:
-    """Criterion 8, and plan §5's fifth risk: counted twice, or not at all,
+    """And fifth risk: counted twice, or not at all,
     once three call sites feed one counter.
 
     The three answers bill three DIFFERENT numbers, so every wrong
     implementation lands on a different total: a counter fed only by the
     extraction reads 11, one fed only by the planner 13, one that forgot the
     composition 24, and one that added the same answer twice cannot reach 41
-    either. An earlier change's deviation — "`tokens_used` is present and always 0" —
+    either. The old gap — "`tokens_used` is present and always 0" —
     is closed by this row, which is why the assertion is an equality and not
     "greater than zero"."""
     session_id = uuid.uuid4()
@@ -1949,7 +1948,7 @@ def test_tokens_used_is_the_sum_of_every_staged_answers_total_tokens(
 def test_the_recursion_limit_is_exactly_fifty_and_is_what_run_turn_passes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """a project rule on decision G's number, from both sides: the constant's
+    """The number, from both sides: the constant's
     value, and the fact that the invocation actually carries it.
 
     Catches a `GRAPH_RECURSION_LIMIT` declared and never passed — the graph
@@ -2007,7 +2006,7 @@ def test_the_recursion_limit_is_exactly_fifty_and_is_what_run_turn_passes(
     assert "deps" in recorder.configs[0]["configurable"]
 
 
-# --- an earlier change: strict structured outputs ---------------------------------------
+# --- strict structured outputs ---------------------------------------
 
 
 def _schema_request(schema: dict[str, Any]) -> httpx.Request:
@@ -2037,7 +2036,7 @@ def _strict_object(*, note: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_the_staged_gateway_refuses_a_non_strict_schema() -> None:
-    """An earlier change criterion: the fake gateway answers 400 to a schema OpenAI's
+    """The fake gateway answers 400 to a schema OpenAI's
     strict mode would refuse, so a non-strict schema cannot pass this suite
     while the real gateway turns every chat away.
 
@@ -2056,7 +2055,7 @@ def test_the_staged_gateway_refuses_a_non_strict_schema() -> None:
 
 
 def test_a_planner_answer_with_non_object_arguments_is_retried_once() -> None:
-    """Decision A's unhappy path through the node: an `arguments` string that
+    """The unhappy path through the node: an `arguments` string that
     decodes to an array must fail inside `complete_json`, where the single
     retry runs, and the second (legal) answer becomes the round.
 
@@ -2067,7 +2066,7 @@ def test_a_planner_answer_with_non_object_arguments_is_retried_once() -> None:
     third request fails the test at the gateway.
 
     The extraction names every entity field, absent ones as `None`, so the
-    state builds both before and after an earlier change drops the defaults."""
+    state builds both before and after the defaults are dropped."""
     arguments = {"target_user_id": TARGET_USER_ID, "role_id": ROLE_ID}
     bad = json.dumps({"calls": [{"tool": "classify_access_request", "arguments": "[1]"}]})
     good = json.dumps(

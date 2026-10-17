@@ -11,33 +11,10 @@ import {
 import { formatIsoDate } from "@/lib/date-format";
 
 /**
- * What the engine decided about this turn's access, in the words a person
- * reads (the design, an earlier change).
- *
- * Presentational: a card in, markup out. No fetch, no state, no clock — the
- * engine decided every field before the card crossed the wire, and this
- * component's only job is to choose the label. Its accessible name is
- * `Decision` and the approver chain inside it is a list named `Approvers`;
- * both are how `tests/chat-page.test.tsx`'s `ChatPanel — the decision card`
- * block finds them, and the second is what makes "exactly one `listitem` per
- * approver" countable beside the reasons.
- *
- * Five of the design's six fields are here. The sixth, the citations, stays in
- * an earlier change's `Sources` section directly beneath (decision A).
- *
- * Two things are deliberately NOT rendered as text. The request id rides as
- * `data-request-id` on the region and nowhere else — row 23's `/requests` is
- * what needs the handle, and a raw uuid reads as nothing to the person asking
- * — and the SoD rule id is dropped by `reasonSentence` before it reaches here
- * (decision C). Both absences are asserted by `::renders the decision, risk,
- * reasons, expiry, approvers and status of a filed request`.
- *
- * The status line is the one conditional row: a turn that classified and filed
- * nothing has no status to name, and defaulting it would tell a user something
- * was filed for them when nothing was (`::a classified request shows no status
- * line`). The date is the ISO prefix of `expires_at`, never a locale format:
- * `toLocaleDateString` answers "12/1/2026", which is a different date in half
- * the world.
+ * What the policy engine decided, in words a person reads. Display only: the
+ * engine set every field. The request id stays in `data-request-id`, since a
+ * raw uuid means nothing to the reader. No status line when nothing was filed,
+ * so the user is never told a request exists when it does not.
  */
 export function DecisionCard({ card }: { card: Card }) {
   return (

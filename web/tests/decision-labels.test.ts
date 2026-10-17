@@ -10,7 +10,7 @@ import {
 } from "@/lib/decision-labels";
 
 /**
- * An earlier change §6, `decision-labels.test.ts`: the hand-kept mirror of five Python
+ * The hand-kept mirror of five Python
  * vocabularies, as literals. Pure — no DOM, no fetch, no React.
  *
  * The wire values are `services/agent-api/agent_api/decision_card.py`'s as
@@ -21,18 +21,16 @@ import {
  * (`helpdesk.models.access.RequestStatus`), each `mode="json"`, so every key
  * asserted here is the enum's VALUE and never its Python member name.
  *
- * Shapes this file fixes that the plan left open (a project rule/39; these go
- * in the plan's Deviations). §3 names the five maps but not the lookups §6 says
- * are "parametrised over", so:
+ * Shapes this file fixes:
  * - `web/src/lib/decision-labels.ts` exports one lookup per vocabulary —
  *   `reasonSentence`, `decisionLabel`, `riskLabel`, `slotLabel`, `statusLabel`
  *   — each `(value: string) => string`, total by construction: a value the map
- *   does not know answers the value itself (decision B).
+ *   does not know answers the value itself.
  * - the lookups, not the maps, are what is asserted. A map exported beside them
  *   is pinned through the lookup that reads it; asserting the map as well would
  *   pin the same fact twice and let a lookup that ignores its map stay green.
  *
- * §5 names the standing risk this file answers: a member added on the Python
+ * The risk this file answers: a member added on the Python
  * side renders as its raw code with nothing red, so the ten reason codes and
  * every member of the other four enums are LISTED here as literals. Adding one
  * is then a deliberate edit to this list.
@@ -58,10 +56,10 @@ type Lookup = (value: string) => string;
 
 describe("reasonSentence", () => {
   it.each(REASON_CODES)("%s reads as a sentence, not as its code", (code) => {
-    // Catches a map that is short of a member — the design has ten and a map
+    // Catches a map that is short of a member — there are ten and a map
     // written from the four or five a reviewer remembers renders the missing
     // ones as `EXPIRY_CAPPED`, which explains nothing to the person who asked
-    // and is the exact failure decision B accepts only for a code the Python
+    // and is the exact failure accepted only for a code the Python
     // side has not shipped yet. The `not.toBe(code)` half is load-bearing: a
     // lookup implemented as the identity function (the fallback with no map
     // behind it) satisfies "non-empty" for all ten.
@@ -74,7 +72,7 @@ describe("reasonSentence", () => {
     // `sod_conflict_reason` is the only reason that carries a value, so this is
     // the one code whose wire string is not a bare enum value. Catches a lookup
     // that keys on the WHOLE string — `SOD_CONFLICT:3f2b…` misses the map and
-    // falls back to itself, putting a raw uuid in front of a user (decision C)
+    // falls back to itself, putting a raw uuid in front of a user
     // and losing the sentence at the same time. The absence assertion is the
     // half that fails if the sentence is built by interpolating the id back in.
     const reason = `SOD_CONFLICT:${RULE_ID}`;
@@ -87,7 +85,7 @@ describe("reasonSentence", () => {
     // Catches a lookup whose miss answers a vague default ("This needed a
     // closer look") or an empty string: a reason code added on the Python side
     // would then be invisible on the card, where the raw code is greppable
-    // against `ReasonCode` the moment someone reports it (decision B). An
+    // against `ReasonCode` the moment someone reports it. An
     // implementation returning `undefined` for a miss fails here too, which is
     // what stops the literal "undefined" reaching the DOM.
     expect(reasonSentence("NEW_THING")).toBe("NEW_THING");
@@ -152,7 +150,7 @@ describe("an unknown value in any of the four maps", () => {
   ] as const;
 
   it.each(lookups)("$map renders the raw wire string", ({ lookup }) => {
-    // One behaviour, four lookups (§1's second unhappy path). Catches the
+    // One behaviour, four lookups (the second unhappy path). Catches the
     // lookup written as a bare index — `DECISION_LABELS[value]` on a member
     // Python added since renders the literal "undefined" on the card — and the
     // one written with a vague default, which hides the drift instead of

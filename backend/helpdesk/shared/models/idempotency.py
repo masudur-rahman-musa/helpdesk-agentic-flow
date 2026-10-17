@@ -1,13 +1,6 @@
-"""Stored idempotency keys (the design, §13.2).
+"""Stored idempotency keys, so a retry gets the saved response instead of a second change.
 
-One row per (tenant, key) holds the fingerprint of the request that claimed
-the key and the response that was committed for it, so a retry returns that
-response instead of running the effect again.
-
-The unique index on (tenant_id, key) is the backstop behind the advisory
-lock in `idempotency/guard.py`: if the lock were ever bypassed, a second
-insert fails loudly rather than leaving two rows that disagree about what
-the key means.
+The unique index backs up the per-key lock: a second insert fails loudly.
 """
 
 from datetime import datetime
@@ -21,8 +14,7 @@ from helpdesk.shared.models.base import TenantScoped
 
 FINGERPRINT_LENGTH = 64
 
-# A client-supplied UUID v4 (the design); the column is wider so a caller
-# using another opaque token is stored rather than silently truncated.
+# Wider than a UUID, so a client's other token shape is stored, not cut.
 KEY_LENGTH = 128
 
 TOOL_NAME_LENGTH = 64
@@ -32,7 +24,6 @@ class IdempotencyKey(TenantScoped):
     __tablename__ = "idempotency_keys"
     __table_args__ = (
         Index("uq_idempotency_keys_tenant_id_key", "tenant_id", "key", unique=True),
-        # Leads on expires_at: the purge scans by expiry across every key.
         Index("ix_idempotency_keys_expires_at", "expires_at"),
     )
 

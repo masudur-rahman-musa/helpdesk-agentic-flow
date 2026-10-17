@@ -9,7 +9,7 @@ Expected implementation surface:
              (checked via helpdesk.auth.jwt.verify_token) match the seeded
              user: sub/tenant_id/department_id/principals plus a fresh sid
              per login and an 8-hour expiry.
-      401 -> ONE typed error body, code FORBIDDEN (the design), byte-identical
+      401 -> ONE typed error body, code FORBIDDEN, byte-identical
              for wrong password, unknown email, wrong tenant slug and a
              leaver-status user, so the response never reveals whether an
              account exists.
@@ -365,7 +365,7 @@ def test_all_refusals_return_identical_forbidden_bodies(login_env: SeededLogin) 
             f"{body!r} != {first_body!r} — responses must not reveal why login failed"
         )
 
-    # Typed code, no free text (the design).
+    # Typed code, no free text.
     serialized = json.dumps(first_body).lower()
     assert "forbidden" in serialized, f"expected typed code FORBIDDEN in body, got {first_body!r}"
     for word in _LEAKY_WORDS:
@@ -374,10 +374,10 @@ def test_all_refusals_return_identical_forbidden_bodies(login_env: SeededLogin) 
         )
 
 
-# --- demo-account tie-in -------------------------------
+# --- demo-account tie-in ------------------------------------------------------
 
 
-@pytest.mark.slow  # an earlier change: 5.5s call, logs in every seeded demo account
+@pytest.mark.slow  # 5.5s call, logs in every seeded demo account
 def test_every_documented_demo_account_can_log_in(login_env: SeededLogin) -> None:
     accounts = parse_demo_accounts()
     # Parse failure must fail loudly, not pass vacuously: the doc pins one
@@ -402,15 +402,14 @@ def test_every_documented_demo_account_can_log_in(login_env: SeededLogin) -> Non
         assert account.principal in claims.principals
 
 
-# --- an earlier change: login writes audit events ---------------------------------------
+# --- login writes audit events ------------------------------------------------
 #
 # Expected implementation surface: `agent_api.auth_routes` appends one
 # `auth.login` event on success and one `auth.failed` event on a refusal whose
 # tenant slug resolved, both through `helpdesk.audit.writer.append_event`
 # imported into the route module as `append_event` (so it can be faked below).
-# An unknown tenant slug has no chain to append to and writes nothing (an earlier change
-# decision E). A failing audit write fails the login with a typed 500 (decision
-# F): the log is a guarantee, not telemetry.
+# An unknown tenant slug has no chain to append to and writes nothing. A failing audit write fails
+# the login with a typed 500: the log is a guarantee, not telemetry.
 
 
 @dataclass(frozen=True)

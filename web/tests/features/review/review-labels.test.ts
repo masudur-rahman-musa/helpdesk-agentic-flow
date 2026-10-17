@@ -10,9 +10,9 @@ import {
 } from "@/features/reviews/labels";
 
 /**
- * An earlier change §6, `review-labels.test.ts`: the hand-kept mirror of the review
+ * `review-labels.test.ts`: the hand-kept mirror of the review
  * family's three Python vocabularies, as literals. Pure — no DOM, no fetch,
- * no React. (No basename collision in the tree, a project rule.)
+ * no React. (No basename collision in the tree.)
  *
  * The wire values are `helpdesk.models.access`'s as BUILT, each read off the
  * enum rather than remembered: `ReviewFlag` has four members
@@ -22,18 +22,17 @@ import {
  * enum's VALUE as `model_dump(mode="json")` puts it on the wire, never the
  * Python member name.
  *
- * Decision C keeps these three out of `lib/decision-labels.ts`: that module's
+ * These three stay out of `lib/decision-labels.ts`: that module's
  * `statusLabel` already means REQUEST status, so a second `open`/`completed`
  * status in the same namespace would be a collision the next reader
  * disambiguates by call site. This file therefore asserts its OWN module and
- * touches nothing of 22d's.
+ * touches nothing of the other module.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23f's Deviations): §6 fixes the exported names and the
- * assertion shape but NOT the label texts, so no case here pins a sentence —
+ * Shapes this file fixes: the exported names and the
+ * assertion shape are fixed but NOT the label texts, so no case here pins a sentence —
  * the strongest true statement available is "a non-empty label that is not the
- * code itself", plus the map/lookup agreement below. A plan that named the six
- * texts would get a project rule treatment instead; this one did not, and
+ * code itself", plus the map/lookup agreement below. Had the six texts been named, they would be
+ * pinned as literals; they were not, and
  * inventing them here would let the implementer invent a third answer.
  */
 
@@ -121,12 +120,12 @@ describe("the three maps and the three lookups", () => {
 
 describe("an unknown value in any of the three maps", () => {
   it.each(VOCABULARIES)("$name renders the raw wire string", ({ lookup }) => {
-    // One behaviour, three lookups, §6's second bullet. Catches the lookup
+    // One behaviour, three lookups. Catches the lookup
     // written as a bare index — `REVIEW_FLAG_LABELS[value]` on a member Python
     // added since renders the literal "undefined" in front of a reviewer — and
     // the one written with a vague default, which hides the drift instead of
     // showing a value someone can grep for against the enum
-    // (`decision-labels.ts` decision B, the same choice one module over).
+    // (`decision-labels.ts` makes the same choice one module over).
     // Parametrised because a fallback added to two of the three is the shape
     // this actually ships as.
     expect(lookup("not_a_member")).toBe("not_a_member");

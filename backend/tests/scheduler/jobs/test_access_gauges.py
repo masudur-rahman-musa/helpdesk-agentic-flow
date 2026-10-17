@@ -1,11 +1,11 @@
-"""An earlier change §6: `refresh_active_grants_gauge`, called with a fixed `now`.
+"""`refresh_active_grants_gauge`, called with a fixed `now`.
 
 Written before the implementation exists. Expected surface (the implementer
 must provide exactly this):
 
 ``helpdesk.obs.metrics``
     ``GRANTS_ACTIVE = "helpdesk_grants_active"`` — a Gauge with exactly the
-    label ``tenant`` (the design), registered by ``install_sweep_gauges`` on the
+    label ``tenant``, registered by ``install_sweep_gauges`` on the
     registry it is handed and reached through the module-level
     ``SWEEP_GAUGES``, read at CALL time so a test can install its own.
     ``def record_grants_active(*, tenant: str, count: int) -> None`` — SETS
@@ -15,7 +15,7 @@ must provide exactly this):
     ``async def count_live_grants(session, now) -> int`` — the bound tenant's
     live grants: ``status = 'active'``, ``revoked_at IS NULL``, and
     ``expires_at IS NULL OR expires_at > now``. The exact complement of
-    ``access/expiry.py``'s ``expires_at <= now`` (21a decision D), so no
+    ``access/expiry.py``'s ``expires_at <= now`` (the expiry rule), so no
     instant exists at which a grant is neither counted nor expirable.
 
 ``helpdesk.access.gauges``
@@ -26,17 +26,17 @@ The tenant label value is the bound tenant's uuid, read off the session and
 never off an argument, which is also why every case below asserts
 the series under ``str(tenant.tenant_id)``.
 
-a project rule: ONE session-scoped database, schema created once. Per-test
+ONE session-scoped database, schema created once. Per-test
 isolation is a namespace, not a rebuild — the gauge is a whole-tenant count, so
 every case seeds a tenant of its OWN with `_seed.seed_tenant` and no case can
 see another's rows. The second namespace is the fresh `CollectorRegistry`
 installed over `metrics.SWEEP_GAUGES`, which is what makes every assertion
 below an ABSOLUTE value: against the process-wide pair the same case could only
 assert a delta, which passes just as happily when the wrong site did the
-recording (plan §5's fourth risk).
+recording (a risk the design names).
 
 `seed_tenant` plants ONE grant per tenant, `status = 'active'` with a NULL
-`expires_at` — a LIVE grant by decision E. Every expected count below is
+`expires_at` — a LIVE grant. Every expected count below is
 written as that seeded row plus what the case plants, and the arithmetic is
 stated in each docstring rather than left to be recomputed.
 
@@ -75,7 +75,7 @@ EXPIRED_GRANT_STATUS = "expired"
 """What `grants.status` reads once the expiry sweep has been through.
 
 A literal rather than an import: expiry is not revocation, and the only thing
-that makes this string right is that an earlier change §1 fixed it."""
+that makes this string right is that the expiry contract fixed it."""
 
 GRANTS_ACTIVE = "helpdesk_grants_active"
 """The exposed name a dashboard queries, written out."""
@@ -84,7 +84,7 @@ SEEDED_LIVE_GRANTS = 1
 """How many live grants `_seed.seed_tenant` leaves behind, per tenant.
 
 Read off `_seed.py` rather than assumed: its one `Grant` row is `active` with
-`expires_at=None` and `revoked_at=None`, which decision E counts."""
+`expires_at=None` and `revoked_at=None`, which the live count includes."""
 
 
 @pytest.fixture(scope="session")
@@ -110,7 +110,7 @@ def sweep_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
     """A registry of this test's own, with the sweep gauges installed on it.
 
     `test_obs_metrics.py::fresh_registry`'s shape for the SEPARATE factory of
-    an earlier change decision F: the recorder reads `metrics.SWEEP_GAUGES` at call
+    the sweep gauges: the recorder reads `metrics.SWEEP_GAUGES` at call
     time, so replacing that name here is what makes an absolute assertion
     possible. Nothing expensive is rebuilt; the isolation is a namespace.
     """
@@ -189,14 +189,14 @@ def _gauge(registry: CollectorRegistry, tenant_id: uuid.UUID) -> float | None:
     return registry.get_sample_value(GRANTS_ACTIVE, {"tenant": str(tenant_id)})
 
 
-# --- the count itself (criterion 2, decision E) -------------------------------
+# --- the count itself -------------------------------
 
 
 def test_the_gauge_is_set_to_the_bound_tenants_live_grant_count(
     gauges_db_url: str,
     sweep_registry: CollectorRegistry,
 ) -> None:
-    """Catches a count that is not decision E's LIVE set, one wrong row at a
+    """Catches a count that is not the LIVE set, one wrong row at a
     time. Three excluded rows are planted, and each is excluded by a different
     conjunct:
 
@@ -204,7 +204,7 @@ def test_the_gauge_is_set_to_the_bound_tenants_live_grant_count(
     gauge reports access that was taken away); an `expired` row (drop
     `status = 'active'` and every grant the sweep has ever expired is still
     counted, so the number only ever rises); and a `status = 'active'` row
-    whose `expires_at` is already past — decision E's own case, the one a
+    whose `expires_at` is already past — the own case, the one a
     "count the rows whose status is active" implementation gets wrong, because
     the expiry sweep runs every 300 seconds and a lapsed row can sit there for
     a whole cadence. That third row is why 3.0 rather than 4.0 is the answer,
@@ -236,7 +236,7 @@ def test_two_sweeps_over_an_unchanged_tenant_leave_the_same_value(
     gauges_db_url: str,
     sweep_registry: CollectorRegistry,
 ) -> None:
-    """Criterion 2's "SET, never incremented". Catches a recorder built on
+    """The "SET, never incremented". Catches a recorder built on
     `.inc(count)` — the shape every other recorder in `obs/metrics.py` uses,
     so it is the natural mistake — which reads 6.0 after the second sweep and
     doubles again every 300 seconds for ever. A gauge is read as "how many
@@ -259,15 +259,15 @@ def test_two_sweeps_over_an_unchanged_tenant_leave_the_same_value(
     assert _gauge(sweep_registry, tenant.tenant_id) == 3.0
 
 
-# --- the boundary (criterion 3, the complement of 21a decision D) -------------
+# --- the boundary (the complement of the expiry rule) -------------
 
 
 def test_a_grant_expiring_at_exactly_now_is_not_counted(
     gauges_db_url: str,
     sweep_registry: CollectorRegistry,
 ) -> None:
-    """Criterion 3's closed side. Catches `expires_at >= now`, which counts a
-    grant `expire_grants` expires on the very same tick (21a decision D's
+    """The closed side. Catches `expires_at >= now`, which counts a
+    grant `expire_grants` expires on the very same tick (the expiry
     `expires_at <= now`): the two jobs of one tick would then disagree about
     one row, and whichever claimed its cadence gate first would decide what
     the dashboard shows for the next five minutes.
@@ -290,7 +290,7 @@ def test_a_grant_expiring_one_microsecond_after_now_is_counted(
     gauges_db_url: str,
     sweep_registry: CollectorRegistry,
 ) -> None:
-    """Criterion 3's open side, and the twin of the case above: the only
+    """The open side, and the twin of the case above: the only
     difference between them is one microsecond on one planted row.
 
     Catches a strict comparison widened the wrong way — `expires_at > now`
@@ -332,14 +332,14 @@ def test_a_grant_with_no_expiry_is_counted(
     assert _gauge(sweep_registry, tenant.tenant_id) == 2.0
 
 
-# --- the tenant binding (criterion 4, a project rule) ----------------------------
+# --- the tenant binding ----------------------------
 
 
 def test_another_tenants_live_grants_do_not_move_this_tenants_gauge(
     gauges_db_url: str,
     sweep_registry: CollectorRegistry,
 ) -> None:
-    """Criterion 4. Catches a count built as its own statement over `grants`
+    """Catches a count built as its own statement over `grants`
     instead of going through the tenant-bound session: the runner calls this
     job once per tenant, so a query that ignores the binding gives every
     tenant the whole deployment's number and a customer's dashboard shows a
@@ -352,7 +352,7 @@ def test_another_tenants_live_grants_do_not_move_this_tenants_gauge(
     The neighbour's SERIES is asserted ABSENT rather than zero, which is the
     second half: a sweep that helpfully set every tenant's gauge from one
     tenant's tick would publish numbers for tenants it never bound, and
-    decision H's "a tenant keeps its last value" would then be meaningless.
+    the "a tenant keeps its last value" would then be meaningless.
 
     2.0 = tenant A's seeded live grant + one planted. Tenant B holds
     4 (its seeded one + three planted) and is never refreshed.

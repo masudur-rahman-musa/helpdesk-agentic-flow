@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/field";
 
-/** The four text controls, each with the wire parameter it fills and its cap. */
 export const TEXT_FILTERS = [
   { label: "Event type", param: "event_type" },
   { label: "Subject type", param: "subject_type" },
@@ -20,7 +19,6 @@ export const TEXT_FILTERS = [
   { label: "Actor", param: "actor_ref" },
 ] as const;
 
-/** What the controls hold right now, keyed the same way plus the two dates. */
 export type Draft = Record<string, string>;
 
 export const EMPTY_DRAFT: Draft = {
@@ -32,11 +30,7 @@ export const EMPTY_DRAFT: Draft = {
   to: "",
 };
 
-/**
- * The filter fields, the page size and `Search`. It holds no state of its own:
- * the draft and the page size live in `AuditSearch`, which owns what a commit
- * and a page-size change clear.
- */
+/** Holds no state: `AuditSearch` owns the draft and what a commit clears. */
 export function AuditFilterForm({
   draft,
   setDraft,
@@ -114,11 +108,8 @@ export function AuditFilterForm({
 }
 
 /**
- * The applied filters, as wire parameters, out of what the controls hold.
- *
- * A control left empty contributes NOTHING. The two dates are composed into
- * instants here rather than sent raw, so a `timestamptz` column never meets a
- * value whose meaning depends on the server's zone (decision C).
+ * An empty control sends no parameter. Dates become UTC instants here, so the
+ * search never depends on the server's time zone.
  */
 export function filtersOf(draft: Draft): AppliedFilters {
   const filters: Record<string, string> = {};

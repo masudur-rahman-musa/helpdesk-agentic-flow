@@ -1,29 +1,9 @@
 """`run_once`: the guard every mutating tool runs its effect inside.
 
-A retried request must never grant or revoke twice (the design). The effect
-and the stored response are written in the caller's transaction, so they
-commit together: there is no window where the action happened but the
-response that describes it did not. That is why the API is a callback
-wrapper rather than a claim-then-complete pair — the crash case the spec
-names is exactly the gap a two-phase API leaves open.
-
-Read-then-insert is a read-modify-write, so two concurrent calls with one
-key could both read "absent" and both run the effect. A transaction-scoped
-advisory lock on (tenant, key) serialises them; the loser blocks, and once
-the winner commits it sees the row and replays. The unique index on
-(tenant_id, key) is the backstop if the lock is ever bypassed.
-
-The lock uses the two-integer `pg_advisory_xact_lock(classid, objid)` form,
-which Postgres keeps in a different key space from the single-bigint form
-`audit/writer.py` uses: an idempotency lock can never block an audit append
-for the same tenant.
-
-Like the audit writer, this serialises correctly only because the read
-after the lock sees rows committed since the lock was granted, which holds
-under READ COMMITTED (the engine default). Under a stricter isolation level
-the snapshot would predate the lock and two callers could both run the
-effect; do not raise the isolation level on this session without revisiting
-the read below.
+The effect and the stored response commit in one transaction, so a
+crash cannot run the action and lose its answer. An advisory lock on
+(tenant, key) makes a second caller wait and then replay. This needs
+READ COMMITTED: do not raise the isolation level on this session.
 """
 
 import json
@@ -48,18 +28,13 @@ from helpdesk.shared.crud.idempotency import (
 from helpdesk.shared.models.idempotency import KEY_LENGTH, TOOL_NAME_LENGTH
 
 KEY_TTL = timedelta(days=7)
-"""How long a key is honoured (the design). Past it, the key is free again."""
+"""How long a key is honoured. Past it, the key is free again."""
 
 
 @dataclass(frozen=True, slots=True)
 class RunOnceResult:
-    """What `run_once` hands back.
-
-    `replayed` is False when `fn` ran in this call and True when a stored row
-    answered, so the caller can record the two honestly — a replay must never
-    be written to the audit log as the declared event happening again.
-    Pinned by `test_replay_returns_the_stored_response_without_running_the_effect`.
-    """
+    """What `run_once` hands back. `replayed` keeps a replay out of the
+    audit log as a second event."""
 
     response: Mapping[str, Any]
     replayed: bool
@@ -70,24 +45,14 @@ class TenantMismatchError(RuntimeError):
 
 
 class InvalidIdempotencyKeyError(ToolError):
-    """The key or tool name cannot be stored as given.
-
-    Checked before the lock and before the effect: left to the column
-    lengths, an oversized key would abort the flush *after* the grant or
-    revoke had run, and surface as a free-text database error instead of a
-    typed code (the design).
-    """
+    """The key or tool name cannot be stored. Checked before the effect, not
+    left to fail at flush after the grant ran."""
 
     code = ErrorCode.VALIDATION
 
 
 class UnstorableResponseError(ToolError):
-    """A tool returned a response that cannot be stored as JSON.
-
-    Raised at the call site rather than left to fail at commit time, where
-    the traceback would point at the flush and not at the tool that built
-    the value.
-    """
+    """A tool returned a response that cannot be stored as JSON."""
 
     code = ErrorCode.INTERNAL
 
@@ -104,27 +69,9 @@ def _check_storable_identifiers(key: str, tool_name: str) -> None:
         )
 
 
-
 def _storable(response: Mapping[str, Any], tool_name: str) -> dict[str, Any]:
-    """The response as it will be stored and replayed.
-
-    Round-tripped through the canonical encoder so that what the caller
-    receives on the first call is byte-identical to what a replay returns:
-    a value the encoder renders (a UUID, a datetime) becomes its rendered
-    form once, here, instead of differing between the two paths.
-
-    Applied to BOTH paths — the fresh response and the stored row alike —
-    because the round trip normalises key ORDER as well as values, and the
-    two sources order keys differently. `canonical_json` sorts; a `jsonb`
-    column read back from Postgres does not, it orders by key length and then
-    bytewise. So a response whose sorted order differs from that one came
-    back with the same values in a different byte string on replay, which is
-    exactly what byte-identity promises not to do. Pinned by
-    `test_mcp_reviews.py::test_a_replayed_key_returns_the_same_response_and_opens_no_second_review`,
-    whose `flag_counts` is the first dict-valued field any tool output has and
-    is what exposed this; every earlier mutating tool happened to have a key
-    set the two orders agree on.
-    """
+    """The response as it will be stored and replayed. Used on both paths,
+    since `jsonb` does not keep key order."""
     try:
         encoded = canonical_json(response)
     except TypeError as exc:
@@ -145,16 +92,8 @@ async def run_once(
 ) -> RunOnceResult:
     """Run `fn` at most once for this (tenant, key); replay it after that.
 
-    `fn` takes no arguments and closes over the same session, so its writes
-    join this transaction. The tenant actually used is the session's bound
-    one and a mismatched argument is refused rather than honoured (hard rule
-    6): silently ignoring it would let a caller believe a key was scoped to
-    a tenant it was not.
-
-    Returns a `RunOnceResult` whose `replayed` says whether the stored row
-    answered instead of `fn`. Raises `IdempotencyConflictError` when the key
-    was already spent on a different request. An expired key is treated as
-    absent: the effect runs again and its row replaces the stale one.
+    A tenant other than the session's is refused, not ignored. An expired
+    key counts as absent.
     """
     bound = bound_tenant_id(session)
     if bound != tenant_id:
@@ -174,15 +113,12 @@ async def run_once(
             raise IdempotencyConflictError(
                 f"idempotency key {key!r} was already used for a different request"
             )
-        # Normalised on the way out, not trusted as stored: see `_storable`.
-        # The values are already canonical (this row was written through it),
-        # so this only restores the key order Postgres's `jsonb` dropped.
+        # Restores the key order `jsonb` dropped; see `_storable`.
         return RunOnceResult(response=_storable(existing.response, tool_name), replayed=True)
 
     response = _storable(await fn(), tool_name)
 
-    # The stale row is invisible to the read above but still holds the
-    # unique index, so it has to go before the key can be re-claimed.
+    # An expired row still holds the unique index, so remove it first.
     await delete_expired_idempotency_key(session, key, now)
     await create_idempotency_key(
         session,

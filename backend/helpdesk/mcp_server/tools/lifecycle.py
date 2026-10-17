@@ -1,38 +1,8 @@
-"""The lifecycle tools: the design's joiner, mover and leaver (requirement #15).
+"""The joiner, mover and leaver tools.
 
-`onboard_user` is the first tool that creates a PERSON rather than access.
-Everything it decides lives in `helpdesk.access.lifecycle`; what lives here
-is the wire contract and the two resolutions the domain cannot make on its
-own — `department_id` and `manager_user_id` are looked up in the token's
-tenant first, and either absence answers the same `NOT_FOUND` (the same
-reasoning `revoke_access` carries for a grant id: an argument that told
-"missing" from "another tenant's" apart would be a cross-tenant existence
-oracle).
-
-There is no tenant argument and no principals argument. The tenant is the
-token's, and a joiner's principals are the fixed
-`JOINER_PRINCIPALS` constant, because an HR caller able to name them could
-mint an `it_admin` through a lifecycle tool (decision D).
-
-`transfer_user` is the mover, and it resolves the SAME way: the
-`user_id` and the `new_department_id` are looked up in the token's tenant and
-either absence answers the same `NOT_FOUND`. It takes no tenant argument
-either, and no department for the person to come FROM — where they are now is
-read off their row, never taken from the caller.
-
-`offboard_user` is the leaver, and it resolves the LEAST: its
-only id is the person, and `lock_user` inside the domain call answers the
-same `NOT_FOUND` for a missing user and another tenant's, so this module
-looks nothing up before calling. It takes no tenant argument either.
-
-The registry declares the GENERIC `tool.succeeded` for all three tools, not
-`user.onboarded`, `user.transferred` or `user.offboarded` (12a decision F,
-12b decision C, 12d): each handler appends its own the design event naming
-the PERSON as the subject, and the pipeline's event lands last as the
-summary — the same shape as an earlier change's `grant.revoked`.
-
-No function here opens a session or touches the transport: the pipeline binds
-the session to the token's tenant before the handler is called.
+Every id is looked up in the token's tenant, and a missing id and another
+tenant's id give the same `NOT_FOUND`, so answers reveal nothing across
+tenants. No tool takes a tenant argument.
 """
 
 import re
@@ -52,11 +22,7 @@ from helpdesk.shared.access.offboarding import offboard_user as offboard_user_co
 from helpdesk.shared.access.onboarding import onboard_user as onboard_user_core
 from helpdesk.shared.access.transfers import transfer_user as transfer_user_core
 
-# Read off the columns, never retyped: the check and the
-# storage are the same number by construction. Both are asserted inclusively
-# at their exact values by `test_mcp_onboard_user.py::
-# test_the_input_bounds_are_inclusive_and_reject_before_any_effect`, which
-# also compares them against the literals 320 and 256.
+# Read off the columns, so the input check and the storage never disagree.
 _EMAIL_TYPE = User.__table__.c.email.type
 assert isinstance(_EMAIL_TYPE, String), _EMAIL_TYPE
 assert _EMAIL_TYPE.length is not None, "users.email must be a sized column"
@@ -68,70 +34,33 @@ assert _DISPLAY_NAME_TYPE.length is not None, "users.display_name must be a size
 DISPLAY_NAME_MAX_LENGTH: int = _DISPLAY_NAME_TYPE.length
 
 EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
-r"""What an address may look like, deliberately narrow rather than RFC-complete.
+r"""Narrow on purpose: one line, one `@`, a dotted domain, no whitespace.
 
-Used with `re.fullmatch` and never `match` or `search`: the
-class excludes every whitespace character, so a trailing `"\n"`, `"\r\n"` or
-`" "` cannot ride into the directory on the end of an otherwise valid
-address, and neither can an inner space. All four rejections plus the
-accepted baseline are in the input table of
-`test_mcp_onboard_user.py::test_the_input_bounds_are_inclusive_and_reject_before_any_effect`;
-a non-anchored match accepts the three trailing cases, so that table is what
-tells `fullmatch` from `match` here.
-
-The address is the login identifier and a unique key per tenant, so what it
-must guarantee is a single line with one `@` and a dotted domain, not
-deliverability — a permissive RFC 5322 pattern would admit exactly the
-control characters this exists to keep out.
+Used with `fullmatch`, so a trailing newline cannot ride into the directory.
 """
 
 
 class OnboardUserInput(MutatingToolInput):
-    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`.
-
-    Forbidding extras is the point on a lifecycle mutation: a `tenant_id` in
-    the arguments is a caller who believes they are hiring into another
-    tenant, and dropping it silently would create the person in the TOKEN's
-    tenant under a success the caller reads as something else. Pinned by
-    `test_mcp_onboard_user.py::test_an_unknown_field_is_refused_with_no_user`.
-    """
+    """Extras are refused. Principals are not an input, so no caller can mint an `it_admin`."""
 
     email: str = Field(min_length=1, max_length=EMAIL_MAX_LENGTH)
     display_name: str = Field(min_length=1, max_length=DISPLAY_NAME_MAX_LENGTH)
     department_id: uuid.UUID
     start_date: date
-    """A real date, typed rather than a string: `"2026-13-01"` and
-    `"not-a-date"` are `VALIDATION` before any row exists, and the joiner's
-    tenure is what the engine's new-joiner rule reads."""
 
     manager_user_id: uuid.UUID
 
     @field_validator("email")
     @classmethod
     def _email_is_one_line(cls, value: str) -> str:
-        """`re.fullmatch`, and deliberately NOT Pydantic's `pattern=`.
-
-        `Field(pattern=...)` is a PARTIAL match: it accepts any string the
-        pattern matches somewhere, so `"a@b.c\n"`, `"a@b.c\r\n"` and
-        `"a@b.c "` all pass it and the address reaches the directory carrying
-        a control character. Those three cases plus an inner space are in
-        `test_mcp_onboard_user.py::test_the_input_bounds_are_inclusive_and_reject_before_any_effect`,
-        and each one of them fails if this validator is replaced by
-        `pattern=EMAIL_PATTERN` — which is how this landed here.
-        """
+        """`fullmatch`, not `pattern=`, which would let a trailing newline through."""
         if EMAIL_PATTERN.fullmatch(value) is None:
             raise ValueError("email must be a single-line address of the form name@domain.tld")
         return value
 
 
 class SkippedRoleOutput(BaseModel):
-    """One template role the engine refused, and the the design code it gave.
-
-    Part of the tool's answer rather than a log line (decision B): a template
-    naming two roles that cannot be held together is a data defect somebody
-    has to fix, and a caller who never learns which role was withheld cannot
-    fix it.
-    """
+    """A template role the engine refused, returned so the caller knows what to fix."""
 
     role_id: uuid.UUID
     reason_code: ErrorCode
@@ -149,27 +78,8 @@ class OnboardUserOutput(BaseModel):
 async def onboard_user(ctx: ToolContext, args: OnboardUserInput) -> OnboardUserOutput:
     """Hire one person into the token's tenant and apply their department template.
 
-    Both ids are resolved through the tenant-bound repository BEFORE any
-    write, and both absences answer the identical `NOT_FOUND` — missing, and
-    belonging to another tenant, are indistinguishable at this seam, pinned
-    for each id separately by
-    `test_mcp_onboard_user.py::test_a_missing_and_another_tenants_department_answer_the_same_not_found`
-    and `::test_a_missing_and_another_tenants_manager_answer_the_same_not_found`.
-    The manager is validated even though `users` has no manager column to
-    write it to (decision E): it is carried into the `user.onboarded` payload,
-    which is exactly the argument an implementation is most likely to accept
-    unchecked and file a manager who does not exist.
-
-    the design's matrix row is the only permission gate on this tool, and it runs
-    in the pipeline: onboarding takes no target the caller might or might not
-    reach, so there is no second, argument-dependent check of the kind
-    `create_access_request` needs. `test_the_other_four_principals_are_denied_and_write_no_user`
-    sends otherwise-valid arguments for all four refused principals, so
-    deleting that stage is the one change that turns those cases into created
-    users.
-
-    Everything runs in the transaction the pipeline opened, so the person,
-    their grants and every event commit or roll back together.
+    The manager is checked even though no column stores it, because it goes
+    into the audit event and must be real.
     """
     if await Repository(ctx.session, Department).get(args.department_id) is None:
         raise NotFoundError("no such department in this tenant")
@@ -197,34 +107,15 @@ async def onboard_user(ctx: ToolContext, args: OnboardUserInput) -> OnboardUserO
 
 
 class TransferUserInput(MutatingToolInput):
-    """the design's mover signature. `extra="forbid"` comes from `MutatingToolInput`.
-
-    Three arguments and no fourth: there is no tenant and no
-    department to move FROM, because where the person is now is read off their
-    row — a caller who could name it could diff a template the person was never
-    in. A `tenant_id` in the arguments is refused rather than dropped, pinned by
-    `test_mcp_transfer_user.py::test_an_unknown_field_is_refused_with_no_department_change`.
-    """
+    """No "from" department: it is read off the person's row, never taken from the caller."""
 
     user_id: uuid.UUID
     new_department_id: uuid.UUID
     effective_date: date
-    """A real date, typed rather than a string. It reaches the
-    `user.transferred` payload and nothing parses it afterwards (decision G:
-    there is no column and no scheduler until row 21), so `"2026-13-01"` and
-    `"2026-09-31"` typed as `str` would become permanent audit records nobody
-    can read. Both are `VALIDATION` before any effect, pinned by
-    `test_mcp_transfer_user.py::test_the_input_types_are_refused_before_any_effect`."""
 
 
 class TransferUserOutput(BaseModel):
-    """The four sets of the diff, plus what the engine refused.
-
-    `retained_role_ids` and `non_standard_role_ids` name roles nothing was
-    done to, and they are answered rather than left implicit: they are the only
-    thing that tells a caller which kept grants their new department's template
-    accounts for and which an access review will later flag (decision H).
-    """
+    """The diff, plus kept roles the new template covers and ones a review will flag."""
 
     from_department_id: uuid.UUID | None
     revoked_role_ids: list[uuid.UUID]
@@ -235,28 +126,7 @@ class TransferUserOutput(BaseModel):
 
 
 async def transfer_user(ctx: ToolContext, args: TransferUserInput) -> TransferUserOutput:
-    """Move one person to another department in the token's tenant, and diff.
-
-    The destination is resolved through the tenant-bound repository BEFORE any
-    write, and `lock_user` inside the domain call resolves the person the same
-    way, so both absences — missing, and belonging to another tenant — answer
-    the identical `NOT_FOUND` at each id. Pinned separately by
-    `test_mcp_transfer_user.py::test_a_missing_and_another_tenants_user_answer_the_same_not_found`
-    and `::test_a_missing_and_another_tenants_department_answer_the_same_not_found`,
-    the second over a REAL foreign department, because a lookup outside the
-    guard would write another tenant's department id onto this tenant's user.
-
-    the design's matrix row is the only permission gate on this tool, and it runs
-    in the pipeline: all three permitted principals hold `Scope.ANY`, so unlike
-    `revoke_access` there is no second, argument-dependent check.
-    `test_the_other_four_principals_are_denied_and_move_nobody` sends fully
-    valid arguments for all four refused principals, so deleting that stage is
-    the one change that turns those cases into completed transfers (standing
-    rule 16).
-
-    Everything runs in the transaction the pipeline opened, so the department,
-    the revocations, the grants and every event commit or roll back together.
-    """
+    """Move one person to another department in the token's tenant, and diff."""
     if await Repository(ctx.session, Department).get(args.new_department_id) is None:
         raise NotFoundError("no such department in this tenant")
 
@@ -282,33 +152,14 @@ async def transfer_user(ctx: ToolContext, args: TransferUserInput) -> TransferUs
 
 
 class OffboardUserInput(MutatingToolInput):
-    """the design's leaver signature. `extra="forbid"` comes from `MutatingToolInput`.
-
-    Two arguments and no third: there is no tenant and nothing
-    naming what to revoke, because an offboard takes back everything the
-    person holds — a caller able to name a subset could offboard somebody on
-    paper and leave their access alive. A `tenant_id` in the arguments is
-    refused rather than dropped, pinned by
-    `test_mcp_offboard_user.py::test_an_unknown_field_is_refused_with_no_state_change`.
-    """
+    """Nothing names what to revoke: offboarding takes back everything."""
 
     user_id: uuid.UUID
     end_date: date
-    """A real date, typed rather than a string. It is written straight into
-    `users.end_date` and rendered into the `user.offboarded` payload, so
-    `"2026-13-01"` and `"2026-09-31"` typed as `str` would reach a column and
-    a permanent audit record. Both are `VALIDATION` before any effect, pinned
-    by `test_mcp_offboard_user.py::test_the_input_types_are_refused_before_any_effect`."""
 
 
 class OffboardUserOutput(BaseModel):
-    """What the departure took away and what it closed.
-
-    `revoked_grant_count` counts ROWS and `revoked_role_ids` counts ROLES:
-    nothing makes a grant unique per (user, role), so a caller told only the
-    roles cannot tell how many live grants ended (an earlier change's reason, answered
-    here in the response rather than left to the audit log).
-    """
+    """Grants are counted as rows too, since one person can hold a role twice."""
 
     revoked_role_ids: list[uuid.UUID]
     revoked_grant_count: int
@@ -316,27 +167,7 @@ class OffboardUserOutput(BaseModel):
 
 
 async def offboard_user(ctx: ToolContext, args: OffboardUserInput) -> OffboardUserOutput:
-    """Mark one person in the token's tenant a leaver and take back their access.
-
-    Nothing is resolved here: the only id is the person, and `lock_user`
-    inside the domain call reads through the tenant-bound session, so missing
-    and belonging to another tenant answer the identical `NOT_FOUND` (pinned
-    by `test_mcp_offboard_user.py::
-    test_a_missing_and_another_tenants_user_answer_the_same_not_found`, which
-    re-reads the foreign user's status and live roles afterwards).
-
-    the design's matrix row is the only permission gate on this tool, and it runs
-    in the pipeline: both permitted principals hold `Scope.ANY`, so unlike
-    `revoke_access` there is no second, argument-dependent check. The row is
-    narrower than the other two lifecycle tools — `it_admin` may onboard and
-    transfer but NOT offboard — and
-    `test_the_other_five_principals_are_denied_and_offboard_nobody` sends
-    fully valid arguments for all five refused principals, so deleting that
-    stage is the one change that turns those cases into completed departures.
-
-    Everything runs in the transaction the pipeline opened, so the status, the
-    revocations, the closures and every event commit or roll back together.
-    """
+    """Mark one person in the token's tenant a leaver and take back their access."""
     result = await offboard_user_core(
         ctx.session,
         ctx.directory,
@@ -355,7 +186,7 @@ async def offboard_user(ctx: ToolContext, args: OffboardUserInput) -> OffboardUs
 
 
 def _skipped(record: SkippedRole) -> SkippedRoleOutput:
-    """One domain refusal on the wire. Shared so the two tools cannot drift."""
+    """One engine refusal on the wire, shared so the tools cannot drift."""
     return SkippedRoleOutput(
         role_id=record.role_id, reason_code=record.reason_code, reason=record.reason
     )

@@ -1,4 +1,4 @@
-"""An earlier change section 6: `run_once`, the guard around every mutating tool.
+"""`run_once`, the guard around every mutating tool.
 
 Expected implementation surface:
 
@@ -9,10 +9,10 @@ Expected implementation surface:
 
     * replays: returns the stored ``response`` without calling ``fn``;
     * refuses: same key, different fingerprint → ``IdempotencyConflictError``
-      (the design ``IDEMPOTENCY_CONFLICT``), ``fn`` never called, row untouched;
+      (the contract ``IDEMPOTENCY_CONFLICT``), ``fn`` never called, row untouched;
     * runs: awaits ``fn()`` and writes ``(key, tool_name, fingerprint,
       response, expires_at = now + 7 days)`` in the caller's transaction, so
-      the effect and its stored response commit together (the design).
+      the effect and its stored response commit together.
 
     ``fn`` is a zero-argument async callable returning a JSON-serialisable
     mapping; it closes over the same session, so its writes join the same
@@ -96,7 +96,7 @@ async def _all_rows(
 
 
 def test_a_key_is_honoured_for_seven_days() -> None:
-    """the design names the window; a shorter one silently stops honouring
+    """The contract names the window; a shorter one silently stops honouring
     retries the system promises to honour."""
     assert timedelta(days=7) == KEY_TTL
 
@@ -308,7 +308,7 @@ def test_replay_is_insensitive_to_argument_key_order(
 def test_a_committed_call_replays_even_when_its_result_was_lost(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """the design's crash case: the process dies between commit and response;
+    """The contract's crash case: the process dies between commit and response;
     the client retries and must get the committed result, not a second effect."""
 
     async def scenario() -> None:
@@ -510,7 +510,7 @@ def test_an_idempotency_lock_does_not_block_an_audit_append(
 def test_a_tenant_argument_that_is_not_the_bound_one_is_refused(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """a project rule, as `append_event` does it: the tenant comes from the bound
+    """The identity-from-token rule, as `append_event` does it: the tenant comes from the bound
     session, and a mismatched argument is refused rather than quietly ignored."""
 
     async def scenario() -> None:

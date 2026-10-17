@@ -1,15 +1,8 @@
 """What makes two requests the same request.
 
-The fingerprint is the whole basis for telling a replay from a conflict, so
-it covers the tool name and every argument, and it uses the same canonical
-encoder as the audit chain: one set of bytes, no chance of the two hashes
-disagreeing about what a request was.
-
-Key order is not part of a request (a client may serialise a dict any way),
-but value types are: `1` and `"1"` are different requests, and the encoder
-renders them differently rather than collapsing them.
-
-Pure: no I/O, no clock.
+Uses the same JSON encoder as the audit chain, so the two hashes never
+disagree about what a request was. Key order does not count; value types do
+(`1` and `"1"` differ).
 """
 
 import hashlib

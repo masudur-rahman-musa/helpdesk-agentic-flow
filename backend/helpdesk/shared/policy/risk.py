@@ -1,12 +1,8 @@
-"""Risk class and the facts behind it (the design).
+"""Risk class and the facts behind it.
 
-Every §9.2 row is an independent predicate and the highest matching class
-wins. Ordered first-match would make table order
-load-bearing and would hide the `admin` and `critical` rows behind the
-template rows above them.
-
-`low` is always a candidate, so the maximum is never taken over an empty
-set — the function is total without an unreachable fallback branch.
+Each table row is checked on its own and the highest match wins. First-match
+order would make the table order matter and hide the admin and critical rows
+behind the template rows.
 """
 
 from helpdesk.shared.policy.types import (
@@ -19,13 +15,13 @@ from helpdesk.shared.policy.types import (
 )
 
 NEW_JOINER_TENURE_DAYS = 30
-"""Below this many days of tenure, a `low` request is lifted (the design)."""
+"""Below this many days of tenure, a `low` request is lifted."""
 
 _LOWER_SENSITIVITY = frozenset({Sensitivity.LOW, Sensitivity.MEDIUM})
 
 
 def base_risk_class(snapshot: RequestSnapshot) -> RiskClass:
-    """The §9.2 table without the tenure bump."""
+    """The risk table without the tenure bump."""
     in_template = snapshot.role_in_department_template
     sensitivity = snapshot.role.sensitivity
     privilege = snapshot.role.privilege
@@ -49,11 +45,10 @@ def is_new_joiner(snapshot: RequestSnapshot) -> bool:
 
 
 def risk_class(snapshot: RequestSnapshot) -> tuple[RiskClass, tuple[ReasonCode, ...]]:
-    """Class plus the §9.6 facts that produced it, in canonical order.
+    """Class plus the reason codes behind it, in fixed order.
 
-    The tenure bump is applied last and only lifts `low`; a new joiner whose
-    request was already `elevated` or higher gets no `NEW_JOINER` reason,
-    because nothing was lifted.
+    The tenure bump only lifts `low`, so `NEW_JOINER` appears only when
+    something was actually lifted.
     """
     resolved = base_risk_class(snapshot)
     reasons: list[ReasonCode] = [

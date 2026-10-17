@@ -7,31 +7,30 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import { readAsk } from "@/features/chat/prefill";
 
 /**
- * An earlier change §6, `access-page.test.tsx`: the `/access` list against a stubbed
+ * The `/access` list against a stubbed
  * `fetch` and a frozen clock. jsdom, no agent-api, no backing service.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23b's Deviations):
+ * Shapes this file fixes:
  * - the unit under test is `GrantList` from
  *   `web/src/features/access/components/grant-list.tsx`, no props, reading `/api/me/access`
- *   itself through TanStack Query (decision A), exactly as `RequestList` reads
+ *   itself through TanStack Query, exactly as `RequestList` reads
  *   the other route.
  * - accessible names: region `Active access`, list `Grants`, and per row a
- *   link named `Request renewal for {role_name}` (§6 fixes the link's name for
- *   the fixture role; it is the role name, not the slug).
+ *   link named `Request renewal for {role_name}` (the role name, not the slug,
+ *   for the fixture role).
  * - the countdown reads `9 days left` (whole days, floored) and the absent one
  *   reads `No expiry`
- *   (§6's literals), and the granted date reads `2026-01-05` — the ISO prefix,
+ *   and the granted date reads `2026-01-05` — the ISO prefix,
  *   the same unambiguous form the decision card and `/requests` print.
  * - the clock is frozen with `vi.useFakeTimers({ shouldAdvanceTime: true })`
  *   before `vi.setSystemTime`. `shouldAdvanceTime` is load-bearing rather than
  *   decorative: TanStack Query's retry delay and Testing Library's `waitFor`
  *   both need time to pass, and a fully frozen clock hangs every async case in
  *   this file.
- * - the empty state is §6's literal sentence, and a failed read is a
+ * - the empty state is a fixed literal sentence, and a failed read is a
  *   `role="alert"` element.
  *
- * The wire shape is `list_my_access`' as BUILT (an earlier change, parsed by
+ * The wire shape is `list_my_access`' as built (parsed by
  * `web/src/features/access/schema.ts`): `{ grants: [{grant_id, role_slug, role_name,
  * privilege, system_slug, system_name, granted_at, expires_at}] }`, with
  * `expires_at` the only nullable field, and a failed proxy answering
@@ -179,7 +178,7 @@ describe("GrantList — the rows", () => {
   it("counts down in whole days, and says No expiry when there is none", async () => {
     // The clock is frozen nine days before the first grant ends, so "9 days
     // left" is arithmetic and not a coincidence. Catches a row printing the raw
-    // `expires_at` where §1 asks for a countdown, and — the load-bearing half —
+    // `expires_at` where a countdown is wanted, and — the load-bearing half —
     // a row that treats a NULL `expires_at` as an expiry: `daysUntil(null)`
     // paths render "NaN days left" or, worse, "0 days left" against a standing
     // grant, telling the user their access ends today when it never ends. The
@@ -197,11 +196,11 @@ describe("GrantList — the rows", () => {
   });
 
   it("gives every row a renewal link carrying the ask the composer will accept", async () => {
-    // §1's renewal criterion, asserted end to end on the LINK the user clicks.
+    // The renewal criterion, asserted end to end on the LINK the user clicks.
     // Catches a link named by the slug or named "Renew" on every row — with one
     // row per role, an accessible name that does not say WHICH role is a list of
     // identical links to a screen reader — and catches an href pointing at bare
-    // `/chat` (decision C's rejected alternative), which drops the sentence.
+    // `/chat`, which drops the sentence.
     // Reading the href back through `readAsk` catches an unencoded query, which
     // would hand `/chat` a truncated ask or none at all; a link is worth nothing
     // if the composer refuses what it carries.
@@ -272,8 +271,8 @@ describe("GrantList — a read that fails", () => {
 
 describe("GrantList — an expired session", () => {
   it("follows the proxy's redirect to /login instead of rendering rows", async () => {
-    // §1's unhappy path, and the reason it is `response.redirected` and never a
-    // status (22b decision E): the browser has ALREADY followed the proxy's
+    // The unhappy path, and the reason it is `response.redirected` and never a
+    // status: the browser has ALREADY followed the proxy's
     // 307, so this response is a 200 carrying the login page. Catches a fetcher
     // checking `response.ok` or `response.status === 401`, both of which see a
     // successful response and leave the user on `/access` reading a parse error
@@ -289,13 +288,12 @@ describe("GrantList — an expired session", () => {
 });
 
 /**
- * An earlier change §6, added to 23b's file and rewriting none of it (§8): the three
+ * The three
  * cases that hold `fetchGrants` still, after its four private lines become
  * `readWire("/api/me/access", myAccessSchema)`.
  *
  * `READ_ALERT` is the sentence copied byte for byte out of `grant-list.tsx`,
- * which holds it as JSX text and not as a constant — reported to 24ia rather
- * than answered by exporting one this plan's §3 does not authorise.
+ * which holds it as JSX text and not as a constant.
  */
 describe("GrantList — through the shared wire reader", () => {
   const READ_ALERT = "Your access could not be read. Try again in a moment.";
@@ -314,12 +312,12 @@ describe("GrantList — through the shared wire reader", () => {
   }
 
   it("a 403 FORBIDDEN renders this page's own read sentence, not the code's", async () => {
-    // Decision B on the one page whose empty state a person acts on by asking
+    // The one page whose empty state a person acts on by asking
     // again for access they already hold. Through `readWire` a typed code
     // arrives as a `WireRefusedError`, which this file has never seen: kills a
     // migration that dresses it per page ("You are not allowed to do that." over
     // a list of grants the caller demonstrably holds is worse than the generic
-    // sentence, and it is the alternative decision B refused), and kills one
+    // sentence, and it is the wrong choice), and kills one
     // that lets the class escape the error branch, leaving the page on its
     // loading state with no alert at all. The 502 rows above cannot decide this
     // — `UPSTREAM_UNAVAILABLE` is a plain `Error` through the migrated reader
@@ -339,7 +337,7 @@ describe("GrantList — through the shared wire reader", () => {
     // `search`. Kills a migration that carries the call to `/api/access` or
     // `/api/me/grants` while moving it into `readWire`, and kills one that adds
     // a parameter nobody asked for — an `?active=true` or a `?user=` would pass
-    // any `toContain` check and is a project rule written into the browser.
+    // any `toContain` check and is tenant-from-token written into the browser.
     // Arithmetic: the staged answer is the default empty 200,
     // so reads = 1 on mount, and the empty state is what says the read settled
     // before the count is taken.
@@ -355,7 +353,7 @@ describe("GrantList — through the shared wire reader", () => {
   it("a bodyless 500 renders the same read sentence", async () => {
     // The half `readWire`'s guarded `json()` carries and `fetchGrants` never
     // had: the migrated reader reads the body of EVERY non-ok response, so a
-    // response carrying none is new ground for this page (§5's second risk).
+    // response carrying none is new ground for this page.
     // Kills a refusal branch that awaits an unguarded `json()` — the page would
     // show whatever `SyntaxError` says, or nothing, for an outage — and kills
     // one that treats an unreadable body as a refusal with `undefined` as its

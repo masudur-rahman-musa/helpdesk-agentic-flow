@@ -3,30 +3,30 @@ import { expect, test } from "@playwright/test";
 import { accounts, decisionCard, loginAs, type Principal, sendTurn } from "./_fixtures";
 
 /**
- * Flow 3 of the design, an earlier change criterion 4: an employee who already holds one
+ * Flow 3: an employee who already holds one
  * half of a seeded SoD pair asks for the other half and is blocked.
  *
  * The pair is `scripts/seed.py::NORDLICHT.sod_rules`' first rule, `SoD-STD
- * §2.1`: `payments.initiator` against `payments.approver`. The actor holds
+ * 2.1`: `payments.initiator` against `payments.approver`. The actor holds
  * `payments.approver` from `NORDLICHT.planted_conflicts` and asks for
  * `payments.initiator`.
  *
- * DEVIATION (plan §1, "the card ... names the rule that stopped it"). No
+ * DEVIATION from the card naming the rule that stopped it. No
  * surface in the product names it. `web/lib/decision-labels.ts::reasonSentence`
  * splits `SOD_CONFLICT:{rule_id}` on the colon and renders only
- * `REASON_SENTENCES.SOD_CONFLICT`, deliberately (an earlier change decision C: a raw
+ * `REASON_SENTENCES.SOD_CONFLICT`, deliberately (a raw
  * uuid reads as nothing to the person asking), and the decision card, the
  * `/requests` rows and the `/approvals` rows all render through that one
- * function. An earlier change §3 forbids touching `web/components`, so the card is
+ * function. The e2e work must not touch `web/components`, so the card is
  * asserted for what it CAN say — `Blocked` plus the conflict sentence — and
  * the rule is then shown to be nameable where it belongs, on `/admin/rules`
  * (`components/admin/rules-board.tsx`, region `Rules`, table `Separation of
  * duties rules`), whose audience is `it_admin` and `platform_admin`
- * (`helpdesk/auth/rbac.py::Tool.LIST_SOD_RULES`, a design note). The kill claim
+ * (`helpdesk/auth/rbac.py::Tool.LIST_SOD_RULES`). The kill claim
  * stays honest: the card alone cannot say why.
  *
  * The rules-board half is a separate `test()` because it pins a different
- * control (24ea's read tool and its board) and would otherwise ride on the
+ * control (the read tool and its board) and would otherwise ride on the
  * chat turn's red.
  */
 
@@ -100,8 +100,8 @@ test("asking for the other half of a seeded SoD pair is blocked, with the confli
  * NOWHERE: with the card stripped of the rule id by design, `/admin/rules` is
  * the only surface that pairs the two roles with the policy reference, and an
  * empty or partial board would leave an admin unable to answer "which rule was
- * that". Scoped to the row carrying `SoD-STD §2.1` so the neighbouring rules
- * that also mention `payments.approver` (§2.2) or `payments.initiator` (§2.6)
+ * that". Scoped to the row carrying `SoD-STD 2.1` so the neighbouring rules
+ * that also mention `payments.approver` or `payments.initiator`
  * cannot satisfy it.
  */
 test("the rule that blocked it is named on the admin rules board", async ({ page }) => {

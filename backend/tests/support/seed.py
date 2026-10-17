@@ -1,4 +1,4 @@
-"""Test-only helpers exercising the expected an earlier change API surface.
+"""Test-only helpers exercising the expected API surface.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -53,17 +53,17 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "sod_rules",
     "grants",
     "tickets",
-    "audit_events",  # an earlier change
-    "idempotency_keys",  # an earlier change
-    "access_requests",  # an earlier change
-    "access_reviews",  # an earlier change
-    "review_items",  # an earlier change
-    "policy_documents",  # an earlier change
-    "policy_chunks",  # an earlier change
-    "sessions",  # an earlier change
-    "messages",  # an earlier change (decision B: the child table carries tenant_id too)
-    "notifications",  # an earlier change
-    "audit_chain_anchors",  # an earlier change
+    "audit_events",
+    "idempotency_keys",
+    "access_requests",
+    "access_reviews",
+    "review_items",
+    "policy_documents",
+    "policy_chunks",
+    "sessions",
+    "messages",  # the child table carries tenant_id too
+    "notifications",
+    "audit_chain_anchors",
 )
 ALL_TABLES: tuple[str, ...] = ("tenants", *TENANT_SCOPED_TABLES)
 
@@ -102,7 +102,7 @@ async def schema_engine(database_url: str) -> AsyncIterator[AsyncEngine]:
 async def seed_tenant(factory: async_sessionmaker[AsyncSession], slug: str) -> SeededTenant:
     """Insert one row per directory-core table for a new tenant; returns all ids.
 
-    An earlier change: the suite now shares one database for the whole run, so the
+    The suite shares one database for the whole run, so the
     globally-unique ``tenants.slug`` gets a uuid suffix to keep every call's
     tenant distinct. ``slug`` stays the label for the human names (display
     name, emails, role slugs), which are unique per tenant and so never clash

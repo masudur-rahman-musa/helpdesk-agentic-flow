@@ -1,7 +1,7 @@
-"""An earlier change section 6: the auth middleware checks the token once, for every request.
+"""The auth middleware checks the token once, for every request.
 
 Surface under test (written before it exists; every case below is red on one
-of these names until the plan's implementation lands):
+of these names until the implementation lands):
 
 ``helpdesk.agent_api.api.middleware`` (new module)
     ``RequireAuthMiddleware`` -- a plain-ASGI middleware the same shape as
@@ -58,7 +58,7 @@ REQUESTS_PATH = "/me/requests"
 # the middleware is the sole decider: the `/me/requests`
 # route still carries its own `authenticated()` check today, and a case driving
 # it would go green on that neighbouring guard whether or not the middleware is
-# mounted -- exactly the vacuous test rule 16 forbids. After the plan strips the
+# mounted -- exactly the vacuous test the project forbids. Once the change strips the
 # route's own check and the middleware is wired in, both this path and
 # `/me/requests` answer 401 from the one middleware.
 CHECK_FREE_PATH = "/__plan64_check_free__"
@@ -198,7 +198,7 @@ def _token(
 
 @app.get(CHECK_FREE_PATH)
 async def _plan64_check_free() -> dict[str, str]:
-    """A route with NO token check of its own, added for an earlier change's tests.
+    """A route with NO token check of its own, added for these tests.
 
     Its whole point is to have no guard but the middleware: a request that
     reaches it answers 200, so any 401 on this path can only have come from the
@@ -310,7 +310,7 @@ def test_the_open_list_is_exactly_health_ready_metrics_and_login() -> None:
     in) or too narrow (a probe or login that must stay open is missing).
 
     The set is asserted as a whole, so an added or dropped member flips it
-    (a project rule, exact value). A band or a prefix rule could not pin the
+    (an exact value). A band or a prefix rule could not pin the
     exact four.
     """
     assert {"/healthz", "/readyz", "/metrics", "/auth/login"} == OPEN_PATHS
@@ -419,8 +419,8 @@ def test_a_valid_token_reaches_the_route_and_its_bearer_is_forwarded(
     to forward.
 
     A valid token reaches `/me/requests`, the scripted caller answers, and the
-    bearer the seam was handed is the SAME token the request carried (hard rule
-    6). The status filter from the query still reaches the tool, proving the
+    bearer the seam was handed is the SAME token the request carried (the
+    identity rule). The status filter from the query still reaches the tool, proving the
     route actually ran rather than being short-circuited. The kill fires once
     the plan strips the route's own header read and the route forwards the
     bearer the middleware put on `request.state`: a middleware that refused a

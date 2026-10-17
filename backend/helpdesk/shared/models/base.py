@@ -1,9 +1,6 @@
-"""Declarative base, naming convention, and the shared column mixins.
+"""Declarative base and the shared columns.
 
-`Base` carries the id/created_at/updated_at columns every table gets.
-`TenantScoped` is the abstract base for every table that belongs to one
-tenant; the session guard in `helpdesk.core.db` keys on it, so a model
-is tenant-isolated if and only if it inherits from it.
+A model is tenant-isolated only if it inherits `TenantScoped`; the session guard keys on it.
 """
 
 import uuid
@@ -24,7 +21,7 @@ NAMING_CONVENTION = {
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
-    # Client-side uuid4 default, no server default.
+    # The id is made in Python, not by the database.
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

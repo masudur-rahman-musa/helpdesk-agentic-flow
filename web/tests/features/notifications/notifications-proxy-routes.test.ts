@@ -6,7 +6,7 @@ import { POST as readPOST } from "@/app/api/notifications/[notificationId]/read/
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change section 6, `notifications-proxy-routes.test.ts`: the page read and
+ * `notifications-proxy-routes.test.ts`: the page read and
  * the read stamp, proxied, against a stubbed `fetch`. Node environment, because
  * both handlers are server-side and `NextResponse.redirect` needs the real
  * `Response`.
@@ -15,31 +15,29 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  * mocked exactly as `tests/reviews-proxy-routes.test.ts` mocks it -- the
  * modules under test are the two routes, not Next's store.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23gb's Deviations):
+ * Shapes this file fixes:
  * - the page handler is `export async function GET(request: Request):
- *   Promise<Response>` -- it takes a `Request` because decision D has it
- *   forwarding `unread_only` and `limit` off its OWN url, 23h's shape.
+ *   Promise<Response>` -- it takes a `Request` because it
+ *   forwards `unread_only` and `limit` off its OWN url, the shape.
  * - the stamp handler is `export async function POST(request: Request, context:
  *   { params: Promise<{ notificationId: string }> }): Promise<Response>`,
  *   Next 15's async `params` over a `[notificationId]` segment, which is the
- *   signature the plan's section 6 states.
+ *   signature the tool states.
  * - the upstream paths are agent-api's own: `/me/notifications` and
  *   `/notifications/<id>/read`, never the browser-facing `/api/...` prefix.
  * - the transport-failure envelope is `502 { code: "UPSTREAM_UNAVAILABLE" }`,
  *   `proxyAgentApi`'s own body.
  * - the 401 answer is observed as a **307** to `/login` with a cleared cookie,
  *   read off `NextResponse.redirect`'s default status the way
- *   `tests/reviews-proxy-routes.test.ts` and
- *   `tests/approvals-proxy-routes.test.ts` already read it. The plan's section 6
- *   asks for it to be observed through `redirected`/`url` instead (standing
- *   rule 59), which is not observable HERE: rule 59's second half is about a
+ *   `reviews-proxy-routes.test.ts` and
+ *   `approvals-proxy-routes.test.ts` already read it. Observing it through
+ *   `redirected`/`url` is not possible HERE: that applies only to a
  *   case that FOLLOWS a redirect, and what these handlers return is the
  *   unfollowed `NextResponse.redirect` itself, whose `redirected` is `false`
  *   and whose `url` is empty. The status and the `location` header are the only
  *   things there are to assert, and no `window.location` is touched by any case
  *   here -- this file runs in the node environment and stubs only `fetch`,
- *   through `vi.stubGlobal`. This conflict belongs in 23gb's Deviations.
+ *   through `vi.stubGlobal`. This conflict belongs in the Deviations.
  *
  * No backing service and no page: the only seam is `fetch`.
  */
@@ -137,8 +135,8 @@ describe("the two notification routes - the bearer", () => {
     "$name sends the bearer from the httpOnly cookie and never in the URL",
     async ({ call, upstream }) => {
       // Catches a route that reads a token from a header the browser set or
-      // from the query string -- the cookie is the only copy of the bearer
-      // (22a decision A), so anything else means the client was handed one,
+      // from the query string -- the cookie is the only copy of the bearer, so anything else means
+      // the client was handed one,
       // and a token in a URL lands in every access log. Also catches a route
       // that calls agent-api directly instead of through `proxyAgentApi`: an
       // unrouted call carries no authorization header at all.
@@ -173,7 +171,7 @@ describe("the two notification routes - the bearer", () => {
 
 describe("the page route - its own query parameters (decision D)", () => {
   it("forwards unread_only and limit from its own request url", async () => {
-    // Decision D. Catches a proxy that drops the query -- 23ga put the unread
+    // Catches a proxy that drops the query -- the tool puts the unread
     // filter on the tool because the bell's own view is the unread set, so a
     // page that cannot ask for it makes that filter unreachable from the only
     // caller there is -- and one that renames either parameter on the way
@@ -190,7 +188,7 @@ describe("the page route - its own query parameters (decision D)", () => {
   });
 
   it("sends neither parameter when its own url carries neither", async () => {
-    // Section 1's first criterion, seen from the browser. Catches a proxy that
+    // The first rule, seen from the browser. Catches a proxy that
     // always writes both keys: `?unread_only=&limit=` reaches agent-api as an
     // unparseable bool and an unparseable int, so a page that asked for
     // nothing would get a 422 instead of every message, where an absent pair
@@ -217,7 +215,7 @@ describe("the page route - its own query parameters (decision D)", () => {
   });
 
   it("forwards an empty unread_only or limit exactly as it was sent", async () => {
-    // The far side decides (section 6). Catches a proxy that REWRITES an empty
+    // The far side decides. Catches a proxy that REWRITES an empty
     // value -- dropping it, or turning `unread_only=` into `false` -- which
     // would answer a page for a request agent-api was entitled to refuse and
     // hide a broken caller from whoever built it. The presence test is `!==
@@ -234,7 +232,7 @@ describe("the page route - its own query parameters (decision D)", () => {
 
 describe("the stamp route - the wire", () => {
   it("posts to the notification's own path with no body at all", async () => {
-    // Decision B and section 1's second criterion. Catches three proxies that
+    // Catches three proxies that
     // all look right on the read: one that forwards a GET (agent-api answers
     // 405 and nothing is ever stamped), one that invents a body -- a payload
     // this route does not validate and the tool does not read, which agent-api
@@ -252,7 +250,7 @@ describe("the stamp route - the wire", () => {
   });
 
   it("sends no idempotency key of its own", async () => {
-    // Section 1's third criterion seen from the browser: the key is DERIVED by
+    // The third rule seen from the browser: the key is DERIVED by
     // agent-api from the verified reader and the notification. Catches a proxy
     // that mints one per click -- two keys for one double-clicked bell, which
     // is two calls filed on one row -- and one that forwards a key the browser
@@ -294,7 +292,7 @@ describe("the two notification routes - an expired session", () => {
     async ({ call }) => {
       // Catches a route that passes agent-api's 401 through to the browser: the
       // stale cookie survives, so every later call fails the same way with
-      // nothing telling the user why. This is 22a's `proxyAgentApi` seam, so a
+      // nothing telling the user why. This is the `proxyAgentApi` seam, so a
       // route that opens its own `fetch` is caught here too -- an unrouted call
       // answers 401, not a redirect, and clears no cookie.
       fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));

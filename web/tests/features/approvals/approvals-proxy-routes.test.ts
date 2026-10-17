@@ -7,7 +7,7 @@ import { GET as approvalsGET } from "@/app/api/me/approvals/route";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
- * An earlier change §6, `approvals-proxy-routes.test.ts`: `GET /api/me/approvals` and
+ * `approvals-proxy-routes.test.ts`: `GET /api/me/approvals` and
  * the two decision proxies against a stubbed `fetch`. Node environment,
  * because all three handlers are server-side and `NextResponse.redirect`
  * needs the real `Response`.
@@ -16,11 +16,10 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  * mocked exactly as `tests/me-proxy-routes.test.ts` mocks it — the modules
  * under test are the three routes, not Next's store.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 23c's Deviations):
+ * Shapes this file fixes:
  * - the queue handler is `export async function GET(): Promise<Response>`, the
  *   zero-argument shape the `/api/me` proxies already have. The `limit` filter
- *   lives on the agent-api route (§1) and no page exists yet to send one.
+ *   lives on the agent-api route and no page exists yet to send one.
  * - each decision handler is
  *   `export async function POST(request: Request, context: { params:
  *   Promise<{ requestId: string }> }): Promise<Response>` — Next 15's async
@@ -30,7 +29,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  *   browser-facing `/api/...` prefix.
  * - the decision body is forwarded VERBATIM as bytes, with
  *   `content-type: application/json` — the comment and reason bounds are the
- *   TOOL's (decision E), so a proxy that re-parsed and re-serialised would be
+ *   TOOL's, so a proxy that re-parsed and re-serialised would be
  *   a second opinion about a payload it does not validate.
  * - the transport-failure envelope is `502 { code: "UPSTREAM_UNAVAILABLE" }`,
  *   `proxyAgentApi`'s own body, and the 401 answer is a **307** to `/login`,
@@ -144,8 +143,8 @@ describe("the three approval routes — the bearer", () => {
     "$name sends the bearer from the httpOnly cookie and never in the URL",
     async ({ call, upstream }) => {
       // Catches a route that reads a token from a header the browser set or
-      // from the query string — the cookie is the only copy of the bearer
-      // (22a decision A), so anything else means the client was handed one,
+      // from the query string — the cookie is the only copy of the bearer, so anything else means
+      // the client was handed one,
       // and a token in a URL lands in every access log. Also catches a route
       // that calls agent-api directly instead of through `proxyAgentApi`: an
       // unrouted call carries no authorization header at all.
@@ -183,7 +182,7 @@ describe("the two decision routes — the body on the wire", () => {
       // one that drops the body (the tool refuses a missing `reason`, and an
       // approver's comment is lost from the audit trail), and one that
       // re-parses and re-serialises the payload, which is a second opinion
-      // about a body only the tool validates (decision E).
+      // about a body only the tool validates.
       //
       // The path carries the request id, so this is also what catches a route
       // that ignores its own `params` and posts to a fixed id.
@@ -223,7 +222,7 @@ describe("the three approval routes — an expired session", () => {
     async ({ call }) => {
       // Catches a route that passes agent-api's 401 through to the browser: the
       // stale cookie survives, so every later call fails the same way with
-      // nothing telling the user why. This is 22a's `proxyAgentApi` seam, so a
+      // nothing telling the user why. This is the `proxyAgentApi` seam, so a
       // route that opens its own `fetch` is caught here too — an unrouted call
       // answers 401, not a redirect, and clears no cookie.
       fetchStub.mockResolvedValue(jsonResponse({ code: "FORBIDDEN" }, 401));

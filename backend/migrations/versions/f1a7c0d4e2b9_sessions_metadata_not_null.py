@@ -21,16 +21,10 @@ depends_on: str | Sequence[str] | None = None
 TABLE_NAME = "sessions"
 COLUMN_NAME = "metadata"
 
-# An earlier change decision F. `models/conversation.py` declares the attribute as
-# `Mapped[dict[str, Any]]`, which says the value is never None, while the
-# conversation revision created the column `nullable=True`. The model is the
-# side every reader is written against, so the column is brought up to it
-# rather than the annotation widened to `| None`.
-#
-# The backfill is what makes the ALTER apply to an existing database: a row
-# written before this revision may hold NULL, and `SET NOT NULL` on a column
-# holding one fails outright. `{}` is the model's own `default=dict`, so a
-# backfilled row reads exactly as a row written today.
+# The model says this value is never None, but the column was created
+# nullable. The column is brought in line with the model. The backfill comes
+# first, because `SET NOT NULL` fails on any NULL row, and `{}` matches the
+# model's default.
 
 
 def upgrade() -> None:

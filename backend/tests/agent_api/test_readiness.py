@@ -1,7 +1,6 @@
 """Tests for the shared readiness ping functions, driven from agent-api context.
 
-An earlier change added the gateway check and the two-timeout pin; an earlier change moved all
-four checks into `shared.core.health` as `ping_*` functions that take the
+All four checks live in `shared.core.health` as `ping_*` functions that take the
 app's existing client instead of building a new one per call. This file covers
 the ping functions themselves: that they use the passed client (not a fresh
 one), and that the gateway ping probes the origin of the versioned URL.
@@ -29,7 +28,7 @@ from helpdesk.shared.core.health import (
 )
 
 # ---------------------------------------------------------------------------
-# Minimal fake clients — each records whether it was called
+# Minimal fake clients — each records whether it got called
 # ---------------------------------------------------------------------------
 
 
@@ -169,7 +168,7 @@ def test_ping_gateway_returns_false_when_unreachable_and_when_misconfigured(
 def test_ping_gateway_probes_the_origin_of_the_configured_url() -> None:
     """Catches a probe that GETs the versioned base instead of the origin.
 
-    the design fixes GATEWAY_URL as `.../v1`; the console's health endpoint is
+    the contract fixes GATEWAY_URL as `.../v1`; the console's health endpoint is
     at the service level, so stripping the version path and appending
     GATEWAY_HEALTH_PATH is the only correct probe. A GET of the versioned base
     asserts a route no spec promises and would report a healthy gateway as down.

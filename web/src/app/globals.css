@@ -2,14 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens (plan 39a). Every colour is an `H S% L%` triple that
-   `tailwind.config.ts` reads as `hsl(var(--name))`. Both blocks declare the
-   same names, and every text pair clears 4.5:1 in both themes
-   (`tests/design-tokens.test.ts`, "declares the same colour tokens in light
-   and dark" and "meets 4.5:1 for %s in %s"). The status tones
-   (success, warning, info, danger) are soft fills with a dark text in light
-   mode and the reverse in dark, which is what `components/ui/badge.tsx`
-   paints with. */
+/* Design tokens. Every colour is an `H S% L%` triple that
+   `tailwind.config.ts` reads as `hsl(var(--name))`. Both themes declare the
+   same names, and every text pair clears 4.5:1 contrast. Status tones are soft
+   fills with dark text in light mode and the reverse in dark. */
 @layer base {
   :root {
     --background: 220 20% 98%;
@@ -87,8 +83,7 @@
     @apply bg-background font-sans text-foreground antialiased;
   }
 
-  /* A visible focus ring on every keyboard-focused element, not only the ones
-     that remember to ask for it (plan 22a §1, last criterion). */
+  /* A visible focus ring on every keyboard-focused element. */
   :focus-visible {
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }

@@ -1,4 +1,4 @@
-"""An earlier change §6: the decision-word post-check as a pure table (the design step 8).
+"""The decision-word post-check as a pure table (step 8).
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -8,10 +8,10 @@ Expected implementation surface (the implementer must provide exactly this):
     ``def words_in(text: str) -> frozenset[str]`` — a lowercase token scan
         (``re.findall(r"[a-z]+", text.lower())``) intersected with
         ``DECISION_WORDS``, so ``approvals``, ``ungranted`` and ``pendingly``
-        cannot match by construction (decision C).
+        cannot match by construction.
     ``def permitted_words(state: TurnState) -> frozenset[str]`` — pure, over
         the turn's SUCCESSFUL (``ok=True``) ``ToolResult`` payloads plus
-        ``state.outcome`` (decision B). No I/O, no gateway, no database.
+        ``state.outcome``. No I/O, no gateway, no database.
     ``def contradicts(reply: str, state: TurnState) -> bool`` — true when
         ``words_in(reply)`` is not a SUBSET of ``permitted_words(state)``.
     ``POSTCHECK_FALLBACK_REPLY: str`` — the template a twice-contradicting
@@ -80,11 +80,11 @@ def _state(
     )
 
 
-# --- criterion 4's vocabulary --------------------------------------------------
+# --- the permitted vocabulary --------------------------------------------------
 
 
 def test_decision_words_is_exactly_the_four_the_check_polices() -> None:
-    """a project rule, on the set the whole plan is about: asserted by
+    """On the set the check is about: asserted by
     equality and not by length, so a fifth word or a misspelt one is caught.
 
     Catches a module that policed a wider vocabulary than the plan fixed —
@@ -95,7 +95,7 @@ def test_decision_words_is_exactly_the_four_the_check_polices() -> None:
     assert len(DECISION_WORDS) == 4
 
 
-# --- criterion 5: exact tokens, case-insensitive -------------------------------
+# --- exact tokens, case-insensitive -------------------------------
 
 
 @pytest.mark.parametrize(
@@ -116,7 +116,7 @@ def test_decision_words_is_exactly_the_four_the_check_polices() -> None:
 def test_words_in_matches_whole_tokens_case_insensitively(
     text: str, expected: frozenset[str]
 ) -> None:
-    """Criterion 5, row by row.
+    """Row by row.
 
     `trailing-punctuation` and `upper-case` catch a naive `word in text`
     scan's opposite — a check that compares the reply to the words verbatim
@@ -133,7 +133,7 @@ def test_words_in_matches_whole_tokens_case_insensitively(
     assert words_in(text) == expected
 
 
-# --- criterion 4: the permitted set, 11 rows -----------------------------------
+# --- the permitted set, 11 rows -----------------------------------
 
 
 @pytest.mark.parametrize(
@@ -205,7 +205,7 @@ def test_words_in_matches_whole_tokens_case_insensitively(
 def test_permitted_words_is_derived_row_by_row_from_what_the_turn_returned(
     tool_results: tuple[ToolResult, ...], outcome: TurnOutcome, expected: frozenset[str]
 ) -> None:
-    """Criterion 4's whole decision table, one row per case.
+    """The whole decision table, one row per case.
 
     The `decision-*` rows catch a derivation keyed only on `status`, and the
     `status-*` rows catch one keyed only on `decision`: either half alone
@@ -213,7 +213,7 @@ def test_permitted_words_is_derived_row_by_row_from_what_the_turn_returned(
     reply about them would be regenerated and then fall back to the template.
 
     `status-rejected`, `status-failed` and `no-tool-results-at-all` are the
-    rows that catch the failure mode of §5 — a mapping generous enough that
+    rows that catch the failure mode of a mapping generous enough that
     the check can never fire. All three permit NOTHING: a derivation that
     defaulted to `DECISION_WORDS` for an unrecognised status, or that returned
     everything when the turn ran no tool, is red here and nowhere else.
@@ -230,7 +230,7 @@ def test_permitted_words_is_derived_row_by_row_from_what_the_turn_returned(
 
 
 def test_a_failed_tool_result_permits_nothing_even_when_it_carries_a_decision() -> None:
-    """The §2 case: only `ok=True` results contribute.
+    """Only `ok=True` results contribute.
 
     The payload is `decision="auto"`, which the `decision-auto` row above
     proves permits `{approved, granted}` on a SUCCESSFUL result — so the only
@@ -246,7 +246,7 @@ def test_a_failed_tool_result_permits_nothing_even_when_it_carries_a_decision() 
     assert permitted_words(state) == frozenset()
 
 
-# --- criterion 2: the reply judged against the set -----------------------------
+# --- the reply judged against the set -----------------------------
 
 
 @pytest.mark.parametrize(
@@ -281,7 +281,7 @@ def test_a_failed_tool_result_permits_nothing_even_when_it_carries_a_decision() 
 def test_contradicts_is_a_subset_test_and_not_an_overlap_test(
     reply: str, tool_results: tuple[ToolResult, ...], expected: bool
 ) -> None:
-    """Criterion 2's predicate.
+    """The predicate.
 
     `one-permitted-word-and-one-that-is-not` is the row that names the kill:
     an implementation asking whether ANY word in the reply is permitted (a
@@ -291,20 +291,20 @@ def test_contradicts_is_a_subset_test_and_not_an_overlap_test(
 
     `a-word-a-turn-that-ran-nothing-cannot-claim` catches a predicate that
     treats an empty permitted set as "no information, allow anything", which
-    is criterion 4's empty case read the wrong way round;
+    is the empty case read the wrong way round;
     `no-decision-word-against-an-empty-permit` catches the mirror image, a
     predicate that contradicts every reply once nothing is permitted and so
     sends every toolless turn to the template."""
     assert contradicts(reply, _state(tool_results=tool_results)) is expected
 
 
-# --- §5's own risk: the template that answers the check ------------------------
+# --- the template that answers the check ------------------------
 
 
 def test_the_fallback_reply_is_storable_and_claims_no_decision_at_all() -> None:
-    """§5's first risk. Catches a template that itself contains a decision
+    """Catches a template that itself contains a decision
     word — it would fail the very check it is the answer to, and it is the one
-    string in this plan no model wrote and nobody would re-read — and one
+    string here no model wrote and nobody would re-read — and one
     longer than the `messages.content` column, which would raise inside the
     turn's transaction on the path taken precisely because everything else
     already went wrong.
@@ -317,26 +317,26 @@ def test_the_fallback_reply_is_storable_and_claims_no_decision_at_all() -> None:
     assert contradicts(POSTCHECK_FALLBACK_REPLY, _state()) is False
 
 
-# --- criterion 7: what the composition did, on the state -----------------------
+# --- what the composition did, on the state -----------------------
 
 
 def test_post_check_outcome_has_exactly_the_three_members_by_value() -> None:
-    """a project rule on an enum whose VALUE crosses the checkpointer's serde
-    (decision E). Asserted by value and not by name, because a checkpoint
-    written by one process is read back by another.
+    """On an enum whose VALUE crosses the checkpointer's serde.
+    Asserted by value and not by name, because a checkpoint
+        written by one process is read back by another.
 
-    Catches a fourth member added without a plan — row 20 counts fallbacks,
-    and a member it has no row for is a turn nobody can classify — and a
-    member spelled `regenerate` or `fell_back`, which reads fine in code and
-    breaks every stored state."""
+        Catches a fourth member added without a matching metric — the metrics count fallbacks,
+        and a member it has no row for is a turn nobody can classify — and a
+        member spelled `regenerate` or `fell_back`, which reads fine in code and
+        breaks every stored state."""
     assert {member.value for member in PostCheckOutcome} == {"passed", "regenerated", "fallback"}
     assert len(PostCheckOutcome) == 3
 
 
 def test_a_turn_records_a_passed_post_check_until_something_says_otherwise() -> None:
-    """Decision E's additive field. Catches a field added WITHOUT a default,
+    """The additive field. Catches a field added WITHOUT a default,
     which makes every existing `TurnState(...)` in this repo a validation
     error, and one defaulting to `fallback` or `regenerated`, which would
     report a fallback for every turn that never reached composition and make
-    row 20's count meaningless from the first day."""
+    the fallback count meaningless from the first day."""
     assert _state().postcheck is PostCheckOutcome.PASSED

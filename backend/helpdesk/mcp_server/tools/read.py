@@ -1,22 +1,6 @@
-"""The read tools: `get_me`, `list_my_access` and `search_audit` (13b).
+"""The read tools: `get_me`, `list_my_access` and `search_audit`.
 
-The first two are self-scoped. The user read is the one on the token, never one named
-in the arguments: the input models declare no fields at all and
-ignore extras, so a `user_id` argument is dropped rather than honoured and
-rather than rejected. Both
-`test_mcp_read_tools.py::test_get_me_ignores_user_id_and_tenant_id_in_its_arguments`
-and its `list_my_access` sibling name a real user in the CALLER'S OWN tenant,
-so honouring the argument returns a colleague's row rather than being caught
-by tenant scoping.
-
-`search_audit` is the exception to "self-scoped": the design gives it six cells,
-and the two narrow ones are enforced here rather than in the matrix, because
-an audit row carries no department and no system of its own. Its identity
-handling is the same as the other two — the caller is the token's user, and
-their department is read from the directory, never from a claim.
-
-No function here opens a session or touches the transport: the pipeline binds
-the session to the token's tenant before any of them is called.
+The user is always the token's; a stray `user_id` argument is ignored.
 """
 
 import uuid
@@ -50,11 +34,6 @@ from helpdesk.shared.access.approvals import request_in_scope
 from helpdesk.shared.audit import search_audit_events
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
-"""Extra arguments are dropped, never refused.
-
-Identity arrives on the token, so an argument naming a user is data to
-discard, not a reason to fail the call. Pinned by
-`test_mcp_pipeline.py::test_extra_arguments_are_ignored_not_rejected`."""
 
 
 class GetMeInput(BaseModel):
@@ -84,12 +63,7 @@ class ListMyAccessOutput(BaseModel):
 
 
 async def get_me(ctx: ToolContext, args: GetMeInput) -> GetMeOutput:
-    """The token user's own directory record.
-
-    A `sub` naming a user in another tenant reads as not-found, because the
-    session is bound to the token's tenant: same answer as a user that does
-    not exist, so not-found cannot be used as a cross-tenant oracle.
-    """
+    """The token user's own directory record. Foreign users read as not found."""
     user = await find_user_by_id(ctx.session, ctx.identity.user_id)
     if user is None:
         raise NotFoundError("no such user in this tenant")
@@ -105,48 +79,26 @@ async def get_me(ctx: ToolContext, args: GetMeInput) -> GetMeOutput:
 
 
 async def list_my_access(ctx: ToolContext, args: ListMyAccessInput) -> ListMyAccessOutput:
-    """Every grant the token user holds right now.
-
-    "Right now" is the call's one instant (`ctx.now`, captured in dispatch),
-    so a caller cannot ask what they held last year (or will hold next year)
-    through this tool, and no handler here reads the clock of its own.
-    """
+    """Every grant the token user holds at the call's own instant."""
     grants = await list_active_grants_for_user(ctx.session, ctx.identity.user_id, ctx.now)
     return ListMyAccessOutput(grants=list(grants))
 
 
-# --- search_audit ---------------------------------------------------
+# --- search_audit ---------------------------------------------------------------
 #
-# The one read tool that is not self-scoped: the design gives `search_audit` six
-# cells, four of them `Scope.ANY` and two narrow. An audit row carries no
-# department and no system of its own, so the two narrow scopes are enforced
-# by resolving each row's SUBJECT to a (department, system owner) pair and
-# asking `request_in_scope` — the same authority the approval queue uses —
-# whether the caller reaches it.
+# Not self-scoped. An audit row has no department or system of its own, so a
+# narrow caller's reach is checked by mapping each row's subject to a
+# (department, system owner) pair and asking `request_in_scope`, the same
+# check the approval queue uses.
 
 SEARCH_LIMIT_MIN = 1
 SEARCH_LIMIT_DEFAULT = 50
 SEARCH_LIMIT_MAX = 200
-"""How many events one search may return.
-
-Bounds on the RESPONSE, distinct from `audit.search.SCAN_CAP`, which bounds
-the READ: the scope filter runs between the two, so a page can hold fewer
-than `limit` rows while more matching events exist further back. All three
-are pinned by
-`test_mcp_search_audit.py::test_the_search_bounds_and_column_caps_are_exactly_their_values`,
-the default again through the model by `::test_the_default_limit_is_read_off_the_input_model`,
-and the inclusive ends by `::test_the_limit_boundary_is_inclusive_at_1_and_200`."""
+"""Caps the response. The scope filter runs after the read, so a page can be short."""
 
 
 def _column_length(name: str) -> int:
-    """One `audit_events` column's declared length, read off the column.
-
-    Never retyped: the pre-check and the storage it filters
-    are the same number by construction, so a widened column cannot leave a
-    stale cap behind. Pinned by
-    `test_mcp_search_audit.py::test_each_string_filter_is_inclusive_at_its_column_cap_and_refused_one_over`,
-    which computes both ends of every boundary off the column itself.
-    """
+    """A column's declared length, so the input cap and storage never disagree."""
     column_type = AuditEvent.__table__.c[name].type
     assert isinstance(column_type, String), column_type
     assert column_type.length is not None, f"audit_events.{name} must be a sized column"
@@ -159,19 +111,10 @@ SUBJECT_ID_MAX_LENGTH: int = _column_length("subject_id")
 ACTOR_REF_MAX_LENGTH: int = _column_length("actor_ref")
 
 _MIN_SEQ = 1
-"""`audit_events.seq` is a Postgres `Identity` starting at 1, so this is the
-lowest cursor that can name a row. Pinned by
-`test_mcp_search_audit.py::test_before_seq_is_accepted_at_1_and_refused_at_0`."""
 
 
 class SearchAuditInput(BaseModel):
-    """Decision D's eight filters, every one optional.
-
-    No tenant and no user field: both come from the token. Each
-    string cap is the column's own length, so a filter the store could never
-    match is refused as `VALIDATION` before any read rather than by Postgres
-    in words the boundary may not forward (the design).
-    """
+    """Every filter optional. Each text cap is the column's length."""
 
     model_config = _IGNORE_EXTRAS
 
@@ -186,13 +129,7 @@ class SearchAuditInput(BaseModel):
 
 
 class AuditEventRow(BaseModel):
-    """One stored event as the tool returns it (criterion 2).
-
-    `payload` is returned rather than omitted (decision E): the design
-    restricts telemetry, not the audit log, and the `auditor` principal
-    exists to read exactly this. `hash` travels with the row so a reader can
-    check it against `GET /admin/audit/verify` without a second query.
-    """
+    """One stored event. The payload is included, since that is what an auditor reads."""
 
     seq: int
     occurred_at: datetime
@@ -208,12 +145,7 @@ class AuditEventRow(BaseModel):
 class SearchAuditOutput(BaseModel):
     events: list[AuditEventRow]
     next_before_seq: int | None = None
-    """Where the next page starts, or None when this page reached the end.
-
-    Not decoration: the scope filter runs after the read, so a narrow
-    caller's page can be short or empty while matching events exist further
-    back. This cursor is the only way to reach them.
-    """
+    """Where the next page starts, or None at the end. Pages can be short, so follow it."""
 
 
 @dataclass(frozen=True)
@@ -225,15 +157,7 @@ class _Reach:
 
 
 _UNRESOLVED = _Reach(None, None)
-"""A subject that resolves to neither a department nor a system owner.
-
-`request_in_scope` reaches neither with `own_department` nor `own_systems`,
-so such a row is withheld from a narrow caller and returned to a `Scope.ANY`
-one — the fail-closed direction an earlier change §2 states for `subject_type="tool"`,
-a null `subject_id` and any subject type a later plan adds without extending
-the table below. Pinned by
-`test_mcp_search_audit.py::test_an_unresolvable_subject_is_withheld_from_a_manager_and_returned_to_an_auditor`.
-"""
+"""A subject with no department or owner: hidden from narrow callers, shown to wide ones."""
 
 _USER_SUBJECT = "user"
 _GRANT_SUBJECT = "grant"
@@ -244,17 +168,10 @@ _REVIEW_ITEM_SUBJECT = "review_item"
 _RESOLVED_SUBJECT_TYPES = frozenset(
     {_USER_SUBJECT, _GRANT_SUBJECT, _REQUEST_SUBJECT, _REVIEW_SUBJECT, _REVIEW_ITEM_SUBJECT}
 )
-"""An earlier change §2's table, as the allowlist it is. Everything outside it is
-`_UNRESOLVED`."""
 
 
 def _as_uuid(value: str | None) -> uuid.UUID | None:
-    """A subject id as a uuid, or None for a null or non-uuid one.
-
-    `subject_id` is a free string column, so a subject that never was an id
-    (the tool name the pipeline files its own events against) must resolve to
-    nothing rather than raise.
-    """
+    """A subject id as a uuid, or None. Some subjects, like a tool name, are not ids."""
     if value is None:
         return None
     try:
@@ -266,17 +183,10 @@ def _as_uuid(value: str | None) -> uuid.UUID | None:
 async def _resolve_subjects(
     session: AsyncSession, events: Sequence[AuditEvent]
 ) -> dict[tuple[str, str], _Reach]:
-    """An earlier change §2's table, applied to a whole page in batched reads.
+    """Map each event's subject to a department and system owner, in batched reads.
 
-    Seven statements at most, each skipped when its id set is empty, rather
-    than one round trip per row: the read above is bounded by `SCAN_CAP`, so
-    a per-row lookup would be up to that many queries for a single narrow
-    caller's page.
-
-    Every read goes through `Repository`, so the tenant-bound session filters
-    each one; a subject id belonging to another tenant is simply absent from
-    the result and its row resolves to `_UNRESOLVED`, which withholds it from
-    a narrow caller.
+    Every read is tenant-filtered, so a foreign id comes back missing and its
+    row stays hidden from a narrow caller.
     """
     # Keyed by the subject id AS STORED, not by the parsed uuid's canonical
     # string: `subject_id` is a free text column, and a row written in a
@@ -382,21 +292,8 @@ def _audit_row(row: AuditEvent) -> AuditEventRow:
 async def search_audit(ctx: ToolContext, args: SearchAuditInput) -> SearchAuditOutput:
     """The caller's own tenant's audit log, newest first, within their scope.
 
-    The `authorize` call here is not a second permission gate — the pipeline
-    already ran the matrix and a caller with no cell never reaches this
-    function (a project rule: the two copies of that decision cannot be
-    killed separately). It is how the handler gets `scopes`, the set the
-    pipeline's own check collapses to its widest member, which for a caller
-    who is both a `manager` and a `system_owner` would drop the owned systems
-    entirely.
-
-    `Scope.ANY` short-circuits the whole resolution, so the four wide
-    principals pay nothing for the two narrow ones. Every other caller has
-    their department read from the DIRECTORY, never from the token's
-    `department_id` claim — a manager transferred after their token was
-    issued searches their new department, which
-    `test_mcp_search_audit.py::test_the_managers_department_comes_from_the_directory_not_the_token`
-    pins by minting the token before the move.
+    `authorize` is called again to get every scope; the pipeline keeps only the
+    widest. The caller's department comes from the directory, not the token.
     """
     authorization = rbac.authorize(ctx.identity.claims, rbac.Tool.SEARCH_AUDIT)
     page = await search_audit_events(

@@ -1,13 +1,9 @@
-"""Segregation-of-duties conflicts (the design).
+"""Segregation-of-duties conflicts.
 
-A rule pairs two roles that one person must not hold together. The requested
-role conflicts when the target already holds the paired role, or has a
-request for it that is approved but not yet executed — state that would
-become a grant without any further decision.
-
-This predicate is the same one row 11 re-runs at execution time: state can
-change while a request waits for approval, so the check at classification
-time is not the last word.
+A rule pairs two roles one person must not hold together. A request
+conflicts when the target holds the paired role, or has an approved request
+for it not yet run. The same check runs again at grant time, since things can
+change while a request waits.
 """
 
 import uuid
@@ -57,28 +53,10 @@ def find_conflicts(snapshot: RequestSnapshot) -> tuple[SodConflict, ...]:
 def held_conflicts(
     rules: Iterable[SodRuleSnapshot], held_role_ids: frozenset[uuid.UUID]
 ) -> frozenset[uuid.UUID]:
-    """Which of these HELD roles are half of a pair the holder already completes.
+    """Which held roles form a full conflicting pair, for access reviews.
 
-    `find_conflicts` above answers the request question — may this person be
-    given this role — and needs a snapshot to do it. This answers the review
-    question: given everything somebody holds right
-    now, which of those roles should never have been held together. No
-    request, no target, no clock.
-
-    Both halves of a completed pair come back, not one: a review flags
-    GRANTS, and an item for only one side of a conflict would put the wrong
-    grant in front of the reviewer half the time. A rule about roles the
-    holder does not have, and a pair only half held, contribute nothing —
-    those are the two branches
-    `test_policy_sod.py::test_held_conflicts_over_the_rule_table` walks from
-    both sides of each rule, which is also what proves the answer does not
-    depend on which column of the rule a role sits in.
-
-    Duplicate rules over the same pair are harmless by construction: the
-    answer is a set, so the second rule adds nothing rather than double
-    counting. Nothing here reads `policy_ref` or `rule_id` — a review item
-    carries one flag word (the design), and WHICH rule was broken is a question
-    for the reviewer's detail view, not for this predicate.
+    Both halves come back: a review flags grants, and flagging only one side
+    would show the reviewer the wrong grant half the time.
     """
     conflicting: set[uuid.UUID] = set()
     for rule in rules:

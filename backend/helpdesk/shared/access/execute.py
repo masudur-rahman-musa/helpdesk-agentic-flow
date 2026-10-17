@@ -1,46 +1,17 @@
-"""`execute_grant`: the one place access is actually given (the design, §9.5).
+"""`execute_grant`: the one place access is actually given.
 
-Never a wire tool. the design makes it system-only and
-the design says it is invoked internally: `create_access_request` calls it on
-the `auto` branch, and `mcp_server.tools.approvals.approve_request` (plan
-11c) calls it once every seat of a chain is approved. Registering it would
-put a transport, a kill switch and an RBAC
-check in front of something no caller may ever reach; it stays in the matrix
-as an empty entry so an unknown-tool error cannot mask it.
+Not a tool anyone can call: the request flow calls it on the `auto` path,
+and approval calls it once every seat is approved.
 
-The whole point of this module is that the decision is taken TWICE. SPEC
-§9.5 requires the segregation-of-duties check to run again at execution
-time, because the classification the user was shown describes a moment that
-has passed: between it and this call another grant may have committed, or
-the target may have become a leaver. So this rebuilds an earlier change's snapshot
-from current state and re-runs the whole engine (decision G) rather than
-`policy/sod.py` alone — one code path cannot drift from the classification
-the user was shown, and the expiry the grant gets is then the expiry the
-engine computed at the instant it was written.
+The policy check runs twice. What the user was shown describes a moment
+that has passed: another grant may have landed, or the target may have
+left. So this rebuilds the snapshot from current data and runs the whole
+engine again, not just the duties check, so the two answers cannot drift.
+A refusal leaves no grant. The grant and its event are flushed in the
+caller's transaction, so they commit or roll back together.
 
-Two refusals, both typed (the design) and both leaving NO grant row:
-`SodConflictAtExecutionError` for a conflict, `PolicyBlockedAtExecutionError`
-for any other fresh block. Their codes are pinned by
-`test_access_execute.py::test_the_execution_errors_carry_their_spec_error_codes`
-— the only pin they get, because `test_errors.py`'s `TYPED_ERRORS` table is
-outside an earlier change's §8.
-
-Everything here runs in the caller's transaction. The grant and its
-`grant.executed` event are flushed, never committed, so a caller that fails
-afterwards takes both with it (pinned by
-`test_access_execute.py::test_the_grant_and_its_event_roll_back_together`).
-
-RESOLVED by an earlier change, and still true of this module: nothing here makes a
-grant unique per (user, role): two requests for the same role under two
-different idempotency keys both classify, both execute, and leave two live
-`grants` rows for one role. The engine deliberately does not block it — it
-sees the target's `active_grant_role_ids` and chooses not to, because
-re-granting is how a renewal has to work — so refusing here would contradict
-the classification the user was shown. The consequence was answered on the
-revocation side rather than by a constraint here: `helpdesk.access.revoke`
-takes the LIVE SET for a (user, role) as its unit and revokes every row in it
-(decision A), so access cannot survive a revocation the audit log records as
-successful.
+Nothing here makes a grant unique per (user, role); re-granting is how a
+renewal works. Revoke handles it by ending every live row for that pair.
 """
 
 import uuid
@@ -58,34 +29,25 @@ from helpdesk.shared.access.snapshot import build_request_snapshot
 from helpdesk.shared.audit import AuditEventInput, append_event
 
 GRANT_EXECUTED_EVENT_TYPE = "grant.executed"
-"""the design's own name for "access was actually given"."""
+"""The audit event for "access was actually given"."""
 
 _ACTOR_KIND = "system"
-"""`execute_grant` is never a user's call: the design makes it system-only, so
-the event records the system as the actor and carries the human who caused
-it in `actor_ref` and the payload."""
+"""Only the system runs grants; the person who caused it goes in `actor_ref`."""
 
 _SUBJECT_TYPE = "grant"
 
 
 class SodConflictAtExecutionError(ToolError):
-    """A segregation-of-duties conflict exists NOW (the design, requirement #8).
-
-    Distinct from a classification-time block: this one fired against state
-    that changed after the user was told the request was clean. No grant is
-    written.
-    """
+    """A separation-of-duties conflict exists now, after the user was told the request was clean."""
 
     code = ErrorCode.SOD_CONFLICT
 
 
 class PolicyBlockedAtExecutionError(ToolError):
-    """The fresh classification blocks for a reason other than SoD.
+    """The fresh check blocks for another reason, such as the target having left.
 
-    A target who became a `leaver` is the case this exists for. Separate
-    from `SodConflictAtExecutionError` because the design gives the two
-    different codes, and the caller and the audit trail must be able to tell
-    "you may not have this" from "these two roles cannot be held together".
+    Its own error code, so "you may not have this" reads differently from
+    "these two roles cannot be held together".
     """
 
     code = ErrorCode.POLICY_BLOCKED
@@ -105,12 +67,10 @@ async def execute_grant(
     session_id: uuid.UUID | None = None,
     now: datetime,
 ) -> Grant:
-    """Re-classify, refuse or grant, and record it. All in the caller's transaction.
+    """Re-check, refuse or grant, and record it, all in the caller's transaction.
 
-    `now` is keyword-only and supplied by the caller so that the snapshot,
-    the classification, `granted_at` and `expires_at` all answer for one
-    instant; reading a clock here instead would let the grant start before
-    the state it was checked against.
+    `now` comes from the caller so the snapshot, the check and the grant
+    times all answer for one instant.
     """
     classification = await reclassify(
         session,
@@ -165,21 +125,11 @@ async def reclassify(
     requested_expiry_days: int | None,
     now: datetime,
 ) -> Classification:
-    """The the design re-check: a whole fresh classification, or a refusal.
+    """A whole fresh classification, or a refusal.
 
-    Conflicts are tested before the decision so a conflicting request is
-    reported as `SOD_CONFLICT` rather than the `POLICY_BLOCKED` its
-    `blocked` decision would otherwise produce — the engine blocks on a
-    conflict, so the order here is what decides which of the two the design
-    codes the caller sees.
-
-    Public because an earlier change needs the same answer WITHOUT the grant:
-    `helpdesk.access.lifecycle` has to name the roles a joiner's template
-    will and will not give them before either grant is written, and a second
-    copy of the order above would be free to drift from the one that
-    actually writes them. It stays a re-check and never a decision of its
-    own — the only caller that may act on it is one that then goes through
-    `execute_grant`.
+    Conflicts are tested before the decision, so the caller sees
+    `SOD_CONFLICT` and not `POLICY_BLOCKED`. Onboarding also calls this to
+    learn which template roles will be refused, before any grant is written.
     """
     snapshot = await build_request_snapshot(
         session,

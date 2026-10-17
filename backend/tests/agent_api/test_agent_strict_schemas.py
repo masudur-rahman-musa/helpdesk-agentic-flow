@@ -1,4 +1,4 @@
-"""An earlier change §6: every schema the agent sends to `complete_json` meets strict mode.
+"""Every schema the agent sends to `complete_json` meets strict mode.
 
 Expected implementation surface (the implementer must provide exactly this):
 

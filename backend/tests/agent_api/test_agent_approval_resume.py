@@ -1,4 +1,4 @@
-"""An earlier change §6: the recorded decision as a pure mapping, then the resume.
+"""The recorded decision as a pure mapping, then the resume.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -10,26 +10,26 @@ Expected implementation surface (the implementer must provide exactly this):
         `expired` map to `None`, which is what `resume_turn` refuses on.
 ``agent_api.graph.build``
     ``Saver = BaseCheckpointSaver[Any]`` — the alias other modules import so
-        that LangGraph stays inside this one file (the design).
+        that LangGraph stays inside this one file.
     ``async def resume_graph(*, deps, thread_id, decision, checkpointer) -> TurnState``
 ``agent_api.resume`` (new, imports NO framework and no driver)
     ``class ResumeRefusedError(ToolError)`` with ``code = ErrorCode.VALIDATION``
     ``async def resume_turn(*, deps, request_id, checkpointer) -> TurnState``
 ``agent_api.graph.nodes.await_approval``
-    the ``append_message`` call MOVES OUT (decision C); the resume return
+    the ``append_message`` call MOVES OUT; the resume return
     appends the decision result and sets ``outcome = TurnOutcome.DONE``.
 
 Cost and isolation. The compose Postgres only, through
 ``test_agent_approval_interrupt.py``'s session-scoped ``approval_env``: ONE
 throwaway database, one seeded fake tenant and one set of LangGraph tables for
-both this file and ``test_agent_replay.py`` (a project rule, and the plan's
-own §6 cost paragraph — "reused from `test_agent_approval_interrupt.py`'s
-arrangement"). Per-case isolation is a namespace and never a rebuild: a fresh
-``session_id`` (which IS the checkpoint thread id, 18a decision A1) and a fresh
+both this file and ``test_agent_replay.py`` (built once, reused from
+`test_agent_approval_interrupt.py`'s
+arrangement). Per-case isolation is a namespace and never a rebuild: a fresh
+``session_id`` (which IS the checkpoint thread id) and a fresh
 ``access_requests`` row id per case. A pool and an engine are opened per
 ``asyncio.run`` because each case drives its own event loop; the resume cases
 open a SECOND pool, engine and ``TurnDeps`` on the same DSN on purpose, which
-is criterion 1 — the process that paused the run is gone by then.
+is the key case — the process that paused the run is gone by then.
 """
 
 import ast
@@ -57,8 +57,8 @@ from helpdesk.shared.models.conversation import MessageRole
 
 # Imported, not redefined: one seeded database, one set of checkpoint tables
 # and one staged-gateway arrangement for the whole session, shared with
-# `test_agent_approval_interrupt.py` and `test_agent_replay.py` (standing
-# rule 7 — the plan's §6 says "reused from that file's arrangement").
+# `test_agent_approval_interrupt.py` and `test_agent_replay.py` (reused
+# from that file's arrangement).
 from tests.agent_api.test_agent_approval_interrupt import (
     API_KEYS,
     AWAIT_APPROVAL_VALUE,
@@ -110,7 +110,7 @@ def test_the_decision_result_is_built_from_the_row_and_not_from_an_argument(
     that returned `ToolResult(tool=APPROVE_REQUEST, ok=True, ...)` for anything
     that is not `pending` reads identically on the three other rows here, and
     would hand `compose_reply` an approval for a request an approver refused —
-    the exact contradiction the plan's fourth risk names.
+    the exact contradiction this test guards against.
 
     The `failed` row is the second one nothing else pins: it is a DECIDED row
     (so it must resume rather than be refused) whose execution did not succeed,
@@ -151,7 +151,7 @@ def test_a_pending_request_maps_to_no_decision_result(status: str) -> None:
     states rather than decisions, so an implementation branching on
     `status != "approved"` would answer them as refusals to the user.
 
-    This is the pure half of criterion 3: `resume_turn` refuses exactly when
+    This is the pure half of the refusal rule: `resume_turn` refuses exactly when
     this answers `None`, so a mapping that invented a result here would let a
     still-pending request drive a run to completion."""
     request_id = uuid.UUID("77777777-7777-5777-8777-777777777777")
@@ -189,8 +189,8 @@ def _store_request(
 ) -> None:
     """One obviously fake `access_requests` row, as an approver would leave it.
 
-    Written directly rather than through `approve_request`: this plan reads
-    what the MCP server recorded and never calls it (§3), so the row is the
+    Written directly rather than through `approve_request`: this change reads
+    what the MCP server recorded and never calls it, so the row is the
     fixture and the tool is out of scope.
     """
 
@@ -237,7 +237,7 @@ def _resume(
 
     A NEW pool, a NEW engine, a NEW saver and a NEW `TurnDeps` over the same
     DSN — the compiled graph that paused the run, and everything it held, is
-    gone by the time this runs. That is criterion 1, and it is the only
+    gone by the time this runs. That is the key case, and it is the only
     arrangement in which an in-process saver cannot pass.
     """
 
@@ -349,8 +349,8 @@ def test_a_rejection_resumes_and_composes_the_rejection(
     """Catches a resume that hard-codes the approve path.
 
     An implementation that sent `approve_request` for every decided row — or
-    that re-entered `execute_tools` on resume, which is what the design says
-    literally and what a design note amends — reads identically on the approve case
+    that re-entered `execute_tools` on resume, which is what the original design says
+    literally and what a later change amends — reads identically on the approve case
     above and is wrong here in the way that matters most: it would grant, or
     tell the user it granted, access an approver refused.
 
@@ -426,7 +426,7 @@ def test_a_still_pending_request_is_refused_and_the_checkpoint_stays_paused(
 def test_a_request_the_pause_is_not_waiting_on_is_refused(
     approval_env: ApprovalEnv,  # noqa: F811
 ) -> None:
-    """a design note's check, arranged so nothing else can pass this case for it.
+    """The check, arranged so nothing else can pass this case for it.
 
     Both requests belong to the SAME tenant, both are decided, and both carry
     the same `session_id` — so the tenant scope, the recorded-decision gate and
@@ -436,7 +436,7 @@ def test_a_request_the_pause_is_not_waiting_on_is_refused(
     `resume_turn` that keys the resume on the SESSION alone.
 
     That wrong implementation is not hypothetical: the thread id comes from
-    `session_id` (decision E), so an implementation that stopped there resumes
+    `session_id`, so an implementation that stopped there resumes
     whichever request the caller names with any decided sibling's outcome — one
     approval on one request silently deciding another.
 
@@ -476,7 +476,7 @@ def test_a_request_the_pause_is_not_waiting_on_is_refused(
 def test_a_request_with_no_session_id_is_refused(
     approval_env: ApprovalEnv,  # noqa: F811
 ) -> None:
-    """Decision E's NULL case. Catches an implementation that turns the column
+    """The NULL case. Catches an implementation that turns the column
     into a thread id without looking: `str(None)` is the thread `"None"`, which
     `check_slug` accepts, so the resume would address a checkpoint thread that
     can never be the one the request was filed on — and every request filed
@@ -539,7 +539,7 @@ def test_a_thread_with_no_paused_checkpoint_is_refused(
 def test_a_second_resume_of_the_same_run_is_refused(
     approval_env: ApprovalEnv,  # noqa: F811
 ) -> None:
-    """The plan's second risk. Catches a resume that checks only that a
+    """Catches a resume that checks only that a
     checkpoint EXISTS: after the first resume the thread still has checkpoints,
     still names a decided request in the caller's tenant and still carries the
     matching `awaiting_request_id` — every other guard says yes — so the only
@@ -583,7 +583,7 @@ def test_a_second_resume_of_the_same_run_is_refused(
 def test_a_resumed_turn_leaves_exactly_one_pending_message(
     approval_env: ApprovalEnv,  # noqa: F811
 ) -> None:
-    """Decision C, and the plan's first risk. Catches the `append_message` call
+    """Catches the `append_message` call
     staying inside `await_approval`: LangGraph replays the interrupting node
     from its start on resume, so the pending reply would be stored a SECOND
     time — and the user's history would then say a request is waiting for
@@ -636,7 +636,7 @@ def test_a_resumed_turn_leaves_exactly_one_pending_message(
 
 
 def test_resume_imports_no_framework() -> None:
-    """The plan's third risk, as a static property. Catches `resume.py` reaching
+    """As a static property. Catches `resume.py` reaching
     for `Command`, for `AsyncPostgresSaver` or for `sqlalchemy` directly: the
     boundary the whole graph package is arranged around is "LangGraph lives in
     `build.py`, `checkpointer.py` and `await_approval.py`'s `interrupt`", and a

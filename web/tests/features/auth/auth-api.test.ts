@@ -4,7 +4,7 @@ import { logIn, logOut } from "@/features/auth/api";
 import { API } from "@/lib/api-paths";
 
 /**
- * An earlier change: the auth data calls, over a stubbed `fetch`. No component, no network.
+ * The auth data calls, over a stubbed `fetch`. No component, no network.
  */
 
 const FIELDS = { tenant_slug: "acme", email: "a@example.test", password: "pw-123456" };

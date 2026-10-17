@@ -1,16 +1,16 @@
-"""An earlier change §6: the review queue, the item read and the decision, over HTTP.
+"""The review queue, the item read and the decision, over HTTP.
 
 Surface under test (written before it exists; every case below is red on one
 of these names until steps 1, 2 and 4 land):
 
-``agent_api.graph.keys`` (step 1)
+``agent_api.graph.keys``
     ``derive_review_decision_key(*, reviewer_user_id: uuid.UUID, item_id:
     uuid.UUID, decision: str) -> str`` — ``uuid5(KEY_NAMESPACE, reviewer ∥
     item ∥ decision)`` over the module's existing ``\\x1f`` separator, length
     checked by ``check_idempotency_key`` before it is returned. A sibling of
-    23c's ``derive_decision_key``, never a reuse of it (decision B).
+    ``derive_decision_key``, never a reuse of it.
 
-``agent_api.review_routes`` (step 2)
+``agent_api.review_routes``
     ``router`` with ``GET /me/reviews`` (optional ``status``, optional
     ``limit``), ``GET /reviews/{review_id}/items`` (optional ``limit``) and
     ``POST /review-items/{item_id}/decide`` (body ``{"decision": "keep" |
@@ -19,14 +19,13 @@ of these names until steps 1, 2 and 4 land):
     ``call_tool_route`` and ``STATUS_FOR_CODE`` — which is why every case here
     patches ``deps.build_tool_caller`` and none of them opens a socket.
 
-Shapes this file fixes that the plan left open (a project rule and 55;
-these belong in 23h's Deviations):
+Shapes this file fixes that the plan left open:
 - the three tool names are ``list_reviews``, ``list_review_items`` and
   ``decide_review_item``, and the decision's key material is taken over the
   decision WORD itself (``"keep"`` / ``"revoke"``, the tool's own
   ``ReviewDecision`` members), never over a verb of the route's invention.
 - the refusal envelope is ``{"code": "<ErrorCode value>"}`` and the bearer
-  refusal a literal ``401``, 23a/23c's shape, unchanged.
+  refusal a literal ``401``, the usual shape, unchanged.
 - the queue's arguments are ``{}``, ``{"status": ...}``, ``{"limit": ...}`` or
   both — a subclass per shape rather than a nullable field, because
   ``model_dump`` would send ``limit: null`` into a ``1..200`` bound. The cases
@@ -35,11 +34,11 @@ these belong in 23h's Deviations):
 - the item read's arguments are ``{"review_id": ...}`` plus an optional
   ``limit``; the decision's are exactly ``{"item_id": ..., "decision": ...,
   "idempotency_key": ...}``.
-- a non-uuid ``review_id`` or ``item_id`` is FastAPI's own ``422``: §1 makes
+- a non-uuid ``review_id`` or ``item_id`` is FastAPI's own ``422``: the contract makes
   both path parameters ``uuid.UUID``, so the refusal is the framework's and no
   second validator is written. What the case pins is that no tool, no key and
   no query is reached.
-- the ``status``, ``decision`` and ``limit`` bounds stay the TOOL's (§5's
+- the ``status``, ``decision`` and ``limit`` bounds stay the TOOL's (the contract's
   second risk), so the boundary rows here drive a caller that applies
   ``ListReviewsInput``/``DecideReviewItemInput``'s own membership and bounds
   and answers the typed ``VALIDATION`` the real MCP server answers. The route's
@@ -93,8 +92,8 @@ LIST_REVIEW_ITEMS = "list_review_items"
 DECIDE_REVIEW_ITEM = "decide_review_item"
 
 # The decision words, and the material the derived key is taken over. The
-# TOOL's `ReviewDecision` members, written as the literals they are (standing
-# rule 2): the key a route sends and the key `derive_review_decision_key`
+# TOOL's `ReviewDecision` members, written as the literals they are: the key a route sends and the
+# key `derive_review_decision_key`
 # returns are compared against ONE value here, whatever the route spells them.
 KEEP = "keep"
 REVOKE = "revoke"
@@ -107,7 +106,7 @@ SEPARATOR = "\x1f"
 
 # The tool's bounds (`mcp_server.tools.reviews.LIMIT_MIN` / `LIMIT_MAX` /
 # `LIMIT_DEFAULT`), written out because agent-api cannot import the mcp-server
-# package. a project rule wants the values; §5's second risk says these are
+# package. The values are written out; the second risk says these are
 # the only validator, so the route must neither repeat them more narrowly nor
 # refuse what they accept.
 LIMIT_MIN = 1
@@ -278,7 +277,7 @@ class UnreachableToolCaller:
 class BoundCheckingToolCaller:
     """The MCP server's own input validation, standing in for the wire.
 
-    §5's second risk: the tool's `ListReviewsInput`, `ListReviewItemsInput` and
+    the second risk: the tool's `ListReviewsInput`, `ListReviewItemsInput` and
     `DecideReviewItemInput` are the only validators of the status word, the
     decision word and the page size, so an unknown word or an out-of-bounds
     limit crosses back as a typed `VALIDATION` rather than being refused in
@@ -385,8 +384,8 @@ def _request(
 ) -> tuple[httpx.Response, CallerSpy]:
     """One call against the app, with the tool caller replaced at the seam.
 
-    The seam is `deps.build_tool_caller` (23c decision C put `call_tool_route`
-    there), and the lifespan is NOT entered: these three routes read nothing
+    The seam is `deps.build_tool_caller` (`call_tool_route` is built there), and the lifespan is NOT
+    entered: these three routes read nothing
     off `app.state`, so entering it would buy a psycopg pool, a Redis client
     and a gateway client that no case here uses.
 
@@ -427,16 +426,16 @@ def test_the_queue_route_answers_the_tools_output_unchanged(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a route that reshapes, filters or renames `list_reviews`'
-    structured output on the way out (§1: "returns the tool's structured output
+    structured output on the way out ("returns the tool's structured output
     unchanged"), and one that calls a different tool.
 
-    The bearer half is a project rule and decision A: the token the caller
+    The bearer half is the identity-from-token rule: the token the caller
     presented is forwarded VERBATIM, so RBAC, the kill switch and the audit
     event all apply to this read. A route that minted its own service token, or
     reused a configured one, fails on the identity assertion alone; a route
     that passed the reviewer's id as an ARGUMENT fails on the exact key set,
-    which is what a project rule forbids on a queue whose whole filter is the
-    caller's own the design scope.
+    which is what the identity-from-token rule forbids on a queue whose whole filter is the
+    caller's own the contract scope.
     """
     caller = ScriptedToolCaller(QUEUE_PAYLOAD)
     token = _token()
@@ -461,13 +460,13 @@ def test_the_queue_route_answers_the_tools_output_unchanged(
 def test_the_queue_route_sends_neither_status_nor_limit_when_neither_is_asked_for(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """§1's first criterion, both halves at once. Catches a route that repeats
+    """The first requirement, both halves at once. Catches a route that repeats
     the tool's `LIMIT_DEFAULT` (50) as a number of its own — a second place for
-    it to drift from, a project rule — one that sends `limit: null` into a
+    it to drift from — one that sends `limit: null` into a
     bound of 1..200 and gets a `VALIDATION` back, so the page shows an empty
     queue to a reviewer with rows waiting, and one that defaults the filter to
     `"open"`, which would hide every completed review a reviewer looks for
-    (23e decision E's whole reason for the filter).
+    (that is the reason for the filter).
     """
     caller = ScriptedToolCaller(QUEUE_PAYLOAD)
 
@@ -525,7 +524,7 @@ def test_the_queue_route_sends_each_query_parameter_only_when_it_is_asked_for(
 def test_the_item_route_answers_the_tools_output_unchanged_under_the_callers_own_bearer(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """§1's second criterion. Catches a route that reshapes 23e's eleven-field
+    """The second requirement. Catches a route that reshapes 23e's eleven-field
     item on the way out, one that calls a different tool, one that forwards
     anything but the caller's own bearer, and one that adds an identity
     argument beside the review id — the arguments are an EXACT key set, and
@@ -580,7 +579,7 @@ def test_the_item_route_sends_the_limit_it_was_asked_for(
 def test_the_decide_route_answers_the_tools_output_under_the_callers_own_bearer(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The mutation half of a project rule and 6 at once.
+    """The mutation half of hthe no-model-mutation and identity-from-token rules at once.
 
     Catches a route that reshapes the decision's output, one that calls the
     wrong tool, one that forwards anything but the caller's own bearer, and —
@@ -617,10 +616,10 @@ def test_the_decide_route_answers_the_tools_output_under_the_callers_own_bearer(
 def test_the_key_is_derived_from_the_tokens_reviewer_and_never_from_the_body(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """§1's identity criterion, a project rule on the one value this route derives.
+    """The identity requirement, the identity-from-token rule on the one value this route derives.
 
     The body carries a `reviewer_user_id` naming ANOTHER user of the SAME
-    tenant as the caller (a project rule: a cross-tenant name would be refused
+    tenant as the caller (a cross-tenant name would be refused
     by the tenant guard on the MCP side whether this rule holds or not, so it
     would pin nothing). Catches a route that derives the key from that field
     instead of from the verified `sub` — two reviewers would then share a key
@@ -656,14 +655,14 @@ def test_the_key_is_derived_from_the_tokens_reviewer_and_never_from_the_body(
 def test_one_reviewer_deciding_one_item_twice_sends_one_key_and_changing_the_word_changes_it(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """§1's idempotency criterion, both sentences of it, through the ROUTE.
+    """The idempotency requirement, both sentences of it, through the ROUTE.
 
     Catches a key minted fresh per call (`uuid4`) or reaching a clock: a
     double-clicked Keep would then arrive under two keys and file two
     decisions. And it catches a key that leaves the decision WORD out of its
     material: a later Revoke would arrive under the Keep's key and be handed
     the stored Keep back as if the change of mind had worked, instead of
-    meeting the tool's own re-decision refusal (decision B).
+    meeting the tool's own re-decision refusal.
 
     Everything but the decision word is identical across the three calls — same
     bearer, same path, same item — so only the material can flip either half.
@@ -711,13 +710,14 @@ def test_an_absent_or_malformed_bearer_is_a_typed_401_and_opens_no_session(
     headers: Mapping[str, str],
 ) -> None:
     """Catches a route with no token check at all, and one that checks the
-    token AFTER opening the MCP session: the caller is scripted with NOTHING,
-    so a route that entered it or called a tool fails outright rather than
-    showing up as a count afterwards.
+        token AFTER opening the MCP session: the caller is scripted with NOTHING,
+        so a route that entered it or called a tool fails outright rather than
+        showing up as a count afterwards.
 
-    The token check is the only guard on this path — the body is well formed,
-    the path parameter is a real uuid, there is no query to validate, no rate
-    limit and no DB read — so deleting it is what flips every row here.
+        The token check is the only guard on this path — the body is well formed,
+        the path parameter is a real uuid, there is no query to validate, no rate
+        limit and no DB read — so deleting it is what flips every row here
+    .
     """
     caller = ScriptedToolCaller()
 
@@ -826,7 +826,7 @@ def test_a_tool_refusal_answers_its_own_typed_code(
     code: ErrorCode,
     status: int,
 ) -> None:
-    """§1's second unhappy path, one code per row. Catches a route that lets
+    """the second unhappy path, one code per row. Catches a route that lets
     the tool's `ToolError` escape: FastAPI answers an untyped 500, so a scope
     refusal the caller could act on, an admin's kill switch the page should
     name, and an unknown review id all read as one outage.
@@ -903,7 +903,7 @@ def test_a_non_uuid_path_parameter_reaches_no_tool_and_no_key(
     path: str,
     body: Mapping[str, Any] | None,
 ) -> None:
-    """§1's fifth criterion. Catches an id declared as a `str` and passed
+    """The fifth requirement. Catches an id declared as a `str` and passed
     straight through: on the item read it would reach the tool as a string its
     input model refuses, and on the decision it would FIRST reach
     `derive_review_decision_key`, which would happily digest `"../../etc"` into
@@ -930,7 +930,7 @@ def test_a_non_uuid_path_parameter_reaches_no_tool_and_no_key(
     assert spy.bearer_tokens == []
 
 
-# --- the tool's own bounds, pinned THROUGH the route (§5's second risk) -------
+# --- the tool's own bounds, pinned THROUGH the route (the second risk) --------
 
 
 @pytest.mark.parametrize("limit", [LIMIT_MIN, LIMIT_MAX], ids=["limit-1", "limit-200"])
@@ -949,7 +949,7 @@ def test_the_inclusive_ends_of_the_tools_page_size_are_accepted(
     answer: Mapping[str, Any],
     limit: int,
 ) -> None:
-    """The INCLUSIVE ends of §1's `1`-`200`, on both reads.
+    """The INCLUSIVE ends of the contract's `1`-`200`, on both reads.
 
     Catches a route that re-declares the bound on a query parameter of its own:
     a `Query(gt=1)`, a `Query(lt=200)` or any second opinion refuses one of
@@ -993,7 +993,7 @@ def test_a_page_size_outside_the_tools_bounds_is_a_typed_400_with_no_read(
     """The other end of the same bound, one step outside it on each side.
 
     Catches a route that answers the tool's typed `VALIDATION` as an untyped
-    500 or as FastAPI's own 422 — the page has one sentence per the design code
+    500 or as FastAPI's own 422 — the page has one sentence per the contract code
     and nothing to say for either — and a route that silently CLAMPS the value
     into range, which would show a reviewer a page they did not ask for and
     hide the mistake from them. No row was read, which is what `answered`
@@ -1023,15 +1023,15 @@ def test_a_page_size_outside_the_tools_bounds_is_a_typed_400_with_no_read(
 def test_a_status_that_is_not_a_tool_enum_member_is_a_typed_400_with_no_read(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch, status: str
 ) -> None:
-    """§1's sixth criterion, the three rows it names. `ReviewStatus` is a
+    """The sixth requirement, the three rows it names. `ReviewStatus` is a
     StrEnum and membership is EXACT, so the wrong case, a trailing space and an
-    unknown word are each `VALIDATION` before any read (23e decision E).
+    unknown word are each `VALIDATION` before any read.
 
     Catches a route that lower-cases, strips or otherwise repairs the word on
     the way through — `"open "` would then answer somebody's open reviews for a
     query the tool refuses, and the page would never learn its filter was
     wrong — and a route that declares a second enum of its own, which answers
-    FastAPI's untyped 422 where the design's `VALIDATION` is what 23f has a
+    FastAPI's untyped 422 where the contract's `VALIDATION` is what 23f has a
     sentence for.
 
     The bearer verifies and no limit is sent, so only the forwarded word can
@@ -1063,7 +1063,7 @@ def test_each_tool_decision_word_is_forwarded_untouched_and_keyed_over_itself(
     only knows `keep`, say, refuses `revoke` with an untyped 422 and the page's
     Revoke button never works) and one that maps the word to something else on
     the way out. The key is asserted over the SAME word that went on the wire,
-    which is what keeps decision B's "changing the decision changes the key"
+    which is what keeps "changing the decision changes the key"
     true at the route rather than only in the pure function.
     """
     caller = BoundCheckingToolCaller(DECIDE_PAYLOAD)
@@ -1093,7 +1093,7 @@ def test_each_tool_decision_word_is_forwarded_untouched_and_keyed_over_itself(
 def test_a_decision_that_is_not_a_tool_enum_member_is_a_typed_400_with_no_write(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch, decision: str
 ) -> None:
-    """§1's sixth criterion on the mutation. `ReviewDecision` is a StrEnum and
+    """The sixth requirement on the mutation. `ReviewDecision` is a StrEnum and
     membership is EXACT, so each of these four is `VALIDATION` before any
     effect runs.
 
@@ -1123,11 +1123,11 @@ def test_a_decision_that_is_not_a_tool_enum_member_is_a_typed_400_with_no_write(
     assert caller.answered == []
 
 
-# --- the derived key, pure (decision B) ---------------------------------------
+# --- the derived key, pure ----------------------------------------------------
 
 
 def test_the_same_reviewer_item_and_decision_derive_the_same_key_every_time() -> None:
-    """The property §1's idempotency criterion rests on. Catches a derivation
+    """The property the idempotency requirement rests on. Catches a derivation
     that reaches a clock or a random source (`uuid4`, `datetime.now`): the
     second Keep of a double click would then file a second decision instead of
     replaying the first one's stored response.
@@ -1151,11 +1151,11 @@ def test_the_same_reviewer_item_and_decision_derive_the_same_key_every_time() ->
 def test_changing_any_one_of_the_three_values_changes_the_key(
     reviewer: uuid.UUID, item_id: uuid.UUID, decision: str
 ) -> None:
-    """§5's first risk, one value at a time. Each row is the failure the value
+    """The first risk, one value at a time. Each row is the failure the value
     prevents: without the reviewer two reviewers deciding one item would share
     a key and the second would replay the first's answer; without the item id
     one reviewer's second decision would replay their first on a DIFFERENT item
-    — the collision §5 names, which would end somebody else's access or spare
+    — the collision the contract names, which would end somebody else's access or spare
     it; without the decision word a later Revoke would be handed the stored
     Keep back instead of meeting the tool's own re-decision refusal.
     """
@@ -1174,7 +1174,7 @@ def test_the_key_is_the_uuid5_of_the_three_values_under_the_modules_namespace() 
     namespace or joined with a different separator: it would be stable, unique
     and completely different from the key `graph/keys.py` documents, so every
     other case in this file passes while the module has two derivations under
-    two namespaces (decision B's whole reason for putting this function in that
+    two namespaces (the whole reason for putting this function in that
     module rather than beside the routes).
 
     The separator is asserted by construction: a join on `\\x1f` is the only one
@@ -1192,11 +1192,11 @@ def test_the_key_is_the_uuid5_of_the_three_values_under_the_modules_namespace() 
 
 
 def test_the_derived_key_fits_the_column_it_is_stored_in() -> None:
-    """§1's length half: the key is length-checked by `check_idempotency_key`
+    """The contract's length half: the key is length-checked by `check_idempotency_key`
     before it reaches the wire. Catches a derivation that returns the MATERIAL
     rather than a uuid over it — a string that grows with the decision word and
     would abort the store AFTER the decision had run, as a database error
-    instead of the code the design names.
+    instead of the code the contract names.
     """
     key = derive_review_decision_key(reviewer_user_id=REVIEWER_ID, item_id=ITEM_ID, decision=REVOKE)
 
@@ -1205,17 +1205,17 @@ def test_the_derived_key_fits_the_column_it_is_stored_in() -> None:
 
 
 def test_the_key_check_is_inclusive_at_the_column_length_and_refuses_one_over() -> None:
-    """§1's boundary, pinned at its exact value: a key of
+    """The contract's boundary, pinned at its exact value: a key of
     exactly `KEY_LENGTH` is accepted and one character over is refused as
     `VALIDATION` before it can reach the wire.
 
-    NO KILL CLAIM of its own on this plan's code. `check_idempotency_key` is
-    17c's guard, already pinned by `test_agent_planning.py`, and whether
+    NO KILL CLAIM of its own on this code. `check_idempotency_key` is
+    guard, already pinned by `test_agent_planning.py`, and whether
     `derive_review_decision_key` routes THROUGH it is unobservable — every
     derived key is a 36-character uuid, so the check can never fire from that
-    caller. This row is here because §1 states the bound and a project rule
-    wants the value written where the plan states it; the case above is what
-    pins the derivation returning a uuid at all (a project rule's shape).
+    caller. This row is here because the requirements state the bound and want the value written
+    out;
+    the case above is what pins the derivation returning a uuid at all.
     """
     longest = "k" * KEY_LENGTH
 

@@ -1,18 +1,18 @@
-"""An earlier change, sections 1 and 6: `rollback_request`, called directly over the seed.
+"""`rollback_request`, called directly over the seed.
 
 Surface under test (written before it exists):
 
 ``helpdesk.access.rollback``
-    ``ROLLBACK_WINDOW = timedelta(hours=24)`` — the design's window.
+    ``ROLLBACK_WINDOW = timedelta(hours=24)`` — the contract's window.
     ``ROLLBACK_REVOKE_REASON = "rollback"`` — the literal written to
-    `grants.revoke_reason` and to the `grant.revoked` payload (decision B);
+    `grants.revoke_reason` and to the `grant.revoked` payload;
     the caller's own text is carried by `grant.rolled_back` instead.
-    ``GRANT_ROLLED_BACK_EVENT_TYPE = "grant.rolled_back"`` (the design).
+    ``GRANT_ROLLED_BACK_EVENT_TYPE = "grant.rolled_back"``.
     ``def within_rollback_window(granted_at, now) -> bool`` — pure, inclusive
     at exactly `granted_at + ROLLBACK_WINDOW`.
     ``RequestNotExecutedError(ToolError)`` and
     ``RollbackWindowExpiredError(ToolError)`` — both `POLICY_BLOCKED`. The
-    third refusal, "no live grant left" (decision C), reuses
+    third refusal, "no live grant left", reuses
     `helpdesk.access.revoke.GrantNotActiveError` rather than inventing a
     third error.
     ``RollbackResult`` — frozen, carrying ``.request`` and ``.revoked_grants``.
@@ -30,7 +30,7 @@ The status test and the window test live in the MCP handler, not here, so
 this file pins the two errors' codes rather than the branches that raise
 them; `test_mcp_rollback_request.py` owns those.
 
-a project rule: the seeded database is `test_access_snapshot.py`'s
+The seeded database is `test_access_snapshot.py`'s
 session-scoped `access_db_url` fixture, imported rather than rebuilt (argon2
 seeding is the slow part of this suite). Per-test isolation inside it is a
 namespace: every case plants its OWN department, system, role, people,
@@ -99,8 +99,8 @@ FAR_EXPIRY = datetime(2099, 6, 1, 12, 0, tzinfo=UTC)
 HISTORIC_REVOKED_AT = datetime(2026, 3, 1, 9, 0, tzinfo=UTC)
 HISTORIC_REASON = "fake historical revocation, must not be rewritten"
 
-# The caller's text. Deliberately NOT the literal `rollback`: decision B says
-# the column gets the literal and this text goes to `grant.rolled_back`, and
+# The caller's text. Deliberately NOT the literal `rollback`: the column gets the literal and this
+# text goes to `grant.rolled_back`, and
 # a case whose two strings were equal could not tell those apart.
 CALLER_REASON = "fake rollback reason typed by the fake admin"
 
@@ -372,7 +372,7 @@ def events_for(url: str, subject_id: uuid.UUID) -> list[tuple[str, str, dict[str
     return asyncio.run(scenario())
 
 
-# --- the window (criterion 3) ----------------------------------------------------
+# --- the window ----------------------------------------------------
 
 
 WINDOW_CASES: list[tuple[str, timedelta, bool]] = [
@@ -399,7 +399,7 @@ def test_the_rollback_window_is_inclusive_at_exactly_24_hours(
     past the edge` is the only row that fails when the window is widened (a
     `timedelta(days=1, seconds=1)`, or a comparison against `now` in whole
     hours). A one-sided table cannot tell an inclusive bound from an exclusive
-    one, which is exactly what criterion 3 fixes.
+    one, which is exactly what the window rule fixes.
 
     `ROLLBACK_WINDOW` itself is asserted as the exact value:
     every other case in this file and in `test_mcp_rollback_request.py` reads
@@ -412,13 +412,13 @@ def test_the_rollback_window_is_inclusive_at_exactly_24_hours(
     assert within_rollback_window(GRANTED_AT, GRANTED_AT + elapsed) is inside
 
 
-# --- the reason (decision B) -----------------------------------------------------
+# --- the reason ---------------------------------------------------------------
 
 
 def test_the_rollback_reason_written_to_the_grant_is_the_literal_rollback(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision B on the COLUMN.
+    """The rollback literal on the COLUMN.
 
     KILL: passing the caller's `reason` through to `revoke_grant_row` instead
     of `ROLLBACK_REVOKE_REASON`. The caller's text and the literal are
@@ -428,7 +428,7 @@ def test_the_rollback_reason_written_to_the_grant_is_the_literal_rollback(
     be satisfied by one wrong reason.
 
     The literal is pinned as the exact string `"rollback"`:
-    it is the design verbatim and what row 21's sweeps and row 24's admin views
+    it is the contract verbatim and what the sweeps and the admin views
     match on, and every other assertion here reads the constant.
     """
     assert ROLLBACK_REVOKE_REASON == "rollback"
@@ -444,30 +444,30 @@ def test_the_rollback_reason_written_to_the_grant_is_the_literal_rollback(
     assert row.revoked_at == ROLLED_BACK_AT
 
 
-# --- the two events (criterion 2, a project rule) ------------------------------
+# --- the two events -----------------------------------------------------------
 
 
 def test_a_rolled_back_row_writes_grant_revoked_and_grant_rolled_back(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Criterion 2: both events, both subjects, every payload key, for one row.
+    """both events, both subjects, every payload key, for one row.
 
     KILL: filing `grant.rolled_back` against the REQUEST instead of the grant
     (`subject_type="access_request"`, `subject_id=request.id`). Nothing else in
     either file reads this event's subject, and a rollback event that names the
     request answers nothing for an auditor asking what happened to grant X —
-    which is the whole of a project rule.
+    which is the whole point of the two events.
 
     The payload keys are an exact set, so a dropped `reason` (the only record
     of WHY, since the column carries the literal) or a missing original
-    `expires_at` (what the design's reinstatement half would need) fails here.
+    `expires_at` (what the contract's reinstatement half would need) fails here.
     The values are the ORIGINALS read off the row before it died: `granted_at`
     and `expires_at` are asserted against the planted instants, so an
     implementation writing `now` or the post-revocation state fails.
 
     Both events are asserted in one ordered list for the one subject, so a
     rollback that skips the shared `grant.revoked` writer — leaving a row that
-    reads differently to anyone counting revocations (decision E) — fails too.
+    reads differently to anyone counting revocations — fails too.
     """
     assert GRANT_ROLLED_BACK_EVENT_TYPE == "grant.rolled_back"
     planted = plant(access_db_url)
@@ -507,7 +507,7 @@ def test_a_rolled_back_row_carries_a_null_expiry_when_the_grant_had_none(
 
     KILL: an unguarded `grant.expires_at.isoformat()`, which raises
     `AttributeError` on a grant with no expiry — an `INTERNAL` error across a
-    boundary whose contract is the eight typed the design codes. Every other
+    boundary whose contract is the eight typed the contract codes. Every other
     case here plants an expiry, so this row is the only one that reaches the
     `None` branch at all; a never-expiring grant is what `create_access_request`
     writes whenever the role's `default_expiry_days` is absent.
@@ -541,7 +541,7 @@ def test_the_rollback_errors_carry_their_spec_error_codes() -> None:
     from `revoke.py` rather than a third class, so its code is pinned by
     `test_access_revoke.py::test_the_revoke_errors_carry_their_spec_error_codes`;
     asserted here only as "all three answer the same code", which is what
-    criterion 6 promises a caller.
+    the tool promises a caller.
     """
     assert issubclass(RequestNotExecutedError, ToolError)
     assert issubclass(RollbackWindowExpiredError, ToolError)
@@ -555,7 +555,7 @@ def test_the_rollback_errors_carry_their_spec_error_codes() -> None:
 def test_a_request_whose_grants_are_all_gone_raises_grant_not_active(
     access_db_url: str,  # noqa: F811
 ) -> None:
-    """Decision C, at the only seam where it is separable.
+    """The empty-set refusal, at the only seam where it is separable.
 
     KILL: deleting the empty-set refusal in the domain, which would mark the
     request `rolled_back` while nothing was undone — an audit record of an undo
@@ -581,7 +581,7 @@ def test_a_request_whose_grants_are_all_gone_raises_grant_not_active(
     assert events_for(access_db_url, planted.grant_ids[0]) == []
 
 
-# --- the transaction (plan §2: the caller's, never its own) ----------------------
+# --- the transaction (the caller's, never its own) ----------------------------
 
 
 def test_the_revocations_and_their_events_roll_back_together(
@@ -593,7 +593,7 @@ def test_the_revocations_and_their_events_roll_back_together(
     `rollback_request`. The caller fails AFTER the call returned, so a
     revocation committed on the way out survives a rollback that must take it,
     and the request would read `rolled_back` while the grant it named is alive
-    — the exact state the design exists to prevent.
+    — the exact state the contract exists to prevent.
 
     The events are counted rather than assumed absent everywhere: the case
     above proves two are normally written for this row, so an implementation
@@ -612,21 +612,21 @@ def test_the_revocations_and_their_events_roll_back_together(
     assert events_for(access_db_url, grant_id) == []
 
 
-# --- decision F: the reinstatement half has no reachable input -------------------
+# --- the reinstatement half has no reachable input ----------------------------
 
 
 def test_the_only_executed_artefact_of_a_request_is_a_grant() -> None:
-    """Criterion 9 and decision F, read off the schema rather than argued.
+    """Read off the schema rather than argued.
 
-    the design has two halves: a grant is revoked, and a revocation is
-    reinstated with its original expiry. This plan implements the first only,
+    the contract has two halves: a grant is revoked, and a revocation is
+    reinstated with its original expiry. This change implements the first only,
     on the grounds that no request in the model executes a revocation — so the
     second half has no input a `request_id` could reach.
 
     KILL: adding any second table that carries a `request_id` (a `revocations`
     or `reinstatements` table, the natural way to make a revocation a
-    first-class artefact). That is precisely the change that makes SPEC
-    §13.4's reinstatement branch reachable and this plan's grant-only rollback
+    first-class artefact). That is precisely the change that makes
+    the contract's reinstatement branch reachable and this grant-only rollback
     incomplete, and nothing else in either file would notice it. A test over
     the tool inputs could not say this: `rollback_request` itself takes a
     request id and revokes, so "no revoking tool takes a request id" is false.

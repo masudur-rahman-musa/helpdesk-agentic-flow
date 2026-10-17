@@ -8,15 +8,14 @@ import { orderedLabels } from "@/components/layout/role-header";
 import { UserMenu } from "@/components/layout/user-menu";
 
 /**
- * An earlier change §6, `user-menu.test.tsx`: the signed-in person's name and account
+ * `user-menu.test.tsx`: the signed-in person's name and account
  * type become ONE button at the top right of the "Account" group, and Sign out
  * lives in the panel that button opens. jsdom, a stubbed `fetch`, no agent-api.
  *
- * Shapes this file fixes that the plan left open (a project rule, 55 and 62;
- * these belong in 43's Deviations):
+ * Shapes this file fixes:
  * - the trigger's accessible name is `Fake Person One, Employee` (the name,
- *   a comma, the principal labels), as §6 writes it.
- * - the group is `role="group"` named `Signed in user` (kept from an earlier change), and
+ *   a comma, the principal labels).
+ * - the group is `role="group"` named `Signed in user` (kept from an earlier version), and
  *   holds the trigger and the open panel.
  * - the panel is located by its only content: the button named `Sign out`.
  * - an outside click is a `pointerdown` on `document.body`, fired with
@@ -205,7 +204,7 @@ describe("the menu's open and closed states", () => {
   });
 
   it("closes when focus leaves the group", async () => {
-    // Catches a menu that survives a Tab out of it (decision D): keyboard focus
+    // Catches a menu that survives a Tab out of it: keyboard focus
     // moves to the theme toggle, no pointer is involved and Escape is not
     // pressed, so only the focus-leaves handler can close the panel.
     const user = userEvent.setup();
@@ -248,7 +247,7 @@ describe("while /api/me is pending, has failed or has no provider", () => {
   }
 
   it("shows a plain Sign out and no trigger while the read is pending", async () => {
-    // Catches a shell that hides Sign out until `/me` answers (decision C: signing
+    // Catches a shell that hides Sign out until `/me` answers (signing
     // out never depends on `/me`), and one that renders an empty trigger. The
     // read never answers, so this is the state a slow `/me` leaves the page in.
     meAnswer = () => new Promise<Response>(() => undefined);
@@ -335,7 +334,7 @@ describe("placement in the header", () => {
   });
 
   it("has no Signed in user group between the brand row and the main nav", async () => {
-    // Catches the strip row surviving between the rows: the
+    // Catches the strip row surviving between the rows (the place): the
     // group must live inside the Account group, so the nodes between the
     // header's top row and `MainNav` hold no such group.
     renderShell();
@@ -369,7 +368,7 @@ describe("the trigger's text", () => {
 
   it("exports orderedLabels in the enum's order, not the wire's", () => {
     // Catches `orderedLabels` mapping the wire array as it arrived once it moves
-    // to an export (decision D from an earlier change). The wire sends `system_owner`
+    // to an export (enum order). The wire sends `system_owner`
     // BEFORE `manager`; the enum has `manager` first.
     expect(orderedLabels(["system_owner", "manager"])).toEqual(["Manager", "System owner"]);
   });

@@ -7,15 +7,14 @@ import {
 } from "@/features/admin/killswitch/schema";
 
 /**
- * An earlier change §6, `killswitch-schema.test.ts`: the parser 24d's
+ * `killswitch-schema.test.ts`: the parser the
  * `/admin/killswitch` page reads, over the two payloads the new proxy returns.
  *
- * Shapes this file fixes that the plan left open (a project rule and 55;
- * these belong in 24cb's Deviations):
+ * Shapes this file fixes:
  * - `web/src/features/admin/killswitch/schema.ts` exports `switchStateSchema`,
  *   `killSwitchRowSchema`, `killSwitchBoardSchema` and
  *   `setKillSwitchResultSchema`, plus the inferred types `SwitchState`,
- *   `KillSwitchRow`, `KillSwitchBoard` and `SetKillSwitchResult` — decision F:
+ *   `KillSwitchRow`, `KillSwitchBoard` and `SetKillSwitchResult` in
  *   one file, both envelopes, `audit-schema.ts`' own naming.
  * - the board envelope is `{ switches: [...] }` with the SIX `KillSwitchRow`
  *   fields (`tool`, `protected`, `stopped`, `global_state`, `tenant_state`,
@@ -59,7 +58,7 @@ const CLEAN_ROW: Record<string, unknown> = {
   unreadable: false,
 };
 
-/** A tool stopped on BOTH layers, which is the row 24ca decision B exists for. */
+/** A tool stopped on BOTH layers, which is the row the two-layer design exists for. */
 const STOPPED_ROW: Record<string, unknown> = {
   tool: "revoke_access",
   protected: true,
@@ -69,7 +68,7 @@ const STOPPED_ROW: Record<string, unknown> = {
   unreadable: false,
 };
 
-/** The six field names of §1, written out rather than derived from the row. */
+/** The six field names, written out rather than derived from the row. */
 const ROW_FIELDS = [
   "tool",
   "protected",
@@ -103,8 +102,8 @@ describe("killSwitchBoardSchema", () => {
   it("accepts a two-row board, one clean and one stopped on both layers", () => {
     // The premise every rejection row below depends on: a schema that refused
     // the complete payload would make all six of them pass while the page
-    // rendered nothing at all. The count is asserted beside it because §1 fixes
-    // the row at six fields.
+    // rendered nothing at all. The count is asserted beside it because the row
+    // has six fields.
     expect(killSwitchBoardSchema.safeParse(board(CLEAN_ROW, STOPPED_ROW)).success).toBe(true);
     expect(ROW_FIELDS).toHaveLength(6);
   });
@@ -120,7 +119,7 @@ describe("killSwitchBoardSchema", () => {
   });
 
   it("accepts a null global_state, a null tenant_state, and both null", () => {
-    // §1's "accepts a null `global_state`; accepts a null `tenant_state`".
+    // Accepts a null `global_state` and a null `tenant_state`.
     // Catches a parser pinning either layer to an object: a tool stopped for
     // one tenant alone carries `global_state: null`, and a tool nothing has
     // stopped carries both null — which is most of the board on most days, so
@@ -135,7 +134,7 @@ describe("killSwitchBoardSchema", () => {
   });
 
   it("accepts an unreadable row with both states null", () => {
-    // §1's "accepts `unreadable: true` with both states null", 24ca decision D:
+    // Accepts `unreadable: true` with both states null:
     // a stored value that will not parse is REPORTED rather than raised, and
     // this board is the only surface from which a bad key can be seen and
     // cleared. Catches a parser that requires a state whenever a row is
@@ -175,7 +174,7 @@ describe("killSwitchBoardSchema", () => {
   });
 
   it("accepts a row and an envelope carrying an unknown extra key", () => {
-    // Catches a `.strict()` schema. The wire may grow — 23e widened a tool's
+    // Catches a `.strict()` schema. The wire may grow: a tool can widen its
     // output by six fields without touching any parser — and a page that
     // refused a payload carrying one new key would break on a deploy that
     // changed nothing it reads.
@@ -189,7 +188,7 @@ describe("killSwitchBoardSchema", () => {
   });
 
   it("exposes both layers, protected and stopped on the parsed value", () => {
-    // Catches fields parsed as `z.unknown()`: the two layers are what 24d
+    // Catches fields parsed as `z.unknown()`: the two layers are what the page
     // renders, `protected` is what disables the toggle and `stopped` is the
     // line's own answer. Under strict TypeScript this case does not compile if
     // any of them is unreadable.
@@ -243,8 +242,8 @@ describe("switchStateSchema", () => {
 
 describe("setKillSwitchResultSchema", () => {
   it("accepts the whole four-field result and both polarities", () => {
-    // §1's "accepts the four-field set result". `stopped: false` is the release
-    // half of 13c decision B, and a parser that only ever saw a stop would
+    // Accepts the four-field set result. `stopped: false` is the release
+    // half, and a parser that only ever saw a stop would
     // refuse the answer to letting a tool run again.
     expect(setKillSwitchResultSchema.safeParse(SET_RESULT).success).toBe(true);
     expect(setKillSwitchResultSchema.safeParse({ ...SET_RESULT, stopped: false }).success).toBe(
@@ -264,8 +263,8 @@ describe("setKillSwitchResultSchema", () => {
 
   it("rejects a string stopped and a non-string scope", () => {
     // `stopped` is a BOOLEAN: `"false"` is truthy, so a coerced string would
-    // report a released tool as stopped and invert the very polarity §5's
-    // first risk is about. `scope` is a STRING carrying either `global` or a
+    // report a released tool as stopped and invert the very polarity this
+    // schema exists to protect. `scope` is a STRING carrying either `global` or a
     // tenant id, so a parser expecting a boolean or a number cannot hold the
     // answer at all.
     expect(setKillSwitchResultSchema.safeParse({ ...SET_RESULT, stopped: "true" }).success).toBe(

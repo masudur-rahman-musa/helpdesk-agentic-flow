@@ -1,4 +1,4 @@
-"""An earlier change acceptance: deterministic, obviously fake seed data for both tenants.
+"""Deterministic, obviously fake seed data for both tenants.
 
 Expected implementation surface (the implementer must provide exactly this):
 
@@ -22,7 +22,7 @@ except the infrastructure timestamps ``created_at``/``updated_at`` (they are
 ``server_default=now()`` from the Base mixin and thus wall-clock by design).
 All seed-controlled datetimes (``granted_at``, ``expires_at``, ...) ARE compared.
 
-Tenants are identified by company name ("Nordlicht" / "Cuan", SPEC-pinned),
+Tenants are identified by company name ("Nordlicht" / "Cuan", fixed),
 not by slug, so the implementer is free to pick tenant slugs.
 """
 
@@ -56,11 +56,11 @@ from helpdesk.shared.models import (
 from scripts.seed import SeedError, seed_all
 from tests.conftest import TempDatabaseFactory
 
-# An earlier change reading: most tests here still take 1.5-4.9s (each seeds both tenants
+# Most tests here still take 1.5-4.9s (each seeds both tenants
 # into a real database), so the whole module is slow and `make test-fast` skips it.
 pytestmark = pytest.mark.slow
 
-# --- the design constants -------------------------------------------------------
+# --- The spec constants -------------------------------------------------------
 
 EXPECTED_USERS = {"nordlicht": 220, "cuan": 180}  # ±10% tolerance below
 EXPECTED_EMAIL_DOMAIN = {"nordlicht": "@nordlicht.example", "cuan": "@cuan.example"}
@@ -95,7 +95,7 @@ ANOMALY_FRACTION_MAX = 0.15
 
 _INFRA_COLUMNS = frozenset({"created_at", "updated_at"})
 
-# An earlier change: the most SQL statements one `seed_all` may send, on an empty
+# The most SQL statements one `seed_all` may send, on an empty
 # database and on a re-seed alike (before the batching: 5,985 and 2,993).
 MAX_SEED_STATEMENTS = 100
 
@@ -173,7 +173,7 @@ async def _snapshot(engine: AsyncEngine) -> dict[str, list[tuple[object, ...]]]:
 
 
 async def _tenant_ids(conn: AsyncConnection) -> dict[str, uuid.UUID]:
-    """Map 'nordlicht'/'cuan' to tenant ids via the SPEC-pinned company names."""
+    """Map 'nordlicht'/'cuan' to tenant ids via the fixed company names."""
     rows = (await conn.execute(select(Tenant.id, Tenant.name))).all()
     assert len(rows) == 2, f"expected exactly two tenants, got {len(rows)}: {rows!r}"
     mapping: dict[str, uuid.UUID] = {}
@@ -467,14 +467,14 @@ def test_obviously_fake(seeded_db_url: str) -> None:
 
 
 def test_midrun_failure_writes_nothing(fresh_db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """An earlier change risk 4: a crash mid-way through a tenant's writes leaves no
+    """A crash mid-way through a tenant's writes leaves no
     partial tenant-scoped rows (one transaction per tenant), and a clean
     re-run afterwards completes normally.
 
     The two ``tenants`` root rows are the documented exception: they are
     committed in their own transaction before the per-tenant writes start.
     """
-    # An earlier change: the fault lands on the users batch, which `_write_tenant` sends
+    # The fault lands on the users batch, which `_write_tenant` sends
     # after the departments batch inside the same tenant transaction.
     fault_fired = False
     departments_before_fault: list[uuid.UUID] = []
@@ -528,7 +528,7 @@ def test_midrun_failure_writes_nothing(fresh_db_url: str, monkeypatch: pytest.Mo
 def test_a_reseed_backfills_system_categories_and_changes_nothing_else(
     fresh_db_url: str,
 ) -> None:
-    """An earlier change's migration boundary: a database seeded before the category
+    """A database seeded before the category
     column existed holds the migration's `other` server_default, and only a
     re-seed can supply the real values. Simulated by seeding, resetting every
     category to `other`, and re-running: the categories must come back and no
@@ -585,7 +585,7 @@ def test_unmigrated_db_fails_loudly(fresh_db_url: str) -> None:
 
 
 def test_a_seed_sends_at_most_100_statements(fresh_db_url: str) -> None:
-    """An earlier change: one seed on an empty migrated database sends at most 100
+    """One seed on an empty migrated database sends at most 100
     statements. Catches a writer that still reads and flushes one row at a
     time (5,985 statements before the batching)."""
 
@@ -602,7 +602,7 @@ def test_a_seed_sends_at_most_100_statements(fresh_db_url: str) -> None:
 
 
 def test_a_reseed_sends_at_most_100_statements(fresh_db_url: str) -> None:
-    """An earlier change: a second seed over already-seeded data sends at most 100
+    """A second seed over already-seeded data sends at most 100
     statements. Catches a writer that batches inserts but still reads each
     existing row alone (2,993 statements before the batching)."""
 
@@ -620,7 +620,7 @@ def test_a_reseed_sends_at_most_100_statements(fresh_db_url: str) -> None:
 
 
 def test_upsert_many_leaves_an_existing_row_untouched(fresh_db_url: str) -> None:
-    """An earlier change: a user row already present with a changed display_name keeps
+    """A user row already present with a changed display_name keeps
     that name after a re-seed. Catches a batch writer that overwrites existing
     rows (an ON CONFLICT DO UPDATE or a merge) instead of inserting only the
     missing ones."""
@@ -653,7 +653,7 @@ def test_upsert_many_leaves_an_existing_row_untouched(fresh_db_url: str) -> None
 
 
 def test_upsert_many_with_no_rows_sends_no_statement(fresh_db_url: str) -> None:
-    """An earlier change: an empty batch sends zero statements and returns an empty map.
+    """An empty batch sends zero statements and returns an empty map.
     Catches an upsert_many that runs its own existence query (an IN over no
     ids) instead of short-circuiting when it was given nothing to write."""
     tenant_id = uuid.uuid4()

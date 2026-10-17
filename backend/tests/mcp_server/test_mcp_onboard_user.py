@@ -1,4 +1,4 @@
-"""An earlier change, sections 1 and 6: `onboard_user`, through the transport.
+"""`onboard_user`, through the transport.
 
 Surface under test (written before it exists):
 
@@ -11,11 +11,11 @@ Surface under test (written before it exists):
     ``OnboardUserOutput`` — ``user_id``, ``applied_role_ids`` and ``skipped``.
     ``onboard_user`` — a registered MUTATING tool under the wire name
     ``onboard_user``, whose registry ``event_type`` is the generic
-    ``tool.succeeded`` (decision F): the handler appends ``user.onboarded``
+    ``tool.succeeded``: the handler appends ``user.onboarded``
     itself, naming the NEW USER, so the pipeline's event lands last as the
     summary.
 
-Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the four principals the design
+Refusals: ``FORBIDDEN`` (+ ``tool.denied``) for the four principals the matrix
 gives no cell on this row, one shared ``NOT_FOUND`` for a `department_id` or a
 `manager_user_id` that is missing OR another tenant's, ``POLICY_BLOCKED`` for
 an address already taken in this tenant, and ``VALIDATION`` for every input
@@ -25,7 +25,7 @@ Audit deltas are asserted as exact ordered event-type lists against a before
 snapshot, never as counts: a missing domain event, a duplicated one, or a
 denial filed as an outage is invisible to a count.
 
-Fixture cost: everything rides an earlier change's session-scoped
+Fixture cost: everything rides the session-scoped
 ``mcp_fixtures`` seam — one seeded throwaway database, one dedicated Redis
 index flushed per test. Per-test isolation inside the shared database is a
 namespace: each case creates its own department (a fresh uuid name) with its
@@ -65,8 +65,8 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
 
 ONBOARD = "onboard_user"
 
-# the design's own name for the joiner event, appended by the handler
-# (decision F), and the pipeline's own events. Literals rather than imports:
+# The audit log's own name for the joiner event, appended by the handler,
+# and the pipeline's own events. Literals rather than imports:
 # these strings are the audit contract, and reading them from the module under
 # test would let a rename pass unnoticed.
 USER_ONBOARDED_EVENT = "user.onboarded"
@@ -84,13 +84,13 @@ DISPLAY_NAME_MAX_LENGTH = 256
 ROWS = generate_tenant(NORDLICHT)
 OTHER_TENANT_ROWS = generate_tenant(CUAN)
 
-# the design's `onboard_user` row: three principals may call it, four may not.
+# The matrix's `onboard_user` row: three principals may call it, four may not.
 ALLOWED_PRINCIPALS = ("hr", "it_admin", "platform_admin")
 DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "auditor")
 
 # The callers. Read only — no case writes to these rows — so they cannot
 # collide with another module's namespace. The principal is always forced on
-# the token, so the case pins the the design cell rather than whatever the seed
+# the token, so the case pins the matrix cell rather than whatever the seed
 # happened to give this user.
 CALLER = ROWS.users_by_department["HR"][3]
 NEW_MANAGER = ROWS.users_by_department["HR"][4]
@@ -268,7 +268,7 @@ def _onboarded_events(database_url: str, tenant_id: uuid.UUID) -> list[Any]:
     )
 
 
-# --- the happy path and the design's allow set (criteria 1, 2 and 7) ---------------
+# --- the happy path and the matrix's allow set ---------------
 
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
@@ -276,7 +276,7 @@ def test_the_three_permitted_principals_each_onboard_a_joiner(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """The allow direction every refusal below depends on, one row of the design's
+    """The allow direction every refusal below depends on, one row of the matrix's
     `onboard_user` cell at a time.
 
     Catches a registry entry wired to the wrong matrix member (say
@@ -326,7 +326,7 @@ def test_the_other_four_principals_are_denied_and_write_no_user(
     mcp_env: SeededMcp,  # noqa: F811
     principal: str,
 ) -> None:
-    """a project rule: the design's matrix row is the ONLY gate on this tool.
+    """The matrix row is the ONLY gate on this tool.
 
     Every argument is valid and every id resolves in the caller's own tenant,
     so neither the input pre-checks, the duplicate-email check nor the two
@@ -334,7 +334,7 @@ def test_the_other_four_principals_are_denied_and_write_no_user(
     stage is the one change that flips these four cases from `FORBIDDEN` to a
     created user. (If the handler ends up re-running `rbac.authorize` for
     itself, the two copies of one guard cannot be killed separately; the
-    docstring on that guard then has to say so, a project rule.)
+    docstring on that guard then has to say so.)
 
     `tool.denied` rather than `tool.failed`: a permission decision filed as an
     outage is a false record. The address is re-read across every tenant, so a
@@ -360,7 +360,7 @@ def test_the_other_four_principals_are_denied_and_write_no_user(
 def test_the_audit_sequence_is_onboarded_then_the_grants_then_tool_succeeded(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Criterion 3 and decision F, as an exact ordered list.
+    """The audit events, as an exact ordered list.
 
     Catches the registry declaring `user.onboarded` as this tool's event
     instead of the generic `tool.succeeded`: the pipeline writes its event with
@@ -409,7 +409,7 @@ def test_the_audit_sequence_is_onboarded_then_the_grants_then_tool_succeeded(
     }
 
 
-# --- the two absences, twice over (criterion 6) ---------------------------------
+# --- the two absences, twice over ---------------------------------
 
 
 def test_a_missing_and_another_tenants_department_answer_the_same_not_found(
@@ -449,7 +449,7 @@ def test_a_missing_and_another_tenants_department_answer_the_same_not_found(
 def test_a_missing_and_another_tenants_manager_answer_the_same_not_found(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision E's other half, and the same oracle argument for the manager.
+    """The other half, and the same oracle argument for the manager.
 
     `users` has no manager column, so `manager_user_id` is only ever carried
     into the `user.onboarded` payload — which makes it exactly the argument an
@@ -483,11 +483,11 @@ def test_a_missing_and_another_tenants_manager_answer_the_same_not_found(
 def test_an_address_already_in_this_tenant_is_refused_policy_blocked(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision G at the boundary: catches the unique index being left to
+    """At the boundary: catches the unique index being left to
     raise, which the pipeline maps to `INTERNAL`.
 
     A caller-caused condition reported as a server fault is both the wrong
-    the design code and an unusable answer — "try again" is exactly what must
+    typed error code and an unusable answer — "try again" is exactly what must
     not happen. The address belongs to a seeded user in this tenant, so it
     genuinely exists; the row count for it is asserted unchanged, so a second
     row or a mangled variant cannot hide behind the code assertion.
@@ -505,7 +505,7 @@ def test_an_address_already_in_this_tenant_is_refused_policy_blocked(
     assert len(_user_rows(mcp_env.database_url, taken)) == 1
 
 
-# --- the input surface (criterion 8, a project rule, 2 and 4) -----------------
+# --- the input surface -----------------
 
 
 def _address_of_length(length: int) -> str:
@@ -557,7 +557,7 @@ def test_the_input_bounds_are_inclusive_and_reject_before_any_effect(
     expected_code: str,
 ) -> None:
     """Both ends of both bounds, both directions, against the exact numbers,
-    plus the three trailing-whitespace rejections a project rule requires.
+    plus the three trailing-whitespace rejections.
 
     The columns are `String(320)` and `String(256)`, so an unbounded input is a
     post-effect database error rather than a typed refusal;
@@ -618,13 +618,13 @@ def test_an_unknown_field_is_refused_with_no_user(
 
     Dropping it silently would create the user in the TOKEN's tenant while the
     caller reads success as having placed them elsewhere — the one mistake
-    a project rule exists to make impossible to make quietly. Catches an input
+    the identity rule exists to make impossible to make quietly. Catches an input
     model that copied `tools/read.py`'s `extra="ignore"` contract: nothing else
     in this call can refuse it, since the caller is permitted and every other
     argument is valid.
 
-    (Plan §1's input line says extras are "dropped, never refused", which is
-    the READ tools' contract; the plan's own §3 puts this input on
+    (Extras on a read tool are "dropped, never refused"; that is
+    the READ tools' contract. This input sits on
     `MutatingToolInput`, whose contract is the opposite. This case pins the
     base class's behaviour.)
     """
@@ -642,7 +642,7 @@ def test_an_unknown_field_is_refused_with_no_user(
     assert _user_rows(mcp_env.database_url, email) == []
 
 
-# --- replay (criterion 9) -------------------------------------------------------
+# --- replay -------------------------------------------------------
 
 
 def test_a_replay_returns_the_stored_response_and_creates_no_second_user(
@@ -675,7 +675,7 @@ def test_a_replay_returns_the_stored_response_and_creates_no_second_user(
     assert events_after == [*events_between, REPLAYED_EVENT]
 
 
-# --- the sentinel, end to end (decision C) --------------------------------------
+# --- the sentinel, end to end --------------------------------------
 
 
 def _post_login(tenant_slug: str, email: str, password: str) -> httpx.Response:
@@ -683,7 +683,7 @@ def _post_login(tenant_slug: str, email: str, password: str) -> httpx.Response:
 
     `mcp_env` has already pointed `DATABASE_URL` and `JWT_SECRET` at the seeded
     temp database, and the route calls `load_settings()` per request, so no
-    second fixture is needed (a project rule: nothing is rebuilt here).
+    second fixture is needed (nothing is rebuilt here).
     """
 
     async def scenario() -> httpx.Response:
@@ -702,7 +702,7 @@ def _post_login(tenant_slug: str, email: str, password: str) -> httpx.Response:
 def test_login_refuses_an_onboarded_user_exactly_like_an_unknown_one(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
-    """Decision C's second pin: catches a joiner created with a USABLE
+    """Catches a joiner created with a USABLE
     credential.
 
     `verify_password` refusing the sentinel is a unit fact; this is the one

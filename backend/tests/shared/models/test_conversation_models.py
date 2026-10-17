@@ -1,4 +1,4 @@
-"""An earlier change §6: the two the design conversation tables, their pre-check and their
+"""The two conversation tables, their pre-check and their
 repository helpers.
 
 Expected implementation surface (the implementer must provide exactly this):
@@ -29,12 +29,12 @@ Expected implementation surface (the implementer must provide exactly this):
         — the last ``limit`` messages of that session, OLDEST FIRST, by
         ``ordinal``.
 
-a project rule: this plan EXTENDS the hand-kept ``TENANT_SCOPED_TABLES``
+This change EXTENDS the hand-kept ``TENANT_SCOPED_TABLES``
 allowlist that ``test_models.py`` reads as the schema literal, so
 ``test_both_tables_are_in_the_tenant_scoped_allowlist`` stays red until
 ``_seed.py`` names both tables.
 
-a project rule: one session-scoped database for the whole run
+One session-scoped database for the whole run
 (``conversation_db_url``), schema built once, two obviously fake tenants
 seeded once. Per-test isolation is a namespace: every case works under its
 own uuid-suffixed session id.
@@ -127,7 +127,7 @@ def test_both_conversation_tables_are_in_the_metadata() -> None:
 
 
 def test_both_tables_are_in_the_tenant_scoped_allowlist() -> None:
-    """Catches the standing-rule-27 miss: two tables added to the metadata
+    """Catches a forgotten allowlist entry: two tables added to the metadata
     without extending `_seed.py::TENANT_SCOPED_TABLES`, which leaves
     `test_models.py`'s schema-literal sweep red for a later plan to find."""
     assert "sessions" in TENANT_SCOPED_TABLES
@@ -147,11 +147,11 @@ def test_the_session_columns_are_the_spec_6_columns() -> None:
 
 
 def test_the_session_metadata_column_is_named_metadata_in_the_database() -> None:
-    """Catches decision-free renaming: the attribute must be
+    """Catches a renamed attribute: the attribute must be
     `session_metadata` (because `metadata` is SQLAlchemy's own declarative
-    attribute) while the COLUMN keeps the design's name `metadata`. An
+    attribute) while the COLUMN keeps the name `metadata`. An
     implementation that lets the attribute name reach the DDL ships a column
-    no SPEC-written query or migration can find."""
+    no documented query or migration can find."""
     columns = Base.metadata.tables["sessions"].c
     assert "metadata" in columns
     assert "session_metadata" not in columns
@@ -159,7 +159,7 @@ def test_the_session_metadata_column_is_named_metadata_in_the_database() -> None
 
 
 def test_the_message_columns_are_the_spec_6_columns() -> None:
-    """Catches a `messages` table missing the payload columns the design fixes:
+    """Catches a `messages` table missing the payload columns the table must have:
     without `citations` a policy-based answer cannot carry what it was based
     on, and without `tool_calls` the transcript cannot show what the turn
     actually did."""
@@ -174,7 +174,7 @@ def test_the_message_columns_are_the_spec_6_columns() -> None:
 
 
 def test_the_message_tenant_id_is_present_so_the_orm_guard_covers_it() -> None:
-    """Catches decision B being dropped back to the design's literal column list:
+    """Catches `tenant_id` being dropped from the literal column list:
     the guard in `helpdesk.core.db` is per-model, so a `messages` table
     without `tenant_id` is an unguarded cross-tenant read whose only
     protection is that every query happens to join its parent."""
@@ -184,7 +184,7 @@ def test_the_message_tenant_id_is_present_so_the_orm_guard_covers_it() -> None:
 
 
 def test_max_message_chars_is_exactly_the_planned_value() -> None:
-    """a project rule: catches a cap quietly widened or narrowed, which moves
+    """Catches a cap quietly widened or narrowed, which moves
     the boundary every other case in this file asserts against."""
     assert MAX_MESSAGE_CHARS == 4000
     assert HISTORY_LIMIT == 20
@@ -218,7 +218,7 @@ def test_the_ordinal_column_is_a_unique_identity_integer() -> None:
 
 
 def test_message_role_has_exactly_the_three_spec_members() -> None:
-    """Catches the enum drifting from the design's `user`/`assistant`/`tool` — a
+    """Catches the enum drifting from `user`/`assistant`/`tool` — a
     fourth member, or a renamed value, silently changes what a stored
     transcript means and what the history window renders."""
     assert {role.value for role in MessageRole} == {"user", "assistant", "tool"}
@@ -256,9 +256,9 @@ def test_check_message_content_refuses_the_empty_string() -> None:
 
 
 def test_the_message_error_is_a_typed_tool_error() -> None:
-    """a project rule on the code, not the number: catches an error raised as
+    """Checks the code, not the number: catches an error raised as
     a bare `ValueError`, which crosses the tool boundary as free text instead
-    of the design's `VALIDATION`."""
+    of `VALIDATION`."""
     assert issubclass(MessageTooLongError, ToolError)
     assert MessageTooLongError.code is ErrorCode.VALIDATION
 
@@ -426,7 +426,7 @@ def test_another_tenants_sessions_and_messages_are_invisible(
     asyncio.run(scenario())
 
 
-# --- an earlier change decision F: the metadata column matches the model ------------------
+# --- the metadata column matches the model ------------------
 
 
 def _alembic(*arguments: str, database_url: str) -> None:
@@ -463,11 +463,11 @@ def _metadata_is_nullable(database_url: str) -> bool:
     return asyncio.run(scenario())
 
 
-@pytest.mark.slow  # an earlier change: 2.3s call, runs the conversation migration up and down
+@pytest.mark.slow  # 2.3s call, runs the conversation migration up and down
 def test_the_metadata_column_is_not_null_after_the_migration_and_nullable_after_its_downgrade(
     fresh_db_url: str,
 ) -> None:
-    """An earlier change decision F, both directions.
+    """The metadata column matches the model, both directions.
 
     `models/conversation.py` maps the attribute as `Mapped[dict[str, Any]]`,
     which SQLAlchemy renders NOT NULL, while the conversation revision created
@@ -481,7 +481,7 @@ def test_the_metadata_column_is_not_null_after_the_migration_and_nullable_after_
 
     The downgrade names the revision BELOW the one under test rather than
     stepping `-1`. A relative step means a different revision on the day a new
-    head lands, which is how this case broke when an earlier change added one.
+    head lands, which is how this case broke once when a revision was added.
     """
     _alembic("upgrade", "head", database_url=fresh_db_url)
     assert _metadata_is_nullable(fresh_db_url) is False

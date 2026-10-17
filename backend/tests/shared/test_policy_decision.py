@@ -1,14 +1,12 @@
 """Decision, approver chain, self-admin escalation, leaver, policy refs.
 
-the design / §9.6, an earlier change sections 1, 4 and 6.
-
 Approver chain by FINAL risk class:
     elevated   -> [department_manager]
     privileged -> [department_manager, system_owner]
     critical   -> [department_manager, system_owner] plus it_admin for
                   `prod_infra`, hr for `hris`, nothing extra for `other`.
 
-Substitution (the design: "a manager cannot approve their own request", read as
+Substitution ("a manager cannot approve their own request", read as
 the general rule it states in its second sentence): any slot resolving to the
 requester or the target is replaced in place by the next usable slot in
 [system_owner, it_admin], where usable means not already in the chain, not
@@ -165,7 +163,7 @@ def test_low_is_auto_and_carries_no_approvers() -> None:
 
 
 # --------------------------------------------------------------------------
-# manager substitution (the design: a manager cannot approve their own request)
+# manager substitution (a manager cannot approve their own request)
 # --------------------------------------------------------------------------
 
 
@@ -343,9 +341,9 @@ def test_a_colliding_critical_request_bottoms_out_at_one_approver() -> None:
     """The floor, stated so a later change cannot lower it unnoticed.
 
     The requester manages the target and owns the system, so both named seats
-    are filled by a party to the request. Only `it_admin` is left. the design
+    are filled by a party to the request. Only `it_admin` is left. The policy
     asks for three; the engine is pure and has nobody else to name, so one is
-    the honest answer and row 11 owns resolving a delegate.
+    the honest answer and resolving a delegate is left to the caller.
     """
     result = classify(
         make_snapshot(
@@ -364,7 +362,7 @@ def test_a_colliding_critical_request_bottoms_out_at_one_approver() -> None:
 
 
 # --------------------------------------------------------------------------
-# self-requested admin (the design last row, plan decision C)
+# self-requested admin (last row of the approver table)
 # --------------------------------------------------------------------------
 
 
@@ -438,7 +436,7 @@ def test_self_requested_admin_never_auto() -> None:
 
 
 # --------------------------------------------------------------------------
-# leaver (the design)
+# leaver
 # --------------------------------------------------------------------------
 
 LEAVER_CASES: list[tuple[str, dict[str, object], RiskClass]] = [
@@ -498,7 +496,7 @@ def test_leaver_with_sod_conflict_carries_both_reasons_and_both_effects() -> Non
 
 
 # --------------------------------------------------------------------------
-# policy_refs output (plan decision F)
+# policy_refs output
 # --------------------------------------------------------------------------
 
 
@@ -556,7 +554,7 @@ def test_empty_policy_refs_snapshot_yields_no_refs() -> None:
 
 
 # --------------------------------------------------------------------------
-# reasons are machine codes only (the design)
+# reasons are machine codes only
 # --------------------------------------------------------------------------
 
 

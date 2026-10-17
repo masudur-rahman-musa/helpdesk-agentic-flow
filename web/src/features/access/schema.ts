@@ -1,56 +1,20 @@
 /**
- * The parsers for what `/api/me/requests` and `/api/me/access` return.
- *
- * Written over the ENVELOPE rather than over a bare row, so a page runs one
- * `safeParse` on the proxy's body and gets either the whole payload or one
- * refusal — never a half-parsed list it has to check again per row.
- *
- * Every field the tool promises is REQUIRED here, and nullable only where the
- * tool can answer null (`requested_expiry_days`, `grant_id`, `expires_at`, and
- * an unresolved approval seat's `user_id`). An `.optional()` field would let a
- * dropped column reach the page as `undefined` and render as a blank cell
- * instead of a refused payload; `tests/access-schema.test.ts` rejects a row
- * with any one of the nineteen missing, one case per field.
- *
- * Nothing here is `.strict()`. The wire may grow — this plan is itself a
- * widening of the same tool — and a page that refused a payload carrying one
- * new key would break on a deploy that changed nothing it reads. Pinned by the
- * "accepts a row carrying an unknown extra field" cases.
- *
- * Dates and ids stay STRINGS. They arrive as JSON, the pages render them, and
- * coercing here would put a second opinion about the wire's shape in front of
- * the one that produced it.
+ * Parsers for `/api/me/requests` and `/api/me/access`. Every field is required,
+ * so a dropped column fails the parse instead of rendering blank. Nothing is
+ * `.strict()`, so a new server field does not break the page.
  */
 
 import { z } from "zod";
 
-/**
- * One seat of an approval chain, rendered BY SLOT.
- *
- * `user_id` is null for a seat nobody resolved — a group seat such as `hr` or
- * `it_admin` names no one — and no display name is resolved for a seat that
- * does name someone, because that would be a second directory read per row for
- * a label the slot already carries.
- */
+/** One approval seat. `user_id` is null for a group seat such as `hr`. */
 export const approvalSlotSchema = z.object({
   slot: z.string(),
   user_id: z.string().nullable(),
 });
 
 /**
- * One stored citation of a request's decision.
- *
- * This is `mcp_server.tools.access.Citation` as WRITTEN, not the chat
- * citation: `heading_path` is a STRING here, and there is no `text` and no
- * `score`, because a request row stores what the decision cited and never the
- * prose it cited from. Copying the chat shape would refuse every payload the
- * tool answers correctly, which is what `tests/access-schema.test.ts`'s
- * "rejects a citation whose heading_path is a list" exists to catch.
- *
- * All five fields are required — `/requests` names the title and the version
- * per source, and a blank one is a source that says nothing — and the element
- * is not `.strict()`, so a citation stored with a sixth key still parses
- * ("accepts a citation carrying an unknown sixth key").
+ * A citation as stored on a request, not the chat shape: `heading_path` is a
+ * string and there is no quoted text, since the request keeps only the source.
  */
 export const requestCitationSchema = z.object({
   document_slug: z.string(),
@@ -60,7 +24,6 @@ export const requestCitationSchema = z.object({
   chunk_id: z.string(),
 });
 
-/** One request row: the nineteen fields of an earlier change §1. */
 export const myRequestSchema = z.object({
   request_id: z.string(),
   target_user_id: z.string(),
@@ -87,7 +50,6 @@ export const myRequestsSchema = z.object({
   requests: z.array(myRequestSchema),
 });
 
-/** One live grant, exactly as `list_my_access` has answered since an earlier change. */
 export const myGrantSchema = z.object({
   grant_id: z.string(),
   role_slug: z.string(),

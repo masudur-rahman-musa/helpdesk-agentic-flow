@@ -1,40 +1,6 @@
-"""The access tools: two reads from an earlier change, two mutations from an earlier change.
+"""The access tools: classify, file, list and revoke access requests.
 
-`classify_access_request` is pure over DB state (the design): it builds the
-snapshot, runs the policy engine, and returns the whole `Classification` —
-no `access_requests` row is written, and its one audit event is
-`request.classified`, both pinned by
-`test_mcp_access_read_tools.py::test_classify_in_template_low_role_is_auto_with_one_event_and_no_row`.
-The requester is the TOKEN's user: the input names a target
-and a role, never a requester.
-
-`list_my_requests` is requester-scoped the same way: no user argument
-exists, and an extra one is dropped, pinned by
-`test_mcp_access_read_tools.py::test_list_my_requests_returns_only_the_token_users_rows`
-with the caller and the named colleague in the same tenant.
-
-`create_access_request` is the first mutation here: it classifies
-the same way, persists exactly one `access_requests` row carrying the
-engine's verdict, and then branches — `auto` executes the grant in the same
-transaction, `approval` queues the row with the engine's chain, `blocked`
-files it as rejected and grants nothing. It is the one tool in this module
-whose target may be someone other than the token's user, and that is
-authorized here rather than in the pipeline (decision B): `target_user_id`
-is only known after input validation, which by design runs AFTER the RBAC
-stage so a caller who may not call a tool learns nothing about its argument
-shape. The second check is therefore inside the handler, before any write,
-and the pipeline records the `FORBIDDEN` it raises as `tool.denied`.
-
-`revoke_access` is the other direction, and the only tool here
-that takes no policy decision at all: there is nothing to classify when
-access is being removed. It resolves the named grant, runs the design's scope
-through an earlier change's `request_in_scope` — one scope authority for approvals and
-revocation — and then hands the (user, role) pair to
-`helpdesk.access.revoke_role_access`, which revokes the whole LIVE SET
-(decision A) rather than the row the caller named.
-
-No function here opens a session or touches the transport: the pipeline
-binds the session to the token's tenant before any of them is called.
+The requester is always the token's user, never an input.
 """
 
 import uuid
@@ -76,20 +42,13 @@ from helpdesk.shared.access.snapshot import build_request_snapshot
 from helpdesk.shared.audit import AuditEventInput, append_event
 
 CLASSIFIED_EVENT_TYPE = "request.classified"
-"""Classify's own success event: the
-audit trail records that a classification was asked for, not a generic
-tool success."""
+"""Classify's own success event."""
 
 EXPIRY_DAYS_MAX = 3650
-"""Inclusive cap on `requested_expiry_days`: the
-value lands in an int4 column via row 11b, so an unbounded int would be a
-post-effect database error. Pinned exactly by
-`test_mcp_access_read_tools.py::test_the_requested_expiry_boundary_is_inclusive_at_3650`."""
+"""Inclusive cap on `requested_expiry_days`; the column is int4."""
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
-"""Extra arguments are dropped, never refused — same contract as
-`tools/read.py`: identity arrives on the token, so an argument naming a
-user is data to discard, not a reason to fail the call."""
+"""Read inputs drop extra arguments: identity comes from the token."""
 
 
 class ClassifyAccessRequestInput(BaseModel):
@@ -101,11 +60,7 @@ class ClassifyAccessRequestInput(BaseModel):
 
 
 class ClassifyAccessRequestOutput(BaseModel):
-    """The engine's `Classification`, field for field.
-
-    The approver and conflict rows reuse the policy types themselves: one
-    shape, declared once, so the tool cannot drift from the engine.
-    """
+    """The engine's `Classification`, field for field."""
 
     risk_class: RiskClass
     decision: Decision
@@ -119,52 +74,24 @@ class ClassifyAccessRequestOutput(BaseModel):
 REQUESTS_LIMIT_MIN = 1
 REQUESTS_LIMIT_DEFAULT = 50
 REQUESTS_LIMIT_MAX = 200
-"""How many requests one `list_my_requests` call may return.
-
-The same trio `tools/read.py` gives `search_audit`, and here for the same
-reason: `access_requests` only grows, so an unbounded read is one a long-lived
-tenant eventually cannot render. All three are pinned exactly by
-`test_mcp_access_read_tools.py::test_the_request_limit_constants_are_exactly_their_planned_values`,
-the default again through the model by
-`::test_the_default_request_limit_is_read_off_the_input_model`, and the
-inclusive ends by `::test_the_request_limit_boundary_is_inclusive_at_1_and_200`,
-whose accepted rows also prove the validated bound reaches the query."""
+"""Page bounds for `list_my_requests`; the table only grows."""
 
 
 class ListMyRequestsInput(BaseModel):
     model_config = _IGNORE_EXTRAS
 
     status: RequestStatus | None = None
-    """Exact the design enum membership or VALIDATION: pydantic's StrEnum
-    lookup does no stripping, so `"pending "` and `"pending\\n"` are
-    refused (a project rule's shape), pinned by
-    `test_mcp_access_read_tools.py::test_a_status_outside_the_enum_is_refused_validation`."""
+    """Must match a status exactly; `"pending "` is refused."""
 
     limit: int = Field(default=REQUESTS_LIMIT_DEFAULT, ge=REQUESTS_LIMIT_MIN, le=REQUESTS_LIMIT_MAX)
-    """Refused by the INPUT MODEL, so `0` and `201` answer `VALIDATION`
-    before any DB access at all."""
+    """Checked by the input model, before any database access."""
 
 
 class AccessRequestSummary(BaseModel):
-    """One request as a reader sees it: nineteen fields, ids and names both.
+    """One request as a reader sees it, ids and names both.
 
-    Widened by an earlier change from the nine stored columns it began as (decision B):
-    the browser has no directory lookup and must never gain one, so the role,
-    the system and the target are NAMED here rather than left as uuids for a
-    second read. The names are resolved from the rows the ids point at, never
-    echoed from the request row, pinned by
-    `test_mcp_access_read_tools.py::test_the_names_come_from_the_directory_and_not_from_the_request_row`.
-
-    `approvals` is the stored `SlotState` chain rendered BY SLOT (decision D):
-    no seat's user id is resolved to a display name, because that is a second
-    directory read per row for a label the slot already carries.
-
-    `grant_id` and `expires_at` come off the grant the request produced, not
-    from `requested_expiry_days` (decision E), which the engine may have
-    capped. Both are `None` when nothing was granted. Pinned by
-    `::test_the_grant_join_is_null_when_pending_and_carries_the_grant_when_executed`,
-    and the exact field set by
-    `::test_the_widened_row_carries_exactly_the_nineteen_planned_fields`.
+    The browser has no directory lookup, so names are joined in here.
+    `grant_id` and `expires_at` come from the grant made, if any.
     """
 
     request_id: uuid.UUID
@@ -195,12 +122,7 @@ class ListMyRequestsOutput(BaseModel):
 async def classify_access_request(
     ctx: ToolContext, args: ClassifyAccessRequestInput
 ) -> ClassifyAccessRequestOutput:
-    """Classify one hypothetical request. Read-only; the engine decides.
-
-    "Now" is the call's one instant (`ctx.now`): tenure, grant liveness and the
-    classification all answer for the moment of the call, and no handler reads
-    the clock of its own.
-    """
+    """Classify one hypothetical request. Read-only; the engine decides."""
     snapshot = await build_request_snapshot(
         ctx.session,
         ctx.directory,
@@ -223,49 +145,28 @@ async def classify_access_request(
 
 
 REQUEST_CREATED_EVENT_TYPE = "request.created"
-"""The pipeline's declared event for `create_access_request` (the design).
-
-Written by the pipeline AFTER the handler returns, which is why it lands
-LAST in the audit chain even though it reads first.
-The sequences are pinned by the three branch cases in
-`test_mcp_create_access_request.py`."""
+"""The pipeline's event for `create_access_request`, written after the
+handler, so it lands last in the chain."""
 
 REQUEST_QUEUED_EVENT_TYPE = "request.queued"
 """Appended by this module on the `approval` branch."""
 
 REQUEST_AUTO_EXECUTED_EVENT_TYPE = "request.auto_executed"
-"""Appended by this module on the `auto` branch, before `grant.executed`.
-
-Distinct facts, not one: the design names both, and
-"the policy engine decided this needed no approval" is a different record
-from "access was given"."""
+"""Appended on the `auto` branch, before `grant.executed`."""
 
 JUSTIFICATION_MAX_LENGTH = 2000
-"""Cap on `create_access_request.justification`.
-
-`access_requests.justification` is unbounded `Text`, so this Pydantic bound
-is the only backstop. Pinned inclusively by
-`test_mcp_create_access_request.py::test_the_justification_boundary_is_inclusive_at_2000`."""
+"""Cap on `justification`; the column has no limit of its own."""
 
 CITATIONS_MAX = 20
-"""Cap on `citations[]` entries. `citations` is a JSONB
-column with no length of its own, so this bound is the only backstop; pinned
-by `test_the_citations_boundary_is_inclusive_at_20`."""
+"""Cap on `citations[]` entries. The JSONB column has no limit of its own."""
 
 CITATION_FIELD_MAX_LENGTH = 512
-"""Cap on every `Citation` string field.
-
-The fields land inside the same unbounded JSONB column, so without one bound
-per field the cap on the LIST would still admit twenty arbitrarily long
-documents. Pinned inclusively, and on every one of the
-five fields rather than one of them, by
-`test_mcp_create_access_request.py::test_the_citation_field_boundary_is_inclusive_at_512`."""
+"""Cap on every `Citation` string field."""
 
 _ACTOR_KIND = "user"
 _SUBJECT_TYPE = "access_request"
 
-# The engine's `auto` verdict means executed here and nowhere else: the row's
-# lifecycle status is this module's, the decision is the engine's.
+# The engine gives the decision; this module picks the row's status.
 _STATUS_FOR_DECISION: dict[Decision, RequestStatus] = {
     Decision.AUTO: RequestStatus.EXECUTED,
     Decision.APPROVAL: RequestStatus.PENDING,
@@ -274,13 +175,7 @@ _STATUS_FOR_DECISION: dict[Decision, RequestStatus] = {
 
 
 class Citation(BaseModel):
-    """One the design citation: `{document_slug, title, version, heading_path, chunk_id}`.
-
-    Typed now, before RAG exists: the tool's the design
-    signature already carries citations, and a typed empty list today is the
-    same shape row 15 will fill. Extras are forbidden so a caller cannot
-    smuggle unbounded free text into the JSONB column under a new key.
-    """
+    """One policy citation. Extra keys are refused."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -292,7 +187,7 @@ class Citation(BaseModel):
 
 
 class CreateAccessRequestInput(MutatingToolInput):
-    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`."""
+    """Input for `create_access_request`."""
 
     target_user_id: uuid.UUID
     role_id: uuid.UUID
@@ -311,8 +206,7 @@ class CreateAccessRequestOutput(BaseModel):
     reasons: list[str]
     required_approvers: list[RequiredApprover]
     approver_user_ids: list[uuid.UUID]
-    """Only the slots the engine could resolve, so this can be shorter than
-    `required_approvers` — a group seat (`it_admin`, `hr`) names nobody."""
+    """Only the seats the engine could resolve; a group seat names nobody."""
     effective_expiry_days: int
     sod_conflicts: list[SodConflict]
     policy_refs: list[str]
@@ -323,35 +217,11 @@ class CreateAccessRequestOutput(BaseModel):
 async def _authorize_target(
     directory: DirectoryProvider, identity: Identity, target_user_id: uuid.UUID
 ) -> None:
-    """May this caller ask on behalf of this target? (the design, decision B.)
+    """May this caller ask on behalf of this target?
 
-    A self-request needs nothing beyond the `create_access_request` (self)
-    row every principal holds. Naming anyone else is the spec's SECOND row,
-    checked here rather than in the pipeline because the target is only
-    known after input validation, which runs after the RBAC stage by design.
-    Raises before any write, so a refusal leaves no request row and no grant.
-
-    Two guards in sequence, and each has a case the other cannot decide.
-    Deleting the `authorize` call is caught by
-    `test_an_employee_may_not_name_a_colleague_even_in_their_own_department`
-    (a plain employee whose target passes the department comparison);
-    deleting the `any` branch is caught by
-    `test_an_hr_officer_may_name_a_target_in_any_department`; deleting the
-    department comparison is caught by
-    `test_a_manager_naming_a_target_in_another_department_is_denied`.
-
-    The caller's department is read from the directory, not from the token's
-    `department_id` claim: a manager transferred after their token was issued
-    would otherwise keep reaching into the department they left. Pinned by
-    `test_the_callers_department_is_read_from_the_directory_not_the_token`,
-    which moves the caller's row and reuses the token minted before the move.
-    The user id itself still comes only from the token.
-
-    Scope narrowing is not a risk for this tool. `authorize` collapses a
-    multi-principal caller to the WIDEST allowing scope, and the two scopes
-    on this row are `own_department` and `any`, so a manager who is also HR
-    correctly gets `any`. The incomparable-scope problem an earlier change recorded
-    (owed to row 11c) needs two same-width scopes, which this row has not.
+    Naming someone else needs `any` scope or the same department. Checked
+    here because the target is only known after input checks. The caller's
+    department comes from the directory, not the token.
     """
     if target_user_id == identity.user_id:
         return
@@ -360,20 +230,16 @@ async def _authorize_target(
     if scope is rbac.Scope.ANY:
         return
     if scope is not rbac.Scope.OWN_DEPARTMENT:
-        # No other scope appears on this row today. Refusing rather than
-        # allowing keeps a future matrix edit from widening this tool by
-        # accident.
+        # Refuse an unknown scope, so a future table edit cannot widen this
+        # tool by accident.
         raise _on_behalf_denied()
 
     caller = await directory.lookup_user(identity.user_id)
     if caller is None or caller.department_id is None:
         raise _on_behalf_denied()
     target = await directory.lookup_user(target_user_id)
-    # One answer for "no such user" and "a user in another department": an
-    # own_department caller must not be able to use this seam to learn which
-    # uuids exist in their tenant, the same reasoning `NotFoundError` carries
-    # for cross-tenant reads. A caller whose scope is `any` returned above
-    # and still meets the honest NOT_FOUND from the snapshot builder.
+    # "No such user" and "another department" get one answer, so this
+    # cannot be used to learn which user ids exist.
     if target is None or target.department_id != caller.department_id:
         raise _on_behalf_denied()
 
@@ -391,7 +257,7 @@ async def _append(
     payload: dict[str, Any],
     now: datetime,
 ) -> None:
-    """One domain event, in the tool's own transaction (decision E)."""
+    """One domain event, in the tool's own transaction."""
     await append_event(
         session,
         identity.tenant_id,
@@ -412,15 +278,7 @@ async def _append(
 async def create_access_request(
     ctx: ToolContext, args: CreateAccessRequestInput
 ) -> CreateAccessRequestOutput:
-    """File one access request, then do what the engine's decision says.
-
-    The requester is always the token's user; only the target may be someone
-    else, and only with the on-behalf permission checked above. Everything
-    below runs in one transaction the pipeline opened, so a refusal from
-    `execute_grant` takes the request row with it (decision F): on the auto
-    path the classification is microseconds old, so that fires only on a
-    concurrent commit, and there is nothing yet for the user to point at.
-    """
+    """File one access request, then do what the engine's decision says."""
     directory = ctx.directory
     await _authorize_target(directory, ctx.identity, args.target_user_id)
 
@@ -462,13 +320,7 @@ async def _run_branch(
     request_id: uuid.UUID,
     now: datetime,
 ) -> Grant | None:
-    """The one branch this decision earns, with its domain events.
-
-    `blocked` earns no domain event at all: the pipeline's `request.created`
-    already records that a rejected request was filed, and inventing a
-    second event for it would put a name in the log that the design does not
-    have.
-    """
+    """The one branch this decision earns, with its domain events."""
     if classification.decision is Decision.AUTO:
         await _append(
             ctx.session,
@@ -535,16 +387,12 @@ def _output(
 
 
 REASON_MAX_LENGTH = 2000
-"""Cap on `revoke_access.reason`.
-
-`grants.revoke_reason` is unbounded `Text`, so this Pydantic bound is the only
-backstop there is. The lower bound is 1, not 0: an access removal with an
-empty reason is one nobody can audit. Both ends pinned inclusively by
-`test_mcp_revoke_access.py::test_the_reason_boundary_is_inclusive_at_1_and_2000`."""
+"""Cap on `revoke_access.reason`. At least one character, since a
+removal with no reason cannot be audited."""
 
 
 class RevokeAccessInput(MutatingToolInput):
-    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`."""
+    """Input for `revoke_access`."""
 
     grant_id: uuid.UUID
     reason: str = Field(min_length=1, max_length=REASON_MAX_LENGTH)
@@ -554,34 +402,17 @@ class RevokeAccessOutput(BaseModel):
     """Every grant this call ended, not just the one it was handed."""
 
     revoked_grant_ids: list[uuid.UUID]
-    """EVERY live row for the named grant's `(user, role)` (decision A), the
-    named one included. Shorter output would misreport the scope of what
-    happened: an earlier change leaves two live rows for one role reachable."""
+    """Every live row for the named grant's (user, role), the named one
+included."""
 
     revoked_count: int
 
 
 async def _grant_in_scope(ctx: ToolContext, grant: Grant) -> bool:
-    """Does the design's `revoke_access` row reach this grant?
+    """Does the caller's `revoke_access` scope reach this grant?
 
-    The same `request_in_scope` the approval tools use (decision B), asked with
-    grant-derived arguments: its parameters are already neutral — an actor, the
-    actor's department, the subject's department, the system's owner — so
-    approvals and revocation cannot answer the scope question differently.
-
-    The caller's department and the holder's are read from the DIRECTORY, never
-    from the token's `department_id` claim: a manager transferred after their
-    token was issued must not revoke in the department they left. Pinned in
-    both directions by
-    `test_mcp_revoke_access.py::test_the_managers_department_comes_from_the_directory_not_the_token`,
-    which moves the caller's row and reuses the token minted before the move.
-    The user id itself still comes only from the token.
-
-    This runs BEFORE the liveness test (decision C), so a caller whose scope
-    does not reach a grant learns `FORBIDDEN` whatever state it is in, and the
-    id cannot be probed for that state. Pinned by
-    `::test_an_already_revoked_grant_is_refused_policy_blocked`, whose second
-    half sends the SAME not-live state out of scope.
+    Same scope check as approvals. Departments come from the directory, not
+    the token, so a moved manager cannot revoke in their old department.
     """
     caller = await ctx.directory.lookup_user(ctx.identity.user_id)
     holder = await ctx.directory.lookup_user(grant.user_id)
@@ -599,39 +430,9 @@ async def _grant_in_scope(ctx: ToolContext, grant: Grant) -> bool:
 async def revoke_access(ctx: ToolContext, args: RevokeAccessInput) -> RevokeAccessOutput:
     """Take away the access this grant represents, and every live twin of it.
 
-    Three refusals in this order, each a different the design code and each with
-    a case no other guard can decide:
-
-    `NOT_FOUND` — no such grant, or one in another tenant. `Repository.get`
-    runs through the tenant-bound session, so the two are indistinguishable and
-    a grant id is not an existence oracle
-    (`test_another_tenants_grant_and_a_missing_one_answer_the_same_way`).
-
-    `FORBIDDEN` — the design's scope does not reach the grant. Raised as
-    `RbacDenied`, which the pipeline records as `tool.denied` rather than
-    `tool.failed` (a permission decision filed as an outage would be a false
-    record). This runs before the liveness test on purpose. Its own kill is
-    `test_a_manager_may_not_revoke_outside_their_department`, whose caller the
-    matrix admits, so only the department comparison can refuse it.
-
-    The pipeline's matrix stage has NO independent kill on this tool, and that
-    is a property of the code rather than a gap in the tests: `_grant_in_scope`
-    re-runs `rbac.authorize`, which raises for a principal holding no cell on
-    this the design row, so a caller the matrix refuses is refused here too and
-    deleting the pipeline stage changes no answer.
-    `test_a_denied_call_writes_tool_denied_and_revokes_nothing` pins the
-    refusal and its `tool.denied` record, not that stage.
-
-    `POLICY_BLOCKED` — the grant is not live (decision C), from
-    `GrantNotActiveError`, raised here for the named row and again inside
-    `revoke_role_access` when the whole locked live set is empty. The second is
-    what a caller who lost a race sees
-    (`test_two_callers_racing_the_same_revocation_write_one_event_per_row`).
-
-    `now` is read once and passed on, so the liveness test, the locked read and
-    every `revoked_at` answer for one instant. Everything runs in the
-    transaction the pipeline opened, so the revoked rows and their
-    `grant.revoked` events commit or roll back together.
+    The scope check runs before the liveness check, so an out-of-scope
+    caller cannot probe a grant's state. A missing grant and another
+    tenant's give the same `NOT_FOUND`.
     """
     grant = await Repository(ctx.session, Grant).get(args.grant_id)
     if grant is None:
@@ -640,10 +441,8 @@ async def revoke_access(ctx: ToolContext, args: RevokeAccessInput) -> RevokeAcce
         raise rbac.RbacDenied(rbac.Tool.REVOKE_ACCESS.value)
 
     now = ctx.now
-    # The named grant is tested for liveness through the same predicate the
-    # locked read uses, so a caller pointing at a row that is already gone is
-    # told so, rather than silently having a sibling row revoked under an
-    # output that does not contain the id they sent.
+    # Check the named grant first, so a caller naming a dead row is told,
+    # instead of a sibling row being revoked behind their back.
     if not is_live_grant(grant, now):
         raise GrantNotActiveError(f"grant {grant.id} is not live: it was revoked, or it expired")
 
@@ -664,13 +463,7 @@ async def revoke_access(ctx: ToolContext, args: RevokeAccessInput) -> RevokeAcce
 
 
 async def list_my_requests(ctx: ToolContext, args: ListMyRequestsInput) -> ListMyRequestsOutput:
-    """The requests the token user has filed, optionally by status.
-
-    Requester-scoped off the token, never off an argument: the
-    input declares no user field and drops an extra one. The join behind it
-    resolves every name in one statement rather than one read per row; see
-    `list_requests_with_context_for_requester`.
-    """
+    """The requests the token user has filed, optionally by status."""
     rows = await list_requests_with_context_for_requester(
         ctx.session,
         ctx.identity.user_id,

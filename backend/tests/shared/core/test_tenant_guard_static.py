@@ -9,7 +9,7 @@ Why the check is static rather than runtime: a query built inside a function
 body that no test happens to call is invisible to a runtime guard, and the
 `do_orm_execute` listener cannot see a `text()` statement at all. Parsing every
 file with `ast` reads the code that exists, not the code that ran. It is the
-shape `test_policy_purity.py` established for an earlier change.
+same shape as `test_policy_purity.py`.
 
 Two synthetic-source cases (`test_a_planted_statement_builder_is_caught`,
 `test_a_fifth_text_importer_is_caught`) prove the walkers can fail, since the
@@ -47,7 +47,7 @@ SERVICE_PACKAGES: tuple[str, ...] = (
 )
 """The app subpackages under `backend/helpdesk/` that must not build raw queries.
 
-`shared/` is included since an earlier change moved all raw queries out of it and into
+`shared/` is included because all raw queries live in
 `shared/crud/`, which is excluded from the scan (see `_service_files`).
 Each package must contribute at least one file, which is what
 `test_the_service_source_set_is_not_empty` asserts; without that, a wrong glob
@@ -95,9 +95,8 @@ statement, so it is kept apart from `READINESS_ALLOWLIST`, whose members must.""
 STORE_ALLOWLIST: frozenset[str] = frozenset()
 """No service module is allowed to build or run its own SQL statements.
 
-All six modules formerly listed here (idempotency guard, notifications list/mark,
-rag chunks/retrieval/store) have been moved to `shared/crud/` helpers, so the
-allowlist is now empty and every service file is expected to be clean.
+The idempotency guard, notifications and rag stores all use `shared/crud/`
+helpers, so the allowlist is empty and every service file is expected to be clean.
 `test_only_the_readiness_modules_build_or_run_a_statement` pins this as the
 exact set."""
 
@@ -119,7 +118,7 @@ on a raw engine connection; `crud/audit.py` and `crud/idempotency.py` hold the
 only two advisory locks in the system (audit chain serialisation and idempotency
 key claim). Asserted as an EXACT set by
 `test_sqlalchemy_text_is_imported_by_exactly_the_allowlisted_modules`,
-per a project rule: the diff that adds a sixth site extends this list."""
+the diff that adds a sixth site extends this list."""
 
 SCANNED_TREES: tuple[str, ...] = ("backend/helpdesk",)
 """The one tree the `text` allowlist is checked over, tests excluded.
@@ -135,7 +134,7 @@ def _service_files() -> tuple[Path, ...]:
 
     `shared/crud/` is the one exempted tree: every file there is a query owner
     by design and is allowed to call `select`, `text`, etc.  Everything else in
-    `shared/` must be clean after an earlier change, the same rule the three app packages
+    `shared/` must be clean, the same rule the three app packages
     already followed.
 
     The suites live under `backend/tests/`, not under these packages, so no test
@@ -357,7 +356,7 @@ def test_a_fifth_text_importer_is_caught() -> None:
 
 
 # ---------------------------------------------------------------------------
-# An earlier change tests: all queries through shared/crud helpers
+# All queries go through shared/crud helpers
 # ---------------------------------------------------------------------------
 
 _SHARED_ACCESS_PATH = "backend/helpdesk/shared/access/planted.py"
@@ -374,7 +373,7 @@ _BUILDER_SOURCE = (
 
 def test_the_scan_covers_shared_except_crud() -> None:
     """Catches an implementation that still only scans the three app packages
-    after an earlier change: after the change, SERVICE_FILES (or a replacement) must
+    SERVICE_FILES (or a replacement) must
     include at least one file from shared/ outside shared/crud/, and must
     include no file from shared/crud/.
 
@@ -402,12 +401,11 @@ def test_the_scan_covers_shared_except_crud() -> None:
 
 def test_the_store_allowlist_is_empty() -> None:
     """Catches an implementation that leaves the old STORE_ALLOWLIST entries in
-    place instead of moving those queries into shared/crud/ helpers: after
-    an earlier change every store module must be clean, so no allowlist entry is needed.
+    place instead of moving those queries into shared/crud/ helpers: every store module must be
+    clean, so no allowlist entry is needed.
     """
     assert frozenset() == STORE_ALLOWLIST, (
-        f"STORE_ALLOWLIST must be empty after plan 70 but still contains: "
-        f"{sorted(STORE_ALLOWLIST)}"
+        f"STORE_ALLOWLIST must be empty after plan 70 but still contains: {sorted(STORE_ALLOWLIST)}"
     )
 
 
@@ -420,11 +418,11 @@ _EXPECTED_TEXT_ALLOWLIST: frozenset[str] = frozenset(
         "backend/helpdesk/shared/crud/idempotency.py",
     }
 )
-"""The exact set TEXT_ALLOWLIST must equal after an earlier change.
+"""The exact set TEXT_ALLOWLIST must equal.
 
 The three health probes keep their entries because they run a SELECT 1 liveness
 check through a raw engine connection. The two new entries replace the old
-guard.py and writer.py paths: after an earlier change the only callers of sqlalchemy.text
+guard.py and writer.py paths: the only callers of sqlalchemy.text
 outside the health probes are the two crud helpers."""
 
 

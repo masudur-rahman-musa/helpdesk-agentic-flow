@@ -1,5 +1,4 @@
-"""ORM models: directory core, the audit chain, the
-idempotency keys, access requests, access reviews, the policy corpus, the conversation store and the notifications table."""
+"""ORM models for the whole app."""
 
 from helpdesk.shared.models.access import (
     PERIOD_LENGTH,

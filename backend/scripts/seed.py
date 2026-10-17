@@ -1,33 +1,14 @@
-"""Deterministic, idempotent seed for both demo tenants.
+"""Deterministic, repeatable seed for both demo tenants.
 
-Layers, top to bottom:
-- static spec data: tenants, departments, systems, roles, department role
-  templates, SoD rules, planted anomalies — plain literals, no I/O;
-- a generator that turns the spec into concrete rows with uuid5 ids derived
-  from a fixed namespace plus natural keys (email, slug, ...), names from a
-  seeded Faker instance, and fixed timestamps — so every run computes the
-  exact same rows;
-- a writer that upserts through the tenant-scoped repository helpers, one
-  transaction per tenant. Upsert here means insert-when-absent: a row whose
-  deterministic id already exists is left untouched, so re-runs change
-  nothing — with one deliberate exception: `systems.category` is re-asserted
-  on existing rows, because rows seeded before the column existed hold the
-  migration's `other` default and the seed is the only writer that knows the
-  real values (an earlier change; pinned by
-  `test_seed.py::test_a_reseed_backfills_system_categories_and_changes_nothing_else`).
-  The two `tenants` rows are the only direct-session writes:
-  `Tenant` is the scoping root, not `TenantScoped`, so the repository cannot
-  address it.
+Static data becomes rows with uuid5 ids from natural keys, Faker names from a
+fixed seed and fixed timestamps, so every run makes the same rows. Rows are
+inserted only when absent, so a re-run changes nothing. One exception:
+`systems.category` is set again on existing rows, since older rows hold the
+migration's `other` default. The database must already be migrated.
 
-The database must already be migrated; `seed_all` checks the schema first and
-raises `SeedError` before writing anything, never creating tables itself.
-
-Planted for the demos (the design): every 20th user's first standard grant is
-stale (expired but still active), every 15th user holds one role outside
-their department template, each system owner holds their system's most
-privileged role, and explicitly listed users hold both halves of an SoD pair
-(at least 3 latent conflicts per tenant, derived from the same spec data the
-`sod_rules` rows are written from).
+Planted for the demos: stale grants, roles outside a department template,
+owners holding their system's top role, and users holding both halves of a
+segregation-of-duties pair.
 """
 
 import asyncio
@@ -96,7 +77,7 @@ def _salt_for(key: str) -> bytes:
     return hashlib.blake2b(key.encode(), digest_size=16).digest()
 
 
-# --- static spec data (the design) ----------------------------------------------
+# --- static spec data ----------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -708,24 +689,15 @@ def generate_tenant(spec: TenantSpec) -> TenantRows:
 
 
 class _SeedRepository[M: TenantScoped](Repository[M]):
-    """Seed-local upsert: insert-when-absent by deterministic id (an earlier change
-    decision D). Never updates an existing row, so re-runs are no-ops
-    (`test_seed.py::test_upsert_many_leaves_an_existing_row_untouched`). The
-    core `Repository.create` rejects caller-set ids on purpose; the seed is
-    the one writer whose ids are part of its contract."""
+    """Insert only absent rows, by fixed id, and never update one. The core
+    `Repository.create` refuses caller-set ids; the seed is the one writer
+    whose ids are fixed on purpose."""
 
     async def upsert_many(
         self, rows: Mapping[uuid.UUID, Mapping[str, object]], /
     ) -> dict[uuid.UUID, M]:
-        """Insert every absent row of one table in a single batch.
-
-        One `get_many` read finds the ids already there, then one flush adds
-        the rest, instead of a read and a flush per row
-        (`test_seed.py::test_a_seed_sends_at_most_100_statements`,
-        `::test_a_reseed_sends_at_most_100_statements`). Returns every row by
-        id, existing ones untouched. An empty batch sends nothing
-        (`::test_upsert_many_with_no_rows_sends_no_statement`).
-        """
+        """Insert every absent row of one table in one batch: one read, one
+        flush. Returns every row by id, existing ones untouched."""
         if not rows:
             return {}
         found = await self.get_many(rows.keys())
