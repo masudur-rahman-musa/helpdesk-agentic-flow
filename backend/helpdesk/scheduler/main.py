@@ -18,15 +18,16 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel
 
 from helpdesk.scheduler import runner
-from helpdesk.scheduler.api.routes import health
+from helpdesk.shared.core import health as _health
+from helpdesk.shared.core.config import load_settings
+from helpdesk.shared.core.db import shared_engine
 from helpdesk.shared.core.observability.logging import configure_logging
-from helpdesk.shared.core.observability.metrics import render as render_metrics
+from helpdesk.shared.core.redis import get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +38,6 @@ Agent-api is on 8000 and mcp-server on 8081; the process that loses a bind is
 the one that never runs a job, and nothing else in the system reports its
 absence. Pinned by
 `test_scheduler_service.py::test_the_service_port_is_exactly_the_planned_one`."""
-
-
-class HealthResponse(BaseModel):
-    status: str
-
-
-class ReadinessResponse(BaseModel):
-    status: str
-    checks: dict[str, bool]
 
 
 def create_app() -> FastAPI:
@@ -68,29 +60,24 @@ def create_app() -> FastAPI:
                 logger.exception("the scheduler loop ended with an error")
 
     app = FastAPI(title="scheduler", lifespan=lifespan)
-
-    @app.get("/healthz")
-    async def healthz() -> HealthResponse:
-        return HealthResponse(status="ok")
-
-    @app.get("/readyz", response_model=ReadinessResponse)
-    async def readyz() -> JSONResponse:
-        # Called through the module attribute so tests can fake one check.
-        checks = {
-            "postgres": await health.check_postgres(),
-            "redis": await health.check_redis(),
-        }
-        ready = all(checks.values())
-        body = ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)
-        return JSONResponse(status_code=200 if ready else 503, content=body.model_dump())
-
-    @app.get("/metrics", include_in_schema=False)
-    async def metrics() -> PlainTextResponse:
-        """The Prometheus scrape, unauthenticated."""
-        body, content_type = render_metrics()
-        return PlainTextResponse(content=body, media_type=content_type)
-
+    _health.register_health(app, _build_scheduler_checks)
     return app
+
+
+def _build_scheduler_checks(state: Any) -> dict[str, _health._CheckFn]:
+    """Build the two readiness checks for the scheduler using its module-level clients.
+
+    Both Postgres and Redis are on the path of every tick: Postgres is where
+    the work lives, and Redis holds the cadence gate. The module-level lazy
+    getters (`shared_engine`, `get_redis`) return the same already-opened
+    clients the jobs use. `state` is not used; the module-level getters are
+    the seam tests patch. Pinned by `tests/shared/core/test_health.py`.
+    """
+    settings = load_settings()
+    return {
+        "postgres": lambda: _health.ping_postgres(shared_engine(settings.database_url)),
+        "redis": lambda: _health.ping_redis(get_redis(settings)),
+    }
 
 
 app = create_app()

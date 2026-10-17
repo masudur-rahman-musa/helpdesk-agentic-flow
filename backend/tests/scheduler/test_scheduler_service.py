@@ -18,13 +18,14 @@ must provide exactly this):
     ``runner`` module attribute, again so a test can replace it — and cancels
     it on shutdown.
 
-``scheduler.api.routes.health``
-    ``async def check_postgres() -> bool`` · ``async def check_redis() -> bool``
+An earlier change moved the readiness checks into `shared.core.health` as `ping_*`
+functions. The faking seam is now those functions: tests patch
+`health.ping_postgres` and `health.ping_redis` instead of the old
+`readiness.check_*` names. The `_build_scheduler_checks` function in
+`scheduler/main.py` calls them through the `_health` module attribute.
 
 No backing service is needed here: both readiness checks are faked at the
-module seam and `/metrics` renders an in-process registry. The bodies BEHIND
-that seam are `mcp_server.api.routes.health`'s shape and are owed their own cases the
-moment they stop being a copy (the project notes 2026-09-03, an earlier change).
+module seam and `/metrics` renders an in-process registry.
 
 a project rule: this file carries the service in its name; `test_health.py`
 and `test_readiness.py` already exist under agent-api, which is exactly why
@@ -40,7 +41,7 @@ import httpx
 import pytest
 
 from helpdesk.scheduler import main, runner
-from helpdesk.scheduler.api.routes import health as readiness
+from helpdesk.shared.core import health
 
 
 def _get(app: Any, path: str) -> httpx.Response:
@@ -78,11 +79,11 @@ def test_readyz_reports_both_dependencies_and_answers_200_when_both_are_up(
     Redis runs nothing at all — and a readiness answer that names only one
     dependency reports ready through exactly that outage."""
 
-    async def up() -> bool:
+    async def up(*args: Any) -> bool:
         return True
 
-    monkeypatch.setattr(readiness, "check_postgres", up)
-    monkeypatch.setattr(readiness, "check_redis", up)
+    monkeypatch.setattr(health, "ping_postgres", up)
+    monkeypatch.setattr(health, "ping_redis", up)
 
     response = _get(main.create_app(), "/readyz")
 
@@ -101,14 +102,14 @@ def test_readyz_answers_503_when_either_dependency_is_unreachable(
     nothing. Parametrised so a route wired to one check only fails on the
     other's row."""
 
-    async def up() -> bool:
+    async def up(*args: Any) -> bool:
         return True
 
-    async def falls_over() -> bool:
+    async def falls_over(*args: Any) -> bool:
         return False
 
-    monkeypatch.setattr(readiness, "check_postgres", falls_over if down == "postgres" else up)
-    monkeypatch.setattr(readiness, "check_redis", falls_over if down == "redis" else up)
+    monkeypatch.setattr(health, "ping_postgres", falls_over if down == "postgres" else up)
+    monkeypatch.setattr(health, "ping_redis", falls_over if down == "redis" else up)
 
     response = _get(main.create_app(), "/readyz")
 

@@ -38,21 +38,20 @@ from typing import Any
 
 import mcp.types as types
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse, PlainTextResponse
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.server.transport_security import TransportSecuritySettings
-from pydantic import BaseModel
 from starlette.requests import Request
 
-from helpdesk.mcp_server.api.routes import health
 from helpdesk.mcp_server.tools import dispatch, registry
 from helpdesk.mcp_server.tools.context import ToolClients
+from helpdesk.shared.core import health as _health
 from helpdesk.shared.core.config import load_settings, mcp_allowed_hosts_from_env
+from helpdesk.shared.core.db import shared_engine
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.core.observability.logging import configure_logging
-from helpdesk.shared.core.observability.metrics import render as render_metrics
+from helpdesk.shared.core.redis import get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -82,15 +81,6 @@ def transport_security() -> TransportSecuritySettings:
         enable_dns_rebinding_protection=True,
         allowed_hosts=mcp_allowed_hosts_from_env(),
     )
-
-
-class HealthResponse(BaseModel):
-    status: str
-
-
-class ReadinessResponse(BaseModel):
-    status: str
-    checks: dict[str, bool]
 
 
 async def _list_tools(
@@ -185,30 +175,35 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="mcp-server", lifespan=lifespan)
 
-    @app.get("/healthz")
-    async def healthz() -> HealthResponse:
-        return HealthResponse(status="ok")
-
-    @app.get("/readyz", response_model=ReadinessResponse)
-    async def readyz() -> JSONResponse:
-        # Called through the module attribute so tests can fake one check.
-        checks = {
-            "postgres": await health.check_postgres(),
-            "redis": await health.check_redis(),
-            "qdrant": await health.check_qdrant(),
-        }
-        ready = all(checks.values())
-        body = ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)
-        return JSONResponse(status_code=200 if ready else 503, content=body.model_dump())
-
-    @app.get("/metrics", include_in_schema=False)
-    async def metrics() -> PlainTextResponse:
-        """The Prometheus scrape, unauthenticated."""
-        body, content_type = render_metrics()
-        return PlainTextResponse(content=body, media_type=content_type)
+    # /healthz, /readyz and /metrics registered BEFORE the transport is
+    # mounted: a mount at "/" matches every path under it, so a route
+    # registered after it would reach the MCP transport and be answered 406.
+    # Pinned by `test_mcp_metrics.py::test_the_metrics_route_answers_before_the_mcp_mount`.
+    _health.register_health(app, _build_mcp_checks)
 
     app.mount("/", mcp_app)
     return app
+
+
+def _build_mcp_checks(state: object) -> dict[str, _health._CheckFn]:
+    """Build the three readiness checks for mcp-server using its module-level clients.
+
+    The mcp-server's clients live in `shared.core.db.shared_engine` and
+    `shared.core.redis.get_redis` (lazy per-loop singletons), and in
+    `mcp_server.core.rag_clients.qdrant` (the per-loop Qdrant pool). The
+    `ToolClients` lifespan warms all three at startup so the lazy getters
+    return the same already-opened clients on every call here. `state` is
+    not used: the module-level getters are the right seam for tests to patch.
+    Pinned by `tests/shared/core/test_health.py`.
+    """
+    from helpdesk.mcp_server.core import rag_clients  # avoid circular import at module level
+
+    settings = load_settings()
+    return {
+        "postgres": lambda: _health.ping_postgres(shared_engine(settings.database_url)),
+        "redis": lambda: _health.ping_redis(get_redis(settings)),
+        "qdrant": lambda: _health.ping_qdrant(rag_clients.qdrant(settings)),
+    }
 
 
 app = create_app()

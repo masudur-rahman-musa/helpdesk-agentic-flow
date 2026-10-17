@@ -1,15 +1,20 @@
 """Tests for agent-api health endpoints.
 
+An earlier change moved the readiness checks from per-app modules into `shared.core.health`
+as `ping_*` functions. The check-faking seam is now those functions: tests
+patch `health.ping_*` rather than `readiness.check_*`, and the router's
+`_build_agent_api_checks` function calls them through the `_health` module
+attribute so the patch takes effect.
+
 API under test:
-    agent_api.main.app  -- FastAPI application
-    agent_api.readiness -- module with the readiness seam:
-        async def check_postgres() -> bool
-        async def check_redis() -> bool
-        async def check_qdrant() -> bool
-        async def check_gateway() -> bool
-    The /readyz route must call these via the module attribute
-    (``await readiness.check_postgres()``) so monkeypatching the
-    module attribute fakes the check.
+    agent_api.api.router.app  -- FastAPI application
+    helpdesk.shared.core.health -- module with the ping-function seam:
+        async def ping_postgres(engine) -> bool
+        async def ping_redis(client) -> bool
+        async def ping_qdrant(client) -> bool
+        async def ping_gateway(client, base_url) -> bool
+    The /readyz route must call these via the shared module attribute so
+    monkeypatching the attribute fakes the check.
 
 Response shapes:
     GET /healthz -> 200, {"status": "ok"}          (no dependency checks)
@@ -28,7 +33,7 @@ import httpx
 import pytest
 
 from helpdesk.agent_api.api.router import app
-from helpdesk.agent_api.api.routes import health as readiness
+from helpdesk.shared.core import health
 
 # An earlier change section 8: FOUR dependencies. the design names the gateway as a
 # dependency of the agent's readiness, so a container reporting ready while
@@ -48,15 +53,24 @@ def _get(path: str) -> httpx.Response:
 
 
 def _make_check(result: bool) -> Any:
-    async def _check() -> bool:
+    async def _check(*args: Any) -> bool:
         return result
 
     return _check
 
 
 def _fake_checks(monkeypatch: pytest.MonkeyPatch, results: dict[str, bool]) -> None:
+    """Patch the shared ping functions so they return configured values.
+
+    Each patched function accepts any positional arguments (the client and
+    optional base_url) so the same shape works for all four pings. The
+    `_build_agent_api_checks` function in router.py calls these through the
+    `_health` module attribute (`_health.ping_postgres`, etc.), and since
+    `_health` is the same module object as `health` here, patching here takes
+    effect there.
+    """
     for dep, healthy in results.items():
-        monkeypatch.setattr(readiness, f"check_{dep}", _make_check(healthy))
+        monkeypatch.setattr(health, f"ping_{dep}", _make_check(healthy))
 
 
 def test_healthz_returns_200_without_dependency_checks(

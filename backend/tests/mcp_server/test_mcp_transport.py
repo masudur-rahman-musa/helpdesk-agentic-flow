@@ -37,8 +37,8 @@ import pytest
 from mcp import Client, StdioServerParameters, stdio_client
 from mcp.server.transport_security import TransportSecuritySettings
 
-from helpdesk.mcp_server.api.routes import health as readiness
 from helpdesk.mcp_server.tools.registry import REGISTRY
+from helpdesk.shared.core import health
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
     bearer,
@@ -207,8 +207,12 @@ def _make_check(result: bool) -> Any:
 
 
 def _fake_checks(monkeypatch: pytest.MonkeyPatch, results: dict[str, bool]) -> None:
+    # Patch the shared ping functions so register_health's build_checks returns
+    # the configured values. `_build_mcp_checks` in mcp_server/main.py accesses
+    # them through the `_health` module attribute, which is the same object as
+    # `health` here, so the patch takes effect.
     for dependency, healthy in results.items():
-        monkeypatch.setattr(readiness, f"check_{dependency}", _make_check(healthy))
+        monkeypatch.setattr(health, f"ping_{dependency}", _make_check(healthy))
 
 
 def test_healthz_answers_without_touching_any_dependency(

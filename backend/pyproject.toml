@@ -118,7 +118,7 @@ disable_error_code = ["call-arg"]
 testpaths = ["tests"]
 # --strict-markers so a misspelt marker fails collection instead of running
 # the test unmarked in the fast set. Registered markers below.
-addopts = "-q --strict-markers"
+addopts = "-q --strict-markers --import-mode=importlib"
 # A `slow` test's setup plus call took 2 seconds or more in an earlier change's first
 # `make test-slowest` reading. `make test-fast` runs `-m "not slow"` as the
 # everyday set; `make test`, `make verify` and CI carry no filter and run all.

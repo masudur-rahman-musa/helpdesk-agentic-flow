@@ -1,5 +1,8 @@
 """Tests for mcp-server health endpoint.
 
+An earlier change moved health routes into the shared registrar; the /healthz test is
+unchanged: the response shape is the same, only the implementation moved.
+
 API under test:
     mcp_server.main.app -- FastAPI application
 

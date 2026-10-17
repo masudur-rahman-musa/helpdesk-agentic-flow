@@ -239,6 +239,16 @@ class ModelClient:
         """
         return cls(base_url=settings.gateway_url, api_keys=settings.gateway_api_keys)
 
+    @property
+    def base_url(self) -> str:
+        """The gateway's versioned base URL, as configured.
+
+        Used by the readiness check to derive the service-level health
+        endpoint: `ping_gateway(self.client, self.base_url)` probes the
+        origin of this URL at `/healthz`.
+        """
+        return self._base_url
+
     async def aclose(self) -> None:
         """Close the underlying connection pool."""
         await self.client.aclose()

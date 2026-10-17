@@ -17,8 +17,8 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 from starlette.datastructures import Headers
 from starlette.middleware.cors import CORSMiddleware
@@ -26,7 +26,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from helpdesk.agent_api.agent.checkpointer import build_checkpointer, build_pool, psycopg_dsn
 from helpdesk.agent_api.api.middleware import RequireAuthMiddleware
-from helpdesk.agent_api.api.routes import health as readiness
 from helpdesk.agent_api.api.routes.admin.audit import router as audit_router
 from helpdesk.agent_api.api.routes.admin.killswitch import router as killswitch_router
 from helpdesk.agent_api.api.routes.admin.policies import router as policies_router
@@ -44,12 +43,12 @@ from helpdesk.agent_api.services.ratelimit import RateLimitExceededError
 from helpdesk.agent_api.services.tracing import configure_tracing
 from helpdesk.agent_api.services.tracing import flush as flush_traces
 from helpdesk.shared.auth.jwt import TokenClaims, verify_token
+from helpdesk.shared.core import health as _health
 from helpdesk.shared.core.config import load_settings, web_origin_from_env
 from helpdesk.shared.core.db import create_engine, create_session_factory
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.core.observability.context import bind_context
 from helpdesk.shared.core.observability.logging import configure_logging
-from helpdesk.shared.core.observability.metrics import render as render_metrics
 
 REDIS_CONNECT_TIMEOUT_SECONDS = 5.0
 """How long the rate limiter waits to reach Redis at all.
@@ -170,6 +169,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         socket_connect_timeout=REDIS_CONNECT_TIMEOUT_SECONDS,
         socket_timeout=REDIS_COMMAND_TIMEOUT_SECONDS,
     )
+    # Qdrant client held for the readiness check: ping_qdrant
+    # probes through this one client rather than building a fresh one per call.
+    app.state.qdrant = AsyncQdrantClient(url=settings.qdrant_url)
     app.state.checkpointer_pool = pool
     app.state.checkpointer = build_checkpointer(pool)
     try:
@@ -180,6 +182,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # batch, and an export awaited inside a turn would put a network round
         # trip between a user and their reply.
         flush_traces()
+        await app.state.qdrant.close()
         await app.state.redis.aclose()
         await app.state.model.aclose()
         await app.state.checkpointer_pool.close()
@@ -264,43 +267,33 @@ async def handle_login_refused(_request: Request, _exc: LoginRefusedError) -> JS
     )
 
 
-class HealthResponse(BaseModel):
-    status: str
+def _build_agent_api_checks(state: object) -> dict[str, _health._CheckFn]:
+    """Build the four readiness checks for agent-api, reusing its long-lived clients.
 
+    Each check is a zero-arg async callable that calls the corresponding
+    `ping_*` function with the client the lifespan already built. `getattr`
+    is used so the function works even when no lifespan ran (tests that drive
+    the app without a lifespan just get False from any unset attribute, which
+    is the safe answer).
 
-class ReadinessResponse(BaseModel):
-    status: str
-    checks: dict[str, bool]
-
-
-@app.get("/healthz")
-async def healthz() -> HealthResponse:
-    return HealthResponse(status="ok")
-
-
-@app.get("/metrics", include_in_schema=False)
-async def metrics() -> PlainTextResponse:
-    """The Prometheus scrape, unauthenticated like `/healthz` (20b decision D).
-
-    It is what a scrape config expects, and the body carries no identity by
-    construction: every label is a closed enum member, a registry tool name or
-    a tenant id. Pinned by
-    `test_agent_metrics.py::test_the_exposition_names_no_user_of_the_seeded_tenant`.
-    Keeping it off the public internet is the ingress's job, not the app's.
+    The gateway check passes both the ModelClient's httpx client AND the
+    base URL, so `ping_gateway` can strip the version path and probe the
+    service-level health endpoint. Pinned by
+    `tests/shared/core/test_health.py::test_each_check_reuses_the_passed_client_and_constructs_none`.
     """
-    body, content_type = render_metrics()
-    return PlainTextResponse(content=body, media_type=content_type)
-
-
-@app.get("/readyz", response_model=ReadinessResponse)
-async def readyz() -> JSONResponse:
-    # Called via the module attribute so tests can fake individual checks.
-    checks = {
-        "postgres": await readiness.check_postgres(),
-        "redis": await readiness.check_redis(),
-        "qdrant": await readiness.check_qdrant(),
-        "gateway": await readiness.check_gateway(),
+    engine = getattr(state, "engine", None)
+    redis = getattr(state, "redis", None)
+    qdrant = getattr(state, "qdrant", None)
+    model = getattr(state, "model", None)
+    return {
+        "postgres": lambda: _health.ping_postgres(engine),
+        "redis": lambda: _health.ping_redis(redis),
+        "qdrant": lambda: _health.ping_qdrant(qdrant),
+        "gateway": lambda: _health.ping_gateway(
+            getattr(model, "client", None),
+            getattr(model, "base_url", ""),
+        ),
     }
-    ready = all(checks.values())
-    body = ReadinessResponse(status="ready" if ready else "not_ready", checks=checks)
-    return JSONResponse(status_code=200 if ready else 503, content=body.model_dump())
+
+
+_health.register_health(app, _build_agent_api_checks)
