@@ -26,17 +26,22 @@ the design's `VALIDATION` is what the page has a sentence for.
 Routing reads as what it is: the queue is mine (`GET /me/approvals`), the
 decision acts on somebody else's request (`POST /approvals/{request_id}/…`).
 
-No lifespan resource is touched: these routes read nothing off `app.state`,
-which is why their tests enter no lifespan and open no socket.
+**After a final decision, the paused chat turn is resumed**. The
+`resume_after_decision` seam below is what tests replace; in production it
+builds `TurnDeps` from `app.state` and calls `resume_turn`. `ResumeRefusedError`
+is swallowed here so the approver still receives the decision tool's own result.
 """
 
+import contextlib
 import uuid
 from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
 
+from helpdesk.agent_api.agent.gates import DECIDED_RESULTS
 from helpdesk.agent_api.agent.keys import derive_decision_key
+from helpdesk.agent_api.agent.resume import ResumeRefusedError
 from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.approvals import (
     ApproveBody,
@@ -46,9 +51,25 @@ from helpdesk.agent_api.schemas.approvals import (
     RejectBody,
     RejectRequestArgs,
 )
+from helpdesk.agent_api.services import approvals as approvals_service
 from helpdesk.agent_api.services.tool_proxy import proxy_tool
 
 router = APIRouter()
+
+resume_after_decision = approvals_service.resume_after_decision
+"""Resume the paused chat turn that filed this request.
+
+Module-level seam: tests patch this name to a spy so they can verify the
+trigger without entering the lifespan or opening a socket. In
+production it calls `services.approvals.resume_after_decision`, which builds
+`TurnDeps` from `app.state` and calls `resume_turn`.
+
+Called only when the tool body carries a status in `gates.DECIDED_RESULTS`
+(`approved`, `executed`, `rejected`, `failed`). A `pending` seat never
+triggers it. `ResumeRefusedError` is caught in the caller below so the approver
+gets the decision's own 200 even when the request was filed outside a turn.
+Pinned by `test_approval_resume_wiring.py`.
+"""
 
 APPROVE_VERB = "approve"
 REJECT_VERB = "reject"
@@ -99,6 +120,10 @@ async def approve(
     one verify every request gets; the browser's own `approver_user_id` never
     decides it (a project rule,
     `::test_the_approve_route_answers_the_tools_output_under_the_callers_own_bearer`).
+
+    After the tool returns, the paused chat turn is resumed if the decision is
+    final. `ResumeRefusedError` is swallowed: a request filed outside
+    a turn has no paused thread, and the approver's result should not change.
     """
     claims = request_claims(request)
 
@@ -109,7 +134,12 @@ async def approve(
             approver_user_id=uuid.UUID(claims.sub), request_id=request_id, verb=APPROVE_VERB
         ),
     )
-    return await proxy_tool(request, "approve_request", arguments)
+    tool_body = await proxy_tool(request, "approve_request", arguments)
+    status = str(tool_body.get("status", ""))
+    if status in DECIDED_RESULTS:
+        with contextlib.suppress(ResumeRefusedError):
+            await resume_after_decision(request, request_id, status)
+    return tool_body
 
 
 @router.post("/approvals/{request_id}/reject")
@@ -127,6 +157,10 @@ async def reject(
 
     The approver is read off the verified claims on `request.state`, the same
     way `approve` above reads it.
+
+    After the tool returns, the paused chat turn is resumed if the decision is
+    final. `ResumeRefusedError` is swallowed for the same reason as in
+    `approve` above.
     """
     claims = request_claims(request)
 
@@ -137,4 +171,9 @@ async def reject(
             approver_user_id=uuid.UUID(claims.sub), request_id=request_id, verb=REJECT_VERB
         ),
     )
-    return await proxy_tool(request, "reject_request", arguments)
+    tool_body = await proxy_tool(request, "reject_request", arguments)
+    status = str(tool_body.get("status", ""))
+    if status in DECIDED_RESULTS:
+        with contextlib.suppress(ResumeRefusedError):
+            await resume_after_decision(request, request_id, status)
+    return tool_body
