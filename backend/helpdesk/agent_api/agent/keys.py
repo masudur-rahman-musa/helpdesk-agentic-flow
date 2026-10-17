@@ -24,6 +24,7 @@ asserts and what an earlier change needs when it re-derives a key for a replanne
 """
 
 import uuid
+from datetime import datetime
 
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models.idempotency import KEY_LENGTH
@@ -179,6 +180,36 @@ def derive_notification_read_key(*, reader_user_id: uuid.UUID, notification_id: 
     return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
 
 
+def derive_kill_switch_key(
+    *,
+    admin_user_id: uuid.UUID,
+    tool_name: str,
+    enabled: bool,
+    scope: str,
+    reason: str,
+    minute: datetime,
+) -> str:
+    """The key one web-initiated kill-switch toggle goes out with.
+
+    A sibling of the web keys above, under the same namespace and separator.
+    The admin, the tool, the direction and the scope are all in the digest:
+    without the direction a clear would replay the stored stop, and without
+    the scope a tenant toggle would replay the platform-wide one. Pinned by
+    `test_killswitch_routes.py::test_the_set_route_derives_the_key_and_the_body_still_forbids_one`.
+
+    Unlike an approval, a switch can be set the same way twice on purpose:
+    stop, clear, stop again. Keys live 7 days (the design), so a key over the
+    first four values alone would hand that second stop the first one's stored
+    answer while the tool kept running. The reason and the minute the click
+    landed in are in the digest too, so a double click replays and a later
+    re-stop is a new call. The minute is passed in, not read here, so this
+    module still reads no clock.
+    """
+    stamp = minute.replace(second=0, microsecond=0).isoformat()
+    material = _SEPARATOR.join([str(admin_user_id), tool_name, str(enabled), scope, reason, stamp])
+    return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
+
+
 def check_idempotency_key(value: str) -> str:
     """The key back, or a typed refusal before it can reach the wire.
 
@@ -206,6 +237,7 @@ __all__ = [
     "check_idempotency_key",
     "derive_decision_key",
     "derive_idempotency_key",
+    "derive_kill_switch_key",
     "derive_notification_read_key",
     "derive_review_decision_key",
 ]

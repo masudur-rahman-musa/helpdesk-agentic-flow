@@ -593,6 +593,7 @@ def test_a_switch_on_the_board_itself_answers_tool_disabled(
                 "enabled": True,
                 "reason": _reason("board stop"),
                 "scope": str(tenant_id),
+                "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
             },
         )
         assert trip.is_error is False, trip.content

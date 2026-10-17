@@ -51,8 +51,8 @@ from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schem
 from helpdesk.agent_api.services.model_gateway.traceparent import traceparent_for
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.naming import check_slug
 from helpdesk.shared.gateway.keys import checked_tenant_key
-from helpdesk.shared.services.policy_docs.naming import check_slug
 
 CHAT_PATH = "/chat/completions"
 """The gateway's OpenAI-shaped chat endpoint, hung off the versioned base URL
@@ -205,10 +205,10 @@ class StructuredAnswer[T: BaseModel]:
 class ModelClient:
     """One httpx client, two call shapes, typed refusals.
 
-    Mirrors `helpdesk.rag.gateway.RedactionClient` deliberately: pre-checks
-    first, one `httpx.AsyncClient` carrying both timeout halves, an injectable
-    transport so the suite opens no socket, and a `_parsed` mapping statuses
-    onto the typed codes.
+    Mirrors `helpdesk.mcp_server.services.rag.redaction_client.RedactionClient`
+    deliberately: pre-checks first, one `httpx.AsyncClient` carrying both
+    timeout halves, an injectable transport so the suite opens no socket, and
+    a `_parsed` mapping statuses onto the typed codes.
     """
 
     def __init__(

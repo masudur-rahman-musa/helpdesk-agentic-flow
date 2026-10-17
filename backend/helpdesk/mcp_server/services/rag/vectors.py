@@ -50,7 +50,7 @@ from helpdesk.mcp_server.services.rag.chunking import Chunk
 from helpdesk.mcp_server.services.rag.embedding import DENSE_DIMENSION
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.services.policy_docs.naming import (
+from helpdesk.shared.core.naming import (
     COLLECTION_NAME_PREFIX,
     check_collection_name,
     check_slug,

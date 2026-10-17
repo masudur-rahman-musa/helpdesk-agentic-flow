@@ -8,8 +8,8 @@ which is what makes drifting them apart impossible rather than merely
 unlikely.
 
 Raises a plain `ToolError` with `ErrorCode.VALIDATION`. Each client wraps it in
-its own error class, so `helpdesk.rag.gateway` keeps raising
-`GatewayRequestError` with the message it has always raised
+its own error class, so `helpdesk.mcp_server.services.rag.redaction_client`
+keeps raising `GatewayRequestError` with the message it has always raised
 (`test_rag_gateway.py::test_a_tenant_with_no_configured_key_is_refused_before_any_request`)
 and `helpdesk.gateway.client` raises `ModelRequestError`
 (`test_gateway_client.py`'s missing-key row).
@@ -20,7 +20,7 @@ Pure apart from the mapping it is handed: no I/O, no settings read here.
 from collections.abc import Mapping
 
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.services.policy_docs.naming import check_slug
+from helpdesk.shared.core.naming import check_slug
 
 
 class TenantKeyError(ToolError):

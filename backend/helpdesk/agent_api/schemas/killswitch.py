@@ -19,9 +19,10 @@ class ListKillSwitchesArgs(BaseModel):
 class SetKillSwitchArgs(BaseModel):
     """`set_kill_switch`'s SPEC section 8.2 arguments, assembled by this router.
 
-    Exactly four keys: no idempotency key (13c decision C) and no tenant or
-    user id. `scope` is a `str` carrying either `SCOPE_GLOBAL` or
-    the token's own tenant id rendered as its string, which is the pair
+    Exactly five keys: the four the browser sent, plus the idempotency key the
+    route derives. No tenant or user id. `scope` is a
+    `str` carrying either `SCOPE_GLOBAL` or the token's own tenant id rendered
+    as its string, which is the pair
     `SetKillSwitchInput`'s `Literal["global"] | uuid.UUID` accepts.
     """
 
@@ -29,6 +30,7 @@ class SetKillSwitchArgs(BaseModel):
     enabled: bool
     scope: str
     reason: str
+    idempotency_key: str
 
 
 class SetKillSwitchBody(BaseModel):

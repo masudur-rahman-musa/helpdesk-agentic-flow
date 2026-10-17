@@ -67,6 +67,8 @@ from helpdesk.mcp_server.tools.registry import (
     REPLAYED_EVENT_TYPE,
     ToolSpec,
 )
+from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.audit import AuditEventInput, append_event
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.config import Settings, load_settings
 from helpdesk.shared.core.db import (
@@ -78,20 +80,8 @@ from helpdesk.shared.core.db import (
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.core.observability.context import bind_context
-from helpdesk.shared.core.redis import (
-    REDIS_TIMEOUT_SECONDS as REDIS_TIMEOUT_SECONDS,  # re-exported: the old call site
-)
-from helpdesk.shared.core.redis import (
-    close_loop_clients,
-    get_redis,
-)
-from helpdesk.shared.access.directory import SimulatedDirectory
-from helpdesk.shared.audit import AuditEventInput, append_event
+from helpdesk.shared.core.redis import close_loop_clients, get_redis
 from helpdesk.shared.services.killswitch import KillSwitch
-
-_redis = get_redis
-"""Kept under its old name: `test_mcp_pipeline.py` reads the client the pipeline builds
-through it. An assignment, not an import alias, so mypy sees it as this module's own."""
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +277,7 @@ async def _check_switch(settings: Settings, identity: Identity, spec: ToolSpec[A
     The tenant comes from the token, never from an argument, so a caller
     cannot ask about (or trip) another tenant's switch.
     """
-    await KillSwitch(_redis(settings)).check(identity.tenant_id, spec.name)
+    await KillSwitch(get_redis(settings)).check(identity.tenant_id, spec.name)
 
 
 async def _call_tool(

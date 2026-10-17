@@ -3,7 +3,7 @@
     uv run python -m helpdesk.mcp_server.cli --tenant <slug> --version v1
 
 Argument parsing, the corpus root, one line of output per document and the
-exit code — nothing else. Every effect lives in `helpdesk.rag.pipeline`: the design calls ingestion "also an admin API", and a
+exit code — nothing else. Every effect lives in `helpdesk.mcp_server.services.rag.pipeline`: the design calls ingestion "also an admin API", and a
 later row's admin route can only call the same function this script does if
 the script holds no logic of its own. That is also why almost nothing here is
 tested directly - there is no behaviour to reach that `test_rag_pipeline.py`

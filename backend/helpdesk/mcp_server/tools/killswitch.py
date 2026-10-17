@@ -35,6 +35,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.services.killswitch import (
@@ -50,12 +51,12 @@ from helpdesk.shared.services.killswitch import (
     REASON_MAX_LENGTH as SWITCH_REASON_MAX_LENGTH,
 )
 from helpdesk.shared.services.killswitch import (
-    TOOL_NAME_MAX_LENGTH as TOOL_NAME_MAX_LENGTH,  # re-exported for the tests
+    TOOL_NAME_MAX_LENGTH as SWITCH_TOOL_NAME_MAX_LENGTH,
 )
 from helpdesk.shared.services.killswitch.switch import InvalidSwitchTargetError
 
 
-class SetKillSwitchInput(BaseModel):
+class SetKillSwitchInput(MutatingToolInput):
     """the design's signature, with `tenant_id?` read as a REQUIRED `scope`.
 
     Taking the optional field literally would make a forgotten argument trip
@@ -69,13 +70,13 @@ class SetKillSwitchInput(BaseModel):
     registry description says it in words, so neither an agent nor a person
     can get the polarity backwards from one surface alone.
 
-    Not a `MutatingToolInput`: one SET or DELETE of one key is idempotent by
-    nature, and the design omits the key for this tool alone (decision C).
+    A `MutatingToolInput` like every other write (a design note, reversing 13c
+    decision C): the call carries an idempotency key and runs through
+    `run_once`, so a repeated toggle replays its stored answer
+    (`test_mcp_set_kill_switch.py::test_a_replayed_set_kill_switch_returns_the_stored_response`).
     """
 
-    model_config = ConfigDict(extra="forbid")
-
-    tool_name: str = Field(min_length=1, max_length=TOOL_NAME_MAX_LENGTH)
+    tool_name: str = Field(min_length=1, max_length=SWITCH_TOOL_NAME_MAX_LENGTH)
     """The wire name of the tool to stop or release, bounded against the kill
     switch's OWN constant, imported rather than redeclared:
     a name this model accepted and `key_for` refused would be a `VALIDATION`
@@ -281,7 +282,6 @@ async def list_kill_switches(
 
 
 __all__ = [
-    "TOOL_NAME_MAX_LENGTH",
     "KillSwitchRow",
     "ListKillSwitchesInput",
     "ListKillSwitchesOutput",

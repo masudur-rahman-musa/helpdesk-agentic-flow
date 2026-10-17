@@ -1,4 +1,4 @@
-"""The redaction client: the only thing in `helpdesk.rag` that opens a socket.
+"""The redaction client: the only thing in `helpdesk.mcp_server.services.rag` that opens a socket.
 
 the design's ingestion order is redact first, then split, so this runs before
 `markdown.split_sections` and everything downstream — offsets, chunk text,

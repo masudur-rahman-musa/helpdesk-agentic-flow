@@ -52,10 +52,10 @@ from helpdesk.mcp_server.services.rag.store import (
 )
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.naming import InvalidPolicyNameError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyDocument
-from helpdesk.shared.services.policy_docs.naming import InvalidPolicyNameError
 
 # Imported, not redefined: one database for the whole run, shared with
 # `test_policy_models.py`.

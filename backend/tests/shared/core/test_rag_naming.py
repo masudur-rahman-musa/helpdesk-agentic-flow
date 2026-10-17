@@ -45,7 +45,7 @@ from collections.abc import Callable
 import pytest
 
 from helpdesk.shared.core.errors import ErrorCode
-from helpdesk.shared.services.policy_docs.naming import (
+from helpdesk.shared.core.naming import (
     COLLECTION_NAME_LENGTH,
     SLUG_LENGTH,
     SLUG_PATTERN,

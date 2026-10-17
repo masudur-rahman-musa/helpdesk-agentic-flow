@@ -26,9 +26,10 @@ these belong in 24cb's Deviations):
 - the board's arguments are an EXACTLY empty dict, the zero-argument form
   ``me_routes`` uses; ``list_kill_switches`` declares no field and forbids
   extras, so any key at all crosses back as a ``VALIDATION`` from the far side.
-- the set route's arguments are exactly the four keys of
-  ``SetKillSwitchInput`` minus nothing and plus nothing: no idempotency key
-  (13c decision C) and no tenant or user id.
+- the set route's arguments are exactly the five keys of
+  ``SetKillSwitchInput``: the four the browser names plus an
+  ``idempotency_key`` the ROUTE derives (an earlier change, a design note, which reverses 13c
+  decision C), and no tenant or user id.
 - ``scope`` on the wire out of the BROWSER is the literal ``"global"`` or the
   literal ``"tenant"``; ``scope`` on the wire INTO the tool is ``"global"`` or
   the token's own tenant id, rendered as its string (decision C). The
@@ -83,6 +84,7 @@ from helpdesk.mcp_server.tools.killswitch import SetKillSwitchInput
 from helpdesk.shared.auth.jwt import issue_token, verify_token
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.models.idempotency import KEY_LENGTH
 from helpdesk.shared.services.killswitch import REASON_MAX_LENGTH, TOOL_NAME_MAX_LENGTH
 
 LIST_KILL_SWITCHES = "list_kill_switches"
@@ -457,13 +459,13 @@ def test_the_board_route_sends_an_exactly_empty_argument_set(
 # --- the toggle (POST), its arguments -----------------------------------------
 
 
-def test_the_set_route_sends_exactly_four_keys_for_a_global_switch(
+def test_the_set_route_sends_exactly_five_keys_for_a_global_switch(
     killswitch_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Section 1's third, fourth and seventh criteria at once.
 
-    Catches three routes: one that sends an `idempotency_key` (13c decision C -
-    `SetKillSwitchInput` is not a `MutatingToolInput` and forbids extras, so the
+    Catches three routes: one that sends NO `idempotency_key` (a design note -
+    `SetKillSwitchInput` is a `MutatingToolInput` and forbids extras, so the
     toggle would answer `VALIDATION` on every click), one that passes the
     caller's tenant or user id along as an argument, and one that
     translates `"global"` into the token's tenant - which would turn an admin's
@@ -489,13 +491,15 @@ def test_the_set_route_sends_exactly_four_keys_for_a_global_switch(
     assert caller.names == [SET_KILL_SWITCH]
     name, arguments = caller.calls[0]
     assert name == SET_KILL_SWITCH
+    key = arguments.pop("idempotency_key")
+    assert isinstance(key, str)
+    assert 1 <= len(key) <= KEY_LENGTH
     assert arguments == {
         "tool_name": A_TOOL_NAME,
         "enabled": True,
         "scope": GLOBAL_SCOPE,
         "reason": A_REASON,
     }
-    assert set(arguments) == {"tool_name", "enabled", "scope", "reason"}
     assert spy.bearer_tokens == [token]
 
 
@@ -536,7 +540,7 @@ def test_the_set_route_substitutes_the_tokens_own_tenant_for_the_literal_tenant(
     assert response.status_code == 200
     _name, arguments = caller.calls[0]
     assert arguments["scope"] == _tenant_id_off_the_token(token)
-    assert set(arguments) == {"tool_name", "enabled", "scope", "reason"}
+    assert set(arguments) == {"tool_name", "enabled", "scope", "reason", "idempotency_key"}
 
 
 @pytest.mark.parametrize("enabled", [True, False], ids=["stop-the-tool", "let-it-run"])
@@ -654,6 +658,75 @@ def test_a_tenant_id_riding_along_in_the_body_is_a_typed_400_and_opens_no_sessio
         caller=caller,
         headers=_auth(_token()),
         body={**_body(), "tenant_id": str(TENANT_ID)},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"code": ErrorCode.VALIDATION.value}
+    assert caller.entered == 0
+    assert caller.calls == []
+
+
+# --- the derived key --------------------------------------
+
+
+def _sent_keys(
+    monkeypatch: pytest.MonkeyPatch, token: str, *bodies: Mapping[str, Any]
+) -> list[str]:
+    """The idempotency key the route sent for each body, one fresh call each."""
+    keys: list[str] = []
+    for body in bodies:
+        caller = ScriptedToolCaller(
+            {
+                "tool_name": A_TOOL_NAME,
+                "stopped": True,
+                "scope": GLOBAL_SCOPE,
+                "changed_at": CHANGED_AT,
+            }
+        )
+        response, _spy = _post(
+            monkeypatch=monkeypatch, caller=caller, headers=_auth(token), body=body
+        )
+        assert response.status_code == 200
+        keys.append(str(caller.calls[0][1]["idempotency_key"]))
+    return keys
+
+
+def test_the_set_route_derives_the_key_and_the_body_still_forbids_one(
+    killswitch_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches four routes. One that forwards no key (the tool now demands one,
+    so every click would answer `VALIDATION`). One that mints a fresh key per
+    call (`uuid4`), so a double-clicked toggle runs twice instead of replaying.
+    One whose key leaves out the tool, the direction or the scope, so a clear
+    would replay the stored STOP (or a tenant toggle the platform-wide one).
+    And one that lets the browser name the key: the body model must keep
+    `extra="forbid"`, because a browser-chosen key is a replay the caller picks.
+
+    Each difference below changes exactly one body field and the same bearer is
+    used throughout, so only the key's material can flip a row.
+    """
+    token = _token()
+    base = _body()
+
+    same_a, same_b, other_tool, other_direction, other_scope = _sent_keys(
+        monkeypatch,
+        token,
+        base,
+        base,
+        _body(tool_name="revoke_access"),
+        _body(enabled=False),
+        _body(scope=TENANT_SCOPE),
+    )
+
+    assert same_a == same_b, "the same toggle twice must derive the same key"
+    assert len({same_a, other_tool, other_direction, other_scope}) == 4
+
+    caller = ScriptedToolCaller()
+    response, _spy = _post(
+        monkeypatch=monkeypatch,
+        caller=caller,
+        headers=_auth(token),
+        body={**base, "idempotency_key": "fake-browser-chosen-key"},
     )
 
     assert response.status_code == 400

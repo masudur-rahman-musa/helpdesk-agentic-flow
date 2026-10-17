@@ -29,7 +29,7 @@ cannot be a mapped name. Pinned by
 
 `MAX_MESSAGE_CHARS` and `check_message_content` live here rather than in a
 second naming module because the cap IS the `content` column width — the same
-arrangement `helpdesk.rag.naming` has with `policy_documents`, one number
+arrangement `helpdesk.shared.core.naming` has with `policy_documents`, one number
 shared by the check and the column it guards, so widening one without the
 other cannot happen.
 """

@@ -3,9 +3,8 @@
 Surface under test (written before it exists):
 
 ``mcp_server.tools.killswitch``
-    ``SetKillSwitchInput(BaseModel)`` — NOT a ``MutatingToolInput`` (decision
-    C: the design omits the idempotency key for this tool alone, and one SET or
-    DELETE of one key is idempotent by nature), with ``extra="forbid"``.
+    ``SetKillSwitchInput(MutatingToolInput)`` — keyed like every other write, so it carries a
+    required ``idempotency_key`` and forbids extras.
     Fields: ``tool_name: str``, the WIRE name of the tool to stop;
     ``enabled: bool``, describing the SWITCH and not the tool, so
     ``enabled=True`` means the target is STOPPED (decision B);
@@ -16,7 +15,7 @@ Surface under test (written before it exists):
     that is not the token's tenant is refused ``FORBIDDEN``.
     ``SetKillSwitchOutput(BaseModel)`` — ``tool_name``, ``stopped``, ``scope``
     (``"global"`` or the tenant uuid as a string) and ``changed_at``.
-    ``set_kill_switch`` — a registered READ-flagged (non-mutating) tool whose
+    ``set_kill_switch`` — a registered MUTATING tool (it runs through ``run_once``) whose
     wire name is ``set_kill_switch`` and whose registry ``event_type`` is the
     generic ``tool.succeeded``; the domain appends ``killswitch.changed``
     itself, and that event's SUBJECT is the TARGET tool.
@@ -135,13 +134,15 @@ def _args(
     enabled: bool,
     scope: str,
     reason: str | None = None,
+    key: str | None = None,
 ) -> dict[str, Any]:
-    """Minimally valid arguments. No idempotency key: decision C."""
+    """Minimally valid arguments, with a fresh idempotency key."""
     return {
         "tool_name": tool_name,
         "enabled": enabled,
         "reason": _reason("switch") if reason is None else reason,
         "scope": scope,
+        "idempotency_key": key if key is not None else f"fake-key-{uuid.uuid4().hex}",
     }
 
 
@@ -758,4 +759,60 @@ def test_an_unreachable_redis_reads_internal_and_writes_no_change_event(
     delta = _audit_event_types(mcp_env.database_url, tenant_id)[len(events_before) :]
     assert delta == [FAILED_EVENT]
     assert KILLSWITCH_CHANGED_EVENT not in delta
+    assert _redis_keys(mcp_redis_url, f"{KEY_PREFIX_LITERAL}:*") == []
+
+
+# --- the key -------------------------------------------------
+
+REPLAYED_EVENT = "tool.replayed"
+
+
+def test_a_replayed_set_kill_switch_returns_the_stored_response(
+    mcp_env: SeededMcp,  # noqa: F811
+    mcp_redis_url: str,  # noqa: F811
+) -> None:
+    """Catches a `set_kill_switch` still registered as non-mutating, so
+    dispatch never reaches `run_once`: the second call with the same key would
+    run the toggle again (a second `killswitch.changed`, a fresh `changed_at`)
+    instead of returning the stored response and writing `tool.replayed`.
+
+    The two answers are compared whole, including `changed_at`, so a response
+    rebuilt on the second call (a new clock read) differs from the stored one.
+    """
+    tenant_id = mcp_env.tenant_a.tenant_id
+    key = _tenant_key(tenant_id, SUBJECT_TARGET)
+    arguments = _args(SUBJECT_TARGET, enabled=True, scope=str(tenant_id), key="fake-key-replay-73")
+    events_before = _audit_event_types(mcp_env.database_url, tenant_id)
+
+    try:
+        first = call_tool(_admin_token(mcp_env), SET_KILL_SWITCH, arguments)
+        second = call_tool(_admin_token(mcp_env), SET_KILL_SWITCH, arguments)
+
+        assert _structured(second) == _structured(first)
+        delta = _audit_event_types(mcp_env.database_url, tenant_id)[len(events_before) :]
+        assert delta == [KILLSWITCH_CHANGED_EVENT, SUCCEEDED_EVENT, REPLAYED_EVENT]
+        assert delta.count(KILLSWITCH_CHANGED_EVENT) == 1, "one switch change only"
+        assert _redis_keys(mcp_redis_url, f"{KEY_PREFIX_LITERAL}:*") == [key]
+    finally:
+        _delete_key(mcp_redis_url, key)
+
+
+def test_set_kill_switch_with_no_idempotency_key_is_validation_with_no_write(
+    mcp_env: SeededMcp,  # noqa: F811
+    mcp_redis_url: str,  # noqa: F811
+) -> None:
+    """Catches an `idempotency_key` that is optional or defaulted on
+    `SetKillSwitchInput`: a keyless call would still trip the switch, so a
+    retried toggle would be unguarded exactly as it was under an earlier change.
+
+    Every other argument is valid and the caller holds the row's one cell, so
+    the missing key is the only thing that can produce `VALIDATION` here.
+    """
+    tenant_id = mcp_env.tenant_a.tenant_id
+    arguments = _args(TARGET, enabled=True, scope=str(tenant_id))
+    del arguments["idempotency_key"]
+
+    result = call_tool(_admin_token(mcp_env), SET_KILL_SWITCH, arguments)
+
+    assert error_code(result) == "VALIDATION"
     assert _redis_keys(mcp_redis_url, f"{KEY_PREFIX_LITERAL}:*") == []

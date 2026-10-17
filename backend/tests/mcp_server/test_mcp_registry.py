@@ -40,12 +40,12 @@ from sqlalchemy.exc import DBAPIError
 from helpdesk.mcp_server.tools import approvals, registry, reviews
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.registry import REGISTRY, lookup
+from helpdesk.shared.access import reviews as reviews_domain
+from helpdesk.shared.audit.writer import AuditEventInput, append_event
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.models import PERIOD_LENGTH, AuditEvent
-from helpdesk.shared.access import reviews as reviews_domain
-from helpdesk.shared.audit.writer import AuditEventInput, append_event
 from helpdesk.shared.services.killswitch import (
     GLOBAL,
     GLOBAL_SEGMENT,
@@ -315,15 +315,13 @@ MUTATING_TOOL_NAMES = frozenset(
         # nobody can clear without minting one would make the notifications
         # page unable to list anything.
         "mark_notification_read",
-        # An earlier change: `set_kill_switch` does NOT belong here (decision C). SPEC
-        # §8.2 omits the idempotency key for this tool alone, and one SET or
-        # DELETE of one Redis key is idempotent by nature: a replayed trip
-        # re-writes the same state and a replayed clear stays a no-op. The
-        # cost, stated: a retried trip refreshes `at` and `actor`, and
-        # `search_audit` shows one `killswitch.changed` per CALL, which is the
-        # truth about what was called.
+        # An earlier change (a design note, reverses an earlier change decision C): `set_kill_switch`
+        # DOES belong here. It is a normal write now, keyed and run through
+        # `run_once`, so a retried toggle replays the stored response and
+        # writes `tool.replayed` instead of running twice.
+        "set_kill_switch",
         #
-        # An earlier change: `list_kill_switches` does NOT belong here either, and for
+        # An earlier change: `list_kill_switches` does NOT belong here, and for
         # the plainer reason — the board is a READ. It issues one `MGET` and
         # writes nothing at all, so a `True` here would demand an idempotency
         # key for a call the guard never protects and the admin page could not

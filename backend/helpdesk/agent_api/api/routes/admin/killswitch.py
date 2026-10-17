@@ -50,28 +50,31 @@ same reason the `/me` reads are: a route that reshaped on the way out would be
 a second contract for 24d's page to track, and `stopped`'s polarity would stop
 being the tool's to decide.
 
-No idempotency key is derived, accepted or forwarded (13c decision C): one SET
-or DELETE of one key is idempotent by nature, and `SetKillSwitchInput` is not a
-`MutatingToolInput`.
+The idempotency key is derived here and never accepted from the browser (ADR
+0032): `set_kill_switch` is a mutating tool like the rest, so the key is made
+the way the approval and review routes make theirs, from the verified caller
+and the toggle itself (`helpdesk.agent_api.agent.keys.derive_kill_switch_key`).
 
 No lifespan resource is touched: neither route reads anything off `app.state`,
 which is why their tests enter no lifespan and open no socket.
 """
 
+import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import ValidationError
 
-from helpdesk.agent_api.core.deps import request_claims
+from helpdesk.agent_api.agent.keys import derive_kill_switch_key
+from helpdesk.agent_api.core.deps import InvalidBodyError, request_claims
 from helpdesk.agent_api.schemas.killswitch import (
     ListKillSwitchesArgs,
     SetKillSwitchArgs,
     SetKillSwitchBody,
 )
 from helpdesk.agent_api.services.tool_proxy import proxy_tool
-from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 router = APIRouter()
 
@@ -134,6 +137,10 @@ async def set_kill_switch_route(request: Request) -> Mapping[str, Any]:
     tenant (a project rule,
     `::test_the_set_route_substitutes_the_tokens_own_tenant_for_the_literal_tenant`).
 
+    The idempotency key is derived from the verified admin and the toggle, so
+    a double click replays the stored answer and the browser never names a key
+    (`::test_the_set_route_derives_the_key_and_the_body_still_forbids_one`).
+
     The body is read and validated before any session is opened, and a refusal
     is the typed `VALIDATION` dressed as a 400 rather than FastAPI's untyped
     422. An unparseable body is the same refusal: a request whose JSON does not
@@ -145,12 +152,21 @@ async def set_kill_switch_route(request: Request) -> Mapping[str, Any]:
         payload = await request.json()
         body = SetKillSwitchBody.model_validate(payload)
     except (ValueError, ValidationError):
-        raise ToolError(ErrorCode.VALIDATION)
+        raise InvalidBodyError("the kill-switch body did not validate") from None
 
+    scope = SCOPE_GLOBAL if body.scope == SCOPE_GLOBAL else claims.tenant_id
     arguments = SetKillSwitchArgs(
         tool_name=body.tool_name,
         enabled=body.enabled,
-        scope=SCOPE_GLOBAL if body.scope == SCOPE_GLOBAL else claims.tenant_id,
+        scope=scope,
         reason=body.reason,
+        idempotency_key=derive_kill_switch_key(
+            admin_user_id=uuid.UUID(claims.sub),
+            tool_name=body.tool_name,
+            enabled=body.enabled,
+            scope=scope,
+            reason=body.reason,
+            minute=datetime.now(UTC),
+        ),
     )
     return await proxy_tool(request, SET_KILL_SWITCH_TOOL, arguments)

@@ -623,7 +623,7 @@ async def run_turn(
     gateway's `X-Session` header and the value bounded before a checkpoint
     write are one check in one place. `session_id` is typed as a UUID, so that
     second gate can only ever fail closed — it is here so a change to
-    `helpdesk.rag.naming` that stopped admitting a canonical uuid string is
+    `helpdesk.shared.core.naming` that stopped admitting a canonical uuid string is
     caught by a test rather than by every turn refusing at once
     (`test_agent_turn.py::test_every_canonical_session_id_passes_the_session_id_pre_check`).
 

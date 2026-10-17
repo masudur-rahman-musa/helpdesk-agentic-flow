@@ -71,7 +71,7 @@ from helpdesk.mcp_server.services.rag.vectors import (
 )
 from helpdesk.shared.core.config import Settings, load_settings
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.services.policy_docs.naming import (
+from helpdesk.shared.core.naming import (
     COLLECTION_NAME_LENGTH,
     InvalidPolicyNameError,
 )

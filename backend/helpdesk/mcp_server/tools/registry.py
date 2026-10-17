@@ -360,10 +360,9 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=read.search_audit,
     ),
     ToolSpec(
-        # A non-mutating spec that WRITES: one SET or
-        # DELETE of one key is idempotent by nature, and the design omits the
-        # idempotency key for this tool alone, so it carries none and stays
-        # off `test_mcp_registry.py::MUTATING_TOOL_NAMES`.
+        # A mutating spec like every other write: the call is
+        # keyed and runs through `run_once`, and the tool is on
+        # `test_mcp_registry.py::MUTATING_TOOL_NAMES`.
         #
         # `tool.succeeded` is the SUMMARY event: `helpdesk.killswitch.change`
         # appends `killswitch.changed` itself with the TARGET TOOL as its
@@ -381,7 +380,7 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         input_model=killswitch.SetKillSwitchInput,
         output_model=killswitch.SetKillSwitchOutput,
         event_type=SUCCESS_EVENT_TYPE,
-        mutating=False,
+        mutating=True,
         handler=killswitch.set_kill_switch,
     ),
     ToolSpec(

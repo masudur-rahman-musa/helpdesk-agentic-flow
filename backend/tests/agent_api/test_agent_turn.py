@@ -146,12 +146,12 @@ from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schem
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.naming import check_slug
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.messages import HISTORY_LIMIT, append_message
 from helpdesk.shared.crud.sessions import get_or_create_session
 from helpdesk.shared.models import Base, Department, Message, Role, Session, System, Tenant, User
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS, MessageRole, MessageTooLongError
-from helpdesk.shared.services.policy_docs.naming import check_slug
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)
 

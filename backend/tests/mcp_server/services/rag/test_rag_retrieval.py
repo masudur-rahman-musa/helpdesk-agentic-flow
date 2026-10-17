@@ -68,7 +68,7 @@ from helpdesk.mcp_server.services.rag.vectors import (
 )
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.services.policy_docs.naming import (
+from helpdesk.shared.core.naming import (
     MAX_QUERY_CHARS,
     MAX_TOP_K,
     check_query,

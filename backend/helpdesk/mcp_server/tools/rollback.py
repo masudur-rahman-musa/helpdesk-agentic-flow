@@ -37,20 +37,14 @@ from helpdesk.mcp_server.services.access_requests.rollback import (
     WINDOW_HOURS as WINDOW_HOURS,  # re-exported for the registry
 )
 from helpdesk.mcp_server.services.access_requests.rollback import (
-    RequestNotExecutedError as RequestNotExecutedError,  # re-exported for the tests
-)
-from helpdesk.mcp_server.services.access_requests.rollback import (
-    RollbackWindowExpiredError as RollbackWindowExpiredError,  # re-exported for the tests
-)
-from helpdesk.mcp_server.services.access_requests.rollback import (
     rollback_request as rollback,
 )
 from helpdesk.mcp_server.tools.access import REASON_MAX_LENGTH
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
+from helpdesk.shared.access.approvals import lock_request
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.models import RequestStatus
-from helpdesk.shared.access.approvals import lock_request
 
 
 class RollbackRequestInput(MutatingToolInput):
@@ -141,9 +135,7 @@ async def rollback_request(ctx: ToolContext, args: RollbackRequestInput) -> Roll
 
 __all__ = [
     "WINDOW_HOURS",
-    "RequestNotExecutedError",
     "RollbackRequestInput",
     "RollbackRequestOutput",
-    "RollbackWindowExpiredError",
     "rollback_request",
 ]

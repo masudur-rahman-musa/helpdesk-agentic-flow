@@ -28,7 +28,7 @@ Surface under test (written before it exists):
     event for a call that never finished.
 
     Seams: ``pipeline._session_factory(settings)`` and
-    ``pipeline._redis(settings)``.
+    ``helpdesk.shared.core.redis.get_redis(settings)``.
 
 ``mcp_server.tools.registry.ToolSpec`` — a frozen dataclass whose ``handler`` is
 ``(ToolContext, I) -> Awaitable[O]``. The synthetic specs below are
@@ -66,12 +66,13 @@ from helpdesk.mcp_server.tools import registry
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.mcp_server.tools.dispatch import dispatch
 from helpdesk.mcp_server.tools.registry import ToolSpec
+from helpdesk.shared.audit.writer import TenantMismatchError
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.redis import REDIS_TIMEOUT_SECONDS, get_redis
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Ticket
-from helpdesk.shared.audit.writer import TenantMismatchError
 from helpdesk.shared.services.killswitch import GLOBAL, KillSwitch
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
@@ -606,7 +607,7 @@ def test_the_redis_client_carries_the_pinned_timeouts(
 
     async def scenario() -> dict[str, Any]:
         try:
-            client = pipeline._redis(load_settings())
+            client = get_redis(load_settings())
             kwargs: dict[str, Any] = client.connection_pool.connection_kwargs
             return dict(kwargs)
         finally:
@@ -614,7 +615,7 @@ def test_the_redis_client_carries_the_pinned_timeouts(
 
     kwargs = asyncio.run(scenario())
 
-    assert pipeline.REDIS_TIMEOUT_SECONDS == 2
+    assert REDIS_TIMEOUT_SECONDS == 2
     assert kwargs["socket_connect_timeout"] == 2
     assert kwargs["socket_timeout"] == 2
 

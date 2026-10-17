@@ -72,10 +72,10 @@ from helpdesk.mcp_server.services.rag.vectors import (
 )
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.naming import SLUG_LENGTH, InvalidPolicyNameError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyChunk, PolicyDocument
-from helpdesk.shared.services.policy_docs.naming import SLUG_LENGTH, InvalidPolicyNameError
 from tests.mcp_server.services.rag.test_rag_vectors import (
     RecordingClient,
     _as_client,

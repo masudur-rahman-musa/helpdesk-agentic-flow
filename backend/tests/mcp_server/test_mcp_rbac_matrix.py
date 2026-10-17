@@ -710,6 +710,7 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "enabled": False,
             "reason": f"fake matrix clear {uuid.uuid4().hex}",
             "scope": str(env.tenant_a.tenant_id),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "list_kill_switches":
         # An earlier change. No arguments at all, and no OPTIONAL ones either: the
@@ -1186,6 +1187,7 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "enabled": False,
             "reason": f"fake cross-tenant clear {uuid.uuid4().hex}",
             "scope": str(env.tenant_b.tenant_id),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "mark_notification_read":
         # An earlier change. Tenant B's notification, a real unread row there: the

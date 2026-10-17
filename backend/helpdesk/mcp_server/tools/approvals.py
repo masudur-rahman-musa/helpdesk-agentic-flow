@@ -57,20 +57,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
-from helpdesk.shared.access.execute import (
-    PolicyBlockedAtExecutionError,
-    SodConflictAtExecutionError,
-    execute_grant,
-)
-from helpdesk.shared.access.requests import (
-    REQUEST_REJECTED_EVENT_TYPE as REQUEST_REJECTED_EVENT_TYPE,  # re-exported, see below
-)
-from helpdesk.shared.access.requests import set_request_status
-from helpdesk.shared.auth import rbac
-from helpdesk.shared.core.errors import ErrorCode, NotFoundError
-from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
-from helpdesk.shared.policy.types import ApproverSlot
 from helpdesk.shared.access.approvals import (
     NotAnApproverError,
     PendingWithContext,
@@ -86,7 +72,21 @@ from helpdesk.shared.access.approvals import (
     parse_slots,
     request_in_scope,
 )
+from helpdesk.shared.access.execute import (
+    PolicyBlockedAtExecutionError,
+    SodConflictAtExecutionError,
+    execute_grant,
+)
+from helpdesk.shared.access.requests import (
+    REQUEST_REJECTED_EVENT_TYPE as REQUEST_REJECTED_EVENT_TYPE,  # re-exported, see below
+)
+from helpdesk.shared.access.requests import set_request_status
 from helpdesk.shared.audit import AuditEventInput, append_event
+from helpdesk.shared.auth import rbac
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
+from helpdesk.shared.policy.types import ApproverSlot
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
 """the design's two decision events, appended by these handlers (decision I).
@@ -211,10 +211,19 @@ class ListPendingApprovalsOutput(BaseModel):
     approvals: list[PendingApproval]
 
 
-class ApproveRequestInput(MutatingToolInput):
-    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`."""
+class RequestDecisionInput(MutatingToolInput):
+    """What approve and reject share: the one request being decided.
+
+    Declared once here so the two decisions cannot drift on its type. Pinned by
+    `test_mcp_tool_inputs.py::test_approve_and_reject_declare_request_id_once`.
+    """
 
     request_id: uuid.UUID
+
+
+class ApproveRequestInput(RequestDecisionInput):
+    """the design's signature. `extra="forbid"` comes from `MutatingToolInput`."""
+
     comment: str | None = Field(default=None, max_length=COMMENT_MAX_LENGTH)
 
 
@@ -234,8 +243,7 @@ class ApproveRequestOutput(BaseModel):
     `SOD_CONFLICT`."""
 
 
-class RejectRequestInput(MutatingToolInput):
-    request_id: uuid.UUID
+class RejectRequestInput(RequestDecisionInput):
     reason: str = Field(min_length=1, max_length=REASON_MAX_LENGTH)
 
 

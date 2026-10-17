@@ -34,16 +34,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.crud import Repository
-from helpdesk.shared.crud.rag import fetch_current_documents_except, find_document_by_digest
-from helpdesk.shared.crud.tenants import find_tenant_by_slug
-from helpdesk.shared.models import PolicyDocument
-from helpdesk.shared.services.policy_docs.naming import (
+from helpdesk.shared.core.naming import (
     check_slug,
     check_source_path,
     check_title,
     check_version,
 )
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.rag import fetch_current_documents_except, find_document_by_digest
+from helpdesk.shared.crud.tenants import find_tenant_by_slug
+from helpdesk.shared.models import PolicyDocument
 
 
 class TenantSlugMismatchError(ToolError):
@@ -85,7 +85,7 @@ async def register_document_version(
 ) -> RegistrationResult:
     """Register `source` as this (tenant, slug, version); flip older versions.
 
-    The four `rag.naming` pre-checks and the tenant cross-check all run
+    The four `core.naming` pre-checks and the tenant cross-check all run
     before any statement that writes, so a malformed name never half-lands a
     registration. Each refusal is pinned to leave `policy_documents`
     byte-identical by `test_rag_store.py::_assert_refused`, which plants a

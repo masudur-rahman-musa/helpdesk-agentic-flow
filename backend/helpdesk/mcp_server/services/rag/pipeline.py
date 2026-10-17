@@ -74,8 +74,8 @@ from helpdesk.mcp_server.services.rag.vectors import (
 )
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.naming import check_slug, check_version
 from helpdesk.shared.models import PolicyDocument
-from helpdesk.shared.services.policy_docs.naming import check_slug, check_version
 
 MARKDOWN_SUFFIX = ".md"
 """The only files a version directory is walked for.
@@ -91,7 +91,7 @@ whose fixture holds two `.md` files and one `.txt`.
 class Redactor(Protocol):
     """What ingestion needs from the redaction gateway, and nothing more.
 
-    Satisfied by 14b's `rag.gateway.RedactionClient`. A protocol rather than
+    Satisfied by 14b's `rag.redaction_client.RedactionClient`. A protocol rather than
     that class (decision E, the same seam as `Embedder`): the pipeline suite
     has no gateway to reach, and the one place that builds the real client is
     `scripts/ingest.py`.

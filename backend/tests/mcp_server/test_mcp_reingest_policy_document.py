@@ -556,6 +556,7 @@ def test_the_tool_is_stopped_by_its_own_kill_switch(
                 "enabled": True,
                 "reason": f"fake reingest stop {uuid.uuid4().hex}",
                 "scope": str(tenant_id),
+                "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
             },
         )
         assert trip.is_error is False, trip.content

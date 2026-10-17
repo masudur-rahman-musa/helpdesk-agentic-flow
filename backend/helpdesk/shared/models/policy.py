@@ -7,9 +7,9 @@ RAG schema, but no chunk row is written until 14c can write it together with
 its `qdrant_point_id` (decision F) — a chunk without a point is a retrievable
 span that no search can reach.
 
-Column widths are imported from `helpdesk.rag.naming`, never repeated as
+Column widths are imported from `helpdesk.shared.core.naming`, never repeated as
 literals: the pre-check and the column it guards are one number, so widening
-one without the other cannot happen. `rag.naming` is pure (`re` and the error
+one without the other cannot happen. `core.naming` is pure (`re` and the error
 codes), so this import direction adds no cycle; `rag/__init__.py` deliberately
 re-exports nothing for the same reason. Pinned by
 `test_policy_models.py::test_the_document_column_widths_are_the_naming_constants`.
@@ -32,13 +32,13 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from helpdesk.shared.models.base import TenantScoped
-from helpdesk.shared.services.policy_docs.naming import (
+from helpdesk.shared.core.naming import (
     SLUG_LENGTH,
     SOURCE_PATH_LENGTH,
     TITLE_LENGTH,
     VERSION_LENGTH,
 )
+from helpdesk.shared.models.base import TenantScoped
 
 SHA256_LENGTH = 64
 """The hex digest width of `policy_documents.sha256`.

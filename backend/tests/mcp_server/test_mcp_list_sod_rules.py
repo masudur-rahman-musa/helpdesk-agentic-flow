@@ -571,6 +571,7 @@ def test_a_switch_on_the_rules_board_answers_tool_disabled(
                 "enabled": True,
                 "reason": f"fake rules board stop {uuid.uuid4().hex}",
                 "scope": str(tenant_id),
+                "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
             },
         )
         assert trip.is_error is False, trip.content

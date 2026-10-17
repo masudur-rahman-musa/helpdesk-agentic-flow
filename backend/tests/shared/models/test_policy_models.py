@@ -44,16 +44,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql.sqltypes import Text
 
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from helpdesk.shared.crud import Repository
-from helpdesk.shared.crud.tenants import find_tenant_by_slug
-from helpdesk.shared.models import Base, PolicyChunk, PolicyDocument, Tenant
-from helpdesk.shared.models.policy import SHA256_LENGTH
-from helpdesk.shared.services.policy_docs.naming import (
+from helpdesk.shared.core.naming import (
     SLUG_LENGTH,
     SOURCE_PATH_LENGTH,
     TITLE_LENGTH,
     VERSION_LENGTH,
 )
+from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.tenants import find_tenant_by_slug
+from helpdesk.shared.models import Base, PolicyChunk, PolicyDocument, Tenant
+from helpdesk.shared.models.policy import SHA256_LENGTH
 from tests.conftest import TempDatabaseFactory
 from tests.support.seed import TENANT_SCOPED_TABLES, seed_tenant
 

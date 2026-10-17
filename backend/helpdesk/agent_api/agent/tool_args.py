@@ -60,7 +60,7 @@ SEARCH_POLICY_TOP_K = 6
 """How many policy chunks one retrieval asks for.
 
 The corpus default 15a fixes, written out here rather than imported from
-`helpdesk.rag.retrieval`: importing that module would pull fastembed and the
+`helpdesk.mcp_server.services.rag.retrieval`: importing that module would pull fastembed and the
 vector store into agent-api, which reaches the corpus only through the tool.
 The copy is held true by
 `test_agent_tool_catalogue.py::test_the_advertised_top_k_default_is_the_catalogues_own`,

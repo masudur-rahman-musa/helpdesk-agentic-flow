@@ -63,7 +63,7 @@ from helpdesk.agent_api.agent.checkpointer import (
 )
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.services.policy_docs.naming import SLUG_LENGTH
+from helpdesk.shared.core.naming import SLUG_LENGTH
 
 CONNECT_TIMEOUT_SECONDS = 5.0
 """What the pool's libpq `connect_timeout` must be, exactly (plan §1).

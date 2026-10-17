@@ -65,8 +65,8 @@ from helpdesk.mcp_server.services.rag.vectors import (
     collection_name,
 )
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.naming import check_query, check_top_k
 from helpdesk.shared.crud.rag import fetch_document_titles
-from helpdesk.shared.services.policy_docs.naming import check_query, check_top_k
 
 RRF_K = 60
 """The k of Reciprocal Rank Fusion, `1 / (k + rank)`, ranks 1-based.
@@ -397,7 +397,6 @@ def _hits(points: Iterable[Any], *, dense: bool) -> list[SearchHit]:
             )
         )
     return hits
-
 
 
 def _replace_scores(hit: SearchHit, *, score: float, dense_score: float | None) -> SearchHit:

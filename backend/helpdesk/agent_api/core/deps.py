@@ -17,7 +17,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from helpdesk.shared.auth.jwt import TokenClaims, TokenVerificationError, verify_token
-from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 STATUS_FOR_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.VALIDATION: 400,
@@ -66,6 +66,18 @@ by
 `test_approval_routes.py::test_the_shared_status_map_answers_a_matrix_refusal_403_and_a_kill_switch_503`
 and `test_me_routes.py::test_the_one_shared_map_dresses_forbidden_as_403`.
 """
+
+
+class InvalidBodyError(ToolError):
+    """A request body a route reads by hand and refuses.
+
+    `ToolError` takes a message, not a code, so `ToolError(ErrorCode.VALIDATION)`
+    kept the base's `INTERNAL` and answered 500. This subclass carries
+    `VALIDATION`, the typed 400. Pinned by
+    `test_killswitch_routes.py::test_a_tenant_id_riding_along_in_the_body_is_a_typed_400_and_opens_no_session`.
+    """
+
+    code = ErrorCode.VALIDATION
 
 
 def bearer(authorization: str | None) -> str | None:

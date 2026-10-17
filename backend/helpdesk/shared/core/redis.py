@@ -4,9 +4,7 @@ The mcp-server reads the kill switch before every tool call and
 `set_kill_switch`'s handler writes one; the scheduler takes the cadence-gate
 lock on every tick. All of them want the same per-loop pooled client, so the
 accessor lives here in `shared.core` and each app imports it rather than
-keeping its own copy. The public name is `get_redis`; `mcp_server.tools.dispatch`
-re-exports it as `_redis` so `test_mcp_pipeline.py` keeps reading it (and
-`REDIS_TIMEOUT_SECONDS`) from its old call site.
+keeping its own copy.
 """
 
 import asyncio

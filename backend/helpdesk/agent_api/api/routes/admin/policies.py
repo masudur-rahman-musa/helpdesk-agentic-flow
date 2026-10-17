@@ -26,7 +26,7 @@ stops being true.
 `/admin/rules` and `/admin/audit/search` are: a route that reshaped on the way
 out would be a second contract for 24h's page to track, and the grouping by
 slug, the title rule and both orders are already what
-`helpdesk.rag.documents.read_policy_documents` fixed. The rows cross in the
+`helpdesk.mcp_server.services.rag.documents.read_policy_documents` fixed. The rows cross in the
 tool's own sequence, unfiltered and unreordered, which
 `::test_the_rows_cross_in_the_tools_own_order` asserts as the exact list of
 slugs.
@@ -62,6 +62,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import ValidationError
 
+from helpdesk.agent_api.core.deps import InvalidBodyError
 from helpdesk.agent_api.schemas.policies import (
     ListPolicyDocumentsArgs as ListPolicyDocumentsArgs,
 )
@@ -69,7 +70,6 @@ from helpdesk.agent_api.schemas.policies import (
     ReingestPolicyDocumentArgs as ReingestPolicyDocumentArgs,
 )
 from helpdesk.agent_api.services.tool_proxy import proxy_tool
-from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 router = APIRouter()
 
@@ -137,6 +137,6 @@ async def reingest_policy_document_route(request: Request) -> Mapping[str, Any]:
     try:
         arguments = ReingestPolicyDocumentArgs.model_validate(await request.json())
     except (ValueError, ValidationError):
-        raise ToolError(ErrorCode.VALIDATION)
+        raise InvalidBodyError("the re-ingest body did not validate") from None
 
     return await proxy_tool(request, REINGEST_POLICY_DOCUMENT_TOOL, arguments)

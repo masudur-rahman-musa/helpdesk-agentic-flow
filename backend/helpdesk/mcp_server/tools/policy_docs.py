@@ -4,7 +4,7 @@
 page is drawn from: which documents this tenant's corpus holds, which versions
 exist of each, which one is live and whether a version actually landed.
 Everything it decides lives in
-`helpdesk.rag.documents.read_policy_documents` -- the two statements, the
+`helpdesk.mcp_server.services.rag.documents.read_policy_documents` -- the two statements, the
 grouping by slug, the title rule and both orders -- and what lives here is the
 wire contract alone. It takes no arguments, and its two cells are `it_admin`
 and `platform_admin`, the design's audience for that page (a design note, cited
@@ -13,7 +13,7 @@ rather than re-opened).
 `reingest_policy_document` is the WRITE half, and what the design
 means by calling ingestion "also an admin API": one corpus document, named by
 its slug and version, re-read and made live. Everything it decides lives in
-`helpdesk.rag.pipeline.ingest_one_document` -- the corpus path, the
+`helpdesk.mcp_server.services.rag.pipeline.ingest_one_document` -- the corpus path, the
 `source_path` string, both name checks and the eight-effect order -- and what
 lives here is the wire contract, the tenant slug read back off the token, and
 one clock read. Its two cells are `list_policy_documents`'s, and it is absent
@@ -106,7 +106,7 @@ async def list_policy_documents(
     no chunk at all.
 
     Transport only. The two statements, the grouping by slug, the title rule
-    and both orders are `helpdesk.rag.documents.read_policy_documents`'s, so
+    and both orders are `helpdesk.mcp_server.services.rag.documents.read_policy_documents`'s, so
     24h's page and every later caller read one sequence rather than a second
     copy inside a handler; the mapping below adds nothing but the wire's
     names.
@@ -224,7 +224,7 @@ async def reingest_policy_document(
 
     Transport only. Where the file lives, what its `source_path` string is,
     both name checks and the whole eight-effect order are
-    `helpdesk.rag.pipeline`'s (decision H), so this handler holds no path and
+    `helpdesk.mcp_server.services.rag.pipeline`'s (decision H), so this handler holds no path and
     mcp-server owns no filesystem convention.
 
     The tenant SLUG is read back from the token's tenant id, exactly as
