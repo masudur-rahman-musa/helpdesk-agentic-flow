@@ -3,31 +3,22 @@
 import { useState } from "react";
 
 import { AUDIT_CSV_MIME, csvFilename, toCsv } from "@/features/admin/audit/csv";
-import {
-  AUDIT_FILTER_MAX_LENGTHS,
-  DEFAULT_PAGE_SIZE,
-  fromInstant,
-  isInvertedRange,
-  PAGE_SIZES,
-  toInstant,
-} from "@/features/admin/audit/filters";
+import { DEFAULT_PAGE_SIZE, isInvertedRange } from "@/features/admin/audit/filters";
 import { type AppliedFilters, useAuditSearch } from "@/features/admin/audit/api";
 import type { AuditEventRow } from "@/features/admin/audit/schema";
 import { failureMessage } from "@/lib/failure-messages";
 import { WireRefusedError } from "@/lib/wire-read";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Input, Label } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Alert } from "@/components/ui/alert";
+import { AuditEventTable } from "@/features/admin/audit/components/audit-event-table";
+import {
+  AuditFilterForm,
+  type Draft,
+  EMPTY_DRAFT,
+  filtersOf,
+} from "@/features/admin/audit/components/audit-filter-form";
 
 /**
  * The searchable audit log, from `GET /api/admin/audit/search`.
@@ -116,26 +107,6 @@ export const AUDIT_RANGE_MESSAGE = "The From date is after the To date.";
 /** The sentence for a read that did not come back as a page of the log. */
 const AUDIT_READ_MESSAGE = "The audit log could not be read. Try again in a moment.";
 
-/** The four text controls, each with the wire parameter it fills and its cap. */
-const TEXT_FILTERS = [
-  { label: "Event type", param: "event_type" },
-  { label: "Subject type", param: "subject_type" },
-  { label: "Subject id", param: "subject_id" },
-  { label: "Actor", param: "actor_ref" },
-] as const;
-
-/** What the controls hold right now, keyed the same way plus the two dates. */
-type Draft = Record<string, string>;
-
-const EMPTY_DRAFT: Draft = {
-  event_type: "",
-  subject_type: "",
-  subject_id: "",
-  actor_ref: "",
-  from: "",
-  to: "",
-};
-
 export function AuditSearch() {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [applied, setApplied] = useState<AppliedFilters>({});
@@ -176,65 +147,13 @@ export function AuditSearch() {
     <section aria-label="Audit log" className="flex max-w-5xl flex-col gap-4">
       <PageHeader title="Audit log" />
 
-      <form
-        className="flex flex-wrap items-end gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          commit();
-        }}
-      >
-        {TEXT_FILTERS.map((filter) => (
-          <div key={filter.param} className="flex w-56 flex-col gap-1">
-            <Label htmlFor={`audit-${filter.param}`}>{filter.label}</Label>
-            <Input
-              id={`audit-${filter.param}`}
-              type="text"
-              value={draft[filter.param] ?? ""}
-              maxLength={AUDIT_FILTER_MAX_LENGTHS[filter.param]}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, [filter.param]: event.target.value }))
-              }
-            />
-          </div>
-        ))}
-
-        {(
-          [
-            { key: "from", label: "From" },
-            { key: "to", label: "To" },
-          ] as const
-        ).map((end) => (
-          <div key={end.key} className="flex w-44 flex-col gap-1">
-            <Label htmlFor={`audit-${end.key}`}>{end.label}</Label>
-            <Input
-              id={`audit-${end.key}`}
-              type="date"
-              value={draft[end.key] ?? ""}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, [end.key]: event.target.value }))
-              }
-            />
-          </div>
-        ))}
-
-        <div className="flex w-32 flex-col gap-1">
-          <Label htmlFor="audit-limit">Page size</Label>
-          <select
-            id="audit-limit"
-            value={pageSize}
-            onChange={(event) => choosePageSize(Number(event.target.value))}
-            className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {PAGE_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <Button type="submit">Search</Button>
-      </form>
+      <AuditFilterForm
+        draft={draft}
+        setDraft={setDraft}
+        pageSize={pageSize}
+        onPageSize={choosePageSize}
+        onCommit={commit}
+      />
 
       {rangeError !== null ? <Alert>{rangeError}</Alert> : null}
 
@@ -244,7 +163,7 @@ export function AuditSearch() {
         <EmptyState title="No events match that search." />
       ) : null}
 
-      {search.isSuccess && events.length > 0 ? <EventTable events={events} /> : null}
+      {search.isSuccess && events.length > 0 ? <AuditEventTable events={events} /> : null}
 
       {search.isSuccess ? (
         <div className="flex flex-wrap gap-2">
@@ -274,66 +193,6 @@ export function AuditSearch() {
         </div>
       ) : null}
     </section>
-  );
-}
-
-/**
- * The page of events, newest first, in the order the tool answered.
- *
- * Nothing is re-sorted: 13b returns newest first and an ordering imposed here
- * would be a second opinion about the one thing the log exists to show. The
- * timestamp renders as its 19-character ISO prefix, never
- * `toLocaleDateString` (which answers a different day either side of a date
- * line) and never the raw value, whose six digits of microseconds cost a column
- * an auditor scans.
- */
-function EventTable({ events }: { events: AuditEventRow[] }) {
-  return (
-    <Table aria-label="Audit events">
-      <TableHeader>
-        <TableRow>
-          <TableHead scope="col">Seq</TableHead>
-          <TableHead scope="col">Occurred</TableHead>
-          <TableHead scope="col">Event</TableHead>
-          <TableHead scope="col">Actor kind</TableHead>
-          <TableHead scope="col">Actor</TableHead>
-          <TableHead scope="col">Subject</TableHead>
-          <TableHead scope="col">Subject id</TableHead>
-          <TableHead scope="col">Hash</TableHead>
-          <TableHead scope="col">Payload</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {events.map((event) => (
-          <TableRow key={event.seq} className="align-top">
-            <TableCell>{event.seq}</TableCell>
-            <TableCell>{event.occurred_at.slice(0, 19)}</TableCell>
-            {/* The raw `event_type` (decision B): the vocabulary is open, so a
-                hand-kept map would be stale the day a row adds a type, and the
-                literal is what an auditor pastes back into the filter. */}
-            <TableCell>{event.event_type}</TableCell>
-            <TableCell>{event.actor_kind}</TableCell>
-            <TableCell>{event.actor_ref ?? "no actor"}</TableCell>
-            <TableCell>{event.subject_type}</TableCell>
-            <TableCell>{event.subject_id ?? "no subject id"}</TableCell>
-            <TableCell title={event.hash}>{event.hash.slice(0, 12)}</TableCell>
-            <TableCell>
-              {/* `payload` is an arbitrary object by design (13b decision E),
-                  so it is stringified whole rather than read key by key: a row
-                  reading named keys renders blanks for every event type but
-                  the one it was written for. Collapsed, because a dozen lines
-                  of JSON between every two rows is not a table anyone scans. */}
-              <details aria-label={`Payload for event ${event.seq}`}>
-                <summary>Payload</summary>
-                <pre className="whitespace-pre-wrap text-xs">
-                  {JSON.stringify(event.payload, null, 2)}
-                </pre>
-              </details>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
   );
 }
 
@@ -373,28 +232,4 @@ function errorMessage(error: unknown): string {
     return error.code === "VALIDATION" ? AUDIT_VALIDATION_MESSAGE : failureMessage(error.code);
   }
   return AUDIT_READ_MESSAGE;
-}
-
-/**
- * The applied filters, as wire parameters, out of what the controls hold.
- *
- * A control left empty contributes NOTHING. The two dates are composed into
- * instants here rather than sent raw, so a `timestamptz` column never meets a
- * value whose meaning depends on the server's zone (decision C).
- */
-function filtersOf(draft: Draft): AppliedFilters {
-  const filters: Record<string, string> = {};
-  for (const filter of TEXT_FILTERS) {
-    const value = draft[filter.param] ?? "";
-    if (value !== "") {
-      filters[filter.param] = value;
-    }
-  }
-  if ((draft.from ?? "") !== "") {
-    filters.occurred_from = fromInstant(draft.from ?? "");
-  }
-  if ((draft.to ?? "") !== "") {
-    filters.occurred_to = toInstant(draft.to ?? "");
-  }
-  return filters;
 }

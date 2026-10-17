@@ -8,7 +8,7 @@ import {
   KILL_SWITCH_REASON_REQUIRED_MESSAGE,
   KILL_SWITCH_TOGGLE_MESSAGE,
   KILL_SWITCH_VALIDATION_MESSAGE,
-} from "@/features/admin/killswitch/components/kill-switch-toggle";
+} from "@/features/admin/killswitch/format";
 import { QueryProvider } from "@/components/layout/query-provider";
 import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 

@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { QueryProvider } from "@/components/layout/query-provider";
-import { REVIEW_VALIDATION_MESSAGE, ReviewQueue } from "@/features/reviews/components/review-queue";
+import { REVIEW_VALIDATION_MESSAGE } from "@/features/reviews/components/review-items";
+import { ReviewQueue } from "@/features/reviews/components/review-queue";
 import { FAILURE_MESSAGES } from "@/lib/failure-messages";
 import {
   reviewFlagLabel,
