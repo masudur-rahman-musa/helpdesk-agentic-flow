@@ -1,15 +1,75 @@
 """The chat session row. Its id comes from the token, which `Repository.create` refuses."""
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import Session
+from helpdesk.shared.models import Message, MessageRole, Session
 from helpdesk.shared.models.conversation import SessionConflictError
+
+CHAT_LIST_LIMIT = 100
+"""How many chats the side list holds, newest first. Older ones stay stored."""
+
+CHAT_TITLE_CHARS = 60
+"""A chat's title is its first user message cut to this length."""
+
+
+class ChatSummary(BaseModel):
+    """One line of the chat list."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: uuid.UUID
+    title: str
+    last_seen_at: datetime
+
+
+async def get_owned_chat(
+    session: AsyncSession, *, chat_id: uuid.UUID, user_id: uuid.UUID
+) -> Session | None:
+    """The chat if it is this user's in the bound tenant, else `None`.
+
+    Missing, a colleague's and another tenant's all read the same, so a caller
+    cannot tell them apart.
+    """
+    row = await Repository(session, Session).get(chat_id)
+    if row is None or row.user_id != user_id:
+        return None
+    return row
+
+
+async def list_user_chats(session: AsyncSession, *, user_id: uuid.UUID) -> Sequence[ChatSummary]:
+    """The user's chats that hold a message, newest first, at most `CHAT_LIST_LIMIT`.
+
+    The tenant filter is written out because the session guard only covers
+    queries that load whole rows.
+    """
+    tenant_id = bound_tenant_id(session)
+    first_user_message = (
+        select(Message.session_id, func.min(Message.ordinal).label("first_ordinal"))
+        .where(Message.tenant_id == tenant_id, Message.role == MessageRole.USER.value)
+        .group_by(Message.session_id)
+        .subquery()
+    )
+    result = await session.execute(
+        select(Session.id, Session.last_seen_at, Message.content)
+        .join(first_user_message, first_user_message.c.session_id == Session.id)
+        .join(Message, Message.ordinal == first_user_message.c.first_ordinal)
+        .where(Session.tenant_id == tenant_id, Session.user_id == user_id)
+        .order_by(Session.last_seen_at.desc(), Session.id)
+        .limit(CHAT_LIST_LIMIT)
+    )
+    return [
+        ChatSummary(id=chat_id, title=content[:CHAT_TITLE_CHARS], last_seen_at=seen)
+        for chat_id, seen, content in result.all()
+    ]
 
 
 async def get_or_create_session(

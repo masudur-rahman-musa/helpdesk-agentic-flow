@@ -44,6 +44,16 @@ describe("query key list", () => {
     expect(queryKeys.reviewQueue("open")).not.toEqual(queryKeys.reviewQueue("closed"));
   });
 
+  it("each chat has its own history key, apart from the list", () => {
+    // Kill: catches a history key that ignores the chat id, so opening a second
+    // chat would show the first chat's cached lines, or one that collides with
+    // the list key.
+    expect(queryKeys.chatMessages("c-1")).not.toEqual(queryKeys.chatMessages("c-2"));
+    expect(queryKeys.chatMessages("c-1")).not.toEqual(queryKeys.chatList);
+    expect(startsWith(queryKeys.chatMessages("c-1"), ["chat"])).toBe(true);
+    expect(startsWith(queryKeys.chatList, ["chat"])).toBe(true);
+  });
+
   it("keys keep today's values", () => {
     // Kill: catches a renamed or reshaped key, which would split the cache the
     // screens share today.
@@ -53,7 +63,8 @@ describe("query key list", () => {
     expect(queryKeys.myRequests).toEqual(["me", "requests"]);
     expect(queryKeys.unreadCount).toEqual(["notifications", "unread"]);
     expect(queryKeys.notifications).toEqual(["notifications"]);
-    expect(queryKeys.chatMessages).toEqual(["chat", "messages"]);
+    expect(queryKeys.chatList).toEqual(["chat", "list"]);
+    expect(queryKeys.chatMessages("c-1")).toEqual(["chat", "messages", "c-1"]);
     expect(queryKeys.myReviews).toEqual(["me", "reviews"]);
     expect(queryKeys.notificationPage(true)).toEqual(["notifications", "page", true]);
     expect(queryKeys.reviewItems("r-1")).toEqual(["reviews", "r-1", "items"]);

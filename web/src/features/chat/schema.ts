@@ -11,6 +11,8 @@ export const MAX_MESSAGE_CHARS = 4000;
 
 export const chatMessageSchema = z.object({
   message: z.string().min(1).max(MAX_MESSAGE_CHARS),
+  // Absent for a new chat. The server checks the id; this only bounds its size.
+  chat_id: z.string().min(1).max(64).optional(),
 });
 
 export type ChatMessageInput = z.infer<typeof chatMessageSchema>;

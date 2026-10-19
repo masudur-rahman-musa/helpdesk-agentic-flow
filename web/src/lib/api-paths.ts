@@ -20,6 +20,7 @@ export const API = {
   rules: "/api/admin/rules",
   chatStream: "/api/chat/stream",
   chatMessages: "/api/chat/messages",
+  chatList: "/api/chat/chats",
   approveRequest: "/api/approvals/{requestId}/approve",
   rejectRequest: "/api/approvals/{requestId}/reject",
   readNotification: "/api/notifications/{notificationId}/read",

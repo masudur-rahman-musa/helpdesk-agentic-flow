@@ -110,6 +110,9 @@ function scriptedStream() {
 const fetchStub = vi.fn<typeof fetch>();
 
 let historyMessages: HistoryMessage[] = [];
+// One past chat in the left list. The page opens on a new chat, so a case that
+// reads history opens this chat first.
+const PAST_CHAT = { id: "chat-1", title: "Past chat", last_seen_at: "2026-06-01T10:00:00Z" };
 let streamAnswer: () => Response = () => new Response(null, { status: 200 });
 let streamCalls = 0;
 
@@ -137,6 +140,10 @@ async function send(text = "Can I get the finance dashboard?"): Promise<void> {
   });
 }
 
+async function openPastChat(): Promise<void> {
+  await userEvent.setup().click(await screen.findByRole("button", { name: PAST_CHAT.title }));
+}
+
 function conversation(): HTMLElement {
   return screen.getByRole("log", { name: "Conversation" });
 }
@@ -148,6 +155,8 @@ function assistantMessages(): HTMLElement[] {
 }
 
 beforeEach(() => {
+  // jsdom has no scrollIntoView; the panel scrolls to each new reply.
+  Element.prototype.scrollIntoView = vi.fn();
   historyMessages = [];
   streamCalls = 0;
   streamAnswer = () => new Response(null, { status: 200 });
@@ -165,6 +174,12 @@ beforeEach(() => {
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
+    }
+    if (url.includes("/api/chat/chats")) {
+      return new Response(JSON.stringify({ chats: [PAST_CHAT] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     }
     if (url.includes("/api/chat/messages")) {
       return new Response(JSON.stringify({ messages: historyMessages }), {
@@ -200,6 +215,7 @@ describe("ChatPanel — history", () => {
     ];
 
     renderPanel();
+    await openPastChat();
 
     // The log itself paints on the first frame with its empty sentence, so the
     // rows are AWAITED inside it: a sync query here reads the log before the
@@ -815,6 +831,12 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
     const stub = vi.fn<typeof fetch>();
     stub.mockImplementation(async (input) => {
       const url = urlOf(input);
+      if (url.includes("/api/chat/chats")) {
+        return new Response(JSON.stringify({ chats: [PAST_CHAT] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       if (url.includes("/api/chat/messages")) {
         return answer();
       }
@@ -845,6 +867,7 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
         }),
     );
     renderPanel();
+    await openPastChat();
 
     await waitFor(
       () => {
@@ -858,7 +881,7 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
     expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
   }, 10_000);
 
-  it("reads /api/chat/messages with an empty query string", async () => {
+  it("reads /api/chat/messages with only the opened chat id in the query", async () => {
     // The path and the query byte for byte, as an exact `pathname` and an exact
     // `search`. Kills a migration that moves the history read onto
     // `/api/chat/stream` — the POST route this same component owns, and the one
@@ -868,6 +891,7 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
     // the browser. Arithmetic: the file's own stub answers a
     // 200, so history reads = 1 on mount and stream calls = 0.
     renderPanel();
+    await openPastChat();
 
     await screen.findByRole("log", { name: "Conversation" });
     const reads = fetchStub.mock.calls
@@ -879,7 +903,7 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
     }
     const url = new URL(first, ORIGIN);
     expect(url.pathname).toBe("/api/chat/messages");
-    expect(url.search).toBe("");
+    expect(url.search).toBe(`?chat_id=${PAST_CHAT.id}`);
     expect(streamCalls).toBe(0);
   });
 
@@ -895,6 +919,7 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
     // retry = 2; a swallowed failure = 1.
     const stub = stubHistory(() => new Response(null, { status: 500 }));
     renderPanel();
+    await openPastChat();
 
     await waitFor(
       () => {

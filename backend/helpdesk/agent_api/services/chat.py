@@ -3,12 +3,14 @@
 Services raise typed errors; one app-level handler turns them into responses.
 """
 
+import dataclasses
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 
 from fastapi import Request
 
+from helpdesk.agent_api.agent.events import ReplyEvent
 from helpdesk.agent_api.agent.graph import run_turn, stream_turn
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
@@ -16,6 +18,8 @@ from helpdesk.agent_api.api.sse import DONE, ERROR, encode_event, encode_turn_ev
 from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.chat import (
     ChatHistoryResponse,
+    ChatListItem,
+    ChatListResponse,
     ChatMessage,
     ChatResponse,
     _Identity,
@@ -23,10 +27,12 @@ from helpdesk.agent_api.schemas.chat import (
 from helpdesk.agent_api.services.decision_card import decision_card
 from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.ratelimit import check_rate_limit
-from helpdesk.shared.auth.jwt import TokenClaims
+from helpdesk.shared.auth.jwt import TokenClaims, issue_token
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.messages import list_recent_messages
+from helpdesk.shared.crud.sessions import get_owned_chat, list_user_chats
 from helpdesk.shared.crud.tenants import find_tenant_by_id
 from helpdesk.shared.models.conversation import check_message_content
 
@@ -38,13 +44,68 @@ def _typed_error(code: ErrorCode) -> ToolError:
     return exc
 
 
-def _identity(claims: TokenClaims) -> _Identity:
-    """The claims as ids. A bad claim is `VALIDATION`, not 401: the token was valid."""
+ToolsFactory = Callable[[str], ToolCaller]
+"""Builds the tool caller from the bearer token a turn hands to the tool server."""
+
+
+def _chat_uuid(value: str) -> uuid.UUID:
+    """A chat id as sent, or `VALIDATION`. Only the plain hyphenated form passes:
+    `uuid.UUID` alone would also take braces, `urn:` and a missing hyphen."""
+    try:
+        parsed = uuid.UUID(value)
+    except ValueError:
+        raise _typed_error(ErrorCode.VALIDATION) from None
+    if str(parsed) != value.lower():
+        raise _typed_error(ErrorCode.VALIDATION)
+    return parsed
+
+
+def _identity(claims: TokenClaims, chat_id: uuid.UUID) -> _Identity:
+    """The claims as ids, with the chat the turn belongs to. A bad claim is
+    `VALIDATION`, not 401: the token was valid."""
     return _Identity(
         tenant_id=uuid.UUID(claims.tenant_id),
         user_id=uuid.UUID(claims.sub),
-        session_id=uuid.UUID(claims.sid),
+        session_id=chat_id,
     )
+
+
+def _tool_token(claims: TokenClaims, chat_id: uuid.UUID, now: datetime) -> str:
+    """The token the tool server sees: the caller's own claims, `sid` set to the chat.
+
+    The tool server stamps `sid` on audit rows and filed requests, and a paused
+    request resumes by it, so it must be the chat and not the login.
+    """
+    return issue_token(
+        {
+            "sub": claims.sub,
+            "tenant_id": claims.tenant_id,
+            "department_id": claims.department_id,
+            "principals": claims.principals,
+            "sid": str(chat_id),
+        },
+        load_settings().jwt_secret,
+        now,
+    )
+
+
+async def _chat_for_turn(request: Request, claims: TokenClaims, chat_id: str | None) -> uuid.UUID:
+    """The chat this message goes to: a new id, or an existing chat of this user.
+
+    Anything not this user's in this tenant is `NOT_FOUND`, so a probe learns nothing.
+    """
+    if chat_id is None:
+        return uuid.uuid4()
+    wanted = _chat_uuid(chat_id)
+    try:
+        tenant_id = uuid.UUID(claims.tenant_id)
+        user_id = uuid.UUID(claims.sub)
+    except ValueError:
+        raise _typed_error(ErrorCode.VALIDATION) from None
+    async with tenant_session(request.app.state.session_factory, tenant_id) as db:
+        if await get_owned_chat(db, chat_id=wanted, user_id=user_id) is None:
+            raise _typed_error(ErrorCode.NOT_FOUND)
+    return wanted
 
 
 def _rendered(state: TurnState) -> ChatResponse:
@@ -53,6 +114,7 @@ def _rendered(state: TurnState) -> ChatResponse:
         raise _typed_error(state.error_code or ErrorCode.INTERNAL)
     card = decision_card(state)
     return ChatResponse(
+        chat_id=str(state.session_id),
         reply=state.reply,
         outcome=state.outcome.value,
         citations=[citation.model_dump(mode="json") for citation in state.citations],
@@ -90,6 +152,11 @@ async def _stream_frames(
                 message=message,
                 checkpointer=request.app.state.checkpointer,
             ):
+                if isinstance(event, ReplyEvent):
+                    event = dataclasses.replace(
+                        event,
+                        reply_data={**event.reply_data, "chat_id": str(identity.session_id)},
+                    )
                 for frame in encode_turn_event(event):
                     yield frame
     except ToolError as exc:
@@ -101,12 +168,14 @@ async def chat_turn(
     request: Request,
     message: str,
     now: datetime,
-    tools: ToolCaller,
+    build_tools: ToolsFactory,
+    chat_id: str | None = None,
 ) -> ChatResponse:
     """One message in, one reply out, or a typed error."""
     claims = request_claims(request)
+    chat = await _chat_for_turn(request, claims, chat_id)
     try:
-        identity = _identity(claims)
+        identity = _identity(claims, chat)
     except ValueError:
         raise _typed_error(ErrorCode.VALIDATION) from None
 
@@ -117,6 +186,7 @@ async def chat_turn(
         now=now,
     )
 
+    tools = build_tools(_tool_token(claims, chat, now))
     async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
         tenant = await find_tenant_by_id(db, identity.tenant_id)
         if tenant is None:
@@ -138,12 +208,14 @@ async def chat_stream_response(
     request: Request,
     message: str,
     now: datetime,
-    tools: ToolCaller,
+    build_tools: ToolsFactory,
+    chat_id: str | None = None,
 ) -> AsyncIterator[str]:
     """Run every check first, so a refusal is a real status, then return the frames."""
     claims = request_claims(request)
+    chat = await _chat_for_turn(request, claims, chat_id)
     try:
-        identity = _identity(claims)
+        identity = _identity(claims, chat)
     except ValueError:
         raise _typed_error(ErrorCode.VALIDATION) from None
 
@@ -156,19 +228,43 @@ async def chat_stream_response(
         now=now,
     )
 
+    tools = build_tools(_tool_token(claims, chat, now))
     return _stream_frames(request, identity=identity, tools=tools, message=message, now=now)
 
 
-async def chat_history(request: Request) -> ChatHistoryResponse:
-    """This session's messages, oldest first."""
+async def chat_history(request: Request, chat_id: str | None) -> ChatHistoryResponse:
+    """One chat's messages, oldest first. The chat must be this user's."""
     claims = request_claims(request)
+    if chat_id is None:
+        raise _typed_error(ErrorCode.VALIDATION)
+    wanted = _chat_uuid(chat_id)
     try:
-        identity = _identity(claims)
+        identity = _identity(claims, wanted)
     except ValueError:
         raise _typed_error(ErrorCode.VALIDATION) from None
 
     async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
-        rows = await list_recent_messages(db, identity.session_id)
+        if await get_owned_chat(db, chat_id=wanted, user_id=identity.user_id) is None:
+            raise _typed_error(ErrorCode.NOT_FOUND)
+        rows = await list_recent_messages(db, wanted)
     return ChatHistoryResponse(
         messages=[ChatMessage(role=row.role, content=row.content) for row in rows]
+    )
+
+
+async def chat_list(request: Request) -> ChatListResponse:
+    """This user's chats, newest first. Same list under every login."""
+    claims = request_claims(request)
+    try:
+        identity = _identity(claims, uuid.uuid4())
+    except ValueError:
+        raise _typed_error(ErrorCode.VALIDATION) from None
+
+    async with tenant_session(request.app.state.session_factory, identity.tenant_id) as db:
+        chats = await list_user_chats(db, user_id=identity.user_id)
+    return ChatListResponse(
+        chats=[
+            ChatListItem(id=str(chat.id), title=chat.title, last_seen_at=chat.last_seen_at)
+            for chat in chats
+        ]
     )

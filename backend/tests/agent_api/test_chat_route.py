@@ -70,12 +70,18 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from helpdesk.agent_api.agent.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
+from helpdesk.agent_api.agent.checkpointer import (
+    build_pool,
+    psycopg_dsn,
+    setup_checkpointer,
+    thread_config,
+)
 from helpdesk.agent_api.agent.nodes.await_approval import PENDING_APPROVAL_REPLY
 from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.api.router import app
 from helpdesk.agent_api.api.routes import chat as chat_routes
+from helpdesk.agent_api.services import chat as chat_service
 from helpdesk.agent_api.services.mcp_client import (
     TRANSPORT_FAILURE_MESSAGE,
     RemoteInternalError,
@@ -83,7 +89,7 @@ from helpdesk.agent_api.services.mcp_client import (
 )
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
-from helpdesk.shared.auth.jwt import issue_token
+from helpdesk.shared.auth.jwt import issue_token, verify_token
 from helpdesk.shared.core.config import Settings, load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
@@ -577,6 +583,9 @@ def _drive[T](
             return caller
 
         monkeypatch.setattr(chat_routes, "build_tool_caller", _build_tool_caller)
+        # The chat service now builds the per-turn caller, so the stub is
+        # set on that module too. Whichever module the turn calls gets the stub.
+        monkeypatch.setattr(chat_service, "build_tool_caller", _build_tool_caller, raising=False)
 
     async def runner() -> T:
         async with app.router.lifespan_context(app):
@@ -607,9 +616,10 @@ def _post_chat(
     gateway_handler: Callable[[httpx.Request], httpx.Response] | None = None,
     tools: ToolCaller | None = None,
     redis_url: str | None = None,
+    path: str = "/chat",
 ) -> httpx.Response:
     async def scenario(client: httpx.AsyncClient) -> httpx.Response:
-        return await client.post("/chat", json=body, headers={"Authorization": f"Bearer {token}"})
+        return await client.post(path, json=body, headers={"Authorization": f"Bearer {token}"})
 
     return _drive(
         monkeypatch=monkeypatch,
@@ -620,9 +630,23 @@ def _post_chat(
     )
 
 
-def _get_messages(*, monkeypatch: pytest.MonkeyPatch, token: str) -> httpx.Response:
+def _get_messages(
+    *, monkeypatch: pytest.MonkeyPatch, token: str, chat_id: str | None
+) -> httpx.Response:
+    """GET /chat/messages; `chat_id=None` sends no query at all."""
+    params = {} if chat_id is None else {"chat_id": chat_id}
+
     async def scenario(client: httpx.AsyncClient) -> httpx.Response:
-        return await client.get("/chat/messages", headers={"Authorization": f"Bearer {token}"})
+        return await client.get(
+            "/chat/messages", params=params, headers={"Authorization": f"Bearer {token}"}
+        )
+
+    return _drive(monkeypatch=monkeypatch, scenario=scenario)
+
+
+def _get_chats(*, monkeypatch: pytest.MonkeyPatch, token: str) -> httpx.Response:
+    async def scenario(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.get("/chat/chats", headers={"Authorization": f"Bearer {token}"})
 
     return _drive(monkeypatch=monkeypatch, scenario=scenario)
 
@@ -707,6 +731,39 @@ def _plant(
     asyncio.run(scenario())
 
 
+def _plant_chat(
+    env: ChatEnv,
+    tenant: SeededTenant,
+    chat_id: uuid.UUID,
+    user_id: uuid.UUID,
+    lines: Sequence[tuple[str, str]],
+) -> None:
+    """One chat of a named user planted in ONE transaction."""
+
+    async def scenario() -> None:
+        engine = create_engine(env.database_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, tenant.tenant_id) as db:
+                await get_or_create_session(db, session_id=chat_id, user_id=user_id, now=NOW)
+                for role, content in lines:
+                    await append_message(
+                        db, session_id=chat_id, role=MessageRole(role), content=content
+                    )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def _reply_event(payload: str) -> dict[str, Any]:
+    """The decoded `data` of the one `reply` frame in an SSE body."""
+    frames = [frame for frame in payload.split("\n\n") if frame.startswith("event: reply\n")]
+    assert len(frames) == 1, payload
+    data: dict[str, Any] = json.loads(frames[0].split("\ndata: ", 1)[1])
+    return data
+
+
 # --- one message, one turn ----------------------------------------------------
 
 
@@ -747,11 +804,12 @@ def test_one_message_stores_one_turn_and_answers_with_the_reply(
     assert gateway.call_count == 3
     assert tools.names == [SEARCH_POLICY]
 
-    assert _stored_session(chat_env, chat_env.tenant_a, session_id) == (
+    chat_id = uuid.UUID(body["chat_id"])
+    assert _stored_session(chat_env, chat_env.tenant_a, chat_id) == (
         chat_env.tenant_a.tenant_id,
         chat_env.tenant_a.user_id,
     )
-    stored = _stored_messages(chat_env, chat_env.tenant_a, session_id)
+    stored = _stored_messages(chat_env, chat_env.tenant_a, chat_id)
     assert [(row.role, row.content) for row in stored] == [
         (MessageRole.USER.value, MESSAGE),
         (MessageRole.ASSISTANT.value, COMPOSED_REPLY),
@@ -791,12 +849,13 @@ def test_identity_comes_from_the_token_and_not_from_the_body(
     )
 
     assert response.status_code == 200, response.text
-    assert _stored_session(chat_env, chat_env.tenant_a, session_id) == (
+    chat_id = uuid.UUID(response.json()["chat_id"])
+    assert _stored_session(chat_env, chat_env.tenant_a, chat_id) == (
         chat_env.tenant_a.tenant_id,
         chat_env.tenant_a.user_id,
     )
     assert _stored_session(chat_env, chat_env.tenant_a, named_session_id) is None
-    assert len(_stored_messages(chat_env, chat_env.tenant_a, session_id)) == 2
+    assert len(_stored_messages(chat_env, chat_env.tenant_a, chat_id)) == 2
     assert _stored_messages(chat_env, chat_env.tenant_a, named_session_id) == []
 
 
@@ -858,7 +917,8 @@ def test_a_message_one_character_over_the_cap_writes_no_row_at_all(
         tools=ScriptedToolCaller(_page()),
     )
     assert accepted.status_code == 200, accepted.text
-    assert len(_stored_messages(chat_env, chat_env.tenant_a, accepted_session)) == 2
+    accepted_chat = uuid.UUID(accepted.json()["chat_id"])
+    assert len(_stored_messages(chat_env, chat_env.tenant_a, accepted_chat)) == 2
 
     refused_session = uuid.uuid4()
     empty_gateway = StagedGateway([])
@@ -1000,66 +1060,77 @@ def test_a_turn_with_no_access_tool_answers_a_null_decision(
 # --- the history route --------------------------------------------------------
 
 
-def test_the_history_route_answers_this_sessions_messages_oldest_first(
+def test_the_history_route_answers_this_chats_messages_oldest_first(
     chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a history route ordered by `created_at`, or by nothing at all:
     the three rows are planted in ONE transaction, so Postgres stamps them with
     one identical timestamp and only `ordinal` can tell them apart.
 
+    The chat is named by `chat_id`, and the token's `sid` is a different id,
+    so a route that still reads the login id as the chat answers nothing.
     The premise assertion reads that identical timestamp off the rows before
     the order is asserted, so a fixture that stopped sharing
     a transaction shows up as a red premise rather than as a passing case that
     proves nothing.
     """
-    session_id = uuid.uuid4()
+    chat_id = uuid.uuid4()
     planted = [
         (MessageRole.USER.value, "First fake question."),
         (MessageRole.ASSISTANT.value, "First fake answer."),
         (MessageRole.USER.value, "Second fake question."),
     ]
-    _plant(chat_env, chat_env.tenant_a, session_id, planted)
+    _plant(chat_env, chat_env.tenant_a, chat_id, planted)
 
-    stored = _stored_messages(chat_env, chat_env.tenant_a, session_id)
+    stored = _stored_messages(chat_env, chat_env.tenant_a, chat_id)
     assert len({row.created_at for row in stored}) == 1, (
         "premise: the planted rows must share one transaction timestamp, or "
         "ordering by created_at would pass this case by accident"
     )
 
-    response = _get_messages(monkeypatch=monkeypatch, token=_token(chat_env.tenant_a, session_id))
+    response = _get_messages(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, uuid.uuid4()),
+        chat_id=str(chat_id),
+    )
 
     assert response.status_code == 200, response.text
     messages = response.json()["messages"]
     assert [(row["role"], row["content"]) for row in messages] == planted
 
 
-def test_the_history_route_cannot_read_another_tenants_session(
+def test_the_history_route_cannot_read_another_tenants_chat(
     chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Catches a history route that reads by session id on an UNBOUND session:
-    the token is tenant B's own and its `sid` names a conversation that exists,
+    """Catches a history route that reads by chat id on an UNBOUND session:
+    the token is tenant B's own and `chat_id` names a conversation that exists,
     in full, inside tenant A, so the only thing keeping those messages out of
     the answer is the read being bound to the token's tenant.
 
-    Tenant B's real token rather than a forged tenant claim: the route is asked
-    a question it is entitled to ask, about a session it may not see.
+    It now answers `NOT_FOUND`, the same as a missing chat, so the body never
+    confirms that the id exists elsewhere.
     """
-    session_id = uuid.uuid4()
+    chat_id = uuid.uuid4()
     _plant(
         chat_env,
         chat_env.tenant_a,
-        session_id,
+        chat_id,
         [
             (MessageRole.USER.value, "Fake question only tenant A may read."),
             (MessageRole.ASSISTANT.value, "Fake answer only tenant A may read."),
         ],
     )
-    assert len(_stored_messages(chat_env, chat_env.tenant_a, session_id)) == 2
+    assert len(_stored_messages(chat_env, chat_env.tenant_a, chat_id)) == 2
 
-    response = _get_messages(monkeypatch=monkeypatch, token=_token(chat_env.tenant_b, session_id))
+    response = _get_messages(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_b, uuid.uuid4()),
+        chat_id=str(chat_id),
+    )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["messages"] == []
+    assert response.status_code == 404
+    assert response.json() == {"code": ErrorCode.NOT_FOUND.value}
+    assert "only tenant A" not in response.text
 
 
 # --- the three dependency failures --------------------------------------------
@@ -1152,6 +1223,540 @@ def test_an_unreachable_redis_refuses_the_turn_and_starts_none(
     assert tools.entered == 0
     assert _stored_session(chat_env, chat_env.tenant_a, session_id) is None
     assert _stored_messages(chat_env, chat_env.tenant_a, session_id) == []
+
+
+# --- chats that stand apart from the login ---------------------------
+
+
+def _chat_id_of(path: str, response: httpx.Response) -> str:
+    """The chat id a turn answered with, off the JSON body or the stream's reply frame."""
+    body = _reply_event(response.text) if path == "/chat/stream" else response.json()
+    assert "chat_id" in body, f"the answer carries no chat_id: {body}"
+    chat_id = body["chat_id"]
+    assert isinstance(chat_id, str)
+    return chat_id
+
+
+def _one_turn_staging() -> tuple[StagedGateway, ScriptedToolCaller]:
+    return (
+        StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY]),
+        ScriptedToolCaller(_page()),
+    )
+
+
+@pytest.mark.parametrize("path", ["/chat", "/chat/stream"])
+def test_message_without_chat_id_starts_a_chat_and_returns_its_id(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """Catches a route that still uses the login's `sid` as the chat, or that
+    answers no chat id: the new chat must have its own uuid, the rows must sit
+    under it, and the login id must own nothing.
+    """
+    login_sid = uuid.uuid4()
+    gateway, tools = _one_turn_staging()
+
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, login_sid),
+        body={"message": MESSAGE},
+        gateway_handler=gateway.handler,
+        tools=tools,
+        path=path,
+    )
+
+    assert response.status_code == 200, response.text
+    chat_id = uuid.UUID(_chat_id_of(path, response))
+    assert chat_id != login_sid
+    assert _stored_session(chat_env, chat_env.tenant_a, chat_id) == (
+        chat_env.tenant_a.tenant_id,
+        chat_env.tenant_a.user_id,
+    )
+    assert [row.role for row in _stored_messages(chat_env, chat_env.tenant_a, chat_id)] == [
+        MessageRole.USER.value,
+        MessageRole.ASSISTANT.value,
+    ]
+    assert _stored_session(chat_env, chat_env.tenant_a, login_sid) is None
+    assert _stored_messages(chat_env, chat_env.tenant_a, login_sid) == []
+
+
+def test_two_messages_without_chat_id_are_two_chats(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a server that reuses one id (the login's, or a fixed one) for every
+    message with no `chat_id`: "New chat" would then keep appending to one chat.
+    """
+    token = _token(chat_env.tenant_a, uuid.uuid4())
+    ids: list[str] = []
+    for _ in range(2):
+        gateway, tools = _one_turn_staging()
+        response = _post_chat(
+            monkeypatch=monkeypatch,
+            token=token,
+            body={"message": MESSAGE},
+            gateway_handler=gateway.handler,
+            tools=tools,
+        )
+        assert response.status_code == 200, response.text
+        ids.append(_chat_id_of("/chat", response))
+
+    assert ids[0] != ids[1]
+
+
+def test_second_login_sees_the_same_chat_list(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a list that is filtered by the token's `sid` instead of its user:
+    the chat is made under one login and read under another login of the same
+    person, so only a list keyed on the user shows it.
+    """
+    first = _token(chat_env.tenant_a, uuid.uuid4())
+    second = _token(chat_env.tenant_a, uuid.uuid4())
+    gateway, tools = _one_turn_staging()
+    posted = _post_chat(
+        monkeypatch=monkeypatch,
+        token=first,
+        body={"message": MESSAGE},
+        gateway_handler=gateway.handler,
+        tools=tools,
+    )
+    chat_id = _chat_id_of("/chat", posted)
+
+    seen_first = _get_chats(monkeypatch=monkeypatch, token=first)
+    seen_second = _get_chats(monkeypatch=monkeypatch, token=second)
+
+    assert seen_first.status_code == 200, seen_first.text
+    assert seen_second.status_code == 200, seen_second.text
+    assert seen_first.json() == seen_second.json()
+    chats = seen_second.json()["chats"]
+    assert [chat["title"] for chat in chats if chat["id"] == chat_id] == [MESSAGE]
+    assert set(chats[0]) == {"id", "title", "last_seen_at"}
+    stamps = [datetime.fromisoformat(chat["last_seen_at"]) for chat in chats]
+    assert stamps == sorted(stamps, reverse=True)
+
+
+def test_the_chat_list_leaves_out_other_users_and_tenants(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a list route that returns every chat of the tenant, or every chat
+    anywhere: a colleague's chat (same tenant) and tenant B's chat are planted
+    with unmistakable titles and must not appear for tenant A's person.
+    """
+    colleague_chat = uuid.uuid4()
+    foreign_chat = uuid.uuid4()
+    _plant_chat(
+        chat_env,
+        chat_env.tenant_a,
+        colleague_chat,
+        chat_env.tenant_a.other_user_id,
+        [(MessageRole.USER.value, "colleague private title")],
+    )
+    _plant_chat(
+        chat_env,
+        chat_env.tenant_b,
+        foreign_chat,
+        chat_env.tenant_b.user_id,
+        [(MessageRole.USER.value, "foreign tenant title")],
+    )
+
+    response = _get_chats(monkeypatch=monkeypatch, token=_token(chat_env.tenant_a, uuid.uuid4()))
+
+    assert response.status_code == 200, response.text
+    ids = {chat["id"] for chat in response.json()["chats"]}
+    assert str(colleague_chat) not in ids
+    assert str(foreign_chat) not in ids
+    assert "private title" not in response.text
+    assert "foreign tenant" not in response.text
+
+
+@pytest.mark.parametrize("path", ["/chat", "/chat/stream"])
+def test_message_with_chat_id_continues_that_chat(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """Catches a route that ignores `chat_id` and starts a new chat every time,
+    or one that writes the second turn under the login id.
+
+    The second message comes from a DIFFERENT login (another `sid`), so a route
+    that falls back to the token's `sid` when it should use `chat_id` writes to
+    a third place and the four rows are not all in the first chat.
+    """
+    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY] * 2)
+    tools = ScriptedToolCaller(_page(), _page())
+    first_login = uuid.uuid4()
+    second_login = uuid.uuid4()
+
+    first = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, first_login),
+        body={"message": MESSAGE},
+        gateway_handler=gateway.handler,
+        tools=tools,
+        path=path,
+    )
+    assert first.status_code == 200, first.text
+    chat_id = _chat_id_of(path, first)
+
+    second = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, second_login),
+        body={"message": "A second fake question.", "chat_id": chat_id},
+        gateway_handler=gateway.handler,
+        tools=tools,
+        path=path,
+    )
+    assert second.status_code == 200, second.text
+    assert _chat_id_of(path, second) == chat_id
+
+    stored = _stored_messages(chat_env, chat_env.tenant_a, uuid.UUID(chat_id))
+    assert [(row.role, row.content) for row in stored] == [
+        (MessageRole.USER.value, MESSAGE),
+        (MessageRole.ASSISTANT.value, COMPOSED_REPLY),
+        (MessageRole.USER.value, "A second fake question."),
+        (MessageRole.ASSISTANT.value, COMPOSED_REPLY),
+    ]
+    assert _stored_session(chat_env, chat_env.tenant_a, second_login) is None
+    history = _get_messages(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, uuid.uuid4()),
+        chat_id=chat_id,
+    )
+    assert [row["content"] for row in history.json()["messages"]] == [row.content for row in stored]
+
+
+@pytest.mark.parametrize("path", ["/chat", "/chat/stream"])
+@pytest.mark.parametrize("whose", ["unknown", "colleague", "other_tenant"])
+def test_unknown_or_other_users_chat_id_is_not_found(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, path: str, whose: str
+) -> None:
+    """Catches a route that trusts a `chat_id` from the client: it would run a
+    model turn and append rows to a conversation the caller does not own.
+
+    The gateway is staged with nothing and the tool caller never entered, so a
+    turn that started at all fails outright. For the two planted chats the
+    stored message count is read before and after, so a row written into
+    someone else's chat is seen even when the status is right.
+    """
+    chat_id = uuid.uuid4()
+    planted_lines = [(MessageRole.USER.value, "Fake question that is not yours.")]
+    if whose == "colleague":
+        _plant_chat(
+            chat_env,
+            chat_env.tenant_a,
+            chat_id,
+            chat_env.tenant_a.other_user_id,
+            planted_lines,
+        )
+        owner = chat_env.tenant_a
+    elif whose == "other_tenant":
+        _plant_chat(chat_env, chat_env.tenant_b, chat_id, chat_env.tenant_b.user_id, planted_lines)
+        owner = chat_env.tenant_b
+    else:
+        owner = chat_env.tenant_a
+    before = _stored_messages(chat_env, owner, chat_id)
+    login_sid = uuid.uuid4()
+    gateway = StagedGateway([])
+    tools = ScriptedToolCaller()
+
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, login_sid),
+        body={"message": MESSAGE, "chat_id": str(chat_id)},
+        gateway_handler=gateway.handler,
+        tools=tools,
+        path=path,
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"code": ErrorCode.NOT_FOUND.value}
+    assert gateway.call_count == 0
+    assert tools.entered == 0
+    assert _stored_messages(chat_env, owner, chat_id) == before
+    assert _stored_session(chat_env, chat_env.tenant_a, login_sid) is None
+    if whose == "unknown":
+        assert _stored_session(chat_env, chat_env.tenant_a, chat_id) is None
+
+
+@pytest.mark.parametrize("path", ["/chat", "/chat/stream"])
+@pytest.mark.parametrize("suffix", ["", "\n", "\r\n", " "], ids=["plain", "lf", "crlf", "space"])
+def test_chat_id_that_is_not_a_uuid_is_validation(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, path: str, suffix: str
+) -> None:
+    """Catches a `chat_id` that is stripped or loosely parsed before use, and a
+    bad one that reaches the database or the model.
+
+    The `plain` row is the one real chat of this person with no suffix and
+    must be accepted; it is run on a fresh gateway. Each other row is that SAME
+    real chat id plus a trailing newline, CRLF or space, so a route that
+    trims the value would find the chat and answer 200 instead of
+    `VALIDATION`. The `plain` row proves the id is otherwise good, so
+    the other three fail for the suffix alone.
+    """
+    chat_id = uuid.uuid4()
+    _plant_chat(
+        chat_env,
+        chat_env.tenant_a,
+        chat_id,
+        chat_env.tenant_a.user_id,
+        [(MessageRole.USER.value, "Fake earlier question.")],
+    )
+    login_sid = uuid.uuid4()
+
+    if suffix == "":
+        gateway, tools = _one_turn_staging()
+        ok = _post_chat(
+            monkeypatch=monkeypatch,
+            token=_token(chat_env.tenant_a, login_sid),
+            body={"message": MESSAGE, "chat_id": str(chat_id)},
+            gateway_handler=gateway.handler,
+            tools=tools,
+            path=path,
+        )
+        assert ok.status_code == 200, ok.text
+        return
+
+    gateway = StagedGateway([])
+    tools = ScriptedToolCaller()
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, login_sid),
+        body={"message": MESSAGE, "chat_id": f"{chat_id}{suffix}"},
+        gateway_handler=gateway.handler,
+        tools=tools,
+        path=path,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"code": ErrorCode.VALIDATION.value}
+    assert gateway.call_count == 0
+    assert tools.entered == 0
+    assert len(_stored_messages(chat_env, chat_env.tenant_a, chat_id)) == 1
+    assert _stored_session(chat_env, chat_env.tenant_a, login_sid) is None
+
+
+@pytest.mark.parametrize("path", ["/chat", "/chat/stream"])
+@pytest.mark.parametrize("bad", ["not-a-uuid", "", "12345", "chat-id"])
+def test_chat_id_text_that_is_not_a_uuid_is_validation(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, path: str, bad: str
+) -> None:
+    """Catches a `chat_id` that is accepted as free text: it must be a typed
+    `VALIDATION` 400 (not FastAPI's 422, not NOT_FOUND) before any work.
+    The empty string is a given value, not an absent one.
+    """
+    login_sid = uuid.uuid4()
+    gateway = StagedGateway([])
+    tools = ScriptedToolCaller()
+
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, login_sid),
+        body={"message": MESSAGE, "chat_id": bad},
+        gateway_handler=gateway.handler,
+        tools=tools,
+        path=path,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"code": ErrorCode.VALIDATION.value}
+    assert gateway.call_count == 0
+    assert tools.entered == 0
+    assert _stored_session(chat_env, chat_env.tenant_a, login_sid) is None
+
+
+def test_messages_route_returns_only_the_asked_chat(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a messages route that returns all of the user's messages, or the
+    messages of the login id, instead of the chat named by `chat_id`.
+
+    Two chats of one person are planted; each answer holds only its own lines.
+    """
+    chat_one = uuid.uuid4()
+    chat_two = uuid.uuid4()
+    _plant_chat(
+        chat_env,
+        chat_env.tenant_a,
+        chat_one,
+        chat_env.tenant_a.user_id,
+        [
+            (MessageRole.USER.value, "chat one question"),
+            (MessageRole.ASSISTANT.value, "chat one answer"),
+        ],
+    )
+    _plant_chat(
+        chat_env,
+        chat_env.tenant_a,
+        chat_two,
+        chat_env.tenant_a.user_id,
+        [(MessageRole.USER.value, "chat two question")],
+    )
+    token = _token(chat_env.tenant_a, uuid.uuid4())
+
+    one = _get_messages(monkeypatch=monkeypatch, token=token, chat_id=str(chat_one))
+    two = _get_messages(monkeypatch=monkeypatch, token=token, chat_id=str(chat_two))
+
+    assert [row["content"] for row in one.json()["messages"]] == [
+        "chat one question",
+        "chat one answer",
+    ]
+    assert [row["content"] for row in two.json()["messages"]] == ["chat two question"]
+
+
+@pytest.mark.parametrize("whose", ["unknown", "colleague"])
+def test_messages_route_is_not_found_for_unknown_and_other_users_chat(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, whose: str
+) -> None:
+    """Catches a messages route that answers a colleague's transcript, or an
+    empty 200 for an id that is not the caller's: both must be `NOT_FOUND`.
+
+    The colleague is in the caller's own tenant, so only the user match can
+    refuse; the tenant guard would let it through.
+    """
+    chat_id = uuid.uuid4()
+    if whose == "colleague":
+        _plant_chat(
+            chat_env,
+            chat_env.tenant_a,
+            chat_id,
+            chat_env.tenant_a.other_user_id,
+            [(MessageRole.USER.value, "colleague only question")],
+        )
+
+    response = _get_messages(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, uuid.uuid4()),
+        chat_id=str(chat_id),
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"code": ErrorCode.NOT_FOUND.value}
+    assert "colleague only" not in response.text
+
+
+@pytest.mark.parametrize("bad", [None, "", "not-a-uuid", "{id}\n", "{id}\r\n", "{id} "], ids=str)
+def test_messages_route_needs_a_valid_chat_id(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, bad: str | None
+) -> None:
+    """Catches a messages route that falls back to the login id (or to "the
+    latest chat") when `chat_id` is missing, and one that trims a trailing
+    newline, CRLF or space off a real chat id.
+
+    The `{id}` rows use a REAL chat of the caller, so a trimming parse finds it
+    and answers 200 instead of `VALIDATION`.
+    """
+    chat_id = uuid.uuid4()
+    _plant_chat(
+        chat_env,
+        chat_env.tenant_a,
+        chat_id,
+        chat_env.tenant_a.user_id,
+        [(MessageRole.USER.value, "fake question")],
+    )
+    value = None if bad is None else bad.replace("{id}", str(chat_id))
+
+    response = _get_messages(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, chat_id),
+        chat_id=value,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"code": ErrorCode.VALIDATION.value}
+
+
+@pytest.mark.parametrize("path", ["/chat", "/chat/stream"])
+def test_tool_token_carries_chat_id_as_sid_and_same_user_and_tenant(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """Catches a turn that hands the tool server the caller's own token: its
+    `sid` is the login, so a request filed in a chat would be recorded against
+    the login and could never resume. The new token must carry the chat id as
+    `sid` and keep `sub`, `tenant_id`, `department_id` and `principals`, so a
+    wrong or dropped identity claim fails too.
+    """
+    seen: list[str] = []
+    caller = ScriptedToolCaller(_page())
+
+    def _capture(settings: Settings, bearer_token: str) -> ToolCaller:
+        seen.append(bearer_token)
+        return caller
+
+    monkeypatch.setattr(chat_routes, "build_tool_caller", _capture)
+    monkeypatch.setattr(chat_service, "build_tool_caller", _capture, raising=False)
+    login_sid = uuid.uuid4()
+    login_token = _token(chat_env.tenant_a, login_sid)
+    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
+
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=login_token,
+        body={"message": MESSAGE},
+        gateway_handler=gateway.handler,
+        path=path,
+    )
+
+    assert response.status_code == 200, response.text
+    chat_id = _chat_id_of(path, response)
+    assert seen, "the turn never built a tool caller"
+    for bearer in seen:
+        claims = verify_token(bearer, TEST_JWT_SIGNING_PHRASE, datetime.now(UTC))
+        assert claims.sid == chat_id
+        assert claims.sid != str(login_sid)
+        assert claims.sub == str(chat_env.tenant_a.user_id)
+        assert claims.tenant_id == str(chat_env.tenant_a.tenant_id)
+        assert claims.department_id == str(chat_env.tenant_a.department_id)
+        assert claims.principals == ["employee"]
+
+
+def test_paused_request_resumes_in_a_chat_that_is_not_the_login(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a turn that pauses on the login's thread: a request filed in
+    chat B must leave its paused checkpoint under B's id, because resume reads
+    the thread named by the request's `session_id`, and that id is the `sid`
+    of the tool token (checked here to be B's id too).
+
+    The login `sid` differs from the chat; the checkpoint under the login's id
+    must not exist, and the one under the chat id must be waiting on the
+    filed request.
+    """
+    seen: list[str] = []
+    caller = ScriptedToolCaller(_page(), _approval_payload())
+
+    def _capture(settings: Settings, bearer_token: str) -> ToolCaller:
+        seen.append(bearer_token)
+        return caller
+
+    monkeypatch.setattr(chat_routes, "build_tool_caller", _capture)
+    monkeypatch.setattr(chat_service, "build_tool_caller", _capture, raising=False)
+    login_sid = uuid.uuid4()
+    gateway = StagedGateway([_extraction_answer(), _request_plan(chat_env)])
+
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=_token(chat_env.tenant_a, login_sid),
+        body={"message": MESSAGE},
+        gateway_handler=gateway.handler,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == TurnOutcome.AWAIT_APPROVAL.value
+    chat_id = body["chat_id"]
+    assert chat_id != str(login_sid)
+    assert seen
+    for bearer in seen:
+        claims = verify_token(bearer, TEST_JWT_SIGNING_PHRASE, datetime.now(UTC))
+        assert claims.sid == chat_id
+
+    async def scenario(client: httpx.AsyncClient) -> tuple[Any, Any]:
+        saver = app.state.checkpointer
+        in_chat = await saver.aget_tuple(thread_config(chat_id))
+        in_login = await saver.aget_tuple(thread_config(str(login_sid)))
+        return in_chat, in_login
+
+    in_chat, in_login = _drive(monkeypatch=monkeypatch, scenario=scenario)
+    assert in_login is None
+    assert in_chat is not None
+    assert str(in_chat.checkpoint["channel_values"]["awaiting_request_id"]) == str(REQUEST_ID)
 
 
 # --- the lifespan -------------------------------------------------------------

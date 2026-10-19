@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useMe } from "@/features/auth/api";
-import { postChatMessage, useChatHistory } from "@/features/chat/api";
+import {
+  postChatMessage,
+  useChatHistory,
+  useChatList,
+  useRefreshChatList,
+} from "@/features/chat/api";
+import { ChatList } from "@/features/chat/components/chat-list";
 import { Citations } from "@/features/chat/components/citations";
 import { Composer } from "@/features/chat/components/composer";
 import { Conversation } from "@/features/chat/components/conversation";
@@ -14,27 +20,30 @@ import {
   type Citation,
   type DecisionCard as DecisionCardData,
   type StepEvent,
-  readCode,
-  readReply,
-  readStep,
-  readToken,
 } from "@/features/chat/components/types";
 import { failureMessage } from "@/lib/failure-messages";
 import { readAsk } from "@/features/chat/prefill";
 import { chatMessageSchema } from "@/features/chat/schema";
-import { createSseParser } from "@/lib/sse";
+import { readTurnStream, refusalCode } from "@/features/chat/turn-stream";
 import { Alert } from "@/components/ui/alert";
 
 /**
- * The chat page. History is a cached query; the live turn is local state, since
- * a stream has no cache key. The decision card, steps and citations belong to
+ * The chat page. The chat list sits in a left column. `chatId` is the chat a
+ * message goes to (null is a new chat; the first reply names it), and `openedId`
+ * is the chat whose history is read, which only a click on the list sets, so a
+ * new chat's own lines are never read back on top of themselves. History is a
+ * cached query; the live turn is local state, since a stream has no cache key. The decision card, steps and citations belong to
  * the latest turn and clear on a new send or an error. The steps sit in a column
  * beside the chat, level with the composer, and drop under it on a narrow
  * screen. The composer starts with
  * `?ask=` from a renewal link but never sends on its own.
  */
 export function ChatPanel() {
-  const history = useChatHistory();
+  const refreshChatList = useRefreshChatList();
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [openedId, setOpenedId] = useState<string | null>(null);
+  const history = useChatHistory(openedId);
+  const chatList = useChatList();
   // Steps show only when a platform admin turned them on; until `me` answers, they stay hidden.
   const showSteps = useMe()?.show_tool_steps === true;
   const [turn, setTurn] = useState<ChatMessage[]>([]);
@@ -52,7 +61,35 @@ export function ChatPanel() {
     typeof window === "undefined" ? "" : (readAsk(window.location.search) ?? ""),
   );
 
-  const messages = [...(history.data ?? []), ...turn];
+  const messages = [...(openedId === null ? [] : (history.data ?? [])), ...turn];
+
+  function resetTurn(): void {
+    setTurn([]);
+    setLive("");
+    setSteps([]);
+    setCitations([]);
+    setDecision(null);
+    setFailure(null);
+  }
+
+  // Not while a reply is streaming: its lines would land in the chat just opened.
+  function openChat(id: string): void {
+    if (streaming.current) {
+      return;
+    }
+    resetTurn();
+    setChatId(id);
+    setOpenedId(id);
+  }
+
+  function newChat(): void {
+    if (streaming.current) {
+      return;
+    }
+    resetTurn();
+    setChatId(null);
+    setOpenedId(null);
+  }
 
   // Keep the end of the turn in view as it grows. Nothing is sent yet means the
   // person is reading old history, so their place is kept. The margin is the
@@ -73,7 +110,9 @@ export function ChatPanel() {
       return;
     }
 
-    const parsed = chatMessageSchema.safeParse({ message });
+    const parsed = chatMessageSchema.safeParse(
+      chatId === null ? { message } : { message, chat_id: chatId },
+    );
     if (!parsed.success) {
       // Checked before any fetch, so a bad message costs no round trip.
       setFailure("VALIDATION");
@@ -103,7 +142,23 @@ export function ChatPanel() {
         return;
       }
 
-      await consume(response.body);
+      await readTurnStream(response.body, {
+        onLive: setLive,
+        onStep: (step) => setSteps((previous) => [...previous, step]),
+        onReply: (reply) => {
+          setCitations(reply.citations);
+          setDecision(reply.decision);
+          setTurn((previous) => [...previous, { role: "assistant", content: reply.reply }]);
+          if (reply.chatId !== null) {
+            setChatId(reply.chatId);
+          }
+          refreshChatList();
+        },
+        onError: (code) => {
+          setDecision(null);
+          setFailure(code);
+        },
+      });
     } catch {
       // A dropped socket says nothing about what the turn did.
       setFailure("INTERNAL");
@@ -113,61 +168,19 @@ export function ChatPanel() {
     }
   }
 
-  async function consume(body: ReadableStream<Uint8Array>): Promise<void> {
-    const reader = body.getReader();
-    // `stream: true` joins a character split across two reads.
-    const decoder = new TextDecoder();
-    const parser = createSseParser();
-    let text = "";
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-
-      for (const event of parser.push(decoder.decode(value, { stream: true }))) {
-        if (event.event === "token") {
-          text += readToken(event.data);
-          setLive(text);
-          continue;
-        }
-        if (event.event === "step") {
-          const step = readStep(event.data);
-          if (step !== null) {
-            setSteps((previous) => [...previous, step]);
-          }
-          continue;
-        }
-        if (event.event === "reply") {
-          const reply = readReply(event.data);
-          if (reply !== null) {
-            // The reply holds the checked text, which may replace the streamed draft.
-            text = "";
-            setLive("");
-            setCitations(reply.citations);
-            setDecision(reply.decision);
-            setTurn((previous) => [...previous, { role: "assistant", content: reply.reply }]);
-          }
-          continue;
-        }
-        if (event.event === "error") {
-          // Drop the half-written text: nothing was decided.
-          text = "";
-          setLive("");
-          setDecision(null);
-          setFailure(readCode(event.data));
-        }
-      }
-    }
-  }
-
   return (
     <div
       className={`mx-auto flex min-h-[calc(100dvh-var(--shell-offset))] w-full flex-col gap-4 lg:flex-row ${
-        showSteps ? "max-w-6xl" : "max-w-3xl"
+        showSteps ? "max-w-[88rem]" : "max-w-5xl"
       }`}
     >
+      <ChatList
+        chats={chatList.data}
+        activeId={chatId}
+        onOpen={openChat}
+        onNew={newChat}
+        failed={chatList.isError}
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <h1 className="text-lg font-semibold">Chat</h1>
 
@@ -199,12 +212,4 @@ export function ChatPanel() {
       ) : null}
     </div>
   );
-}
-
-async function refusalCode(response: Response): Promise<string> {
-  try {
-    return readCode(await response.json());
-  } catch {
-    return "INTERNAL";
-  }
 }

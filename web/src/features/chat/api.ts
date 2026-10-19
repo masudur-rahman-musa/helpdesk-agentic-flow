@@ -1,14 +1,39 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
-import { type ChatMessage, readHistory } from "@/features/chat/components/types";
+import {
+  type ChatMessage,
+  type ChatSummary,
+  readChatList,
+  readHistory,
+} from "@/features/chat/components/types";
 import type { ChatMessageInput } from "@/features/chat/schema";
 import { API } from "@/lib/api-paths";
 import { queryKeys } from "@/lib/query-keys";
 import { readWire } from "@/lib/wire-read";
 
-export function useChatHistory() {
-  return useQuery({ queryKey: queryKeys.chatMessages, queryFn: fetchHistory });
+/**
+ * One chat's lines. Off while `chatId` is null (a new chat has none). Refetched
+ * on every open, because messages sent since the last open are not in the cache.
+ */
+export function useChatHistory(chatId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.chatMessages(chatId ?? ""),
+    queryFn: () => fetchHistory(chatId ?? ""),
+    enabled: chatId !== null,
+    refetchOnMount: "always",
+  });
+}
+
+/** A function that reloads the chat list, for after a reply names a new chat. */
+export function useRefreshChatList(): () => void {
+  const client = useQueryClient();
+  return () => void client.invalidateQueries({ queryKey: queryKeys.chatList });
+}
+
+/** The person's chats, newest first. */
+export function useChatList() {
+  return useQuery({ queryKey: queryKeys.chatList, queryFn: fetchChatList });
 }
 
 /** Returns the raw response; the panel reads the stream. A network drop throws. */
@@ -25,7 +50,14 @@ export async function postChatMessage(body: ChatMessageInput): Promise<Response>
  * schema here accepts anything. A failed read throws: an unreadable chat is not
  * an empty one.
  */
-async function fetchHistory(): Promise<ChatMessage[]> {
-  const body = await readWire(API.chatMessages, z.unknown());
+async function fetchHistory(chatId: string): Promise<ChatMessage[]> {
+  const url = `${API.chatMessages}?chat_id=${encodeURIComponent(chatId)}`;
+  const body = await readWire(url, z.unknown());
   return body === null ? [] : readHistory(body);
+}
+
+/** Empty while redirecting to `/login`. A failed read throws, so the list shows an alert. */
+async function fetchChatList(): Promise<ChatSummary[]> {
+  const body = await readWire(API.chatList, z.unknown());
+  return body === null ? [] : readChatList(body);
 }

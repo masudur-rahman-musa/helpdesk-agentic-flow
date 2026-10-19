@@ -23,6 +23,8 @@ let showToolSteps = false;
 let meCalls = 0;
 let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
 let history: { role: string; content: string }[] = [];
+// The past chats the list shows; `history` is what opening any of them returns.
+let pastChats: { id: string; title: string; last_seen_at: string }[] = [];
 let streamRejects = false;
 // jsdom has no `scrollIntoView`; the panel calls it, so this file stubs it.
 const scrollStub = vi.fn<(options?: ScrollIntoViewOptions) => void>();
@@ -49,6 +51,7 @@ beforeEach(() => {
   meCalls = 0;
   streamController = undefined;
   history = [];
+  pastChats = [];
   streamRejects = false;
   scrollStub.mockReset();
   Element.prototype.scrollIntoView = scrollStub;
@@ -63,6 +66,9 @@ beforeEach(() => {
         tabs: ["chat"],
         show_tool_steps: showToolSteps,
       });
+    }
+    if (url.includes("/api/chat/chats")) {
+      return json({ chats: pastChats });
     }
     if (url.includes("/api/chat/messages")) {
       return json({ messages: history });
@@ -266,9 +272,12 @@ describe("ChatPanel typing dots and follow-the-reply scroll", () => {
     expect(seenWithCard.at(-1)).toBe(true);
   });
 
-  it("makes no scroll call when the chat opens with history and nothing is sent", async () => {
-    // Catches a panel that scrolls on mount or when history loads, which would
-    // yank a returning person away from where they were reading.
+  it("makes no scroll call when a past chat is opened and nothing is sent", async () => {
+    // Catches a panel that scrolls when a chat's history loads, which would
+    // yank a returning person away from where they were reading. The page now
+    // opens on a new chat, so the history comes from clicking a chat in the
+    // list (its key carries the chat id).
+    pastChats = [{ id: "chat-1", title: "Old question", last_seen_at: "2026-06-01T10:00:00Z" }];
     history = [
       { role: "user", content: "Old question" },
       { role: "assistant", content: "Old answer" },
@@ -278,6 +287,8 @@ describe("ChatPanel typing dots and follow-the-reply scroll", () => {
         <ChatPanel />
       </QueryProvider>,
     );
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Old question" }));
 
     expect(await screen.findByText("Old answer")).toBeInTheDocument();
     await waitFor(() => expect(meCalls).toBeGreaterThan(0));

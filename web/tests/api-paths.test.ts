@@ -31,7 +31,7 @@ describe("api path list", () => {
     // a route that was never written, so a caller would fetch a 404.
     const onDisk = new Set(routePaths());
     const listed = Object.values(API);
-    expect(listed).toHaveLength(22);
+    expect(listed).toHaveLength(23);
     const missing = listed.filter((path) => !onDisk.has(path));
     expect(missing).toEqual([]);
   });
@@ -39,11 +39,11 @@ describe("api path list", () => {
   it("every route file is listed", () => {
     // Kill: catches a route file added (or left over) that nobody put on the list,
     // so callers would hand-write its string again. Also catches two names
-    // sharing one path, because the listed paths must be 22 different ones.
+    // sharing one path, because the listed paths must be 23 different ones.
     const listed = new Set<string>(Object.values(API));
-    expect(listed.size).toBe(22);
+    expect(listed.size).toBe(23);
     const onDisk = routePaths();
-    expect(onDisk).toHaveLength(22);
+    expect(onDisk).toHaveLength(23);
     const unlisted = onDisk.filter((path) => !listed.has(path));
     expect(unlisted).toEqual([]);
   });
@@ -52,6 +52,14 @@ describe("api path list", () => {
     // Kill: catches a builder that pastes the id in raw (no encodeURIComponent),
     // or leaves the {requestId} marker in the result.
     expect(apiPath(API.approveRequest, { requestId: "a b" })).toBe("/api/approvals/a%20b/approve");
+  });
+
+  it("the chat list and chat history paths are fixed", () => {
+    // Kill: catches a list path that drifts from the proxy route, or a history
+    // path that carries the chat id in the string (the client adds
+    // `?chat_id=`, so the listed path must stay bare).
+    expect(API.chatList).toBe("/api/chat/chats");
+    expect(API.chatMessages).toBe("/api/chat/messages");
   });
 
   it("apiPath leaves a no-id path alone", () => {

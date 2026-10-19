@@ -123,6 +123,7 @@ addopts = "-q --strict-markers --import-mode=importlib"
 # `make test-slowest` reading. `make test-fast` runs `-m "not slow"` as the
 # everyday set; `make test`, `make verify` and CI carry no filter and run all.
 markers = [
+    "db: reaches a real Postgres to check something only it can show (a query, a constraint)",
     "slow: a test at or over 2s setup-plus-call in plan 56's reading; skipped by `make test-fast`",
 ]
 # The repo root (`..`) and `backend/` (`.`) are on the path for the whole suite,

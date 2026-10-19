@@ -637,7 +637,7 @@ def test_one_message_streams_its_steps_its_tokens_and_its_reply(
     assert [citation["document"] for citation in final.data["citations"]] == [CITED_DOCUMENT]
     assert final.data["request_id"] is None
     assert tools.names == [SEARCH_POLICY]
-    assert _stored_messages(stream_env, session_id) == [
+    assert _stored_messages(stream_env, uuid.UUID(final.data["chat_id"])) == [
         (MessageRole.USER.value, MESSAGE),
         (MessageRole.ASSISTANT.value, COMPOSED_REPLY),
     ]
@@ -699,8 +699,8 @@ def test_both_routes_store_the_same_rows_for_one_message(
     assert final.data["request_id"] == body["request_id"]
     assert final.data["decision"] == body["decision"]
 
-    plain_rows = _stored_messages(stream_env, plain_session)
-    stream_rows = _stored_messages(stream_env, stream_session)
+    plain_rows = _stored_messages(stream_env, uuid.UUID(body["chat_id"]))
+    stream_rows = _stored_messages(stream_env, uuid.UUID(final.data["chat_id"]))
     assert stream_rows == plain_rows
     assert len(stream_rows) == 2, "premise: one turn stores the user row and one assistant row"
 
@@ -791,7 +791,8 @@ def test_a_message_one_character_over_the_cap_is_a_typed_400_and_opens_no_stream
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.headers["content-type"].split(";")[0].strip() == "text/event-stream"
-    assert len(_stored_messages(stream_env, accepted_session)) == 2
+    accepted_chat = uuid.UUID(_of(parse_frames(accepted.text), REPLY)[0].data["chat_id"])
+    assert len(_stored_messages(stream_env, accepted_chat)) == 2
 
     refused_session = uuid.uuid4()
     empty_gateway = StagedGateway([])

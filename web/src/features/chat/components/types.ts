@@ -41,7 +41,15 @@ export type DecisionCard = {
   expiresAt: string | null;
 };
 
-export type ReplyEvent = { reply: string; citations: Citation[]; decision: DecisionCard | null };
+/** One line of the chat list. */
+export type ChatSummary = { id: string; title: string; lastSeenAt: string };
+
+export type ReplyEvent = {
+  reply: string;
+  citations: Citation[];
+  decision: DecisionCard | null;
+  chatId: string | null;
+};
 
 function record(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -151,7 +159,12 @@ export function readReply(data: unknown): ReplyEvent | null {
       citations.push(citation);
     }
   }
-  return { reply: text(frame.reply), citations, decision: readDecision(frame.decision) };
+  return {
+    reply: text(frame.reply),
+    citations,
+    decision: readDecision(frame.decision),
+    chatId: typeof frame.chat_id === "string" ? frame.chat_id : null,
+  };
 }
 
 /** `{ messages: [{ role, content }] }`, in the order the route sent it. */
@@ -168,4 +181,17 @@ export function readHistory(body: unknown): ChatMessage[] {
     });
   }
   return messages;
+}
+
+/** `{ chats: [{ id, title, last_seen_at }] }`, in the order the route sent it. */
+export function readChatList(body: unknown): ChatSummary[] {
+  const chats: ChatSummary[] = [];
+  for (const entry of list(record(body)?.chats)) {
+    const chat = record(entry);
+    if (chat === null || typeof chat.id !== "string") {
+      continue;
+    }
+    chats.push({ id: chat.id, title: text(chat.title), lastSeenAt: text(chat.last_seen_at) });
+  }
+  return chats;
 }
