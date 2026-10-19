@@ -20,14 +20,14 @@ Everything the app runs is under `src/`.
   data calls and hooks in an `api.ts`, its screens in `components/`, and its
   data shapes in `schema.ts`. The folders are:
   - `access`: my active access and its end dates.
-  - `admin`: the admin pages, one folder each for audit, killswitch, policies
-    and rules.
+  - `admin`: the admin pages, one folder each for audit, killswitch, policies,
+    rules, settings and open tickets.
   - `approvals`: the approval queue and its decision details.
   - `auth`: sign in and sign out.
   - `chat`: the chat window, tool steps and citations.
   - `notifications`: in-app notices.
   - `requests`: my requests and their status.
-  - `tickets`: my tickets, and the admin list of open tickets.
+  - `tickets`: my tickets and their status.
   - `reviews`: access reviews, keep or revoke.
 - `src/components/` holds pieces shared by more than one feature.
   - `src/components/ui/` holds small UI pieces: button, card, table, alert and
