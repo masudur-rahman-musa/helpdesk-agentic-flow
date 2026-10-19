@@ -112,7 +112,7 @@ the list in the design, fourteen of them."""
 PLANNED_REQUIREMENTS: dict[str, frozenset[str]] = {
     "reset_password": frozenset(),
     "unlock_account": frozenset(),
-    "request_access": frozenset({"system"}),
+    "request_access": frozenset({"system", "justification"}),
     "revoke_access": frozenset({"system"}),
     "report_mover": frozenset({"target_user", "department"}),
     "onboard": frozenset({"target_user", "department"}),
@@ -279,7 +279,12 @@ def test_an_empty_string_entity_does_not_satisfy_a_requirement() -> None:
     """Catches a presence check written as `is not None`: the model returning
     `""` for a system it could not read would count as an answer, and the turn
     would go on to match candidates against an empty term."""
-    extraction = _extraction(Intent.REQUEST_ACCESS, confidence=FULL_CONFIDENCE, system="")
+    extraction = _extraction(
+        Intent.REQUEST_ACCESS,
+        confidence=FULL_CONFIDENCE,
+        system="",
+        justification="Obviously fake reason.",
+    )
     assert missing_required_entities(extraction) == frozenset({"system"})
     assert needs_clarification(extraction) is True
 

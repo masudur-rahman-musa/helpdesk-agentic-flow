@@ -256,3 +256,30 @@ def test_a_missing_prompt_still_raises_prompt_not_found() -> None:
         load_prompt(name)
 
     assert excinfo.value.code is ErrorCode.INTERNAL
+
+
+def test_the_intent_prompt_carries_details_across_one_request() -> None:
+    """Catches an extraction prompt that reads only the last message: the answer
+    "Two weeks, to read the runbooks" names no system, so the turn would ask again
+    unless the prompt says to fill system, role and justification from the earlier
+    messages of the same request."""
+    text = " ".join(load_prompt(INTENT_PROMPT).text.lower().split())
+
+    assert "earlier messages" in text
+    assert "same request" in text
+    for name in ("system", "role", "justification"):
+        assert name in text
+
+
+def test_the_planning_prompt_files_the_reason_and_the_length() -> None:
+    """Catches a planning prompt that leaves the reason and the length out of the
+    filing call (the request is filed with no reason, or the default length
+    although the person named one), and one that plans the classification and the
+    request in two rounds, which makes a second preview round."""
+    text = " ".join(load_prompt(PLANNING_PROMPT).text.lower().split())
+
+    assert "`justification`" in text
+    assert "`requested_expiry_days`" in text
+    assert "one round" in text
+    assert "`classify_access_request`" in text
+    assert "`create_access_request`" in text

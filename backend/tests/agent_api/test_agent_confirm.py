@@ -48,6 +48,7 @@ from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.crud.sessions import (
+    get_asked_clarifying,
     get_open_question,
     get_or_create_session,
     set_open_question,
@@ -276,7 +277,18 @@ class FakeTools:
 # --- staged model answers -------------------------------------------------------
 
 
-def _extraction(intent: str, *, role: str | None = None, system: str | None = None) -> str:
+DETAILS_REASON = "Obviously fake reason: reading the changeover runbooks."
+DETAILS_DAYS = 14
+
+
+def _extraction(
+    intent: str,
+    *,
+    role: str | None = None,
+    system: str | None = None,
+    justification: str | None = None,
+    expiry_days: int | None = None,
+) -> str:
     return json.dumps(
         {
             "intent": intent,
@@ -285,8 +297,8 @@ def _extraction(intent: str, *, role: str | None = None, system: str | None = No
                 "role": role,
                 "target_user": None,
                 "department": None,
-                "expiry_days": None,
-                "justification": None,
+                "expiry_days": expiry_days,
+                "justification": justification,
             },
             "confidence": 0.95,
             "clarifying_question": None,
@@ -295,7 +307,13 @@ def _extraction(intent: str, *, role: str | None = None, system: str | None = No
 
 
 def _access_extraction(role: str = "wiki-viewer") -> str:
-    return _extraction("request_access", role=role, system="internal-wiki")
+    return _extraction(
+        "request_access",
+        role=role,
+        system="internal-wiki",
+        justification=DETAILS_REASON,
+        expiry_days=DETAILS_DAYS,
+    )
 
 
 def _classify_round(env: Env) -> str:
@@ -654,3 +672,92 @@ def test_a_bad_stored_question_counts_as_none(env: Env) -> None:
 
     assert CREATE not in tools.names
     assert _stored(env, session_id) is None
+
+
+# --- one question, then the preview, then yes -----------------------------------
+
+DETAILS_QUESTION = "Before I check this, tell me how long you need it for and the business reason."
+
+
+def _create_round_with_details(env: Env) -> str:
+    return json.dumps(
+        {
+            "calls": [
+                {
+                    "tool": CREATE,
+                    "arguments": json.dumps(
+                        {
+                            "target_user_id": str(env.user_id),
+                            "role_id": str(env.viewer_id),
+                            "justification": DETAILS_REASON,
+                            "requested_expiry_days": DETAILS_DAYS,
+                            "citations": [],
+                        }
+                    ),
+                }
+            ]
+        }
+    )
+
+
+def _asked_time(env: Env, session_id: uuid.UUID) -> object:
+    async def read() -> object:
+        async with tenant_session(env.db.factory, env.tenant_id) as db:
+            return await get_asked_clarifying(db, session_id=session_id)
+
+    return asyncio.run(read())
+
+
+def test_one_question_then_preview_then_yes_files(env: Env) -> None:
+    """Catches a flow that asks for the length and the reason in separate turns, one
+    that previews before the details are in, one that files without the reason or
+    the 14 days the person gave, and one that asks a question after the yes."""
+    session_id = uuid.uuid4()
+    first_tools = FakeTools()
+
+    first = _turn(
+        env,
+        session_id=session_id,
+        message="I need viewer access to the internal wiki",
+        answers=(_extraction("request_access", role="wiki-viewer", system="internal-wiki"),),
+        tools=first_tools,
+    )
+
+    assert first.reply == DETAILS_QUESTION
+    assert first_tools.calls == []
+    assert _stored(env, session_id) is None
+    assert _asked_time(env, session_id) == NOW.isoformat()
+
+    second_tools = FakeTools()
+    second = _turn(
+        env,
+        session_id=session_id,
+        message="Two weeks, to read the changeover runbooks",
+        answers=(
+            _access_extraction(),
+            _classify_round(env),
+            _create_round_with_details(env),
+        ),
+        tools=second_tools,
+    )
+
+    assert second.outcome is TurnOutcome.CONFIRM
+    assert second.reply is not None
+    assert second.reply.startswith(ASK_PREFIX)
+    assert CREATE not in second_tools.names
+
+    third_tools = FakeTools()
+    third = _turn(
+        env,
+        session_id=session_id,
+        message=YES,
+        answers=(EMPTY_ROUND, json.dumps({"text": COMPOSED, "asks_question": False})),
+        tools=third_tools,
+    )
+
+    filed = third_tools.arguments_of(CREATE)
+    assert len(filed) == 1
+    assert filed[0]["requested_expiry_days"] == DETAILS_DAYS
+    assert filed[0]["justification"] == DETAILS_REASON
+    assert third.reply == COMPOSED
+    assert _asked_time(env, session_id) is None

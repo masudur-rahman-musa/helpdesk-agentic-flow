@@ -649,7 +649,12 @@ def _payroll_answer(confidence: float = 0.95) -> str:
     return _extraction_json(
         intent="request_access",
         confidence=confidence,
-        entities={"system": "payroll", "role": "payroll-read"},
+        entities={
+            "system": "payroll",
+            "role": "payroll-read",
+            "justification": "Obviously fake reason.",
+            "expiry_days": 30,
+        },
     )
 
 
@@ -944,7 +949,13 @@ def test_two_matching_systems_ask_for_disambiguation(turn_env: TurnEnv) -> None:
     gateway = StagedGateway(
         [
             _extraction_json(
-                intent="request_access", confidence=0.95, entities={"system": "Fake Billing"}
+                intent="request_access",
+                confidence=0.95,
+                entities={
+                    "system": "Fake Billing",
+                    "justification": "Obviously fake reason.",
+                    "expiry_days": 30,
+                },
             )
         ]
     )
@@ -975,7 +986,13 @@ def test_a_role_phrase_in_the_system_field_still_resolves(turn_env: TurnEnv) -> 
     gateway = StagedGateway(
         [
             _extraction_json(
-                intent="request_access", confidence=0.95, entities={"system": "payroll read"}
+                intent="request_access",
+                confidence=0.95,
+                entities={
+                    "system": "payroll read",
+                    "justification": "Obviously fake reason.",
+                    "expiry_days": 30,
+                },
             ),
             EMPTY_PLAN,
             COMPOSED_REPLY,

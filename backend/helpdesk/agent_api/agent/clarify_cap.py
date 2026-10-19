@@ -5,6 +5,7 @@ ISO string and checked here on every read, like the open question of
 `confirmation.py`.
 """
 
+from collections.abc import Set
 from datetime import datetime, timedelta
 
 CLARIFY_CAP_LIFE = timedelta(hours=24)
@@ -32,3 +33,21 @@ def parse_asked_at(raw: object, *, now: datetime) -> bool:
     if asked_at.tzinfo is None:
         return False
     return now - asked_at < CLARIFY_CAP_LIFE
+
+
+DETAIL_WORDS: tuple[tuple[str, str], ...] = (
+    ("system", "which system you need"),
+    ("expiry_days", "how long you need it for"),
+    ("justification", "the business reason"),
+)
+"""Each detail a request asks for, in the order the question names them."""
+
+
+def details_question(missing: Set[str], *, length_missing: bool) -> str:
+    """The one question a confident request asks, worded by code so it names
+    every missing detail at once. `missing` is
+    `gates.missing_required_entities`; the length is asked but never required."""
+    wanted = set(missing) | ({"expiry_days"} if length_missing else set())
+    words = [text for name, text in DETAIL_WORDS if name in wanted]
+    joined = words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
+    return f"Before I check this, tell me {joined}."

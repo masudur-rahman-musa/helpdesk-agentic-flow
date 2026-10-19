@@ -8,8 +8,9 @@ message go in as `user` data, never into the system prompt.
 """
 
 from helpdesk.agent_api.agent import gates
+from helpdesk.agent_api.agent.clarify_cap import details_question
 from helpdesk.agent_api.agent.prompts import load_prompt
-from helpdesk.agent_api.agent.state import IntentExtraction, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import Intent, IntentExtraction, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
 from helpdesk.shared.core.errors import ToolError
@@ -73,7 +74,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
                 "prompt_version": prompt.sha256,
                 "tokens_used": tokens_used,
                 "outcome": TurnOutcome.CLARIFY,
-                "reply": extraction.clarifying_question or DEFAULT_CLARIFYING_QUESTION,
+                "reply": _clarifying_reply(extraction),
             }
         )
 
@@ -86,3 +87,16 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             "best_reading": gates.needs_clarification(extraction),
         }
     )
+
+
+def _clarifying_reply(extraction: IntentExtraction) -> str:
+    """A confident request asks the code-worded details question; anything
+    else keeps the model's own question
+    (`test_a_low_confidence_request_keeps_the_models_question`)."""
+    confident = extraction.confidence >= gates.CONFIDENCE_THRESHOLD
+    if confident and extraction.intent is Intent.REQUEST_ACCESS:
+        return details_question(
+            gates.missing_required_entities(extraction),
+            length_missing=gates.length_missing(extraction),
+        )
+    return extraction.clarifying_question or DEFAULT_CLARIFYING_QUESTION

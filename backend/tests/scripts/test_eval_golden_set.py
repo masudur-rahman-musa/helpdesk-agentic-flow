@@ -99,7 +99,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "access_approval": 20,
     "access_blocked_sod": 10,
     "access_critical": 10,
-    "helpdesk": 35,
+    "helpdesk": 37,
     "policy_qa": 19,
     "refusal_out_of_corpus": 10,
     "clarify_ambiguous": 10,
@@ -109,7 +109,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "review": 3,
 }
 
-TOTAL_CASES = 150
+TOTAL_CASES = 152
 TOTAL_LABELS = 40
 LABELS_PER_SCORE = 8
 SCORES: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
@@ -203,7 +203,7 @@ class ToolCall(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    arguments: dict[str, str]
+    arguments: dict[str, str | int]
 
 
 class Expected(BaseModel):
@@ -476,7 +476,7 @@ def _role_key_of(case: GoldenCase) -> tuple[str, str]:
     `<system slug>.<role slug>` because that is exactly the seed's `Role.name`.
     """
     calls = case.expected.tool_calls or []
-    roles = [call.arguments["role"] for call in calls if "role" in call.arguments]
+    roles = [str(call.arguments["role"]) for call in calls if "role" in call.arguments]
     assert len(roles) == 1, f"access case {case.id}: expected one role argument, got {roles}"
     system, separator, slug = roles[0].partition(".")
     assert separator and slug, f"access case {case.id}: role {roles[0]!r} is not system.role"
@@ -1054,3 +1054,47 @@ def test_no_golden_case_calls_a_ticket_solving_tool(
     called = {call.name for case in golden_cases for call in (case.expected.tool_calls or [])}
 
     assert called.isdisjoint(TICKET_SOLVING_TOOLS)
+
+
+# --- ask once before the preview ------------------------------------------------
+
+DETAILS_ANSWER = "For 30 days, I need it for my current tasks."
+DETAILS_CASE_IDS = ("help-036", "help-037")
+
+
+def test_the_details_cases_ask_once_then_file(golden_cases: tuple[GoldenCase, ...]) -> None:
+    """Catches a golden set without the two flows of the plan: help-036 must stop
+    at the one question (no tool, asks), and help-037 must run question, preview,
+    yes, and file `wiki.viewer` for 14 days without asking again."""
+    asking = _case_by_id(golden_cases, "help-036")
+    assert len(asking.messages) == 1
+    assert asking.expected.should_clarify is True
+    assert asking.expected.tool_calls in (None, [])
+
+    filing = _case_by_id(golden_cases, "help-037")
+    assert len(filing.messages) == 3
+    assert filing.expected.should_clarify is False
+    assert filing.expected.tool_calls is not None
+    assert [(c.name, c.arguments) for c in filing.expected.tool_calls] == [
+        ("create_access_request", {"role": "wiki.viewer", "requested_expiry_days": 14})
+    ]
+
+
+def test_every_filing_case_answers_the_details_question(
+    golden_cases: tuple[GoldenCase, ...],
+) -> None:
+    """Catches a filing case left as it was: with no reason and length in its
+    messages the turn now stops at the question and never reaches its yes, so the
+    case would score a right reply as wrong. help-036 and help-037 carry their own
+    shape and are checked apart."""
+    filing = [
+        case
+        for case in golden_cases
+        if case.id not in DETAILS_CASE_IDS
+        and any(c.name == "create_access_request" for c in case.expected.tool_calls or [])
+    ]
+
+    assert filing, "no case expects create_access_request"
+    for case in filing:
+        assert len(case.messages) >= 2, case.id
+        assert case.messages[1].content == DETAILS_ANSWER, case.id

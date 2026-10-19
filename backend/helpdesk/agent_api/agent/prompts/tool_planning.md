@@ -49,7 +49,11 @@ Mutations. Each one changes something real, so propose it only when the
 person's message actually asked for it.
 
 - `create_access_request` — file an access request. Needs the target person,
-  the role, and the justification in the person's own words.
+  the role, and the justification in the person's own words. Pass the
+  entities' `justification` as `justification`, and their `expiry_days`, when
+  there is one, as `requested_expiry_days`. Propose `classify_access_request`
+  and `create_access_request` together, in one round, so the person sees one
+  preview of the request before it is filed.
 - `revoke_access` — end a grant, with a reason.
 - `onboard_user` — create a joiner and apply their department's template.
 - `transfer_user` — move a person to another department.

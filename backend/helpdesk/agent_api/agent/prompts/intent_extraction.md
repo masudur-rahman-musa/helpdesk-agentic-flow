@@ -58,6 +58,13 @@ word is the system and the rest is the role. Fill `system` with "wiki" and
 `role` with "editor". Never leave `system` empty when a system name is in the
 message, and never put the whole phrase into one field.
 
+One request can take more than one message. When the latest message answers
+a question about a request, as in "Two weeks, to read the runbooks", it is
+still `request_access`: fill `system`, `role` and `justification` from the
+earlier messages of the same request, and `expiry_days` and `justification`
+from the answer. Never carry details over from an earlier request that is
+already filed or was dropped.
+
 Copy the person's own wording into `system` and `role`. Do not normalise,
 correct or translate it: a deterministic matcher resolves those names against
 the company directory afterwards, and it needs what was actually said.

@@ -49,6 +49,9 @@ from tests.agent_api.test_agent_confirm import (
 
 FIRST_QUESTION = "Are you asking about the wiki or the portal?"
 UNCLEAR = "Can I get that thing from before?"
+REASON = "Obviously fake reason for the wiki."
+DAYS = 30
+DETAILS_QUESTION = "Before I check this, tell me how long you need it for and the business reason."
 
 
 @pytest.fixture
@@ -64,6 +67,8 @@ def _unclear(
     question: str | None = FIRST_QUESTION,
     role: str | None = None,
     system: str | None = None,
+    justification: str | None = None,
+    expiry_days: int | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -73,8 +78,8 @@ def _unclear(
                 "role": role,
                 "target_user": None,
                 "department": None,
-                "expiry_days": None,
-                "justification": None,
+                "expiry_days": expiry_days,
+                "justification": justification,
             },
             "confidence": confidence,
             "clarifying_question": question,
@@ -205,7 +210,14 @@ def test_a_best_reading_request_still_asks_do_you_mean(env: Env) -> None:
     _first_question(env, session_id, FakeTools())
     tools = FakeTools()
     answers = (
-        _unclear("request_access", question=None, role="wiki-viewer", system="internal-wiki"),
+        _unclear(
+            "request_access",
+            question=None,
+            role="wiki-viewer",
+            system="internal-wiki",
+            justification=REASON,
+            expiry_days=DAYS,
+        ),
         _classify_round(env),
         _create_round(env, env.viewer_id),
     )
@@ -321,7 +333,14 @@ def _request_without_role(env: Env, session_id: uuid.UUID, tools: FakeTools) -> 
         session_id=session_id,
         message="I need access to the internal wiki",
         answers=(
-            _unclear("request_access", confidence=0.95, question=None, system="internal-wiki"),
+            _unclear(
+                "request_access",
+                confidence=0.95,
+                question=None,
+                system="internal-wiki",
+                justification=REASON,
+                expiry_days=DAYS,
+            ),
             json.dumps({"calls": []}),
             EDITOR_OR_VIEWER,
         ),
@@ -382,6 +401,8 @@ def test_a_disambiguation_is_recorded(env: Env) -> None:
                 question=None,
                 role="viewer",
                 system="internal-wiki",
+                justification=REASON,
+                expiry_days=DAYS,
             ),
         ),
         tools=FakeTools(),
@@ -414,6 +435,8 @@ def test_the_next_message_gets_the_best_reading(env: Env) -> None:
                 question=None,
                 role="fake-nonexistent-role",
                 system="internal-wiki",
+                justification=REASON,
+                expiry_days=DAYS,
             ),
             COMPOSED,
         ),
@@ -469,7 +492,14 @@ def _request_without_role_composing(
         session_id=session_id,
         message="I need access to the internal wiki",
         answers=(
-            _unclear("request_access", confidence=0.95, question=None, system="internal-wiki"),
+            _unclear(
+                "request_access",
+                confidence=0.95,
+                question=None,
+                system="internal-wiki",
+                justification=REASON,
+                expiry_days=DAYS,
+            ),
             json.dumps({"calls": []}),
             json.dumps({"text": reply, "asks_question": asks}),
         ),
@@ -501,3 +531,59 @@ def test_an_unmarked_question_mark_is_not_recorded(env: Env) -> None:
 
     assert state.reply == "Viewer or editor? Either works for me."
     assert _stored_time(env, session_id) is None
+
+
+# --- the details question -------------------------------------------------------
+
+
+def test_a_confident_request_without_details_asks_the_code_question(env: Env) -> None:
+    """Catches a confident request that lets the model word the question (it wrote
+    "How long do you need it?", one detail only) or that goes on to tools with no
+    reason; also one that forgets to store the asked time."""
+    session_id = uuid.uuid4()
+    tools = FakeTools()
+
+    state = _turn(
+        env,
+        session_id=session_id,
+        message="I need viewer access to the internal wiki",
+        answers=(
+            _unclear(
+                "request_access",
+                confidence=0.95,
+                question="How long do you need it?",
+                role="wiki-viewer",
+                system="internal-wiki",
+            ),
+        ),
+        tools=tools,
+    )
+
+    assert state.outcome is TurnOutcome.CLARIFY
+    assert state.reply == DETAILS_QUESTION
+    assert tools.calls == []
+    assert _stored_time(env, session_id) == NOW.isoformat()
+
+
+def test_a_low_confidence_request_keeps_the_models_question(env: Env) -> None:
+    """Catches a code question that replaces the model's own on every request
+    turn: at confidence 0.5 the intent itself is unsure, so the model's question
+    about it must be the reply."""
+    state = _turn(
+        env,
+        session_id=uuid.uuid4(),
+        message=UNCLEAR,
+        answers=(
+            _unclear(
+                "request_access",
+                confidence=0.5,
+                question=FIRST_QUESTION,
+                role="wiki-viewer",
+                system="internal-wiki",
+            ),
+        ),
+        tools=FakeTools(),
+    )
+
+    assert state.outcome is TurnOutcome.CLARIFY
+    assert state.reply == FIRST_QUESTION

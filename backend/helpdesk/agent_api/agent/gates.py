@@ -15,7 +15,7 @@ MAX_DISAMBIGUATION_OPTIONS = 3
 REQUIRED_ENTITIES: Mapping[Intent, frozenset[str]] = {
     Intent.RESET_PASSWORD: frozenset(),
     Intent.UNLOCK_ACCOUNT: frozenset(),
-    Intent.REQUEST_ACCESS: frozenset({"system"}),
+    Intent.REQUEST_ACCESS: frozenset({"system", "justification"}),
     Intent.REVOKE_ACCESS: frozenset({"system"}),
     Intent.REPORT_MOVER: frozenset({"target_user", "department"}),
     Intent.ONBOARD: frozenset({"target_user", "department"}),
@@ -30,7 +30,8 @@ REQUIRED_ENTITIES: Mapping[Intent, frozenset[str]] = {
 }
 """What each intent must name before the turn goes on. Every intent has a
 row, so a new one cannot quietly require nothing. `role` is optional: the
-template or policy engine can pick it."""
+template or policy engine can pick it. A request is filed with its reason,
+so it is asked for before the preview, never after the yes."""
 
 
 RETRIEVES_POLICY: Mapping[Intent, bool] = {
@@ -70,11 +71,21 @@ def needs_clarification(extraction: IntentExtraction) -> bool:
     )
 
 
+def length_missing(extraction: IntentExtraction) -> bool:
+    """A request that names no length. It is asked in the one question but
+    never blocks: the role's default applies after it."""
+    return extraction.intent is Intent.REQUEST_ACCESS and extraction.entities.expiry_days is None
+
+
 def clarify_outcome(extraction: IntentExtraction, asked_before: bool) -> TurnOutcome:
     """At most one clarifying question in a row. After a question,
     an unclear message goes on with its best reading, or is answered with no
-    tools when something required is still missing, so nothing runs on a guess."""
+    tools when something required is still missing, so nothing runs on a guess.
+    A request with no length asks once, then goes on
+    (`test_after_the_question_a_missing_length_goes_on`)."""
     if not needs_clarification(extraction):
+        if length_missing(extraction) and not asked_before:
+            return TurnOutcome.CLARIFY
         return TurnOutcome.CONTINUE
     if not asked_before:
         return TurnOutcome.CLARIFY
