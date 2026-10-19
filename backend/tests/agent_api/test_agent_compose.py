@@ -191,12 +191,12 @@ def _as_composed(text: str, body: dict[str, Any]) -> str:
         parsed = None
     if isinstance(parsed, dict):
         return text
-    return json.dumps({"text": text, "asks_question": "?" in text})
+    return json.dumps({"text": text, "asks_question": "?" in text, "used_passages": [1]})
 
 
 def marked(text: str, *, asks: bool) -> str:
     """A staged answer in the shape, with the mark set by the test, not by "?"."""
-    return json.dumps({"text": text, "asks_question": asks})
+    return json.dumps({"text": text, "asks_question": asks, "used_passages": [1]})
 
 
 class StagedGateway:
@@ -948,6 +948,90 @@ FILED_REPLY = "Filed as REQ-0107. Why wait?"
 UNMARKED_QUESTION = "Tell me if anything else comes up"
 
 
+def _citation_two() -> Citation:
+    return Citation(
+        document="fake-second-policy",
+        title="Fake Second Policy",
+        version="v1",
+        heading_path=("Fake Other Section",),
+        chunk_id=uuid.UUID("88888888-8888-5888-8888-888888888888"),
+        text="Obviously fake second policy text.",
+        score=0.7,
+    )
+
+
+def _with_marks(text: str, marks: list[int]) -> str:
+    return json.dumps({"text": text, "asks_question": False, "used_passages": marks})
+
+
+def _passage_message(request: httpx.Request) -> list[dict[str, Any]]:
+    content = next(
+        item["content"]
+        for item in _messages(request)
+        if item["role"] == "user"
+        and item["content"].startswith("policy passages retrieved for this turn")
+    )
+    passages: list[dict[str, Any]] = json.loads(content.split(":\n", 1)[1])
+    return passages
+
+
+def test_each_passage_reaches_the_writer_with_its_number() -> None:
+    """Catches a composition that sends passages unnumbered, so the writer has
+    nothing to mark, or numbers them from 0 or in another order."""
+    gateway = StagedGateway()
+
+    _compose(_state(citations=[_citation(), _citation_two()]), gateway, RecordingSession())
+
+    passages = _passage_message(gateway.requests[0])
+    assert [p["passage"] for p in passages] == [1, 2]
+    assert passages[1]["document"] == "fake-second-policy"
+
+
+def test_the_writers_marks_pick_the_reply_citations() -> None:
+    """Catches a composition that ignores the marks (every passage shown), or
+    that narrows `citations` itself, which the request and trace still read."""
+    gateway = StagedGateway(text=_with_marks(COMPOSED, [2]))
+
+    result = _compose(_state(citations=[_citation(), _citation_two()]), gateway, RecordingSession())
+
+    assert result.reply_citations == (_citation_two(),)
+    assert result.citations == (_citation(), _citation_two())
+
+
+def test_a_retried_answer_uses_its_own_marks() -> None:
+    """Catches a composition that keeps the first attempt's marks after the
+    retry replaced its text: the box would list the thrown-away answer's source."""
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=_with_marks(CONTRADICTING_REPLY, [1])),
+            StagedAnswer(text=_with_marks(PENDING_REPLY, [2])),
+        ]
+    )
+    state = _state(citations=[_citation(), _citation_two()], tool_results=[_pending_result()])
+
+    result = _compose(state, gateway, RecordingSession())
+
+    assert result.postcheck is PostCheckOutcome.REGENERATED
+    assert result.reply_citations == (_citation_two(),)
+
+
+def test_a_fixed_sentence_leaves_the_citations_unknown() -> None:
+    """Catches a composition that keeps the last attempt's marks (or an empty
+    tuple) when the fixed sentence is sent: the box must then show every passage."""
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=_with_marks(CONTRADICTING_REPLY, [1])),
+            StagedAnswer(text=_with_marks(SECOND_CONTRADICTING_REPLY, [1])),
+        ]
+    )
+    state = _state(citations=[_citation(), _citation_two()], tool_results=[_pending_result()])
+
+    result = _compose(state, gateway, RecordingSession())
+
+    assert result.postcheck is PostCheckOutcome.FALLBACK
+    assert result.reply_citations is None
+
+
 def test_the_writer_is_asked_for_the_composed_reply_shape() -> None:
     """Catches a composition that asks for free text or for a looser schema: the
     mark would be missing or optional, and a forgotten mark would quietly read
@@ -963,8 +1047,8 @@ def test_the_writer_is_asked_for_the_composed_reply_shape() -> None:
     assert body["model"] == "agent-default"
     assert schema["name"] == "ComposedReply"
     assert schema["strict"] is True
-    assert set(schema["schema"]["properties"]) == {"text", "asks_question"}
-    assert ComposedReply.model_fields.keys() == {"text", "asks_question"}
+    assert set(schema["schema"]["properties"]) == {"text", "asks_question", "used_passages"}
+    assert ComposedReply.model_fields.keys() == {"text", "asks_question", "used_passages"}
 
 
 def test_a_question_mark_the_writer_did_not_mark_is_kept() -> None:

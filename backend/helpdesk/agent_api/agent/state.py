@@ -183,6 +183,8 @@ class ComposedReply(BaseModel):
 
     text: str
     asks_question: bool
+    used_passages: list[int]
+    """The 1-based numbers of the passages the text relies on."""
 
 
 class ValidatedCall(BaseModel):
@@ -232,6 +234,10 @@ class TurnState(BaseModel):
     options: tuple[str, ...] = ()
     resolved: ResolvedEntities | None = None
     citations: tuple[Citation, ...] = ()
+    reply_citations: tuple[Citation, ...] | None = None
+    """The passages the composed reply marked as used; `None` when not known,
+    so the Sources box shows every passage (`sources.py`)."""
+
     error_code: ErrorCode | None = None
     proposed: tuple[ProposedCall, ...] = ()
     validated: tuple[ValidatedCall, ...] = ()

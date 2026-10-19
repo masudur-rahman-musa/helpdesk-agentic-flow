@@ -163,7 +163,7 @@ def _as_composed(answer: str, request: httpx.Request) -> str:
         parsed = None
     if isinstance(parsed, dict):
         return answer
-    return json.dumps({"text": answer, "asks_question": "?" in answer})
+    return json.dumps({"text": answer, "asks_question": "?" in answer, "used_passages": [1]})
 
 
 class StagedGateway:
@@ -751,7 +751,10 @@ def test_one_question_then_preview_then_yes_files(env: Env) -> None:
         env,
         session_id=session_id,
         message=YES,
-        answers=(EMPTY_ROUND, json.dumps({"text": COMPOSED, "asks_question": False})),
+        answers=(
+            EMPTY_ROUND,
+            json.dumps({"text": COMPOSED, "asks_question": False, "used_passages": [1]}),
+        ),
         tools=third_tools,
     )
 

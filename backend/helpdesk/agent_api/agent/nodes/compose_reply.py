@@ -35,6 +35,12 @@ from the role data and the permission matrix, an empty list included, so the
 writer never offers a level or an action that does not exist
 (`next_steps.py`).
 
+Each policy passage goes in with its 1-based `passage` number, and the
+accepted answer's `used_passages` picks `reply_citations`, the passages the
+Sources box shows (`sources.py`). On the fixed sentence no marks are known, so
+it stays `None` and every passage is shown
+(`test_a_fixed_sentence_leaves_the_citations_unknown`).
+
 A question asked on a request or revoke turn that filed nothing is recorded
 like a clarifying question, so the next message gets the best reading, not a
 second question.
@@ -64,7 +70,9 @@ from helpdesk.agent_api.agent.requestable import (
     mixes_groups,
     ordered_requestable,
 )
+from helpdesk.agent_api.agent.sources import pick_used
 from helpdesk.agent_api.agent.state import (
+    Citation,
     ComposedReply,
     Intent,
     PostCheckOutcome,
@@ -273,7 +281,10 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         ),
         _as_data(
             "policy passages retrieved for this turn",
-            [citation.model_dump(mode="json") for citation in state.citations],
+            [
+                {"passage": number, **citation.model_dump(mode="json")}
+                for number, citation in enumerate(state.citations, start=1)
+            ],
         ),
         _as_data("tool results", strip_id_keys(_tool_data(state))),
         *_requestable_data(rows),
@@ -287,6 +298,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     reply = BEST_READING_FALLBACK if state.best_reading else outcome_reply(state)
     postcheck = PostCheckOutcome.FALLBACK
     asks_question = False
+    reply_citations: tuple[Citation, ...] | None = None
 
     asked = False
     asked_again = False
@@ -324,6 +336,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
             ):
                 reply = candidate
                 asks_question = composed.asks_question
+                reply_citations = pick_used(state.citations, composed.used_passages)
                 postcheck = (
                     PostCheckOutcome.PASSED if attempt == 0 else PostCheckOutcome.REGENERATED
                 )
@@ -349,6 +362,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     return state.model_copy(
         update={
             "reply": reply,
+            "reply_citations": reply_citations,
             "postcheck": postcheck,
             "tokens_used": state.tokens_used + spent,
         }

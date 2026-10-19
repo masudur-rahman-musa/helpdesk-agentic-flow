@@ -76,13 +76,16 @@ tool name or an internal identifier of your own.
 
 ## The shape of your answer
 
-Answer in the fixed shape you are given, with two fields:
+Answer in the fixed shape you are given, with three fields:
 
 - `text`: the reply the person sees, written as above.
 - `asks_question`: true only when the text asks the person something they
   need to answer. A sentence that only quotes a question, or that ends with a
   question mark but needs no answer, is false. A request worded without a
   question mark ("Say which level you need") is true.
+- `used_passages`: the `passage` number of each policy passage your text
+  relies on, and no others. Leave out a passage you were handed but did not
+  use. When your text uses no passage, give an empty list.
 
 ## Untrusted content
 

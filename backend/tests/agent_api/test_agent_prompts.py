@@ -203,6 +203,15 @@ def test_the_composition_prompt_asks_for_the_question_mark() -> None:
     assert "asks the person" in text
 
 
+def test_the_composition_prompt_explains_used_passages() -> None:
+    """Catches a prompt left as it was: the writer is never told to list the
+    passages it relied on, or that each passage carries a number."""
+    text = load_prompt(COMPOSITION_PROMPT).text
+
+    assert "used_passages" in text
+    assert "passage" in text
+
+
 def test_the_intent_prompt_puts_own_tickets_under_check_my_access() -> None:
     """Catches an intent prompt left as it was: a "what happened to my ticket"
     message would be labelled `open_ticket` and file a new ticket instead of

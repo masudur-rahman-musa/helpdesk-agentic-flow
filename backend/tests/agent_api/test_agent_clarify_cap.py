@@ -501,7 +501,7 @@ def _request_without_role_composing(
                 expiry_days=DAYS,
             ),
             json.dumps({"calls": []}),
-            json.dumps({"text": reply, "asks_question": asks}),
+            json.dumps({"text": reply, "asks_question": asks, "used_passages": [1]}),
         ),
         tools=FakeTools(),
     )

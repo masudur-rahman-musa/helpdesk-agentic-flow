@@ -37,6 +37,7 @@ from helpdesk.agent_api.agent.nodes.resolve_entities import resolve_entities
 from helpdesk.agent_api.agent.nodes.retrieve_policy import retrieve_policy
 from helpdesk.agent_api.agent.nodes.validate_tool_calls import validate_tool_calls
 from helpdesk.agent_api.agent.prompts import load_prompt
+from helpdesk.agent_api.agent.sources import shown_citations
 from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.agent.turn_metrics import (
@@ -518,7 +519,7 @@ def _reply_data(state: TurnState) -> dict[str, Any]:
     return {
         "reply": state.reply,
         "outcome": state.outcome.value,
-        "citations": [citation.model_dump(mode="json") for citation in state.citations],
+        "citations": [citation.model_dump(mode="json") for citation in shown_citations(state)],
         "request_id": None if state.awaiting_request_id is None else str(state.awaiting_request_id),
         "decision": None if card is None else card.model_dump(mode="json"),
     }

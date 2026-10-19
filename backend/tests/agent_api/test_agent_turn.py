@@ -397,7 +397,7 @@ def _as_composed(answer: str, request: httpx.Request) -> str:
         parsed = None
     if isinstance(parsed, dict):
         return answer
-    return json.dumps({"text": answer, "asks_question": "?" in answer})
+    return json.dumps({"text": answer, "asks_question": "?" in answer, "used_passages": [1]})
 
 
 def _completion(answer: str | StagedAnswer, request: httpx.Request) -> httpx.Response:

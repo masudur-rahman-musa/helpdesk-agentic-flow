@@ -12,6 +12,7 @@ from fastapi import Request
 
 from helpdesk.agent_api.agent.events import ReplyEvent
 from helpdesk.agent_api.agent.graph import run_turn, stream_turn
+from helpdesk.agent_api.agent.sources import shown_citations
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.api.sse import DONE, ERROR, encode_event, encode_turn_event
@@ -117,7 +118,7 @@ def _rendered(state: TurnState) -> ChatResponse:
         chat_id=str(state.session_id),
         reply=state.reply,
         outcome=state.outcome.value,
-        citations=[citation.model_dump(mode="json") for citation in state.citations],
+        citations=[citation.model_dump(mode="json") for citation in shown_citations(state)],
         request_id=None if state.awaiting_request_id is None else str(state.awaiting_request_id),
         decision=None if card is None else card.model_dump(mode="json"),
     )
