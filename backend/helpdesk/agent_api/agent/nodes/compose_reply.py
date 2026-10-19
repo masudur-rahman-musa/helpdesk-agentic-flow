@@ -1,7 +1,12 @@
 """`compose_reply`: the turn said in plain words.
 
 The decision is already made; this call only writes it down, so it uses the
-default model. A post-check, not a bigger model, catches a reply that
+default model. The writer answers as `ComposedReply`: the text, and its own
+mark of whether that text asks the person something. Every question check
+reads that mark, never the text (a design note, pinned by
+`test_no_question_check_looks_for_a_question_mark`). An answer off the shape
+twice ends the turn failed, like a gateway failure. Fixed sentences and the
+lines code adds never count as a question. A post-check, not a bigger model, catches a reply that
 contradicts the result: each decision word must match what the turn returned.
 A contradiction is retried once with the allowed words quoted, and so is a
 question asked after the request was filed. A second one ends on a fixed
@@ -55,6 +60,7 @@ from helpdesk.agent_api.agent.postcheck import (
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.requestable import held_sentence, ordered_requestable
 from helpdesk.agent_api.agent.state import (
+    ComposedReply,
     Intent,
     PostCheckOutcome,
     ToolResult,
@@ -161,12 +167,12 @@ def _with_held(reply: str, rows: list[dict[str, Any]]) -> str:
     return f"{sentence}\n\n{reply}" if sentence else reply
 
 
-def _asks_before_filing(reply: str, state: TurnState) -> bool:
-    """Whether `reply` asks a question on a request-like turn that filed
-    nothing: that question counts toward the one-question cap."""
+def _asks_before_filing(asks: bool, state: TurnState) -> bool:
+    """Whether a reply marked as asking (`asks`) asks on a request-like turn
+    that filed nothing: that question counts toward the one-question cap."""
     if state.extraction is None or not REQUIRED_ENTITIES[state.extraction.intent]:
         return False
-    return "?" in reply and not request_filed(state)
+    return asks and not request_filed(state)
 
 
 def _failure_sentences(results: tuple[ToolResult, ...]) -> list[str]:
@@ -265,6 +271,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     spent = 0
     reply = BEST_READING_FALLBACK if state.best_reading else outcome_reply(state)
     postcheck = PostCheckOutcome.FALLBACK
+    asks_question = False
 
     asked = False
     asked_again = False
@@ -278,18 +285,21 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
                 else:
                     note = _regeneration_note(state)
                 messages = [*messages, note]
-            answer = await deps.model.complete(
+            answer = await deps.model.complete_json(
+                ComposedReply,
                 messages,
                 alias=ModelAlias.AGENT_DEFAULT,
                 tenant_slug=state.tenant_slug,
                 session_id=str(state.session_id),
             )
-            spent += answer.total_tokens
-            candidate = check_message_content(_with_correct_me(answer.text, state))
-            asked = asks_after_filing(answer.text, state)
-            asked_again = asks_on_a_best_reading(answer.text, state)
-            if not asked and not asked_again and not contradicts(answer.text, state):
+            spent += answer.usage.total_tokens
+            composed = answer.value
+            candidate = check_message_content(_with_correct_me(composed.text, state))
+            asked = asks_after_filing(composed.asks_question, state)
+            asked_again = asks_on_a_best_reading(composed.asks_question, state)
+            if not asked and not asked_again and not contradicts(composed.text, state):
                 reply = candidate
+                asks_question = composed.asks_question
                 postcheck = (
                     PostCheckOutcome.PASSED if attempt == 0 else PostCheckOutcome.REGENERATED
                 )
@@ -299,7 +309,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     if postcheck is PostCheckOutcome.FALLBACK:
         reply = _with_correct_me(reply, state)
     reply = check_message_content(_with_held(reply, rows))
-    if _asks_before_filing(reply, state):
+    if _asks_before_filing(asks_question, state):
         await set_asked_clarifying(
             deps.db, session_id=state.session_id, value=deps.now().isoformat()
         )

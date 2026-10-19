@@ -142,8 +142,9 @@ def _state(*, best_reading: bool) -> TurnState:
 
 
 def test_asks_on_a_best_reading() -> None:
-    """Catches a check that reads only the "?" (a normal turn's question refused),
-    only the flag (a statement refused), or never the flag."""
-    assert asks_on_a_best_reading("Did you mean the wiki?", _state(best_reading=True)) is True
-    assert asks_on_a_best_reading("Did you mean the wiki?", _state(best_reading=False)) is False
-    assert asks_on_a_best_reading("Here is what I found.", _state(best_reading=True)) is False
+    """Catches a check that reads only the writer's mark (a normal turn's question
+    refused), only the flag (a statement refused), or never the flag. Takes the
+    mark, not text."""
+    assert asks_on_a_best_reading(True, _state(best_reading=True)) is True
+    assert asks_on_a_best_reading(True, _state(best_reading=False)) is False
+    assert asks_on_a_best_reading(False, _state(best_reading=True)) is False

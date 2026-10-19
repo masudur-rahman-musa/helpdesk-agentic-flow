@@ -149,6 +149,22 @@ def env(agent_db: AgentDb) -> Env:
 # --- the stubbed gateway and the recording tools --------------------------------
 
 
+def _as_composed(answer: str, request: httpx.Request) -> str:
+    """What the gateway sends for a staged string. A request for `ComposedReply`
+    gets a plain staged reply as the shape, marked a question when it holds "?"
+    (a writer that marks honestly); a string that is already JSON goes as it is."""
+    body = json.loads(request.content)
+    if body.get("response_format", {}).get("json_schema", {}).get("name") != "ComposedReply":
+        return answer
+    try:
+        parsed = json.loads(answer)
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return answer
+    return json.dumps({"text": answer, "asks_question": "?" in answer})
+
+
 class StagedGateway:
     """Answers staged in order; a request past the last one fails the test."""
 
@@ -170,7 +186,7 @@ class StagedGateway:
         return httpx.Response(
             200,
             json={
-                "choices": [{"message": {"content": self._answers[index]}}],
+                "choices": [{"message": {"content": _as_composed(self._answers[index], request)}}],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
             },
         )

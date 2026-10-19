@@ -174,6 +174,17 @@ class ToolPlanAnswer(BaseModel):
     calls: list[PlannedCallAnswer]
 
 
+class ComposedReply(BaseModel):
+    """The reply writer's answer: the text, and whether it asks the person
+    something. The writer marks its own question, so no check reads the text
+    for one."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    text: str
+    asks_question: bool
+
+
 class ValidatedCall(BaseModel):
     """A call the agent will make, with any idempotency key derived by the
     agent, never the model."""

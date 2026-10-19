@@ -384,12 +384,29 @@ class StagedAnswer:
     total_tokens: int = TOKENS_PER_ANSWER
 
 
-def _completion(answer: str | StagedAnswer) -> httpx.Response:
+def _as_composed(answer: str, request: httpx.Request) -> str:
+    """What the gateway sends for a staged string. A request for `ComposedReply`
+    gets a plain staged reply as the shape, marked a question when it holds "?"
+    (a writer that marks honestly); a string that is already JSON goes as it is."""
+    body = json.loads(request.content)
+    if body.get("response_format", {}).get("json_schema", {}).get("name") != "ComposedReply":
+        return answer
+    try:
+        parsed = json.loads(answer)
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return answer
+    return json.dumps({"text": answer, "asks_question": "?" in answer})
+
+
+def _completion(answer: str | StagedAnswer, request: httpx.Request) -> httpx.Response:
     staged = StagedAnswer(answer) if isinstance(answer, str) else answer
+    content = _as_composed(staged.text, request)
     return httpx.Response(
         200,
         json={
-            "choices": [{"message": {"content": staged.text}}],
+            "choices": [{"message": {"content": content}}],
             "usage": {
                 "prompt_tokens": 1,
                 "completion_tokens": staged.total_tokens - 1,
@@ -440,7 +457,7 @@ class StagedGateway:
                 f"the turn made {len(self.requests)} model requests; "
                 f"only {len(self._answers)} were staged"
             )
-        return _completion(self._answers[index])
+        return _completion(self._answers[index], request)
 
     @property
     def call_count(self) -> int:

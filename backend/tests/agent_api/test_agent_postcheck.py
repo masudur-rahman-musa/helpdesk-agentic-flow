@@ -29,10 +29,12 @@ predicates are tested in.
 """
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from helpdesk.agent_api.agent import postcheck as postcheck_module
 from helpdesk.agent_api.agent.postcheck import (
     DECISION_WORDS,
     POSTCHECK_FALLBACK_REPLY,
@@ -349,40 +351,40 @@ def test_a_turn_records_a_passed_post_check_until_something_says_otherwise() -> 
 
 
 @pytest.mark.parametrize(
-    ("reply", "tool_results", "expected"),
+    ("asks", "tool_results", "expected"),
     [
         pytest.param(
-            "I need one more detail. How long do you need this access for?",
+            True,
             (_result({"id": "r1", "status": RequestStatus.PENDING.value}),),
             True,
             id="question-after-a-pending-request",
         ),
         pytest.param(
-            "Done. Do you need anything else?",
+            True,
             (_result({"decision": Decision.AUTO.value}),),
             False,
             id="question-after-an-auto-decision",
         ),
         pytest.param(
-            "Your request is with your manager.",
+            False,
             (_result({"id": "r1", "status": RequestStatus.PENDING.value}),),
             False,
             id="statement-after-a-pending-request",
         ),
         pytest.param(
-            "How long do you need this access for?",
+            True,
             (),
             False,
             id="question-when-nothing-was-filed",
         ),
         pytest.param(
-            "Should I open a ticket instead?",
+            True,
             (_result({"decision": Decision.BLOCKED.value}),),
             False,
             id="question-after-a-block-is-allowed",
         ),
         pytest.param(
-            "How long do you need this access for?",
+            True,
             (_result({"id": "r1", "status": RequestStatus.PENDING.value}, ok=False),),
             False,
             id="failed-call-filed-nothing",
@@ -390,13 +392,14 @@ def test_a_turn_records_a_passed_post_check_until_something_says_otherwise() -> 
     ],
 )
 def test_a_reply_may_not_ask_a_question_once_the_request_is_filed(
-    reply: str, tool_results: tuple[ToolResult, ...], expected: bool
+    asks: bool, tool_results: tuple[ToolResult, ...], expected: bool
 ) -> None:
     """Catches the reply that says "before I can submit this, how long?" over
     a card that shows the request already filed. The question reads as if the
     person's answer still mattered, and it does not. A blocked turn and a turn
-    that filed nothing may still ask, so the rule cannot be a bare `?` check."""
-    assert asks_after_filing(reply, _state(tool_results=tool_results)) is expected
+    that filed nothing may still ask, so the rule cannot be a bare mark check.
+    The helper takes the writer's mark, not the reply text."""
+    assert asks_after_filing(asks, _state(tool_results=tool_results)) is expected
 
 
 # --- a classification is not a filing ------------------------------------------
@@ -431,7 +434,7 @@ def test_a_classification_alone_is_not_a_filed_request(decision: str) -> None:
     )
 
     assert request_filed(state) is False
-    assert asks_after_filing("Shall I file it for you?", state) is False
+    assert asks_after_filing(True, state) is False
 
 
 # --- the last reply, built from the turn's own results -------------------------
@@ -509,7 +512,7 @@ def test_every_last_reply_passes_its_own_check(tool_results: tuple[ToolResult, .
     reply = outcome_reply(state)
 
     assert contradicts(reply, state) is False
-    assert asks_after_filing(reply, state) is False
+    assert asks_after_filing(False, state) is False
     assert "?" not in reply
     assert reply.strip() != ""
     assert len(reply) < MAX_MESSAGE_CHARS
@@ -541,27 +544,33 @@ def _best_reading(state: TurnState, *, value: bool) -> TurnState:
 
 
 @pytest.mark.parametrize(
-    ("reply", "tool_results", "expected"),
+    ("asks", "tool_results", "expected"),
     [
-        (
-            "How long do you need this access for?",
-            (_result({"id": "r1", "status": "pending"}),),
-            True,
-        ),
-        (
-            "Your request is with your manager.",
-            (_result({"id": "r1", "status": "pending"}),),
-            False,
-        ),
-        ("How long do you need this access for?", (), False),
+        (True, (_result({"id": "r1", "status": "pending"}),), True),
+        (False, (_result({"id": "r1", "status": "pending"}),), False),
+        (True, (), False),
     ],
 )
 def test_asks_after_filing_ignores_best_reading(
-    reply: str, tool_results: tuple[ToolResult, ...], expected: bool
+    asks: bool, tool_results: tuple[ToolResult, ...], expected: bool
 ) -> None:
     """Catches an `asks_after_filing` that was widened to read `best_reading`
     (merging the two checks): its answer must be the same with the flag on and off."""
     state = _state(tool_results=tool_results)
 
-    assert asks_after_filing(reply, _best_reading(state, value=True)) is expected
-    assert asks_after_filing(reply, _best_reading(state, value=False)) is expected
+    assert asks_after_filing(asks, _best_reading(state, value=True)) is expected
+    assert asks_after_filing(asks, _best_reading(state, value=False)) is expected
+
+
+# --- no question check looks for a question mark --------------------
+
+
+def test_no_question_check_looks_for_a_question_mark() -> None:
+    """Catches a check that went back to finding "?" in the reply text: the
+    writer's mark is the only source, so the literal must not appear in the
+    code that decides whether a reply asks."""
+    root = Path(postcheck_module.__file__).parent
+    for source in (root / "postcheck.py", root / "nodes" / "compose_reply.py"):
+        text = source.read_text()
+        assert '"?"' not in text, source.name
+        assert "'?'" not in text, source.name

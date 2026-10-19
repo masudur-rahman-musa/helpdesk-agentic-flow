@@ -454,3 +454,50 @@ def test_a_question_after_filing_is_not_recorded(env: Env) -> None:
 
     assert CREATE in tools.names
     assert _stored_time(env, session_id) is None
+
+
+# --- the writer's mark decides what is recorded ---------------------
+
+
+def _request_without_role_composing(
+    env: Env, session_id: uuid.UUID, reply: str, *, asks: bool
+) -> TurnState:
+    """The same turn as `_request_without_role`, with the composed answer sent in
+    the shape and its mark set by the case, not read from a "?"."""
+    return _turn(
+        env,
+        session_id=session_id,
+        message="I need access to the internal wiki",
+        answers=(
+            _unclear("request_access", confidence=0.95, question=None, system="internal-wiki"),
+            json.dumps({"calls": []}),
+            json.dumps({"text": reply, "asks_question": asks}),
+        ),
+        tools=FakeTools(),
+    )
+
+
+@pytest.mark.db
+def test_a_marked_question_without_a_question_mark_is_recorded(env: Env) -> None:
+    """Catches a recording rule that still looks for "?": the answer asks, worded
+    without one and marked true, so nothing but the mark can have stored the time."""
+    session_id = uuid.uuid4()
+
+    state = _request_without_role_composing(env, session_id, "Say viewer or editor", asks=True)
+
+    assert state.reply == "Say viewer or editor"
+    assert _stored_time(env, session_id) == NOW.isoformat()
+
+
+@pytest.mark.db
+def test_an_unmarked_question_mark_is_not_recorded(env: Env) -> None:
+    """Catches a recording rule that still looks for "?": the answer holds one but
+    is marked false (a quoted question), so recording it would cap the next message."""
+    session_id = uuid.uuid4()
+
+    state = _request_without_role_composing(
+        env, session_id, "Viewer or editor? Either works for me.", asks=False
+    )
+
+    assert state.reply == "Viewer or editor? Either works for me."
+    assert _stored_time(env, session_id) is None

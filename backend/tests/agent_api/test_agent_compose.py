@@ -2,12 +2,15 @@
 
 Expected implementation surface (the implementer must provide exactly this):
 
+Since an earlier change the writer answers in the `ComposedReply` shape (`text` and
+`asks_question`) through `complete_json`, and the question checks read the mark.
+
 ``agent_api.graph.nodes.compose_reply``
     ``COMPOSITION_PROMPT = "reply_composition"`` — the prompt file shipped as
         ``services/agent-api/prompts/reply_composition.md``.
     ``async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState``
-        — exactly ONE ``deps.model.complete`` call (plain
-        ``complete``, no ``response_format``) under
+        — exactly ONE ``deps.model.complete_json`` call (``ComposedReply``,
+        strict ``response_format``) under
         ``ModelAlias.AGENT_DEFAULT``, handed the system prompt and
         the composition prompt as the only ``system`` messages and everything
         the turn gathered as ``user`` messages: the intent and
@@ -23,8 +26,9 @@ A later change adds the decision-word post-check to the same node and the same
 harness. Expected additional surface:
 
 ``agent_api.graph.nodes.compose_reply``
-    ``COMPOSITION_ATTEMPTS = 2`` — the hard bound on gateway calls from this
-        node, ever.
+    ``COMPOSITION_ATTEMPTS = 2`` — the hard bound on compose attempts from this
+        node, ever. Each attempt may retry output off the shape once, so a
+        turn may cost up to four gateway calls on bad output.
     ``compose_reply`` composes, checks the answer against
         ``postcheck.contradicts``, regenerates ONCE with the permitted words
         quoted as a ``user`` data message, checks again and falls
@@ -68,6 +72,7 @@ from helpdesk.agent_api.agent.postcheck import (
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import (
     Citation,
+    ComposedReply,
     Intent,
     IntentEntities,
     IntentExtraction,
@@ -173,6 +178,27 @@ class StagedAnswer:
     total_tokens: int = COMPOSITION_TOKENS
 
 
+def _as_composed(text: str, body: dict[str, Any]) -> str:
+    """What the gateway sends for a staged string. A request for `ComposedReply`
+    gets a plain staged reply as the shape, marked a question when it holds "?"
+    (a writer that marks honestly); a string that is already JSON goes as it is."""
+    name = body.get("response_format", {}).get("json_schema", {}).get("name")
+    if name != "ComposedReply":
+        return text
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        parsed = None
+    if isinstance(parsed, dict):
+        return text
+    return json.dumps({"text": text, "asks_question": "?" in text})
+
+
+def marked(text: str, *, asks: bool) -> str:
+    """A staged answer in the shape, with the mark set by the test, not by "?"."""
+    return json.dumps({"text": text, "asks_question": asks})
+
+
 class StagedGateway:
     """A LIST of staged answers, and a request past the list fails the test.
 
@@ -224,7 +250,7 @@ class StagedGateway:
         return httpx.Response(
             200,
             json={
-                "choices": [{"message": {"content": answer.text}}],
+                "choices": [{"message": {"content": _as_composed(answer.text, body)}}],
                 "usage": {
                     "prompt_tokens": 1,
                     "completion_tokens": answer.total_tokens - 1,
@@ -327,14 +353,15 @@ def _failed_result(code: ErrorCode = ErrorCode.SOD_CONFLICT) -> ToolResult:
 
 def test_the_composition_makes_exactly_one_call_under_the_default_alias() -> None:
     """Decisions D and E, and the only case that can see either: the call
-    succeeds whichever alias is named and whatever the body asks for, and no
-    state field records it.
+    succeeds whichever alias is named, and no state field records it.
 
     Catches a composition copied from `plan_tools` and left on
     `agent-strong` — paid on every turn that gets this far, for a call that
-    writes down a decision the policy engine and the tools already made — and
-    one wrapped in `complete_json`, which buys no structure for prose and
-    hides the `ModelAnswer` whose `total_tokens` this change needs."""
+    writes down a decision the policy engine and the tools already made.
+
+    Since an earlier change the writer returns a structured answer, so the body asks for
+    `ComposedReply`; this also catches a composition left on plain `complete`,
+    where the mark would never be asked for."""
     gateway = StagedGateway()
 
     _compose(_state(citations=[_citation()]), gateway, RecordingSession())
@@ -342,7 +369,7 @@ def test_the_composition_makes_exactly_one_call_under_the_default_alias() -> Non
     assert len(gateway.requests) == 1
     body = _body(gateway.requests[0])
     assert body["model"] == ModelAlias.AGENT_DEFAULT.value
-    assert "response_format" not in body
+    assert body["response_format"]["json_schema"]["name"] == "ComposedReply"
 
 
 def test_everything_the_turn_gathered_is_quoted_as_data_and_not_as_instructions() -> None:
@@ -913,3 +940,103 @@ def test_an_empty_next_steps_list_is_still_sent() -> None:
     assert len(found) == 1
     assert found[0]["role"] == "user"
     assert found[0]["content"] == f"{NEXT_STEPS_LABEL}:\n[]"
+
+
+# --- the writer marks its own question -----------------------------
+
+FILED_REPLY = "Filed as REQ-0107. Why wait?"
+UNMARKED_QUESTION = "Tell me if anything else comes up"
+
+
+def test_the_writer_is_asked_for_the_composed_reply_shape() -> None:
+    """Catches a composition that asks for free text or for a looser schema: the
+    mark would be missing or optional, and a forgotten mark would quietly read
+    as "no question". Pins the alias, the schema name, strict mode and the exact
+    two properties."""
+    gateway = StagedGateway()
+
+    _compose(_state(), gateway, RecordingSession())
+
+    assert len(gateway.requests) == 1
+    body = _body(gateway.requests[0])
+    schema = body["response_format"]["json_schema"]
+    assert body["model"] == "agent-default"
+    assert schema["name"] == "ComposedReply"
+    assert schema["strict"] is True
+    assert set(schema["schema"]["properties"]) == {"text", "asks_question"}
+    assert ComposedReply.model_fields.keys() == {"text", "asks_question"}
+
+
+def test_a_question_mark_the_writer_did_not_mark_is_kept() -> None:
+    """Catches a check that still looks for "?" in the text: a filed turn whose
+    answer quotes a question but is marked false would be retried and replaced."""
+    gateway = StagedGateway(text=marked(FILED_REPLY, asks=False))
+    db = RecordingSession()
+
+    result = _compose(_pending_state(), gateway, db)
+
+    assert len(gateway.requests) == 1
+    assert result.postcheck is PostCheckOutcome.PASSED
+    assert result.reply == FILED_REPLY
+    assert [row.content for row in db.messages] == [FILED_REPLY]
+
+
+def test_a_marked_question_with_no_question_mark_is_retried() -> None:
+    """Catches a check that needs a "?" to see a question: an answer marked as
+    asking, worded without one, would slip through after the request was filed."""
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=marked(UNMARKED_QUESTION, asks=True)),
+            StagedAnswer(text=marked(PENDING_REPLY, asks=False)),
+        ]
+    )
+
+    result = _compose(_pending_state(), gateway, RecordingSession())
+
+    first = _messages(gateway.requests[0])
+    added = [item for item in _messages(gateway.requests[1]) if item not in first]
+    assert len(gateway.requests) == 2
+    assert len(added) == 1
+    assert "already filed" in added[0]["content"]
+    assert "was just asked" not in added[0]["content"]
+    assert result.postcheck is PostCheckOutcome.REGENERATED
+    assert result.reply == PENDING_REPLY
+
+
+def test_a_marked_question_on_a_best_reading_turn_is_retried() -> None:
+    """Catches a best-reading check that reads the text: a marked question with
+    no "?" would be shown right after the person was already asked one."""
+    state = _state().model_copy(update={"best_reading": True})
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=marked(UNMARKED_QUESTION, asks=True)),
+            StagedAnswer(text=marked("Reading it as read access.", asks=False)),
+        ]
+    )
+
+    result = _compose(state, gateway, RecordingSession())
+
+    first = _messages(gateway.requests[0])
+    added = [item for item in _messages(gateway.requests[1]) if item not in first]
+    assert len(gateway.requests) == 2
+    assert len(added) == 1
+    assert "was just asked" in added[0]["content"]
+    assert "already filed" not in added[0]["content"]
+    assert result.postcheck is PostCheckOutcome.REGENERATED
+
+
+def test_an_answer_off_the_shape_twice_fails_the_turn() -> None:
+    """Catches a node that treats a bad shape as an empty reply or lets the
+    error escape: `{"text": "hi"}` has no mark, so after the one retry the turn
+    must end failed with the fixed sentence and no row."""
+    bad = json.dumps({"text": "hi"})
+    gateway = StagedGateway(answers=[StagedAnswer(text=bad), StagedAnswer(text=bad)])
+    db = RecordingSession()
+
+    result = _compose(_pending_state(), gateway, db)
+
+    assert len(gateway.requests) == 2
+    assert result.outcome is TurnOutcome.FAILED
+    assert result.error_code is ErrorCode.INTERNAL
+    assert result.reply == FAILURE_REPLY
+    assert db.messages == []

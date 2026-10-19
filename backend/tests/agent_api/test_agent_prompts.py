@@ -190,6 +190,19 @@ def test_the_composition_prompt_states_the_agent_does_not_decide_access() -> Non
     assert not missing, f"reply_composition.md does not state: {missing}"
 
 
+def test_the_composition_prompt_asks_for_the_question_mark() -> None:
+    """Catches a prompt left as it was: the writer would never be told to answer
+    in the shape or what the mark means, and every reply would read as no question.
+    The prompt must name both fields and say the mark is true only when the answer
+    asks the person something."""
+    text = load_prompt(COMPOSITION_PROMPT).text.lower()
+
+    assert "asks_question" in text
+    assert "`text`" in text
+    assert "true only when" in text
+    assert "asks the person" in text
+
+
 PLAN_54_PROMPT_FILES = (INTENT_PROMPT, PLANNING_PROMPT, COMPOSITION_PROMPT)
 """The three prompt files; `system.md` sits in the same folder."""
 

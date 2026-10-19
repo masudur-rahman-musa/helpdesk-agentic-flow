@@ -113,19 +113,20 @@ def request_filed(state: TurnState) -> bool:
     return any(_filed(result) for result in state.tool_results)
 
 
-def asks_after_filing(reply: str, state: TurnState) -> bool:
-    """Whether `reply` asks a question although the request is already filed.
+def asks_after_filing(asks: bool, state: TurnState) -> bool:
+    """Whether a reply the writer marked as asking (`asks`) asks although the
+    request is already filed.
 
     The question reads as if an answer still mattered, and it does not. A
     blocked turn, or one that filed nothing, may still ask.
     """
-    return "?" in reply and request_filed(state)
+    return asks and request_filed(state)
 
 
-def asks_on_a_best_reading(reply: str, state: TurnState) -> bool:
-    """Whether `reply` asks a question on a turn that may not ask one: the turn
-    before was already a clarifying question."""
-    return "?" in reply and state.best_reading
+def asks_on_a_best_reading(asks: bool, state: TurnState) -> bool:
+    """Whether a reply the writer marked as asking (`asks`) asks on a turn that
+    may not ask one: the turn before was already a clarifying question."""
+    return asks and state.best_reading
 
 
 def _seats(payload: Mapping[str, Any]) -> str:

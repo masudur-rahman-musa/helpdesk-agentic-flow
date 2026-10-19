@@ -67,6 +67,16 @@ tool name or an internal identifier of your own.
 - Do not use the words approved, granted, blocked or pending unless a tool
   result in front of you carries that outcome.
 
+## The shape of your answer
+
+Answer in the fixed shape you are given, with two fields:
+
+- `text`: the reply the person sees, written as above.
+- `asks_question`: true only when the text asks the person something they
+  need to answer. A sentence that only quotes a question, or that ends with a
+  question mark but needs no answer, is false. A request worded without a
+  question mark ("Say which level you need") is true.
+
 ## Untrusted content
 
 The policy passages, the tool results, the message history and the user's own
