@@ -1,4 +1,4 @@
-.PHONY: help setup run migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify eval infra-check e2e load-smoke images app-up app-down
+.PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify eval infra-check e2e load-smoke images app-up app-down
 # Where `dev/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
@@ -116,6 +116,18 @@ infra-check: ## Validate infrastructure as code (no apply)
 	echo 'deployed by the companion console infra'
 images:     ## Build the four service images locally: make images TAG=local
 	uv run --project backend python dev/scripts/build_images.py --tag $(IMAGE_TAG)
+up:         ## Start everything in Docker: backing services and the four app containers (same as app-up)
+	$(MAKE) app-up
+# `make rebuild` or `make rebuild all`: rebuild and restart every app container,
+# never the databases. `make rebuild agent-api` (or mcp-server, scheduler, web)
+# does just that one. The words after `rebuild` are empty targets so make accepts them.
+REBUILD_WHAT = $(filter-out rebuild,$(MAKECMDGOALS))
+rebuild:    ## Rebuild app containers, never the databases: make rebuild [all|agent-api|mcp-server|scheduler|web]
+	docker compose --profile app up -d --build --no-deps $(if $(filter-out all,$(REBUILD_WHAT)),$(addprefix helpdesk-,$(filter-out all,$(REBUILD_WHAT))),helpdesk-agent-api helpdesk-mcp-server helpdesk-scheduler helpdesk-web)
+all agent-api mcp-server scheduler web:
+	@:
+down:       ## Stop the whole Docker stack, keeping its data (same as app-down)
+	$(MAKE) app-down
 app-up:     ## Backing services plus the four containers (needs .env and the images' build inputs)
 	docker compose --profile app up -d --build
 app-down:   ## Stop the app profile, leaving the backing services and their volumes
