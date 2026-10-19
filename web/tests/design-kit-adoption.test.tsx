@@ -246,6 +246,7 @@ const AUDIT_EVENT: Record<string, unknown> = {
   event_type: "grant.created",
   subject_type: "grant",
   subject_id: "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa",
+  subject_number: null,
   payload: { fake_note: "fake detail" },
   hash: "ab".repeat(32),
 };
