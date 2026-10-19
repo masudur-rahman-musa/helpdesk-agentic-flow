@@ -169,6 +169,34 @@ describe("ChatPanel tool steps and the show_tool_steps setting", () => {
   });
 });
 
+describe("ChatPanel page width", () => {
+  it.each([false, true])(
+    "the chat page fills the shell width (tool steps shown: %s)",
+    async (steps) => {
+      // Catches a panel that keeps its own width cap or centring: the page would
+      // be narrower than the top bar, leaving a gap on the left. The outer box is
+      // the parent of the chat list; with steps on, the side column is awaited so
+      // the setting has been read before the classes are checked.
+      showToolSteps = steps;
+      render(
+        <QueryProvider>
+          <ChatPanel />
+        </QueryProvider>,
+      );
+      await waitFor(() => expect(meCalls).toBeGreaterThan(0));
+      if (steps) {
+        await screen.findByRole("complementary");
+      }
+
+      const outer = screen.getByRole("navigation", { name: "Chats" }).parentElement;
+      expect(outer).not.toBeNull();
+      expect(outer).not.toHaveClass("max-w-5xl");
+      expect(outer).not.toHaveClass("max-w-[88rem]");
+      expect(outer).not.toHaveClass("mx-auto");
+    },
+  );
+});
+
 /** Open the chat and send one message, without sending any stream frame. */
 async function sendOnly(): Promise<void> {
   render(

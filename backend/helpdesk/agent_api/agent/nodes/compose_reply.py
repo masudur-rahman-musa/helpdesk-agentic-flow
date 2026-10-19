@@ -5,7 +5,7 @@ default model. A post-check, not a bigger model, catches a reply that
 contradicts the result: each decision word must match what the turn returned.
 A contradiction is retried once with the allowed words quoted, and so is a
 question asked after the request was filed. A second one ends on a fixed
-template.
+sentence built from the turn's own results.
 
 Everything the turn gathered goes in as `user` data, never `system`, since
 it includes tool output and policy text. Failures reach the model as plain
@@ -20,9 +20,9 @@ from typing import Any
 from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from helpdesk.agent_api.agent.postcheck import (
-    POSTCHECK_FALLBACK_REPLY,
     asks_after_filing,
     contradicts,
+    outcome_reply,
     permitted_words,
 )
 from helpdesk.agent_api.agent.prompts import load_prompt
@@ -121,7 +121,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     ]
 
     spent = 0
-    reply = POSTCHECK_FALLBACK_REPLY
+    reply = outcome_reply(state)
     postcheck = PostCheckOutcome.FALLBACK
 
     asked = False

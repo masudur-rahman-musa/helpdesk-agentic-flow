@@ -8,8 +8,9 @@ is on whole lowercase words, so `approvals` never matches `approved`.
 
 import re
 from collections.abc import Mapping
+from typing import Any
 
-from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.policy.types import Decision
 
@@ -42,8 +43,16 @@ POSTCHECK_FALLBACK_REPLY = (
     "open the requests page to see where this stands, or ask the service desk "
     "to look at it with you."
 )
-"""What a reply that contradicted twice ends on. It claims no outcome and
-uses none of the decision words."""
+"""What a reply that contradicted twice ends on when the turn returned no
+outcome. It claims none and uses none of the decision words."""
+
+SEAT_NAMES: Mapping[str, str] = {
+    "department_manager": "Department manager",
+    "system_owner": "System owner",
+    "it_admin": "IT admin",
+    "hr": "HR",
+}
+"""Approver seats as the web app labels them, so the reply matches the card."""
 
 
 def words_in(text: str) -> frozenset[str]:
@@ -86,21 +95,22 @@ _FILED_STATUSES = frozenset(
         RequestStatus.EXECUTED.value,
     }
 )
-_FILED_DECISIONS = frozenset({Decision.APPROVAL.value, Decision.AUTO.value})
+
+
+def _filed(result: ToolResult) -> bool:
+    """Whether one result filed or granted a request. A bare `decision` is a
+    classification and files nothing."""
+    return result.ok and (
+        result.payload.get("status") in _FILED_STATUSES
+        or result.payload.get("grant_id") is not None
+    )
 
 
 def request_filed(state: TurnState) -> bool:
     """Whether a successful call this turn already filed or granted a request."""
     if state.outcome is TurnOutcome.AWAIT_APPROVAL:
         return True
-    return any(
-        result.ok
-        and (
-            result.payload.get("status") in _FILED_STATUSES
-            or result.payload.get("decision") in _FILED_DECISIONS
-        )
-        for result in state.tool_results
-    )
+    return any(_filed(result) for result in state.tool_results)
 
 
 def asks_after_filing(reply: str, state: TurnState) -> bool:
@@ -110,3 +120,82 @@ def asks_after_filing(reply: str, state: TurnState) -> bool:
     blocked turn, or one that filed nothing, may still ask.
     """
     return "?" in reply and request_filed(state)
+
+
+def _seats(payload: Mapping[str, Any]) -> str:
+    """The approver seats in `payload` as one phrase, or empty when there are none."""
+    approvers = payload.get("required_approvers")
+    if not isinstance(approvers, list):
+        return ""
+    names = [
+        SEAT_NAMES[slot]
+        for approver in approvers
+        if isinstance(approver, dict)
+        and isinstance(slot := approver.get("slot"), str)
+        and slot in SEAT_NAMES
+    ]
+    if len(names) < 2:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _from(payload: Mapping[str, Any]) -> str:
+    seats = _seats(payload)
+    return f" from the {seats}" if seats else ""
+
+
+def _lasting(payload: Mapping[str, Any]) -> str:
+    days = payload.get("effective_expiry_days")
+    if isinstance(days, int) and not isinstance(days, bool) and days > 0:
+        return f" It would last {days} days."
+    return ""
+
+
+def _filed_reply(payload: Mapping[str, Any]) -> str | None:
+    """The sentence for a filed request, or `None` for a status with no sentence."""
+    status = payload.get("status")
+    if payload.get("grant_id") is not None or status == RequestStatus.EXECUTED.value:
+        return "Your access is granted. You can find it on the requests page."
+    if status == RequestStatus.APPROVED.value:
+        return "Your request is approved, and the access is being set up."
+    if status == RequestStatus.PENDING.value:
+        return f"Your request is filed and waits for approval{_from(payload)}."
+    return None
+
+
+def _classified_reply(payload: Mapping[str, Any]) -> str | None:
+    """The sentence for a classification that filed nothing."""
+    decision = payload.get("decision")
+    if decision == Decision.BLOCKED.value:
+        return "This request is blocked by policy, so nothing was filed."
+    if decision == Decision.APPROVAL.value:
+        return (
+            f"Nothing is filed yet. This access needs approval{_from(payload)}.{_lasting(payload)}"
+        )
+    if decision == Decision.AUTO.value:
+        return (
+            "Nothing is filed yet. This access can be given without anyone "
+            f"else signing off.{_lasting(payload)}"
+        )
+    return None
+
+
+def outcome_reply(state: TurnState) -> str:
+    """The last-resort reply, said from the turn's own results with no model call.
+
+    A filed request wins over a classification, and the latest result wins
+    within each. Each sentence uses only the decision words its result earns
+    and asks nothing, so it passes the check it replaces. A turn with no
+    usable outcome gets the generic text. Pinned by
+    `test_the_last_reply_names_what_the_turn_did`.
+    """
+    ok = [result for result in reversed(state.tool_results) if result.ok]
+    for result in ok:
+        if _filed(result) and (reply := _filed_reply(result.payload)) is not None:
+            return reply
+    if state.outcome is TurnOutcome.AWAIT_APPROVAL:
+        return "Your request is filed and waits for approval."
+    for result in ok:
+        if (reply := _classified_reply(result.payload)) is not None:
+            return reply
+    return POSTCHECK_FALLBACK_REPLY

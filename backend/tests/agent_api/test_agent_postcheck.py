@@ -38,7 +38,9 @@ from helpdesk.agent_api.agent.postcheck import (
     POSTCHECK_FALLBACK_REPLY,
     asks_after_filing,
     contradicts,
+    outcome_reply,
     permitted_words,
+    request_filed,
     words_in,
 )
 from helpdesk.agent_api.agent.state import PostCheckOutcome, ToolResult, TurnOutcome, TurnState
@@ -358,7 +360,7 @@ def test_a_turn_records_a_passed_post_check_until_something_says_otherwise() -> 
         pytest.param(
             "Done. Do you need anything else?",
             (_result({"decision": Decision.AUTO.value}),),
-            True,
+            False,
             id="question-after-an-auto-decision",
         ),
         pytest.param(
@@ -395,3 +397,137 @@ def test_a_reply_may_not_ask_a_question_once_the_request_is_filed(
     person's answer still mattered, and it does not. A blocked turn and a turn
     that filed nothing may still ask, so the rule cannot be a bare `?` check."""
     assert asks_after_filing(reply, _state(tool_results=tool_results)) is expected
+
+
+# --- a classification is not a filing ------------------------------------------
+
+
+def _classify(payload: dict[str, Any], *, ok: bool = True) -> ToolResult:
+    """The answer of `classify_access_request`: a decision, nothing filed."""
+    return ToolResult(tool="classify_access_request", ok=ok, payload=payload)
+
+
+SEATS_MANAGER_AND_ADMIN = [
+    {"slot": "department_manager", "user_id": None},
+    {"slot": "it_admin", "user_id": None},
+]
+
+
+@pytest.mark.parametrize("decision", [Decision.APPROVAL.value, Decision.AUTO.value])
+def test_a_classification_alone_is_not_a_filed_request(decision: str) -> None:
+    """Catches a `request_filed` that counts a bare `decision` as a filing: the
+    model's natural "Shall I file it for you?" would then be refused twice and
+    the turn would end on the fixed fallback text."""
+    state = _state(
+        tool_results=(
+            _classify(
+                {
+                    "decision": decision,
+                    "required_approvers": SEATS_MANAGER_AND_ADMIN,
+                    "effective_expiry_days": 30,
+                }
+            ),
+        )
+    )
+
+    assert request_filed(state) is False
+    assert asks_after_filing("Shall I file it for you?", state) is False
+
+
+# --- the last reply, built from the turn's own results -------------------------
+
+_PENDING_FILED = _result(
+    {
+        "request_id": "r1",
+        "status": RequestStatus.PENDING.value,
+        "decision": Decision.APPROVAL.value,
+        "required_approvers": SEATS_MANAGER_AND_ADMIN,
+        "effective_expiry_days": 30,
+    }
+)
+_GRANTED_FILED = _result(
+    {
+        "request_id": "r2",
+        "status": RequestStatus.EXECUTED.value,
+        "decision": Decision.AUTO.value,
+        "grant_id": str(GRANT_ID),
+        "effective_expiry_days": 14,
+    }
+)
+_BLOCKED = _classify({"decision": Decision.BLOCKED.value, "required_approvers": []})
+_CLASSIFIED_ONLY = _classify(
+    {
+        "decision": Decision.APPROVAL.value,
+        "required_approvers": SEATS_MANAGER_AND_ADMIN,
+        "effective_expiry_days": 30,
+    }
+)
+
+
+def _reply_rows() -> list[Any]:
+    return [
+        pytest.param((_PENDING_FILED,), id="pending"),
+        pytest.param((_GRANTED_FILED,), id="granted"),
+        pytest.param((_BLOCKED,), id="blocked"),
+        pytest.param((_CLASSIFIED_ONLY,), id="classified-only"),
+        pytest.param((), id="no-results"),
+    ]
+
+
+def test_the_last_reply_names_what_the_turn_did() -> None:
+    """Catches a last reply that stays generic (or claims the wrong outcome):
+    the chat would disagree with the decision card under it."""
+    pending = outcome_reply(_state(tool_results=(_PENDING_FILED,)))
+    assert "Department manager" in pending
+    assert "IT admin" in pending
+    assert "approval" in pending.lower()
+    assert "not filed" not in pending.lower()
+
+    granted = outcome_reply(_state(tool_results=(_GRANTED_FILED,)))
+    assert "granted" in granted.lower()
+    assert "approval" not in granted.lower()
+
+    blocked = outcome_reply(_state(tool_results=(_BLOCKED,)))
+    assert "blocked" in blocked.lower()
+    assert "nothing was filed" in blocked.lower()
+
+    classified = outcome_reply(_state(tool_results=(_CLASSIFIED_ONLY,)))
+    assert "not filed yet" in classified.lower() or "nothing is filed yet" in classified.lower()
+    assert "Department manager" in classified
+    assert "IT admin" in classified
+    assert "granted" not in classified.lower()
+
+    assert outcome_reply(_state()) == POSTCHECK_FALLBACK_REPLY
+
+
+@pytest.mark.parametrize("tool_results", _reply_rows())
+def test_every_last_reply_passes_its_own_check(tool_results: tuple[ToolResult, ...]) -> None:
+    """Catches a last reply that uses a decision word the turn did not earn,
+    asks a question, is empty, or is too long to store: it would fail the very
+    check it answers, on the path taken when everything else went wrong."""
+    state = _state(tool_results=tool_results)
+    reply = outcome_reply(state)
+
+    assert contradicts(reply, state) is False
+    assert asks_after_filing(reply, state) is False
+    assert "?" not in reply
+    assert reply.strip() != ""
+    assert len(reply) < MAX_MESSAGE_CHARS
+
+
+def test_the_last_reply_ignores_failed_results() -> None:
+    """Catches a last reply that reads a failed call's payload: it would tell the
+    person their request waits for approval when the call never succeeded."""
+    state = _state(
+        tool_results=(
+            _result(
+                {"request_id": "r1", "status": RequestStatus.PENDING.value},
+                ok=False,
+            ),
+        )
+    )
+
+    reply = outcome_reply(state)
+
+    assert reply == POSTCHECK_FALLBACK_REPLY
+    assert "approval" not in reply.lower()

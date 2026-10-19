@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import type { ChatSummary } from "@/features/chat/components/types";
 
 /**
- * The left column: "New chat" and the past chats, in the order given (the
+ * The left column, on a lighter shade of the muted colour so it reads as its
+ * own part: "New chat" and the past chats, in the order given (the
  * server sends newest first). `chats` is `undefined` while loading. A failed
  * list shows an alert and leaves "New chat" working.
  */
@@ -21,7 +22,10 @@ export function ChatList({
   failed: boolean;
 }) {
   return (
-    <nav aria-label="Chats" className="flex w-full flex-col gap-2 lg:w-64 lg:shrink-0">
+    <nav
+      aria-label="Chats"
+      className="flex w-full flex-col gap-2 rounded-md bg-muted/50 p-2 lg:w-64 lg:shrink-0"
+    >
       <Button type="button" variant="secondary" onClick={onNew}>
         New chat
       </Button>

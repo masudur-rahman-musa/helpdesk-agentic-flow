@@ -60,7 +60,11 @@ from helpdesk.agent_api.agent.nodes.compose_reply import (
     compose_reply,
 )
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
-from helpdesk.agent_api.agent.postcheck import POSTCHECK_FALLBACK_REPLY, permitted_words
+from helpdesk.agent_api.agent.postcheck import (
+    POSTCHECK_FALLBACK_REPLY,
+    outcome_reply,
+    permitted_words,
+)
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import (
     Citation,
@@ -661,11 +665,11 @@ def test_a_second_contradicting_reply_ends_the_turn_on_the_template() -> None:
     result = _compose(_pending_state(tokens_used=1000), gateway, db)
 
     assert len(gateway.requests) == 2
-    assert result.reply == POSTCHECK_FALLBACK_REPLY
+    assert result.reply == outcome_reply(_pending_state())
     assert result.postcheck is PostCheckOutcome.FALLBACK
     assert result.outcome is TurnOutcome.DONE
     assert len(db.messages) == 1
-    assert db.messages[0].content == POSTCHECK_FALLBACK_REPLY
+    assert db.messages[0].content == outcome_reply(_pending_state())
     assert result.tokens_used == 1000 + COMPOSITION_TOKENS + REGENERATION_TOKENS
 
 
@@ -793,3 +797,52 @@ def test_a_question_after_a_filed_request_is_regenerated_with_its_own_note() -> 
     assert [row.content for row in db.messages] == [PENDING_REPLY]
     assert len(added) == 1
     assert "question" in added[0]["content"]
+
+
+def test_a_twice_refused_reply_on_a_pending_request_says_it_waits_for_approval() -> None:
+    """Catches a fallback that stores the generic "something went wrong" text
+    over a filed request: the chat would disagree with the card beside it."""
+    state = _pending_state()
+    expected = outcome_reply(state)
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=CONTRADICTING_REPLY, total_tokens=COMPOSITION_TOKENS),
+            StagedAnswer(text=SECOND_CONTRADICTING_REPLY, total_tokens=REGENERATION_TOKENS),
+        ]
+    )
+    db = RecordingSession()
+
+    result = _compose(state, gateway, db)
+
+    assert expected != POSTCHECK_FALLBACK_REPLY
+    assert result.reply == expected
+    assert [row.content for row in db.messages] == [expected]
+    assert result.postcheck is PostCheckOutcome.FALLBACK
+
+
+def test_a_question_after_a_classification_is_kept() -> None:
+    """Catches a check that still counts a classification as a filing: the
+    natural "Shall I file it?" would be regenerated and then replaced."""
+    asking = "Wiki editor needs your manager's approval. Shall I file it?"
+    state = _state(
+        tool_results=[
+            ToolResult(
+                tool="classify_access_request",
+                ok=True,
+                payload={
+                    "decision": "approval",
+                    "required_approvers": [{"slot": "department_manager", "user_id": None}],
+                    "effective_expiry_days": 30,
+                },
+            )
+        ]
+    )
+    gateway = StagedGateway(text=asking)
+    db = RecordingSession()
+
+    result = _compose(state, gateway, db)
+
+    assert len(gateway.requests) == 1
+    assert result.postcheck is PostCheckOutcome.PASSED
+    assert result.reply == asking
+    assert [row.content for row in db.messages] == [asking]

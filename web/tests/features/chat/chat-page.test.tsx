@@ -573,6 +573,67 @@ describe("ChatPanel — the decision card", () => {
     expect(region).not.toHaveTextContent(/\d{4}-\d{2}-\d{2}/);
   });
 
+  it("an unfiled card says not filed yet and who would approve", async () => {
+    // Catches a card that shows an unfiled decision with the filed wording:
+    // "assigned" beside a request that does not exist. The two seats differ in
+    // `resolved`, so a card that only changes the wording for one of them fails.
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+    await send();
+
+    stream.push(
+      "reply",
+      reply(
+        {
+          ...classifiedCard(),
+          decision: "approval",
+          approvers: [
+            { slot: "department_manager", resolved: true },
+            { slot: "it_admin", resolved: false },
+          ],
+        },
+        "done",
+      ),
+    );
+    stream.push("done", {});
+    stream.close();
+
+    const region = await screen.findByRole("region", { name: "Decision" });
+    expect(region).toHaveTextContent("Not filed yet");
+    const seats = within(within(region).getByRole("list", { name: "Approvers" })).getAllByRole(
+      "listitem",
+    );
+    expect(seats).toHaveLength(2);
+    for (const seat of seats) {
+      expect(seat).toHaveTextContent("would approve");
+      expect(seat).not.toHaveTextContent("assigned");
+    }
+  });
+
+  it("a filed card never says not filed yet", async () => {
+    // Catches a card that prints "Not filed yet" (or "would approve") on a filed
+    // request, which would tell the person their filed request does not exist.
+    const stream = scriptedStream();
+    streamAnswer = () => stream.response();
+    renderPanel();
+    await send();
+
+    stream.push("reply", reply(filedCard()));
+    stream.push("done", {});
+    stream.close();
+
+    const region = await screen.findByRole("region", { name: "Decision" });
+    expect(region).not.toHaveTextContent("Not filed yet");
+    expect(region).not.toHaveTextContent("would approve");
+    const seats = within(within(region).getByRole("list", { name: "Approvers" })).getAllByRole(
+      "listitem",
+    );
+    expect(seats[0]).toHaveTextContent("assigned");
+    expect(seats[0]).not.toHaveTextContent("not yet assigned");
+    expect(seats[1]).toHaveTextContent("not yet assigned");
+  });
+
   it("a turn with no decision renders no card", async () => {
     // The common turn: a policy question decided nothing about access, so
     // `decision_card` answered `None` and the wire carries `decision: null`.

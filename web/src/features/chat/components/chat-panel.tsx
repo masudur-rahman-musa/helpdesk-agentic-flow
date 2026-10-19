@@ -28,7 +28,8 @@ import { readTurnStream, refusalCode } from "@/features/chat/turn-stream";
 import { Alert } from "@/components/ui/alert";
 
 /**
- * The chat page. The chat list sits in a left column. `chatId` is the chat a
+ * The chat page. It fills the shell's width, so the chat list in the left
+ * column lines up with the top bar. `chatId` is the chat a
  * message goes to (null is a new chat; the first reply names it), and `openedId`
  * is the chat whose history is read, which only a click on the list sets, so a
  * new chat's own lines are never read back on top of themselves. History is a
@@ -169,11 +170,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div
-      className={`mx-auto flex min-h-[calc(100dvh-var(--shell-offset))] w-full flex-col gap-4 lg:flex-row ${
-        showSteps ? "max-w-[88rem]" : "max-w-5xl"
-      }`}
-    >
+    <div className="flex min-h-[calc(100dvh-var(--shell-offset))] w-full flex-col gap-4 lg:flex-row">
       <ChatList
         chats={chatList.data}
         activeId={chatId}

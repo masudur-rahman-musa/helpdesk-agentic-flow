@@ -137,6 +137,26 @@ async function send(text: string): Promise<void> {
 }
 
 describe("ChatList", () => {
+  it("the chat list sits on its own muted background", () => {
+    // Catches a column left on the page background (or given a hard new colour):
+    // it must read as its own part, close to the page, from the theme's muted
+    // token at half strength, with rounded corners.
+    render(
+      <ChatList
+        chats={[]}
+        activeId={null}
+        onOpen={() => undefined}
+        onNew={() => undefined}
+        failed={false}
+      />,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Chats" });
+    expect(nav).toHaveClass("bg-muted/50");
+    expect(nav).toHaveClass("rounded-md");
+    expect(nav).not.toHaveClass("bg-background");
+  });
+
   it("shows the titles in the order the server gave, not sorted again", () => {
     // Catches a list that re-sorts (by title or by id): the order given is
     // "Zeta" before "Alpha", the reverse of alphabetical, so only a list that
