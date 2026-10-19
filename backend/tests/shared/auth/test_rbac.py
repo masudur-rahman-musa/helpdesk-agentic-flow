@@ -215,6 +215,15 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
+    "set_tool_steps_visible": {
+        "employee": None,
+        "manager": None,
+        "system_owner": None,
+        "hr": None,
+        "it_admin": None,
+        "auditor": None,
+        "platform_admin": "any",
+    },
     # The READ half of the row above, with the same single cell. Only
     # `platform_admin` may open `/admin/killswitch`, so a read whose audience is wider than the
     # write's would show six

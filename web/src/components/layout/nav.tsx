@@ -22,6 +22,7 @@ const LINKS = [
   { key: "killswitch", href: "/admin/killswitch", name: "Kill switch" },
   { key: "rules", href: "/admin/rules", name: "Rules" },
   { key: "policies", href: "/admin/policies", name: "Policies" },
+  { key: "settings", href: "/admin/settings", name: "Settings" },
 ] as const;
 
 /** Open to every principal; what the nav shows until `/api/me` answers. */

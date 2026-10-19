@@ -320,6 +320,10 @@ MUTATING_TOOL_NAMES = frozenset(
         # `run_once`, so a retried toggle replays the stored response and
         # writes `tool.replayed` instead of running twice.
         "set_kill_switch",
+        # `set_tool_steps_visible` writes the tenant's settings, so it is keyed
+        # and runs through `run_once` like `set_kill_switch`: a retried switch
+        # replays the stored answer instead of writing twice.
+        "set_tool_steps_visible",
         #
         # `list_kill_switches` does NOT belong here, and for
         # the plainer reason — the board is a READ. It issues one `MGET` and

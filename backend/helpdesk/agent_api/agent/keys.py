@@ -84,6 +84,18 @@ def derive_kill_switch_key(
     return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
 
 
+def derive_tool_steps_key(*, admin_user_id: uuid.UUID, visible: bool, minute: datetime) -> str:
+    """The key for one web change of the tool-steps switch.
+
+    The switch may rightly be set the same way twice over time and keys live
+    for days, so the minute is in it: a double click replays, a later change
+    is new. The caller passes the minute; no clock here.
+    """
+    stamp = minute.replace(second=0, microsecond=0).isoformat()
+    material = _SEPARATOR.join([str(admin_user_id), "tool_steps", str(visible), stamp])
+    return check_idempotency_key(str(uuid.uuid5(KEY_NAMESPACE, material)))
+
+
 def check_idempotency_key(value: str) -> str:
     """The key back, or a typed refusal before it is sent. Too long fails only
     after the change ran; empty would be shared by every call."""
@@ -103,4 +115,5 @@ __all__ = [
     "derive_kill_switch_key",
     "derive_notification_read_key",
     "derive_review_decision_key",
+    "derive_tool_steps_key",
 ]

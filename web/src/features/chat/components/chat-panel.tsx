@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 
+import { useMe } from "@/features/auth/api";
 import { postChatMessage, useChatHistory } from "@/features/chat/api";
 import { Citations } from "@/features/chat/components/citations";
 import { Composer } from "@/features/chat/components/composer";
@@ -27,11 +28,15 @@ import { Alert } from "@/components/ui/alert";
 /**
  * The chat page. History is a cached query; the live turn is local state, since
  * a stream has no cache key. The decision card, steps and citations belong to
- * the latest turn and clear on a new send or an error. The composer starts with
+ * the latest turn and clear on a new send or an error. The steps sit in a column
+ * beside the chat, level with the composer, and drop under it on a narrow
+ * screen. The composer starts with
  * `?ask=` from a renewal link but never sends on its own.
  */
 export function ChatPanel() {
   const history = useChatHistory();
+  // Steps show only when a platform admin turned them on; until `me` answers, they stay hidden.
+  const showSteps = useMe()?.show_tool_steps === true;
   const [turn, setTurn] = useState<ChatMessage[]>([]);
   const [live, setLive] = useState("");
   const [steps, setSteps] = useState<StepEvent[]>([]);
@@ -140,24 +145,38 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-var(--shell-offset))] w-full max-w-3xl flex-col gap-4">
-      <h1 className="text-lg font-semibold">Chat</h1>
+    <div
+      className={`mx-auto flex min-h-[calc(100dvh-var(--shell-offset))] w-full flex-col gap-4 lg:flex-row ${
+        showSteps ? "max-w-6xl" : "max-w-3xl"
+      }`}
+    >
+      <div className="flex min-w-0 flex-1 flex-col gap-4">
+        <h1 className="text-lg font-semibold">Chat</h1>
 
-      <Conversation messages={messages} live={live} />
+        <Conversation messages={messages} live={live} />
 
-      {failure !== null ? <Alert tone="destructive">{failureMessage(failure)}</Alert> : null}
+        {failure !== null ? <Alert tone="destructive">{failureMessage(failure)}</Alert> : null}
 
-      {decision !== null ? <DecisionCard card={decision} /> : null}
-      <ToolSteps steps={steps} />
-      <Citations citations={citations} />
+        {decision !== null ? <DecisionCard card={decision} /> : null}
+        <Citations citations={citations} />
 
-      <div className="sticky bottom-0 bg-background pb-4 pt-2">
-        <Composer
-          onSend={(message) => void send(message)}
-          onRefuse={setFailure}
-          initialValue={prefill}
-        />
+        <div className="sticky bottom-0 bg-background pb-4 pt-2">
+          <Composer
+            onSend={(message) => void send(message)}
+            onRefuse={setFailure}
+            initialValue={prefill}
+          />
+        </div>
       </div>
+
+      {showSteps ? (
+        <aside
+          aria-label="Tool steps column"
+          className="w-full lg:w-80 lg:shrink-0 lg:self-end lg:pb-4"
+        >
+          <ToolSteps steps={steps} />
+        </aside>
+      ) : null}
     </div>
   );
 }

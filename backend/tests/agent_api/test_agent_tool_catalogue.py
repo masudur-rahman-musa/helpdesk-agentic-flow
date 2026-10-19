@@ -101,9 +101,13 @@ ADMIN_TOOLS: frozenset[str] = frozenset(
         # next answer cites, so the only caller is a person on
         # `/admin/policies`, exactly as `set_kill_switch` is person-only.
         "reingest_policy_document",
+        # The tool-steps switch, person-only like `set_kill_switch`: the
+        # `/admin/settings` page asks the wire directly, and the model never
+        # sees or calls it.
+        "set_tool_steps_visible",
     }
 )
-"""The seven admin tools, which this catalogue must NOT register."""
+"""The eight admin tools, which this catalogue must NOT register."""
 
 CATALOGUED_TOOLS: frozenset[str] = frozenset(
     {

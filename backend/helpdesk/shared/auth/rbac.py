@@ -45,6 +45,7 @@ class Tool(StrEnum):
     ROLLBACK_REQUEST = "rollback_request"
     SET_KILL_SWITCH = "set_kill_switch"
     LIST_KILL_SWITCHES = "list_kill_switches"
+    SET_TOOL_STEPS_VISIBLE = "set_tool_steps_visible"
     LIST_SOD_RULES = "list_sod_rules"
     LIST_POLICY_DOCUMENTS = "list_policy_documents"
     REINGEST_POLICY_DOCUMENT = "reingest_policy_document"
@@ -228,6 +229,11 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.LIST_KILL_SWITCHES: {
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
+        # A tenant-wide choice about what the chat shows, so only the
+        # platform admin makes it. The settings tab hangs on this tool.
+        Tool.SET_TOOL_STEPS_VISIBLE: {
+            Principal.PLATFORM_ADMIN: Scope.ANY,
+        },
         # Admin setup, not history; an auditor reads what happened through
         # `search_audit`.
         Tool.LIST_SOD_RULES: {
@@ -308,6 +314,7 @@ _TAB_TOOLS: Mapping[str, Tool | None] = MappingProxyType(
         "killswitch": Tool.LIST_KILL_SWITCHES,
         "rules": Tool.LIST_SOD_RULES,
         "policies": Tool.LIST_POLICY_DOCUMENTS,
+        "settings": Tool.SET_TOOL_STEPS_VISIBLE,
     }
 )
 

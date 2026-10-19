@@ -8,7 +8,7 @@ Surface under test:
       principal STRINGS off the token (unknown strings included), not a set of
       ``Principal`` members, so the unknown-string row can be asked.
     - the keys are ``chat requests access approvals reviews notifications audit
-      killswitch rules policies``, the same ten the web's link table is keyed
+      killswitch rules policies settings``, the same eleven the web's link table is keyed
       by (``web/tests/role-nav.test.tsx`` holds the same literal list).
     - the four universal keys (``chat requests access notifications``) are
       ALWAYS returned, even for an empty or all-unknown principal list: they
@@ -31,7 +31,7 @@ from helpdesk.shared.auth.rbac import Principal, RbacDenied, Tool, authorize, ta
 
 UNIVERSAL: frozenset[str] = frozenset({"chat", "requests", "access", "notifications"})
 
-# The ten keys, as literals: the web's link table is keyed by the same list.
+# The eleven keys, as literals: the web's link table is keyed by the same list.
 ALL_KEYS: frozenset[str] = UNIVERSAL | {
     "approvals",
     "reviews",
@@ -39,6 +39,7 @@ ALL_KEYS: frozenset[str] = UNIVERSAL | {
     "killswitch",
     "rules",
     "policies",
+    "settings",
 }
 
 QUEUES: frozenset[str] = frozenset({"approvals", "reviews", "audit"})
@@ -49,7 +50,7 @@ LITERAL_ROWS: tuple[tuple[str, list[str], frozenset[str]], ...] = (
     ("manager", ["manager"], UNIVERSAL | QUEUES),
     ("system_owner", ["system_owner"], UNIVERSAL | QUEUES),
     ("hr", ["hr"], UNIVERSAL | QUEUES),
-    ("it_admin", ["it_admin"], ALL_KEYS - {"killswitch"}),
+    ("it_admin", ["it_admin"], ALL_KEYS - {"killswitch", "settings"}),
     ("auditor", ["auditor"], UNIVERSAL | {"audit"}),
     ("platform_admin", ["platform_admin"], ALL_KEYS),
     ("manager and system_owner", ["manager", "system_owner"], UNIVERSAL | QUEUES),
@@ -63,6 +64,7 @@ TAB_TOOLS: dict[str, Tool] = {
     "killswitch": Tool.LIST_KILL_SWITCHES,
     "rules": Tool.LIST_SOD_RULES,
     "policies": Tool.LIST_POLICY_DOCUMENTS,
+    "settings": Tool.SET_TOOL_STEPS_VISIBLE,
 }
 
 
@@ -97,7 +99,7 @@ def test_each_principal_sees_exactly_its_literal_tab_set(
     """Catches a tab set that is wider or narrower than the expected counts.
 
     Employee four, manager/system_owner/hr seven, it_admin nine, auditor five,
-    platform_admin ten. An implementation giving managers the two admin boards,
+    platform_admin eleven. An implementation giving managers the two admin boards,
     or it_admin the kill switch, fails its own row. The union row also pins that
     two principals never lose a tab to each other.
     """
@@ -160,8 +162,21 @@ def test_an_unknown_principal_string_never_adds_a_tab(principals: list[str]) -> 
     """Catches a matcher that honours a near-miss string.
 
     A case-folding or `startswith` match would turn `PLATFORM_ADMIN` or
-    `platform_admin ` into the real principal and open all ten tabs. The only
+    `platform_admin ` into the real principal and open all eleven tabs. The only
     known principal on any row is `employee` (or none), so the four universal
     tabs are all that may ever come back.
     """
     assert set(tabs_for(principals)) == UNIVERSAL
+
+
+@pytest.mark.parametrize("principal", [member.value for member in Principal])
+def test_settings_tab_is_for_platform_admin_only(principal: str) -> None:
+    """Catches a settings tab shown to anyone but `platform_admin`.
+
+    The expected answer is written as a literal (only `platform_admin`), not
+    derived from `authorize`, so a matrix cell widened to `it_admin` and a tab
+    tied to a wider read tool both fail the same row.
+    """
+    shown = "settings" in set(tabs_for([principal]))
+
+    assert shown is (principal == "platform_admin")

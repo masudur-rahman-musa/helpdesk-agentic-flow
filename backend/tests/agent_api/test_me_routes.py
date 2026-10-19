@@ -555,6 +555,7 @@ ME_ALL: frozenset[str] = ME_UNIVERSAL | {
     "killswitch",
     "rules",
     "policies",
+    "settings",
 }
 
 
@@ -568,6 +569,7 @@ def _me_payload(principals: list[str]) -> Mapping[str, Any]:
         "department_id": str(DEPARTMENT_ID),
         "principals": principals,
         "status": "active",
+        "show_tool_steps": False,
     }
 
 
@@ -620,6 +622,7 @@ def test_the_me_route_answers_name_principals_and_the_tabs_of_the_token(
     body = response.json()
     assert body["display_name"] == "Fake Person One"
     assert body["principals"] == principals
+    assert body["show_tool_steps"] is False
     assert set(body["tabs"]) == expected_tabs
     assert len(body["tabs"]) == len(expected_tabs)
     assert caller.calls == [(GET_ME, {})]

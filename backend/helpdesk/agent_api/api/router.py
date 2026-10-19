@@ -23,6 +23,7 @@ from helpdesk.agent_api.api.routes.admin.audit import router as audit_router
 from helpdesk.agent_api.api.routes.admin.killswitch import router as killswitch_router
 from helpdesk.agent_api.api.routes.admin.policies import router as policies_router
 from helpdesk.agent_api.api.routes.admin.rules import router as rules_router
+from helpdesk.agent_api.api.routes.admin.settings import router as settings_router
 from helpdesk.agent_api.api.routes.approvals import router as approval_router
 from helpdesk.agent_api.api.routes.auth import router as auth_router
 from helpdesk.agent_api.api.routes.chat import router as chat_router
@@ -160,6 +161,7 @@ app.include_router(review_router)
 app.include_router(notification_router)
 app.include_router(audit_router)
 app.include_router(killswitch_router)
+app.include_router(settings_router)
 app.include_router(rules_router)
 app.include_router(policies_router)
 

@@ -385,3 +385,36 @@ describe("the trigger's text", () => {
     expect(await trigger()).toHaveAttribute("aria-expanded", "false");
   });
 });
+
+describe("the name button looks clickable at rest", () => {
+  it("has a resting background class, with the hover look kept", async () => {
+    // Catches a button that only gains a background on hover (`hover:bg-muted`
+    // or `hover:bg-accent` alone), so nobody sees it is a place to click. The
+    // class list is read as whole tokens: `hover:bg-muted` does not count as
+    // `bg-muted`. The hover token stays, so hover still differs from rest.
+    renderShell();
+
+    const button = await trigger();
+
+    expect(button.classList.contains("bg-muted")).toBe(true);
+    expect(button.classList.contains("hover:bg-accent")).toBe(true);
+  });
+
+  it("still opens on a click and closes on Escape", async () => {
+    // Catches a restyle that breaks the disclosure (a button swapped for a link,
+    // or the open flag no longer following the click). Escape is the unhappy
+    // path: after it the panel must be gone and focus must be on the trigger.
+    const user = userEvent.setup();
+    renderShell();
+
+    const button = await trigger();
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(signOutButton()).not.toBeNull();
+    await user.keyboard("{Escape}");
+
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(signOutButton()).toBeNull();
+    expect(button).toHaveFocus();
+  });
+});

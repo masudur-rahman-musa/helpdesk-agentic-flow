@@ -154,6 +154,18 @@ beforeEach(() => {
   fetchStub.mockReset();
   fetchStub.mockImplementation(async (input) => {
     const url = urlOf(input);
+    if (url.includes("/api/me")) {
+      // Steps show only when the tenant turned them on, and these cases read them.
+      return new Response(
+        JSON.stringify({
+          display_name: "Fake Person One",
+          principals: ["employee"],
+          tabs: ["chat"],
+          show_tool_steps: true,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
     if (url.includes("/api/chat/messages")) {
       return new Response(JSON.stringify({ messages: historyMessages }), {
         status: 200,

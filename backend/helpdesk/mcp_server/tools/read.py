@@ -21,6 +21,7 @@ from helpdesk.shared.auth.rbac import Scope
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.grants import ActiveGrant, list_active_grants_for_user
+from helpdesk.shared.crud.tenants import find_tenant_by_id, tool_steps_visible
 from helpdesk.shared.crud.users import find_user_by_id
 from helpdesk.shared.models import (
     AccessRequest,
@@ -50,6 +51,8 @@ class GetMeOutput(BaseModel):
     department_id: uuid.UUID | None
     principals: list[str]
     status: str
+    show_tool_steps: bool
+    """The tenant's choice about the chat's steps box; off unless an admin turned it on."""
 
 
 class ListMyAccessInput(BaseModel):
@@ -67,6 +70,7 @@ async def get_me(ctx: ToolContext, args: GetMeInput) -> GetMeOutput:
     user = await find_user_by_id(ctx.session, ctx.identity.user_id)
     if user is None:
         raise NotFoundError("no such user in this tenant")
+    tenant = await find_tenant_by_id(ctx.session, ctx.identity.tenant_id)
     return GetMeOutput(
         user_id=user.id,
         tenant_id=user.tenant_id,
@@ -75,6 +79,7 @@ async def get_me(ctx: ToolContext, args: GetMeInput) -> GetMeOutput:
         department_id=user.department_id,
         principals=list(user.principals),
         status=user.status,
+        show_tool_steps=tenant is not None and tool_steps_visible(tenant),
     )
 
 

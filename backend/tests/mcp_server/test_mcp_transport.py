@@ -95,6 +95,7 @@ EXPECTED_TOOL_NAMES = {
     # group. Registered like any other tool, so this literal has to name it
     # or the wire surface and the registry disagree.
     "set_kill_switch",
+    "set_tool_steps_visible",
     # The policy corpus read, and the only tool that reaches Qdrant.
     "search_policy",
     # The review QUEUE — the read that answers "which reviews are

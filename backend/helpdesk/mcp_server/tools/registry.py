@@ -29,6 +29,7 @@ from helpdesk.mcp_server.tools import (
     rollback,
     rules,
     self_service,
+    tenant_settings,
 )
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.auth import rbac
@@ -322,6 +323,19 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=True,
         handler=killswitch.set_kill_switch,
+    ),
+    ToolSpec(
+        name=rbac.Tool.SET_TOOL_STEPS_VISIBLE.value,
+        tool=rbac.Tool.SET_TOOL_STEPS_VISIBLE,
+        description=(
+            "Show or hide the tool steps box in this tenant's chat. "
+            "show_tool_steps=true shows it; false hides it."
+        ),
+        input_model=tenant_settings.SetToolStepsVisibleInput,
+        output_model=tenant_settings.SetToolStepsVisibleOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=tenant_settings.set_tool_steps_visible,
     ),
     ToolSpec(
         # Not protected: only the tool that can undo a switch is, so this one can

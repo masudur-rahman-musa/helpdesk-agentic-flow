@@ -14,6 +14,7 @@ export const API = {
   auditSearch: "/api/admin/audit/search",
   auditVerify: "/api/admin/audit/verify",
   killSwitch: "/api/admin/killswitch",
+  settings: "/api/admin/settings",
   policies: "/api/admin/policies",
   policyReingest: "/api/admin/policies/reingest",
   rules: "/api/admin/rules",

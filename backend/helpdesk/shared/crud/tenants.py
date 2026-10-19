@@ -29,3 +29,27 @@ async def list_tenant_ids(session: AsyncSession) -> Sequence[uuid.UUID]:
     """
     result = await session.execute(select(Tenant.id).order_by(Tenant.slug))
     return list(result.scalars().all())
+
+
+TOOL_STEPS_SETTING = "show_tool_steps"
+"""The key in `tenants.settings`. A missing key means off."""
+
+
+def tool_steps_visible(tenant: Tenant) -> bool:
+    """Whether the chat shows tool steps for this tenant; off unless set to true."""
+    return tenant.settings.get(TOOL_STEPS_SETTING) is True
+
+
+async def set_tool_steps_visible(
+    session: AsyncSession, tenant_id: uuid.UUID, visible: bool
+) -> bool:
+    """Store the flag and keep every other key. False when the tenant is not found.
+
+    The dict is rebuilt, not edited in place, so SQLAlchemy sees the change.
+    """
+    tenant = await find_tenant_by_id(session, tenant_id)
+    if tenant is None:
+        return False
+    tenant.settings = {**tenant.settings, TOOL_STEPS_SETTING: visible}
+    await session.flush()
+    return True

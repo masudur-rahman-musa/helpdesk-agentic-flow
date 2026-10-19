@@ -282,6 +282,17 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # The tool-steps switch: one cell, `platform_admin` alone, like the
+    # kill switch it is modelled on.
+    "set_tool_steps_visible": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": False,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # The matrix's kill-switch BOARD row, the same single cell as the
     # write directly above: `platform_admin` alone, matching the
     # `/admin/killswitch` page. `it_admin` and `auditor` are the cells that
@@ -538,6 +549,10 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # `Scope.ANY`, so a permitted caller SUCCEEDS and the plain permitted
         # branch of the sweep is the strict assertion that pins the cell.
         "list_kill_switches",
+        # `set_tool_steps_visible` takes one bool and no id: the tenant it
+        # changes comes from the token alone, and that isolation is pinned by
+        # `test_mcp_tool_steps_visible.py`. A permitted caller SUCCEEDS.
+        "set_tool_steps_visible",
         # `list_sod_rules` takes NO arguments at all - no tenant,
         # no rule id - so there is no id for a cross-tenant call
         # to carry. Whose rules it answers comes from the TOKEN,
@@ -711,6 +726,10 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "scope": str(env.tenant_a.tenant_id),
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
+    if tool_name == "set_tool_steps_visible":
+        # Writes the default (off), so a permitted call leaves the tenant as
+        # it found it.
+        return {"show_tool_steps": False, "idempotency_key": f"fake-key-{uuid.uuid4().hex}"}
     if tool_name == "list_kill_switches":
         # No arguments at all, and no OPTIONAL ones either: the
         # input model carries no fields, so anything sent here would be

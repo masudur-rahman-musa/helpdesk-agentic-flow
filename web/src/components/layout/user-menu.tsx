@@ -63,7 +63,7 @@ export function UserMenu() {
         aria-expanded={open}
         aria-label={`${me.display_name}, ${labels}`}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-8 max-w-48 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-80"
+        className="flex h-8 max-w-48 items-center gap-1.5 rounded-md bg-muted px-2.5 text-xs text-muted-foreground hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-80"
       >
         <span className="truncate font-medium text-foreground">{me.display_name}</span>
         <span aria-hidden="true">·</span>

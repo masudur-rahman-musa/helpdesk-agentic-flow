@@ -10,6 +10,8 @@ export const meSchema = z.object({
   display_name: z.string(),
   principals: z.array(z.string()),
   tabs: z.array(z.string()),
+  /** A missing value means off, so an older answer never shows the steps. */
+  show_tool_steps: z.boolean().default(false),
 });
 
 export type Me = z.infer<typeof meSchema>;
