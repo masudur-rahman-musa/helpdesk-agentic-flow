@@ -99,7 +99,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "access_approval": 20,
     "access_blocked_sod": 10,
     "access_critical": 10,
-    "helpdesk": 32,
+    "helpdesk": 35,
     "policy_qa": 19,
     "refusal_out_of_corpus": 10,
     "clarify_ambiguous": 10,
@@ -109,7 +109,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "review": 3,
 }
 
-TOTAL_CASES = 147
+TOTAL_CASES = 150
 TOTAL_LABELS = 40
 LABELS_PER_SCORE = 8
 SCORES: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
@@ -978,3 +978,67 @@ def test_the_baseline_points_at_the_delivered_golden_set() -> None:
     assert baseline["golden_set"] == GOLDEN_SET_POINTER, (
         f"baseline.json golden_set is {baseline['golden_set']!r}, want {GOLDEN_SET_POINTER!r}"
     )
+
+
+# --- the ticket cases ----------------------------------------------------------
+
+TICKET_CASE_IDS: tuple[str, str, str] = ("help-033", "help-034", "help-035")
+TICKET_SOLVING_TOOLS: frozenset[str] = frozenset({"solve_ticket", "list_open_tickets"})
+
+
+def test_the_ticket_cases_read_only_the_callers_tickets(
+    golden_cases: tuple[GoldenCase, ...],
+) -> None:
+    """Catches a ticket case that expects a different intent, a refusal or a
+    clarifying question, or a tool call that names a person or any other
+    argument: the chat must read the token user's tickets and nothing else."""
+    for case_id in TICKET_CASE_IDS:
+        case = _case_by_id(golden_cases, case_id)
+        assert case.expected.intent == "check_my_access", case_id
+        assert case.expected.should_refuse is False, case_id
+        assert case.expected.should_clarify is False, case_id
+        assert case.expected.tool_calls is not None, case_id
+        assert [(c.name, c.arguments) for c in case.expected.tool_calls] == [
+            ("list_my_tickets", {})
+        ], case_id
+
+
+def test_the_ticket_question_case_seat_holds_a_seeded_ticket(
+    golden_cases: tuple[GoldenCase, ...], nordlicht_rows: TenantRows
+) -> None:
+    """Catches a "what happened to my ticket" case signed in as a seat with no
+    ticket: the live run would answer "none" and the case would score a wrong
+    reply as right."""
+    case = _case_by_id(golden_cases, "help-033")
+    seat = _resolve_principal(nordlicht_rows, case.principal_user)
+    crm = next(t for t in NORDLICHT.tickets if t.title == "CRM account locked")
+
+    assert case.principal_user == "seed:sales.employee.2"
+    assert case.tenant == "nordlicht"
+    assert seat is nordlicht_rows.users_by_department[crm.department][crm.user_index]
+
+
+def test_the_no_tickets_case_seat_holds_no_seeded_ticket(
+    golden_cases: tuple[GoldenCase, ...], nordlicht_rows: TenantRows
+) -> None:
+    """Catches a "no tickets" case signed in as a seat that owns a seeded
+    ticket: the tool would return it and the case would expect the opposite."""
+    case = _case_by_id(golden_cases, "help-034")
+    seat = _resolve_principal(nordlicht_rows, case.principal_user)
+    reporters = [
+        nordlicht_rows.users_by_department[t.department][t.user_index] for t in NORDLICHT.tickets
+    ]
+
+    assert case.principal_user == "seed:hr.employee.8"
+    assert case.tenant == "nordlicht"
+    assert all(seat is not reporter for reporter in reporters)
+
+
+def test_no_golden_case_calls_a_ticket_solving_tool(
+    golden_cases: tuple[GoldenCase, ...],
+) -> None:
+    """Catches a golden case that expects the chat to solve a ticket or list
+    everyone's open tickets, which would bless the agent doing an admin act."""
+    called = {call.name for case in golden_cases for call in (case.expected.tool_calls or [])}
+
+    assert called.isdisjoint(TICKET_SOLVING_TOOLS)

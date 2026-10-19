@@ -71,6 +71,13 @@ class ListMyRequestsArgs(_ToolArgs):
     limit: int = Field(default=50, description="How many requests to return, at most.")
 
 
+class ListMyTicketsArgs(_ToolArgs):
+    """`limit` copies the server's default. A test keeps the two equal. There is
+    no person argument: the tickets listed are the caller's own."""
+
+    limit: int = Field(default=50, description="How many tickets to return, at most.")
+
+
 class ListRequestableRolesArgs(_ToolArgs):
     """`limit` copies the server's default. A test keeps the two equal."""
 
@@ -219,6 +226,7 @@ TOOL_INPUTS: Mapping[str, type[BaseModel]] = MappingProxyType(
         "get_me": GetMeArgs,
         "list_my_access": ListMyAccessArgs,
         "list_my_requests": ListMyRequestsArgs,
+        "list_my_tickets": ListMyTicketsArgs,
         "list_requestable_roles": ListRequestableRolesArgs,
         "classify_access_request": ClassifyAccessRequestArgs,
         "create_access_request": CreateAccessRequestArgs,

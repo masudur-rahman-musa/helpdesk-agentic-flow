@@ -203,6 +203,27 @@ def test_the_composition_prompt_asks_for_the_question_mark() -> None:
     assert "asks the person" in text
 
 
+def test_the_intent_prompt_puts_own_tickets_under_check_my_access() -> None:
+    """Catches an intent prompt left as it was: a "what happened to my ticket"
+    message would be labelled `open_ticket` and file a new ticket instead of
+    reading the existing ones."""
+    text = load_prompt(INTENT_PROMPT).text.lower()
+    line = next(row for row in text.split("\n- ") if row.startswith("`check_my_access`"))
+
+    assert "ticket" in line
+
+
+def test_the_composition_prompt_covers_ticket_status() -> None:
+    """Catches a composition prompt that never says how to report tickets: the
+    writer could skip the ticket number or the open or solved status, stay
+    silent for a person with none, or describe someone else's ticket."""
+    text = load_prompt(COMPOSITION_PROMPT).text.lower()
+
+    assert "open or solved" in text
+    assert "no tickets" in text
+    assert "only their own" in text
+
+
 PLAN_54_PROMPT_FILES = (INTENT_PROMPT, PLANNING_PROMPT, COMPOSITION_PROMPT)
 """The three prompt files; `system.md` sits in the same folder."""
 

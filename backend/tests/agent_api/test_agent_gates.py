@@ -26,7 +26,7 @@ The same file also holds the planner's own gates:
 
 ``agent_api.graph.gates``
     ``INTENT_TOOLS: Mapping[Intent, frozenset[str]]`` — a row for EVERY
-        intent, union exactly the nineteen planner tools, ``search_policy`` in
+        intent, union exactly the twenty planner tools, ``search_policy`` in
         none of them.
     ``def allowed_tools(intent: Intent) -> frozenset[str]`` — reads the table.
     ``MAX_TOOL_CALLS = 6`` · ``MAX_CALLS_PER_ROUND = 3`` ·
@@ -413,6 +413,7 @@ PLANNER_TOOLS: frozenset[str] = frozenset(
         "get_me",
         "list_my_access",
         "list_my_requests",
+        "list_my_tickets",
         "list_requestable_roles",
         "classify_access_request",
         "create_access_request",
@@ -431,9 +432,9 @@ PLANNER_TOOLS: frozenset[str] = frozenset(
         "create_ticket",
     }
 )
-"""The nineteen tools a planner may propose, as a literal.
+"""The twenty tools a planner may propose, as a literal.
 
-`TOOL_INPUTS`' twenty minus `search_policy`, counted from the server's own
+`TOOL_INPUTS`' twenty-one minus `search_policy`, counted from the server's own
 registry: twenty-eight registered, less the six that belong to the admin tools (`search_audit`,
 `set_kill_switch`, `rollback_request`, `list_kill_switches`,
 `list_sod_rules`, `list_policy_documents`), less
@@ -460,13 +461,15 @@ PLANNED_INTENT_TOOLS: dict[str, frozenset[str]] = {
     "offboard": frozenset({"offboard_user", "create_ticket"}),
     "open_ticket": frozenset({"create_ticket"}),
     "ask_policy": frozenset(),
-    "check_my_access": frozenset({"get_me", "list_my_access", "list_my_requests"}),
+    "check_my_access": frozenset(
+        {"get_me", "list_my_access", "list_my_requests", "list_my_tickets"}
+    ),
     "ask_capabilities": frozenset({"list_requestable_roles"}),
     "approvals": frozenset({"list_pending_approvals", "approve_request", "reject_request"}),
     "review": frozenset({"open_access_review", "list_review_items", "decide_review_item"}),
     "other": frozenset(),
 }
-"""The table as a literal: fourteen rows whose union is the nineteen.
+"""The table as a literal: fourteen rows whose union is the twenty.
 
 Written out here rather than derived, so a row widened in `gates.py` — an
 approvals turn gaining `offboard_user` — is a red row rather than a tool the
@@ -499,7 +502,7 @@ def test_intent_tools_covers_exactly_every_intent() -> None:
     assert len(INTENT_TOOLS) == 14
 
 
-def test_the_union_of_the_rows_is_exactly_the_nineteen_planner_tools() -> None:
+def test_the_union_of_the_rows_is_exactly_the_twenty_planner_tools() -> None:
     """Both directions at once. Catches a tool the catalogue registers that no
     row offers — dead weight nothing can ever propose — and a row naming a
     tool the catalogue does not carry, which would be proposed and then fail
@@ -509,7 +512,7 @@ def test_the_union_of_the_rows_is_exactly_the_nineteen_planner_tools() -> None:
     union: frozenset[str] = frozenset().union(*INTENT_TOOLS.values())
 
     assert union == PLANNER_TOOLS
-    assert len(union) == 19
+    assert len(union) == 20
     assert union == set(TOOL_INPUTS) - {SEARCH_POLICY}
     assert all(SEARCH_POLICY not in row for row in INTENT_TOOLS.values())
 
@@ -691,3 +694,13 @@ def test_exhausted_outcome_refuses_only_a_turn_that_has_done_nothing(
     nothing has nothing to compose from, so composing would put the model in
     front of a user with no tool result behind it."""
     assert exhausted_outcome(result_count) is expected
+
+
+def test_a_ticket_question_may_read_tickets_but_never_solve_one() -> None:
+    """Catches a `check_my_access` row without `list_my_tickets` (the chat could
+    not answer about tickets), and a table that offers `solve_ticket` or
+    `list_open_tickets` to any intent (the model could then do an admin act)."""
+    assert "list_my_tickets" in allowed_tools(Intent.CHECK_MY_ACCESS)
+    for intent in Intent:
+        assert "solve_ticket" not in allowed_tools(intent), intent
+        assert "list_open_tickets" not in allowed_tools(intent), intent

@@ -42,12 +42,14 @@ from types import MappingProxyType
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from helpdesk.agent_api.agent.state import Citation
 from helpdesk.agent_api.agent.tool_args import (
     SEARCH_POLICY,
     SEARCH_POLICY_TOP_K,
     TOOL_INPUTS,
+    ListMyTicketsArgs,
     ListRequestableRolesArgs,
     SearchPolicyArgs,
     SearchPolicyResult,
@@ -115,6 +117,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
         "get_me",
         "list_my_access",
         "list_my_requests",
+        "list_my_tickets",
         "list_requestable_roles",
         "classify_access_request",
         "create_access_request",
@@ -134,7 +137,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
         "create_ticket",
     }
 )
-"""Every tool the agent may reach, as a literal: twenty.
+"""Every tool the agent may reach, as a literal: twenty-one.
 
 Counted from the server's own `REGISTRY` — thirty specs — less the seven
 in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools
@@ -208,7 +211,7 @@ def test_the_args_model_defaults_top_k_to_the_catalogue_constant() -> None:
     assert SearchPolicyArgs.model_fields["top_k"].default == SEARCH_POLICY_TOP_K
 
 
-def test_tool_inputs_holds_exactly_the_twenty_tools_the_agent_may_reach() -> None:
+def test_tool_inputs_holds_exactly_the_twenty_one_tools_the_agent_may_reach() -> None:
     """Catches a
     catalogue short of a tool — a name in an `INTENT_TOOLS` row that no model
     validates, so its arguments reach the server unchecked — and one that
@@ -222,7 +225,7 @@ def test_tool_inputs_holds_exactly_the_twenty_tools_the_agent_may_reach() -> Non
     mapping lets a node register a tool at runtime, and a tool registered at
     runtime is a tool the drift sweep below never compares."""
     assert set(TOOL_INPUTS) == CATALOGUED_TOOLS
-    assert len(TOOL_INPUTS) == 20
+    assert len(TOOL_INPUTS) == 21
     assert ADMIN_TOOLS.isdisjoint(TOOL_INPUTS)
     assert TOOL_INPUTS[SEARCH_POLICY] is SearchPolicyArgs
     assert isinstance(TOOL_INPUTS, MappingProxyType)
@@ -423,3 +426,35 @@ def test_list_requestable_roles_args_match_the_server_input(
     assert _required(ours) == _required(theirs) == frozenset()
     assert _properties(theirs)["limit"]["default"] == 50
     assert _properties(ours)["limit"]["default"] == _properties(theirs)["limit"]["default"]
+
+
+def test_list_my_tickets_args_match_the_server_input(
+    advertised: dict[str, Any],
+) -> None:
+    """Catches the agent's `ListMyTicketsArgs` drifting from the server's
+    input: a `limit` default that is not the server's 50, a required argument,
+    or any extra argument such as a person to look up."""
+    theirs: dict[str, Any] = advertised["list_my_tickets"].input_schema
+    ours = ListMyTicketsArgs.model_json_schema()
+
+    assert TOOL_INPUTS["list_my_tickets"] is ListMyTicketsArgs
+    assert set(_properties(ours)) == set(_properties(theirs)) == {"limit"}
+    assert _required(ours) == _required(theirs) == frozenset()
+    assert _properties(theirs)["limit"]["default"] == 50
+    assert _properties(ours)["limit"]["default"] == 50
+
+
+def test_the_agent_cannot_reach_the_ticket_solving_tools() -> None:
+    """Catches a catalogue that registers `solve_ticket` or `list_open_tickets`:
+    a tool with no entry cannot be proposed at all, which is the defence behind
+    the rights matrix."""
+    assert "solve_ticket" not in TOOL_INPUTS
+    assert "list_open_tickets" not in TOOL_INPUTS
+
+
+def test_list_my_tickets_args_refuse_a_user_id() -> None:
+    """Catches an args model that accepts a person to look up: the chat would
+    then be able to ask for another person's tickets. Identity comes from the
+    token only."""
+    with pytest.raises(ValidationError):
+        ListMyTicketsArgs.model_validate({"user_id": "33333333-3333-5333-8333-333333333333"})

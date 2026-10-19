@@ -33,6 +33,8 @@ fact before a mutation.
 - `get_me` — the calling person's own directory record.
 - `list_my_access` — the access the calling person holds right now.
 - `list_my_requests` — the access requests the calling person has filed.
+- `list_my_tickets` — the tickets the calling person has opened, with their
+  number and whether each is open or solved. It can only show their own.
 - `list_requestable_roles` — the systems and roles the calling person may ask
   for, marking the ones their department's template gives and the ones they
   already hold. Optionally one system, by its slug. When the resolved

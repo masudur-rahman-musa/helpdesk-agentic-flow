@@ -20,7 +20,7 @@ Choose exactly one `intent` from this closed list. Never invent a label.
   may have what, for how long, who approves, how approvals work, how long a
   request takes, what happens after a request is filed.
 - `check_my_access` — the person wants to see what they currently hold, or
-  where their own requests stand.
+  where their own requests or tickets stand.
 - `ask_capabilities` — the person asks what this assistant can do for them,
   what access they could ask for, or whether they may have, could get or are
   allowed a role ("am I allowed", "can I get", "am I capable of"). Nothing is
@@ -34,8 +34,8 @@ greetings and off-topic messages are `other`. A wrong label sends the turn
 down the wrong path; `other` gets a short answer and a few things to try.
 
 A question about how something works is `ask_policy`, even when it mentions a
-request. A question about where the person's own request stands is
-`check_my_access`. A question about what the person can do or ask for is
+request. A question about where the person's own request or ticket stands
+("what happened to my ticket?") is `check_my_access`. A question about what the person can do or ask for is
 `ask_capabilities`, even when it names a system or a role: "am I capable of
 approver access to KYC?" asks, it does not request. Once they say they want
 or need it, it is `request_access`.

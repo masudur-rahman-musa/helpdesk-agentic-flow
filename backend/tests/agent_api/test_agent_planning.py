@@ -145,6 +145,22 @@ def _classify() -> ProposedCall:
 # --- what a round is refused for ----------------------------------
 
 
+def test_a_proposed_solve_ticket_refuses_the_round() -> None:
+    """Catches a validator that lets the model name `solve_ticket` on a ticket
+    question: the read call beside it is legal, so only the refusal of the
+    whole round stops the chat from solving a ticket."""
+    state = _state(
+        Intent.CHECK_MY_ACCESS,
+        ProposedCall(tool="list_my_tickets", arguments={}),
+        ProposedCall(tool="solve_ticket", arguments={"ticket_id": str(TARGET_USER_ID)}),
+    )
+
+    result = _validate(state)
+
+    assert result.outcome is TurnOutcome.REFUSE
+    assert result.validated == ()
+
+
 def test_a_proposal_naming_an_unregistered_tool_is_rejected() -> None:
     """Catches a validator that looks the tool up with `.get()` and reads a
     miss as "no argument model, so nothing to check" — a name the model

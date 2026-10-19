@@ -135,7 +135,9 @@ INTENT_TOOLS: Mapping[Intent, frozenset[str]] = {
     Intent.OFFBOARD: frozenset({"offboard_user", "create_ticket"}),
     Intent.OPEN_TICKET: frozenset({"create_ticket"}),
     Intent.ASK_POLICY: frozenset(),
-    Intent.CHECK_MY_ACCESS: frozenset({"get_me", "list_my_access", "list_my_requests"}),
+    Intent.CHECK_MY_ACCESS: frozenset(
+        {"get_me", "list_my_access", "list_my_requests", "list_my_tickets"}
+    ),
     Intent.ASK_CAPABILITIES: frozenset({"list_requestable_roles"}),
     Intent.APPROVALS: frozenset({"list_pending_approvals", "approve_request", "reject_request"}),
     Intent.REVIEW: frozenset({"open_access_review", "list_review_items", "decide_review_item"}),
