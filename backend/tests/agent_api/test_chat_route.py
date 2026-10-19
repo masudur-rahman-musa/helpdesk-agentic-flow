@@ -497,6 +497,7 @@ def _card_payload() -> dict[str, Any]:
     """
     return {
         "request_id": str(REQUEST_ID),
+        "request_number": "REQ-0001",
         "status": RequestStatus.PENDING.value,
         "risk_class": CARD_RISK_CLASS,
         "decision": Decision.APPROVAL.value,

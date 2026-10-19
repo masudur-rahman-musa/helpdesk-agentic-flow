@@ -27,6 +27,7 @@ Everything the app runs is under `src/`.
   - `chat`: the chat window, tool steps and citations.
   - `notifications`: in-app notices.
   - `requests`: my requests and their status.
+  - `tickets`: my tickets, and the admin list of open tickets.
   - `reviews`: access reviews, keep or revoke.
 - `src/components/` holds pieces shared by more than one feature.
   - `src/components/ui/` holds small UI pieces: button, card, table, alert and

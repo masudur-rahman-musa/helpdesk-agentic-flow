@@ -9,10 +9,9 @@ import { tidySources } from "@/features/chat/sources";
  * The answer's sources. Text is hidden until asked for, since it can be long.
  * It renders as plain text: retrieved content is data, never markup. The box
  * takes the card color and a left border, not the reply's muted color, so it
- * reads as a note on the reply and not as a second reply
- * (`test_sources_box_has_its_own_color`). Repeated sections merge and weak
- * hits drop (`tidySources`); the score only ranks and is never printed
- * (`test_score_is_not_shown`).
+ * reads as a note on the reply and not as a second reply. Repeated sections
+ * merge and weak hits drop (`tidySources`); the score only ranks and is never
+ * printed.
  */
 export function Citations({ citations }: { citations: Citation[] }) {
   if (citations.length === 0) {

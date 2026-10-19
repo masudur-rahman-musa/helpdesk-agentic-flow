@@ -164,9 +164,24 @@ class RecordingSession:
     async def flush(self) -> None:
         return None
 
+    async def execute(self, statement: Any) -> Any:
+        """A read through the repository helper: this fake holds no rows, so
+        every lookup finds none."""
+        return _NoRows()
+
     @property
     def messages(self) -> list[Any]:
         return [row for row in self.added if hasattr(row, "role") and hasattr(row, "content")]
+
+
+class _NoRows:
+    """The answer to a read that matched nothing."""
+
+    def scalars(self) -> "_NoRows":
+        return self
+
+    def one_or_none(self) -> None:
+        return None
 
 
 @dataclass(frozen=True)

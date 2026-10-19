@@ -229,6 +229,7 @@ def _create_payload() -> dict[str, Any]:
     """An auto grant, so the turn does not pause for an approval."""
     return {
         "request_id": str(REQUEST_ID),
+        "request_number": "REQ-0001",
         "status": "approved",
         "risk_class": "low",
         "decision": "auto",

@@ -1,12 +1,11 @@
 /**
  * Tidies the Sources box under a reply. Passages from the same document,
  * version and section merge into one line that keeps the first passage's
- * place and key, with their texts joined by a blank line
- * (`test_same_document_and_section_merge_into_one`). A line whose best score
- * is below half the box's best is dropped (`test_weak_line_is_dropped`): a
+ * place and key, with their texts joined by a blank line. A line whose best
+ * score is below half the box's best is dropped: a
  * passage both search arms found scores about 0.033, one only a single arm
  * found at most about 0.016. When every score is 0 nothing is dropped, so the
- * box never goes empty for missing scores (`test_no_scores_drops_nothing`).
+ * box never goes empty for missing scores.
  */
 
 import type { Citation } from "@/features/chat/components/types";
