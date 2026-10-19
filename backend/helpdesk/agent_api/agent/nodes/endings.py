@@ -10,7 +10,7 @@ from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.state import ResolvedEntities, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.shared.crud.messages import append_message
-from helpdesk.shared.crud.sessions import set_open_question
+from helpdesk.shared.crud.sessions import set_asked_clarifying, set_open_question
 from helpdesk.shared.models.conversation import MessageRole
 
 
@@ -26,7 +26,9 @@ async def _store_reply(state: TurnState, deps: TurnDeps, reply: str) -> TurnStat
 
 
 async def ask_clarifying(state: TurnState, deps: TurnDeps) -> TurnState:
-    """End: ask the question. No search and no tool call on this path."""
+    """End: ask the question and note when, so the next message may not ask
+    again. No search and no tool call on this path."""
+    await set_asked_clarifying(deps.db, session_id=state.session_id, value=deps.now().isoformat())
     return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
 
 

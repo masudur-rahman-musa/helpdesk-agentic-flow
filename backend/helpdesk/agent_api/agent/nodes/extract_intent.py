@@ -65,7 +65,8 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
     extraction = answer.value
     tokens_used = state.tokens_used + answer.usage.total_tokens
 
-    if gates.needs_clarification(extraction):
+    outcome = gates.clarify_outcome(extraction, state.asked_before)
+    if outcome is TurnOutcome.CLARIFY:
         return state.model_copy(
             update={
                 "extraction": extraction,
@@ -81,6 +82,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             "extraction": extraction,
             "prompt_version": prompt.sha256,
             "tokens_used": tokens_used,
-            "outcome": TurnOutcome.CONTINUE,
+            "outcome": outcome,
+            "best_reading": gates.needs_clarification(extraction),
         }
     )

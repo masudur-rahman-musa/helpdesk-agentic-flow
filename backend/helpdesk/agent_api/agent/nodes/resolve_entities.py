@@ -2,7 +2,8 @@
 
 Candidates are read through the tenant-scoped repository, so only the
 caller's own tenant's systems and roles can match. A system or role is never
-guessed: one match resolves, several ask, none asks a clarifying question.
+guessed: one match resolves, several ask, none asks a clarifying question,
+or, right after one, answers with no tools.
 System and role are resolved on their own and the stricter answer wins. Roles
 are matched across the tenant when no system is named, and only inside the
 system when one system was named: "wiki editor" must not offer every editor.
@@ -71,6 +72,8 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
         if not term:
             continue
         outcome = gates.candidate_outcome(len(matches))
+        if outcome is TurnOutcome.CLARIFY and state.asked_before:
+            return state.model_copy(update={"outcome": TurnOutcome.ANSWER, "best_reading": True})
         if outcome is TurnOutcome.CLARIFY:
             return state.model_copy(update={"outcome": outcome, "reply": NOTHING_MATCHED_QUESTION})
         if outcome is TurnOutcome.DISAMBIGUATE:

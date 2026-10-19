@@ -256,6 +256,8 @@ def _after_intent(state: TurnState) -> str:
         return FAIL_TURN
     if state.outcome is TurnOutcome.CLARIFY:
         return ASK_CLARIFYING
+    if state.outcome is TurnOutcome.ANSWER:
+        return COMPOSE_REPLY
     return RESOLVE_ENTITIES
 
 
@@ -265,6 +267,8 @@ def _after_entities(state: TurnState) -> str:
         return ASK_CLARIFYING
     if state.outcome is TurnOutcome.DISAMBIGUATE:
         return ASK_DISAMBIGUATION
+    if state.outcome is TurnOutcome.ANSWER:
+        return COMPOSE_REPLY
     return RETRIEVE_POLICY
 
 
@@ -353,6 +357,7 @@ def _compile_graph(
         {
             RESOLVE_ENTITIES: RESOLVE_ENTITIES,
             ASK_CLARIFYING: ASK_CLARIFYING,
+            COMPOSE_REPLY: COMPOSE_REPLY,
             FAIL_TURN: FAIL_TURN,
         },
     )
@@ -362,6 +367,7 @@ def _compile_graph(
         {
             ASK_CLARIFYING: ASK_CLARIFYING,
             ASK_DISAMBIGUATION: ASK_DISAMBIGUATION,
+            COMPOSE_REPLY: COMPOSE_REPLY,
             RETRIEVE_POLICY: RETRIEVE_POLICY,
         },
     )

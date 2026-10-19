@@ -134,3 +134,31 @@ async def set_open_question(
         metadata[OPEN_QUESTION_KEY] = value
     row.session_metadata = metadata
     await session.flush()
+
+
+ASKED_CLARIFYING_KEY = "asked_clarifying_at"
+"""When the last clarifying question was asked, so the next one is not."""
+
+
+async def get_asked_clarifying(session: AsyncSession, *, session_id: uuid.UUID) -> object | None:
+    """The stored time as raw JSON, unchecked; `None` when there is none."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return None
+    return (row.session_metadata or {}).get(ASKED_CLARIFYING_KEY)
+
+
+async def set_asked_clarifying(
+    session: AsyncSession, *, session_id: uuid.UUID, value: str | None
+) -> None:
+    """Store the time, or drop it with `None`."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return
+    metadata = dict(row.session_metadata or {})
+    if value is None:
+        metadata.pop(ASKED_CLARIFYING_KEY, None)
+    else:
+        metadata[ASKED_CLARIFYING_KEY] = value
+    row.session_metadata = metadata
+    await session.flush()

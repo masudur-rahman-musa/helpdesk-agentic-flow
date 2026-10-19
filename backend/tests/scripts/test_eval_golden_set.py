@@ -777,14 +777,38 @@ def test_out_of_corpus_cases_refuse_and_cite_nothing(
         )
 
 
+SECOND_UNCLEAR_CASES = frozenset({"clar-005", "clar-008"})
+"""The clarify cases whose last message is a second unclear one."""
+
+
 def test_clarify_cases_ask_and_call_no_tool(golden_cases: tuple[GoldenCase, ...]) -> None:
     """Catches an ambiguous case that expects the agent to guess a system or role
-    and act, rather than asking one clarifying question first."""
+    and act, rather than asking one clarifying question first, and a one-message
+    case that does not ask. A case with two unclear messages (the cap of an earlier change)
+    asks nothing on the last and calls no tool; a longer case whose first message
+    was clear is not constrained on asking."""
     for case in (c for c in golden_cases if c.category == "clarify_ambiguous"):
-        assert case.expected.should_clarify, f"{case.id}: clarify case does not ask"
+        if len(case.messages) == 1:
+            assert case.expected.should_clarify, f"{case.id}: clarify case does not ask"
+        if case.id in SECOND_UNCLEAR_CASES:
+            assert not case.expected.should_clarify, f"{case.id}: asks a second question in a row"
         assert case.expected.tool_calls == [], (
             f"{case.id}: clarify case expects tool calls {case.expected.tool_calls}"
         )
+
+
+@pytest.mark.parametrize("case_id", ["clar-005", "clar-008"])
+def test_the_second_unclear_message_cases_expect_an_answer(
+    golden_cases: tuple[GoldenCase, ...], case_id: str
+) -> None:
+    """Catches a golden file left with the old one-message `clar-005` or `clar-008`
+    (the plan's cases for a second unclear message getting an answer, not a
+    question): each must carry two user messages and expect no clarifying question."""
+    case = _case_by_id(golden_cases, case_id)
+
+    assert len([m for m in case.messages if m.role == "user"]) == 2
+    assert case.expected.should_clarify is False
+    assert case.expected.tool_calls == []
 
 
 def test_every_judge_rubric_is_one_sentence_of_at_most_forty_words(

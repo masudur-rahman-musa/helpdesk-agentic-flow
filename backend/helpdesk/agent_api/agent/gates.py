@@ -68,6 +68,19 @@ def needs_clarification(extraction: IntentExtraction) -> bool:
     )
 
 
+def clarify_outcome(extraction: IntentExtraction, asked_before: bool) -> TurnOutcome:
+    """At most one clarifying question in a row. After a question,
+    an unclear message goes on with its best reading, or is answered with no
+    tools when something required is still missing, so nothing runs on a guess."""
+    if not needs_clarification(extraction):
+        return TurnOutcome.CONTINUE
+    if not asked_before:
+        return TurnOutcome.CLARIFY
+    if missing_required_entities(extraction):
+        return TurnOutcome.ANSWER
+    return TurnOutcome.CONTINUE
+
+
 def candidate_outcome(candidate_count: int) -> TurnOutcome:
     """None clarifies; several disambiguate, since picking one would be a
     guess."""

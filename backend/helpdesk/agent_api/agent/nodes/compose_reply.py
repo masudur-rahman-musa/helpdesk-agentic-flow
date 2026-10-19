@@ -12,15 +12,22 @@ it includes tool output and policy text. Failures reach the model as plain
 sentences, not codes. Every reply is size-checked before a row is written.
 The node never raises: a gateway failure or an oversized reply ends the turn
 as state with no row. Tokens from both calls are counted, used or not.
+
+On a best-reading turn (a clarifying question was just asked) a reply that
+asks a question is retried once, then replaced by `BEST_READING_FALLBACK`,
+and code adds the correct-me line at the end (a design note, pinned by
+`test_agent_clarify_cap.py`).
 """
 
 import json
 from typing import Any
 
+from helpdesk.agent_api.agent.clarify_cap import BEST_READING_FALLBACK, CORRECT_ME_LINE
 from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from helpdesk.agent_api.agent.postcheck import (
     asks_after_filing,
+    asks_on_a_best_reading,
     contradicts,
     outcome_reply,
     permitted_words,
@@ -80,6 +87,21 @@ def _question_note() -> dict[str, str]:
     )
 
 
+def _best_reading_note() -> dict[str, str]:
+    """The retry message for a reply that asked a question right after one was asked."""
+    return _as_data(
+        "your previous answer asked a question, but the person was just asked "
+        "one; answer with your best reading of the message as a statement "
+        "with no question",
+        [],
+    )
+
+
+def _with_correct_me(reply: str, state: TurnState) -> str:
+    """The reply, with the correct-me line added on a best-reading turn."""
+    return f"{reply}\n\n{CORRECT_ME_LINE}" if state.best_reading else reply
+
+
 def _failed(state: TurnState, exc: ToolError) -> TurnState:
     """End the turn as state, with nothing composed anywhere on it."""
     return state.model_copy(
@@ -121,14 +143,20 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     ]
 
     spent = 0
-    reply = outcome_reply(state)
+    reply = BEST_READING_FALLBACK if state.best_reading else outcome_reply(state)
     postcheck = PostCheckOutcome.FALLBACK
 
     asked = False
+    asked_again = False
     try:
         for attempt in range(COMPOSITION_ATTEMPTS):
             if attempt:
-                note = _question_note() if asked else _regeneration_note(state)
+                if asked:
+                    note = _question_note()
+                elif asked_again:
+                    note = _best_reading_note()
+                else:
+                    note = _regeneration_note(state)
                 messages = [*messages, note]
             answer = await deps.model.complete(
                 messages,
@@ -137,9 +165,10 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
                 session_id=str(state.session_id),
             )
             spent += answer.total_tokens
-            candidate = check_message_content(answer.text)
-            asked = asks_after_filing(candidate, state)
-            if not asked and not contradicts(candidate, state):
+            candidate = check_message_content(_with_correct_me(answer.text, state))
+            asked = asks_after_filing(answer.text, state)
+            asked_again = asks_on_a_best_reading(answer.text, state)
+            if not asked and not asked_again and not contradicts(answer.text, state):
                 reply = candidate
                 postcheck = (
                     PostCheckOutcome.PASSED if attempt == 0 else PostCheckOutcome.REGENERATED
@@ -147,6 +176,8 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
                 break
     except ToolError as exc:
         return _failed(state, exc)
+    if postcheck is PostCheckOutcome.FALLBACK:
+        reply = _with_correct_me(reply, state)
 
     await append_message(
         deps.db,

@@ -531,3 +531,37 @@ def test_the_last_reply_ignores_failed_results() -> None:
 
     assert reply == POSTCHECK_FALLBACK_REPLY
     assert "approval" not in reply.lower()
+
+
+# --- a question on a best reading --------------------------
+
+
+def _best_reading(state: TurnState, *, value: bool) -> TurnState:
+    return state.model_copy(update={"best_reading": value})
+
+
+@pytest.mark.parametrize(
+    ("reply", "tool_results", "expected"),
+    [
+        (
+            "How long do you need this access for?",
+            (_result({"id": "r1", "status": "pending"}),),
+            True,
+        ),
+        (
+            "Your request is with your manager.",
+            (_result({"id": "r1", "status": "pending"}),),
+            False,
+        ),
+        ("How long do you need this access for?", (), False),
+    ],
+)
+def test_asks_after_filing_ignores_best_reading(
+    reply: str, tool_results: tuple[ToolResult, ...], expected: bool
+) -> None:
+    """Catches an `asks_after_filing` that was widened to read `best_reading`
+    (merging the two checks): its answer must be the same with the flag on and off."""
+    state = _state(tool_results=tool_results)
+
+    assert asks_after_filing(reply, _best_reading(state, value=True)) is expected
+    assert asks_after_filing(reply, _best_reading(state, value=False)) is expected

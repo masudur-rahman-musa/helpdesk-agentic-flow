@@ -59,7 +59,9 @@ class IntentExtraction(BaseModel):
 class TurnOutcome(StrEnum):
     """Where the turn stands; graph edges read only this. `DONE` means reply
     now; `AWAIT_APPROVAL` means paused, read back later from a checkpoint.
-    `CONFIRM` asks "Do you mean ...?" before filing; `CONFIRMED` is the yes."""
+    `CONFIRM` asks "Do you mean ...?" before filing; `CONFIRMED` is the yes.
+    `ANSWER` skips the tools and composes now: a question was just asked and
+    something required is still missing."""
 
     CONTINUE = "continue"
     CLARIFY = "clarify"
@@ -70,6 +72,7 @@ class TurnOutcome(StrEnum):
     AWAIT_APPROVAL = "await_approval"
     CONFIRM = "confirm"
     CONFIRMED = "confirmed"
+    ANSWER = "answer"
 
 
 class PostCheckOutcome(StrEnum):
@@ -221,6 +224,13 @@ class TurnState(BaseModel):
     planning_prompt_version: str | None = None
     confirmed: bool = False
     """The person said yes to the open question, so a create round may run."""
+
+    asked_before: bool = False
+    """The turn before asked a clarifying question, so this one may not ask again."""
+
+    best_reading: bool = False
+    """The cap let an unclear message go on, so the reply must ask nothing and
+    ends with the correct-me line."""
 
     awaiting_request_id: uuid.UUID | None = None
     """The request a paused turn waits on, so a resume can refuse a mismatch.

@@ -9,8 +9,13 @@ An open "Do you mean ...?" question is read and cleared on every message, so
 it is answered once at most. A yes routes straight to `execute_tools` with
 exactly the stored calls; a bare no ends with a fixed reply; anything else
 runs the normal flow (a design note, pinned by `test_agent_confirm.py`).
+
+The time of the last clarifying question is read and cleared the same way, so
+only the very next message may not ask again (a design note, pinned by
+`test_agent_clarify_cap.py`).
 """
 
+from helpdesk.agent_api.agent.clarify_cap import parse_asked_at
 from helpdesk.agent_api.agent.confirmation import (
     NOTHING_FILED_REPLY,
     Answer,
@@ -21,8 +26,10 @@ from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.shared.crud.messages import append_message, list_recent_messages
 from helpdesk.shared.crud.sessions import (
+    get_asked_clarifying,
     get_open_question,
     get_or_create_session,
+    set_asked_clarifying,
     set_open_question,
 )
 from helpdesk.shared.models.conversation import Message, MessageRole
@@ -45,6 +52,10 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
     question = parse_open_question(raw, now=deps.now())
     if raw is not None:
         await set_open_question(db, session_id=state.session_id, value=None)
+    asked_at = await get_asked_clarifying(db, session_id=state.session_id)
+    asked_before = parse_asked_at(asked_at, now=deps.now())
+    if asked_at is not None:
+        await set_asked_clarifying(db, session_id=state.session_id, value=None)
     history = await list_recent_messages(db, state.session_id)
     await append_message(
         db,
@@ -53,7 +64,10 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
         content=state.user_message,
     )
     loaded = state.model_copy(
-        update={"history": tuple(render_message(message) for message in history)}
+        update={
+            "history": tuple(render_message(message) for message in history),
+            "asked_before": asked_before,
+        }
     )
     if question is None:
         return loaded

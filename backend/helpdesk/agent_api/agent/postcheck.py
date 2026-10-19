@@ -122,6 +122,12 @@ def asks_after_filing(reply: str, state: TurnState) -> bool:
     return "?" in reply and request_filed(state)
 
 
+def asks_on_a_best_reading(reply: str, state: TurnState) -> bool:
+    """Whether `reply` asks a question on a turn that may not ask one: the turn
+    before was already a clarifying question."""
+    return "?" in reply and state.best_reading
+
+
 def _seats(payload: Mapping[str, Any]) -> str:
     """The approver seats in `payload` as one phrase, or empty when there are none."""
     approvers = payload.get("required_approvers")
