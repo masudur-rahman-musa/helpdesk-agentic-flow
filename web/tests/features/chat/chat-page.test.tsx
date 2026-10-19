@@ -27,8 +27,8 @@ import { reasonSentence } from "@/lib/decision-labels";
  * - each message in the conversation is an element with `role="article"`
  *   carrying `data-role="user" | "assistant"`. The log's role and name were fixed
  *   but not how the two authors are told apart, and the page needs exactly that.
- * - a citation renders its `score` as the raw wire number (`0.42`), not as a
- *   percentage or a star rating.
+ * - a citation never shows its `score` (`0.42` stays off the screen); the
+ *   box uses it only to merge, rank and drop.
  * - the tool-step timeline renders exactly ONE `listitem` per `step` event;
  *   the per-tool entries inside a row are not themselves list items, so the
  *   row count is the event count.
@@ -347,7 +347,7 @@ describe("ChatPanel — the tool-step timeline", () => {
 });
 
 describe("ChatPanel — citations", () => {
-  it("shows title, version, heading path and score, and the chunk text only when expanded", async () => {
+  it("shows title, version, heading path but not the score, and the chunk text only when expanded", async () => {
     // Catches a citation list that renders the chunk text inline: a settled
     // reply then carries several hundred words of policy prose the user did not
     // ask to read, which is exactly why it is expandable. The
@@ -371,7 +371,7 @@ describe("ChatPanel — citations", () => {
     expect(screen.getByText(/v3/)).toBeInTheDocument();
     expect(screen.getByText(/Fake Section/)).toBeInTheDocument();
     expect(screen.getByText(/Fake Subsection/)).toBeInTheDocument();
-    expect(screen.getByText(/0\.42/)).toBeInTheDocument();
+    expect(screen.queryByText(/0\.42/)).toBeNull();
     expect(screen.queryByText(CITATION_TEXT)).toBeNull();
 
     await userEvent.setup().click(toggle);

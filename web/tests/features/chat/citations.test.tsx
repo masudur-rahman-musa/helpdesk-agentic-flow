@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { Citations } from "@/features/chat/components/citations";
@@ -6,7 +7,8 @@ import type { Citation } from "@/features/chat/components/types";
 
 /**
  * `citations.test.tsx`: the Sources box under a reply. It must read as a helper
- * note (its own color and a left border) and show a short score. jsdom only.
+ * note (its own color and a left border), hide the score, merge repeated
+ * sections into one line and leave weak hits out. jsdom only.
  */
 
 function citation(score: number): Citation {
@@ -41,23 +43,46 @@ describe("Citations", () => {
     expect(section).not.toHaveClass("bg-muted");
   });
 
-  it("test_score_shows_four_decimals", () => {
-    // Kills an implementation that prints the raw float, or rounds to a
-    // different number of decimals (two or three) instead of exactly four.
+  it("test_score_is_not_shown", () => {
+    // Kills an implementation that still prints the score, in any format.
     render(<Citations citations={[citation(0.030621785881252923)]} />);
 
-    expect(screen.getByText("0.0306")).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("0.030621785881252923");
-    expect(document.body.textContent).not.toContain("0.03062");
+    expect(document.body.textContent).not.toContain("0.0306");
+    expect(document.body.textContent).not.toContain("0.03");
   });
 
-  it("test_missing_score_shows_zero", () => {
-    // Kills an implementation that formats a zero score as empty, NaN or a
-    // bare "0" instead of padding to four decimals.
-    render(<Citations citations={[citation(0)]} />);
+  it("test_repeated_section_shows_once", async () => {
+    // Kills an implementation that lists each passage as its own button, or
+    // that merges them but shows only the first passage's text.
+    const rows = ["alpha text", "beta text", "gamma text"].map((text, i) => ({
+      ...citation(0.03),
+      chunkId: `00000000-0000-4000-8000-00000000000${i}`,
+      text,
+    }));
+    render(<Citations citations={rows} />);
 
-    expect(screen.getByText("0.0000")).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("NaN");
+    const buttons = screen.getAllByRole("button", { name: /Fake Access Policy/ });
+    expect(buttons).toHaveLength(1);
+
+    await userEvent.setup().click(buttons[0] as HTMLElement);
+
+    expect(screen.getByText(/alpha text/)).toBeInTheDocument();
+    expect(screen.getByText(/beta text/)).toBeInTheDocument();
+    expect(screen.getByText(/gamma text/)).toBeInTheDocument();
+  });
+
+  it("test_weak_hit_is_not_listed", () => {
+    // Kills an implementation that merges but never drops weak lines in the box.
+    const weak: Citation = {
+      ...citation(0.01),
+      document: "fake-travel-policy",
+      title: "Fake Travel Policy",
+      chunkId: "00000000-0000-4000-8000-000000000def",
+    };
+    render(<Citations citations={[citation(0.0328), weak]} />);
+
+    expect(screen.getByText(/Fake Access Policy/)).toBeInTheDocument();
+    expect(screen.queryByText(/Fake Travel Policy/)).toBeNull();
   });
 
   it("test_no_sources_renders_nothing", () => {
