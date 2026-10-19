@@ -39,6 +39,11 @@ of. Leave a field out rather than filling it with a plausible value.
 - `expiry_days` — a duration the person asked for, in whole days.
 - `justification` — the reason they gave, if they gave one.
 
+A phrase like "wiki editor" or "ledger editor access" names both: the first
+word is the system and the rest is the role. Fill `system` with "wiki" and
+`role` with "editor". Never leave `system` empty when a system name is in the
+message, and never put the whole phrase into one field.
+
 Copy the person's own wording into `system` and `role`. Do not normalise,
 correct or translate it: a deterministic matcher resolves those names against
 the company directory afterwards, and it needs what was actually said.
