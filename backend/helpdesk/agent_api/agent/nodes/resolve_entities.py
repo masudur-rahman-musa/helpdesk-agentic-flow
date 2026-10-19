@@ -8,6 +8,7 @@ are matched across the tenant when no system is named, and only inside the
 system when one system was named: "wiki editor" must not offer every editor.
 """
 
+import logging
 import uuid
 from collections.abc import Sequence
 
@@ -24,6 +25,8 @@ NOTHING_MATCHED_QUESTION = (
 )
 """Asked when nothing matched. Unlike the extraction question, this means
 "I know what you want, but nothing by that name exists here"."""
+
+logger = logging.getLogger(__name__)
 
 DISAMBIGUATION_PREFIX = "Which one do you mean?"
 
@@ -50,6 +53,20 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
     roles = _candidates(roles_in_system(all_roles, system_matches))
     role_matches = matching.match_candidates(role_term, roles) if role_term else ()
 
+    # The model often puts a whole "wiki editor" into the system field. Role
+    # names carry the system ("wiki.editor"), so try the phrase as a role.
+    if system_term and not system_matches and not role_term:
+        role_matches = matching.match_candidates(system_term, _candidates(all_roles))
+        if role_matches:
+            role_term, system_term = system_term, ""
+
+    logger.info(
+        "resolve_entities terms system=%r role=%r matches system=%d role=%d",
+        system_term,
+        role_term,
+        len(system_matches),
+        len(role_matches),
+    )
     for term, matches in ((system_term, system_matches), (role_term, role_matches)):
         if not term:
             continue
@@ -68,6 +85,9 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
 
     resolved_system = system_matches[0] if len(system_matches) == 1 else None
     resolved_role = role_matches[0] if len(role_matches) == 1 else None
+    if resolved_system is None and resolved_role is not None and not system_term:
+        owner_id = next(r.system_id for r in all_roles if r.id == resolved_role.id)
+        resolved_system = next((s for s in systems if s.id == owner_id), None)
     return state.model_copy(
         update={
             "outcome": TurnOutcome.CONTINUE,

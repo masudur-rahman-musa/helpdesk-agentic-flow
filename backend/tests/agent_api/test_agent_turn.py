@@ -950,6 +950,34 @@ def test_two_matching_systems_ask_for_disambiguation(turn_env: TurnEnv) -> None:
     assert [row.role for row in rows] == [MessageRole.USER.value, MessageRole.ASSISTANT.value]
 
 
+def test_a_role_phrase_in_the_system_field_still_resolves(turn_env: TurnEnv) -> None:
+    """Catches a resolver that trusts the model's field split: the model puts
+    the whole "payroll read" into `system`, which names no system, so the turn
+    asked for an exact name although one role answers to those words."""
+    session_id = uuid.uuid4()
+    gateway = StagedGateway(
+        [
+            _extraction_json(
+                intent="request_access", confidence=0.95, entities={"system": "payroll read"}
+            ),
+            EMPTY_PLAN,
+            COMPOSED_REPLY,
+        ]
+    )
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="i want payroll read access",
+        gateway=gateway,
+    )
+
+    assert state.resolved is not None
+    assert state.resolved.role_id == turn_env.tenant_a.role_ids["payroll-read"]
+    assert state.resolved.system_id == turn_env.tenant_a.system_ids["payroll"]
+
+
 def test_a_candidate_in_another_tenant_is_not_a_candidate(turn_env: TurnEnv) -> None:
     """Catches third risk: the candidate read issued on an unguarded
     session. Tenant B owns a system with the SAME slug as tenant A's, so an
