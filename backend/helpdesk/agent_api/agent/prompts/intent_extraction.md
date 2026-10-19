@@ -22,7 +22,9 @@ Choose exactly one `intent` from this closed list. Never invent a label.
 - `check_my_access` — the person wants to see what they currently hold, or
   where their own requests stand.
 - `ask_capabilities` — the person asks what this assistant can do for them,
-  or what access they could ask for, without naming one system to request.
+  what access they could ask for, or whether they may have, could get or are
+  allowed a role ("am I allowed", "can I get", "am I capable of"). Nothing is
+  filed for it.
 - `approvals` — the person wants to see or act on requests awaiting them.
 - `review` — anything about an access review or a review item.
 - `other` — the message fits none of the above.
@@ -33,9 +35,10 @@ down the wrong path; `other` gets a short answer and a few things to try.
 
 A question about how something works is `ask_policy`, even when it mentions a
 request. A question about where the person's own request stands is
-`check_my_access`. A question about what the person can do or ask for, in
-general, is `ask_capabilities`; once they name a system they want, it is
-`request_access`.
+`check_my_access`. A question about what the person can do or ask for is
+`ask_capabilities`, even when it names a system or a role: "am I capable of
+approver access to KYC?" asks, it does not request. Once they say they want
+or need it, it is `request_access`.
 
 ## Entities
 

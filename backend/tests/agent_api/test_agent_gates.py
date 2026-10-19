@@ -139,7 +139,7 @@ PLANNED_RETRIEVAL: dict[str, bool] = {
     "open_ticket": False,
     "ask_policy": True,
     "check_my_access": False,
-    "ask_capabilities": False,
+    "ask_capabilities": True,
     "approvals": False,
     "review": False,
     "other": False,

@@ -20,18 +20,22 @@ import json
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from helpdesk.agent_api.agent.clarify_cap import BEST_READING_FALLBACK, CORRECT_ME_LINE
+from helpdesk.agent_api.agent.nodes.resolve_entities import DISAMBIGUATION_PREFIX
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.crud.sessions import get_asked_clarifying
+from helpdesk.shared.models import Role, System
 from tests.agent_api.conftest import AgentDb
 from tests.agent_api.test_agent_confirm import (
     ASK_PREFIX,
     COMPOSED,
     CREATE,
     NOW,
+    YES,
     Env,
     FakeTools,
     _ask,
@@ -40,6 +44,7 @@ from tests.agent_api.test_agent_confirm import (
     _create_round,
     _seed,
     _turn,
+    _yes_answers,
 )
 
 FIRST_QUESTION = "Are you asking about the wiki or the portal?"
@@ -299,4 +304,153 @@ def test_a_confirm_question_alone_stores_no_time(env: Env) -> None:
     )
 
     assert state.outcome is TurnOutcome.CONFIRM
+    assert _stored_time(env, session_id) is None
+
+
+# --- every question before filing is recorded -------------------------
+
+EDITOR_OR_VIEWER = "Do you want the viewer role or the editor role?"
+"""A question the reply writer asks, not the extraction."""
+
+
+def _request_without_role(env: Env, session_id: uuid.UUID, tools: FakeTools) -> TurnState:
+    """A request turn naming the system but no role: nothing to file, so the
+    planner returns an empty round and the reply writer asks which role."""
+    return _turn(
+        env,
+        session_id=session_id,
+        message="I need access to the internal wiki",
+        answers=(
+            _unclear("request_access", confidence=0.95, question=None, system="internal-wiki"),
+            json.dumps({"calls": []}),
+            EDITOR_OR_VIEWER,
+        ),
+        tools=tools,
+    )
+
+
+def test_a_question_from_compose_on_a_request_turn_is_recorded(env: Env) -> None:
+    """Catches a compose step that asks "viewer or editor?" without recording it
+    (the live chat asked a second question right after, because the first one
+    left no mark). The premise is asserted: the turn did not end in a clarifying
+    node, nothing was filed, and the question is the composed reply."""
+    session_id = uuid.uuid4()
+    tools = FakeTools()
+
+    state = _request_without_role(env, session_id, tools)
+
+    assert state.outcome is not TurnOutcome.CLARIFY
+    assert CREATE not in tools.names
+    assert state.reply == EDITOR_OR_VIEWER
+    assert _stored_time(env, session_id) == NOW.isoformat()
+
+
+async def _add_second_viewer(env: Env) -> None:
+    """A second role also named Viewer in the same system, so "viewer" is two."""
+    async with tenant_session(env.db.factory, env.tenant_id) as db:
+        system = (
+            await db.execute(select(System).where(System.slug == "internal-wiki"))
+        ).scalar_one()
+        db.add(
+            Role(
+                tenant_id=env.tenant_id,
+                system_id=system.id,
+                slug="wiki-viewer-two",
+                name="Viewer",
+                privilege="read",
+                default_expiry_days=90,
+            )
+        )
+
+
+def test_a_disambiguation_is_recorded(env: Env) -> None:
+    """Catches an `ask_disambiguation` that offers "Which one do you mean?" and
+    records nothing, so the next message could ask a second question. Two roles
+    are both named Viewer, so the term resolves to two and no node but the
+    disambiguation ending can have stored the time."""
+    asyncio.run(_add_second_viewer(env))
+    session_id = uuid.uuid4()
+
+    state = _turn(
+        env,
+        session_id=session_id,
+        message="I need viewer access to the internal wiki",
+        answers=(
+            _unclear(
+                "request_access",
+                confidence=0.95,
+                question=None,
+                role="viewer",
+                system="internal-wiki",
+            ),
+        ),
+        tools=FakeTools(),
+    )
+
+    assert state.outcome is TurnOutcome.DISAMBIGUATE
+    assert state.reply is not None
+    assert state.reply.startswith(DISAMBIGUATION_PREFIX)
+    assert _stored_time(env, session_id) == NOW.isoformat()
+
+
+def test_the_next_message_gets_the_best_reading(env: Env) -> None:
+    """Catches the loop from the live chat: after a recorded compose question, a
+    role that matches nothing must be answered with the correct-me line (the
+    best reading), not met with a second "could not find" question. Only one
+    reply is staged for it, so a second question would also leave the reply
+    wrong."""
+    session_id = uuid.uuid4()
+    _request_without_role(env, session_id, FakeTools())
+    tools = FakeTools()
+
+    state = _turn(
+        env,
+        session_id=session_id,
+        message="the fake-nonexistent-role one",
+        answers=(
+            _unclear(
+                "request_access",
+                confidence=0.95,
+                question=None,
+                role="fake-nonexistent-role",
+                system="internal-wiki",
+            ),
+            COMPOSED,
+        ),
+        tools=tools,
+    )
+
+    assert state.outcome is not TurnOutcome.CLARIFY
+    assert state.reply == f"{COMPOSED}\n\n{CORRECT_ME_LINE}"
+    assert CREATE not in tools.names
+
+
+def test_a_question_after_filing_is_not_recorded(env: Env) -> None:
+    """Catches a recording rule that stores the time for any composed question,
+    filed or not: the yes turn files the request, and the writer asks a question
+    both times it is asked (it is then replaced by the fixed reply), yet nothing
+    may be recorded, since the next message must be free to ask."""
+    session_id = uuid.uuid4()
+    _turn(
+        env,
+        session_id=session_id,
+        message="I need viewer access to the internal wiki",
+        answers=_ask_answers(env),
+        tools=FakeTools(),
+    )
+    tools = FakeTools()
+
+    _turn(
+        env,
+        session_id=session_id,
+        message=YES,
+        answers=(
+            _yes_answers()[0],
+            "It is filed. Do you need anything else?",
+            "It is filed. Shall I help with more?",
+        ),
+        tools=tools,
+    )
+
+    assert CREATE in tools.names
     assert _stored_time(env, session_id) is None

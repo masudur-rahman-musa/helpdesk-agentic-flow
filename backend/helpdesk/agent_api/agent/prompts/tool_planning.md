@@ -35,7 +35,8 @@ fact before a mutation.
 - `list_my_requests` — the access requests the calling person has filed.
 - `list_requestable_roles` — the systems and roles the calling person may ask
   for, marking the ones their department's template gives and the ones they
-  already hold. Optionally one system, by its slug.
+  already hold. Optionally one system, by its slug. When the resolved
+  directory ids name one system, pass that system's slug.
 - `classify_access_request` — what a hypothetical request would be judged as:
   its risk, whether it needs approval, what expiry it would get. Decides
   nothing and writes nothing. Call it before `create_access_request`.

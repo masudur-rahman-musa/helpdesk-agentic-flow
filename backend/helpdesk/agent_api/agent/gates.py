@@ -44,13 +44,13 @@ RETRIEVES_POLICY: Mapping[Intent, bool] = {
     Intent.OPEN_TICKET: False,
     Intent.ASK_POLICY: True,
     Intent.CHECK_MY_ACCESS: False,
-    Intent.ASK_CAPABILITIES: False,
+    Intent.ASK_CAPABILITIES: True,
     Intent.APPROVALS: False,
     Intent.REVIEW: False,
     Intent.OTHER: False,
 }
 """Which intents search the policy text: a request, decided against policy,
-and a policy question."""
+a policy question, and a can-I question, whose answer cites the rule."""
 
 
 def missing_required_entities(extraction: IntentExtraction) -> frozenset[str]:

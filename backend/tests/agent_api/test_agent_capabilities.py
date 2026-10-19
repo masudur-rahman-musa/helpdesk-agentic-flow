@@ -30,7 +30,9 @@ import httpx
 import pytest
 
 from helpdesk.agent_api.agent.graph import TurnDeps, run_turn
+from helpdesk.agent_api.agent.requestable import held_sentence
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.shared.auth.capabilities import SENTENCES, capability_lines
 from helpdesk.shared.auth.rbac import Tool, tools_for
@@ -39,6 +41,7 @@ from helpdesk.shared.models import User
 from tests.agent_api.conftest import AgentDb
 from tests.agent_api.test_agent_confirm import (
     COMPOSED,
+    CREATE,
     EMPTY_ROUND,
     GATEWAY_URL,
     NOW,
@@ -176,7 +179,7 @@ def test_an_ask_capabilities_turn_sends_the_capability_lines_as_data(env: Env) -
     lines = capability_lines(("employee",))
     assert lines, "fixture premise: an employee has capability lines"
     assert state.outcome is TurnOutcome.DONE
-    assert tools.names == [LIST_ROLES]
+    assert sorted(tools.names) == sorted([LIST_ROLES, SEARCH_POLICY])
     assert state.principals == ("employee",)
     for line in lines:
         assert line in _user_text(compose), line
@@ -274,3 +277,74 @@ def test_an_ask_policy_turn_sends_no_capability_lines(env: Env) -> None:
     assert Tool.LIST_MY_ACCESS in SENTENCES and lines
     for line in lines:
         assert line not in everything, line
+
+
+class HeldRoleTools(CapabilityTools):
+    """The same fake, with one more row: a role the person already holds."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[dict[str, Any]] = [
+            *self._answers[LIST_ROLES]["roles"],
+            {
+                "system_slug": "fake-held-system",
+                "system_name": "Fake Held System",
+                "system_sensitivity": "critical",
+                "role_slug": "fake-held-role-slug",
+                "role_name": "Fake Held Role",
+                "privilege": "write",
+                "default_expiry_days": 90,
+                "in_my_template": True,
+                "already_held": True,
+            },
+        ]
+        self._answers[LIST_ROLES] = {"roles": self.rows}
+
+
+def test_the_held_sentence_is_written_by_code(env: Env) -> None:
+    """Catches a reply left to the model: the staged model text says something
+    that contradicts the rows ("you hold four roles"), and the stored reply must
+    still start with the sentence code wrote from the tool rows, and name the held
+    role, so two replies in a row can never disagree."""
+    tools = HeldRoleTools()
+    sentence = held_sentence(tools.rows)
+    assert sentence is not None, "fixture premise: one row is held"
+    model_text = "You hold four roles, and Fake Held Role is requestable."
+
+    state, _gateway = _run(
+        env,
+        message="what more accesses can i ask for",
+        answers=(_extraction("ask_capabilities"), _list_roles_round(), EMPTY_ROUND, model_text),
+        tools=tools,
+    )
+
+    assert state.outcome is TurnOutcome.DONE
+    assert state.reply is not None
+    assert state.reply.startswith(sentence)
+    assert model_text in state.reply
+    assert "Fake Held Role" in sentence
+
+
+def test_a_can_i_question_on_kyc_searches_policy_and_files_nothing(env: Env) -> None:
+    """Catches `ask_capabilities` left off the policy search (the gate stays
+    False): a can-I question naming a system must run the policy search, put the
+    passage in the compose request as data, and make no create call, so the
+    answer cites policy and nothing is filed."""
+    tools = CapabilityTools()
+
+    state, gateway = _run(
+        env,
+        message="am i capable of viewer access to the internal wiki?",
+        answers=(
+            _extraction("ask_capabilities", role="viewer", system="internal-wiki"),
+            _list_roles_round(),
+            EMPTY_ROUND,
+            COMPOSED,
+        ),
+        tools=tools,
+    )
+
+    assert state.outcome is TurnOutcome.DONE
+    assert SEARCH_POLICY in tools.names
+    assert CREATE not in tools.names
+    assert "Obviously fake policy text about fake wiki access." in _user_text(gateway.requests[-1])

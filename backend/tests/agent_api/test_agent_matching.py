@@ -27,6 +27,8 @@ import difflib
 import uuid
 from pathlib import Path
 
+import pytest
+
 from helpdesk.agent_api.agent import matching as matching_module
 from helpdesk.agent_api.agent.matching import (
     FUZZY_CUTOFF,
@@ -208,3 +210,60 @@ def test_the_matching_module_imports_no_framework_and_no_io() -> None:
     forbidden = {"langgraph", "sqlalchemy", "httpx", "redis", "qdrant_client", "rapidfuzz"}
     assert imported & forbidden == set()
     assert "difflib" in imported, "decision C: the fuzzy tier is stdlib difflib"
+
+
+# --- filler words in a typed name ----------------------------------------
+
+
+def _kyc_roles() -> tuple[Candidate, Candidate, Candidate]:
+    return (
+        _candidate("approver", "kyc.approver"),
+        _candidate("analyst", "kyc.analyst"),
+        _candidate("editor", "kyc.editor"),
+    )
+
+
+def test_approver_access_matches_the_approver_role() -> None:
+    """Catches a matcher that keeps the word "access" in the typed name: the
+    live chat typed "approver access" for KYC and matched no role at all. The
+    premise first: the raw phrase is far below the cutoff against every alias,
+    so only dropping the filler word can make it match."""
+    approver, analyst, editor = _kyc_roles()
+    assert max(_ratio("approver access", alias) for alias in aliases_for(approver)) < FUZZY_CUTOFF
+
+    assert match_candidates("approver access", [analyst, approver, editor]) == (approver,)
+
+
+@pytest.mark.parametrize("filler", ["role", "rights", "permissions", "level"])
+def test_each_filler_word_is_dropped(filler: str) -> None:
+    """Catches a filler list that is missing a word the plan names: each of
+    "editor role", "editor rights", "editor permissions" and "editor level" must
+    match the editor role and nothing else. Each phrase is below the cutoff
+    unchanged, so the list entry alone decides it."""
+    approver, analyst, editor = _kyc_roles()
+    term = f"editor {filler}"
+    assert max(_ratio(term, alias) for alias in aliases_for(editor)) < FUZZY_CUTOFF
+
+    assert match_candidates(term, [approver, analyst, editor]) == (editor,)
+
+
+def test_the_plural_roles_is_a_filler_word_too() -> None:
+    """Catches a filler list that has "role" but not "roles": "editor roles"
+    scores under the cutoff against the editor aliases, so only the list entry
+    makes it match."""
+    approver, analyst, editor = _kyc_roles()
+    assert max(_ratio("editor roles", alias) for alias in aliases_for(editor)) < FUZZY_CUTOFF
+
+    assert match_candidates("editor roles", [approver, analyst, editor]) == (editor,)
+
+
+def test_a_term_of_only_filler_words_is_kept() -> None:
+    """Catches a matcher that empties a term made only of filler words: "access"
+    must stay "access". With no candidate of that name it matches nothing, and
+    with a candidate literally named Access it matches that one, which an emptied
+    term (the early empty return) could never do."""
+    approver, analyst, editor = _kyc_roles()
+    named_access = _candidate("access", "Access")
+
+    assert match_candidates("access", [approver, analyst, editor]) == ()
+    assert match_candidates("access", [approver, named_access]) == (named_access,)

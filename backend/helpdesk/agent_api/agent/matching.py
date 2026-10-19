@@ -33,6 +33,20 @@ def normalise(value: str) -> str:
     return _SEPARATORS.sub(" ", value.casefold()).strip()
 
 
+FILLER_WORDS = frozenset(
+    {"access", "role", "roles", "rights", "permission", "permissions", "level"}
+)
+"""Words people add around a role name ("approver access", "editor role")
+that no directory name needs. Pinned by `test_agent_matching.py`."""
+
+
+def without_filler(normalised: str) -> str:
+    """The normalised term with filler words dropped, or the term as it was
+    when nothing else would be left: "access" alone may be a real name."""
+    kept = [word for word in normalised.split() if word not in FILLER_WORDS]
+    return " ".join(kept) if kept else normalised
+
+
 def aliases_for(candidate: Candidate) -> frozenset[str]:
     """The names this candidate answers to: slug and name, each also without
     spaces, since people type `billingadmin` and would otherwise fall to fuzzy."""
@@ -43,7 +57,7 @@ def aliases_for(candidate: Candidate) -> frozenset[str]:
 def match_candidates(term: str, candidates: Sequence[Candidate]) -> tuple[Candidate, ...]:
     """The candidates `term` names, best first. Empty leads to a question; there
     is no "closest anyway" guess."""
-    normalised = normalise(term)
+    normalised = without_filler(normalise(term))
     if not normalised or not candidates:
         return ()
 

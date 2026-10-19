@@ -21,14 +21,22 @@ and code adds the correct-me line at the end (a design note, pinned by
 `ask_capabilities` and `other` turns also get what this person can do, one
 plain sentence per tool their principals allow, so the answer and the
 pointers come from the real matrix, never a written list (a design note, pinned by
-`test_agent_capabilities.py`).
+`test_agent_capabilities.py`). The requestable rows go in already sorted,
+and the roles held are one sentence written by code ahead of the reply, so two
+replies cannot disagree about them (`requestable.py`).
+
+A question asked on a request or revoke turn that filed nothing is recorded
+like a clarifying question, so the next message gets the best reading, not a
+second question (a design note, pinned by `test_agent_clarify_cap.py`).
 """
 
 import json
+from dataclasses import asdict
 from typing import Any
 
 from helpdesk.agent_api.agent.clarify_cap import BEST_READING_FALLBACK, CORRECT_ME_LINE
 from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
+from helpdesk.agent_api.agent.gates import REQUIRED_ENTITIES
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from helpdesk.agent_api.agent.postcheck import (
     asks_after_filing,
@@ -36,8 +44,10 @@ from helpdesk.agent_api.agent.postcheck import (
     contradicts,
     outcome_reply,
     permitted_words,
+    request_filed,
 )
 from helpdesk.agent_api.agent.prompts import load_prompt
+from helpdesk.agent_api.agent.requestable import held_sentence, ordered_requestable
 from helpdesk.agent_api.agent.state import (
     Intent,
     PostCheckOutcome,
@@ -50,6 +60,7 @@ from helpdesk.agent_api.services.model_gateway.client import ModelAlias
 from helpdesk.shared.auth.capabilities import capability_lines
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud.messages import append_message
+from helpdesk.shared.crud.sessions import set_asked_clarifying
 from helpdesk.shared.models.conversation import MessageRole, check_message_content
 
 COMPOSITION_PROMPT = "reply_composition"
@@ -79,6 +90,51 @@ def _capability_data(state: TurnState) -> list[dict[str, str]]:
     if not lines:
         return []
     return [_as_data("what this person can do here, from their real permissions", lines)]
+
+
+LIST_REQUESTABLE_ROLES = "list_requestable_roles"
+
+
+def _requestable_rows(state: TurnState) -> list[dict[str, Any]]:
+    """Every row the requestable-roles tool answered this turn."""
+    return [
+        row
+        for result in state.tool_results
+        if result.ok and result.tool == LIST_REQUESTABLE_ROLES
+        for row in result.payload.get("roles", [])
+    ]
+
+
+def _tool_data(state: TurnState) -> list[dict[str, Any]]:
+    """Tool results as data, the requestable rows swapped for their sorted
+    groups, so the model has no raw list to regroup."""
+    return [
+        result.model_dump(mode="json")
+        for result in state.tool_results
+        if not (result.ok and result.tool == LIST_REQUESTABLE_ROLES)
+    ]
+
+
+def _requestable_data(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """The roles this person may still ask for, in the order to say them."""
+    if not rows:
+        return []
+    groups = [asdict(group) for group in ordered_requestable(rows)]
+    return [_as_data("roles this person may ask for, template group first, in this order", groups)]
+
+
+def _with_held(reply: str, rows: list[dict[str, Any]]) -> str:
+    """The held sentence ahead of the reply, when this turn listed roles."""
+    sentence = held_sentence(rows)
+    return f"{sentence}\n\n{reply}" if sentence else reply
+
+
+def _asks_before_filing(reply: str, state: TurnState) -> bool:
+    """Whether `reply` asks a question on a request-like turn that filed
+    nothing: that question counts toward the one-question cap."""
+    if state.extraction is None or not REQUIRED_ENTITIES[state.extraction.intent]:
+        return False
+    return "?" in reply and not request_filed(state)
 
 
 def _failure_sentences(results: tuple[ToolResult, ...]) -> list[str]:
@@ -149,6 +205,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     """
     prompt = load_prompt(COMPOSITION_PROMPT)
     system = load_prompt(SYSTEM_PROMPT)
+    rows = _requestable_rows(state)
 
     messages = [
         {"role": "system", "content": system.text},
@@ -165,7 +222,8 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
             "policy passages retrieved for this turn",
             [citation.model_dump(mode="json") for citation in state.citations],
         ),
-        _as_data("tool results", [result.model_dump(mode="json") for result in state.tool_results]),
+        _as_data("tool results", _tool_data(state)),
+        *_requestable_data(rows),
         _as_data("what did not work, in plain words", _failure_sentences(state.tool_results)),
         *_capability_data(state),
         {"role": "user", "content": state.user_message},
@@ -207,6 +265,11 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         return _failed(state, exc)
     if postcheck is PostCheckOutcome.FALLBACK:
         reply = _with_correct_me(reply, state)
+    reply = check_message_content(_with_held(reply, rows))
+    if _asks_before_filing(reply, state):
+        await set_asked_clarifying(
+            deps.db, session_id=state.session_id, value=deps.now().isoformat()
+        )
 
     await append_message(
         deps.db,
