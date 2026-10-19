@@ -1000,6 +1000,7 @@ def _pending_request(
         insert(AccessRequest).values(
             id=request_id,
             tenant_id=tenant_id,
+            number=request_id.int % 2_000_000_000 + 1,  # unique per row without a counter
             requester_user_id=user_id,
             target_user_id=user_id,
             role_id=role_id,

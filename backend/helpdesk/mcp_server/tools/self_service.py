@@ -19,6 +19,7 @@ from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Ticket, User
+from helpdesk.shared.models.numbers import NumberKind, format_number
 
 RESET_EVENT_TYPE = "user.password_reset"
 """Success event for `reset_own_password`."""
@@ -78,6 +79,9 @@ class CreateTicketInput(MutatingToolInput):
 
 class CreateTicketOutput(BaseModel):
     ticket_id: uuid.UUID
+    ticket_number: str
+    """What the user is told, like `TCK-0042`; the id stays for code."""
+
     kind: TicketKind
     title: str
     status: str
@@ -123,5 +127,9 @@ async def create_ticket(ctx: ToolContext, args: CreateTicketInput) -> CreateTick
         session_id=None,
     )
     return CreateTicketOutput(
-        ticket_id=ticket.id, kind=args.kind, title=ticket.title, status=ticket.status
+        ticket_id=ticket.id,
+        ticket_number=format_number(NumberKind.TICKET, ticket.number),
+        kind=args.kind,
+        title=ticket.title,
+        status=ticket.status,
     )

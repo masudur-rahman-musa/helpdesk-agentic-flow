@@ -52,8 +52,8 @@ def test_metadata_contains_exactly_the_declared_tables() -> None:
     one.
     """
     assert set(Base.metadata.tables) == set(ALL_TABLES)
-    assert len(ALL_TABLES) == 20
-    assert len(TENANT_SCOPED_TABLES) == 19
+    assert len(ALL_TABLES) == 21
+    assert len(TENANT_SCOPED_TABLES) == 20
 
 
 @pytest.mark.parametrize("table_name", ALL_TABLES)

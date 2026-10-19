@@ -76,6 +76,28 @@ def _as_data(label: str, value: Any) -> dict[str, str]:
     return {"role": "user", "content": f"{label}:\n{json.dumps(value, default=str)}"}
 
 
+_ID_SUFFIXES = ("_id", "_ids")
+
+
+def strip_id_keys(data: Any) -> Any:
+    """A copy of `data` with every `*_id` and `*_ids` key gone, at any depth.
+
+    The writer only sees what it may quote, so a database id never reaches a
+    reply even by mistake; it names `request_number` instead. The stored tool
+    result is left as it is, since the web still needs the ids. Pinned by
+    `test_writer_data_has_no_uuid_anywhere`.
+    """
+    if isinstance(data, dict):
+        return {
+            key: strip_id_keys(value)
+            for key, value in data.items()
+            if not (isinstance(key, str) and key.endswith(_ID_SUFFIXES))
+        }
+    if isinstance(data, list):
+        return [strip_id_keys(item) for item in data]
+    return data
+
+
 CAPABILITY_INTENTS = frozenset({Intent.ASK_CAPABILITIES, Intent.OTHER})
 """The kinds whose reply names what this person can do. Other kinds stay on
 their own data, so a policy question is answered from policy text."""
@@ -215,14 +237,14 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
             state.extraction.model_dump(mode="json") if state.extraction else {},
         ),
         _as_data(
-            "resolved directory ids",
-            state.resolved.model_dump(mode="json") if state.resolved else {},
+            "resolved directory names",
+            strip_id_keys(state.resolved.model_dump(mode="json")) if state.resolved else {},
         ),
         _as_data(
             "policy passages retrieved for this turn",
             [citation.model_dump(mode="json") for citation in state.citations],
         ),
-        _as_data("tool results", _tool_data(state)),
+        _as_data("tool results", strip_id_keys(_tool_data(state))),
         *_requestable_data(rows),
         _as_data("what did not work, in plain words", _failure_sentences(state.tool_results)),
         *_capability_data(state),

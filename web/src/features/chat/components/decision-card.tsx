@@ -28,6 +28,9 @@ export function DecisionCard({ card }: { card: Card }) {
       <h2 className="text-sm font-semibold">Decision</h2>
 
       <div className="mt-2 flex flex-wrap gap-2 text-sm">
+        {card.requestNumber !== null ? (
+          <span className="text-muted-foreground tabular-nums">{card.requestNumber}</span>
+        ) : null}
         <span className="font-medium">{decisionLabel(card.decision)}</span>
         <span className="text-muted-foreground">{riskLabel(card.riskClass)}</span>
         <span className="text-muted-foreground">

@@ -54,6 +54,7 @@ CLASSIFY_REQUEST = "classify_access_request"
 
 CARD_FIELDS = {
     "request_id",
+    "request_number",
     "status",
     "decision",
     "risk_class",
@@ -67,6 +68,7 @@ CARD_FIELDS = {
 PROJECTED_KEYS = frozenset(
     {
         "request_id",
+        "request_number",
         "status",
         "decision",
         "risk_class",
@@ -82,6 +84,9 @@ PROJECTED_KEYS = frozenset(
 already carries the `user_id` the engine either filled or did not — so
 `approver_user_ids` is not read and no id crosses into the card.
 """
+
+REQUEST_NUMBER = "REQ-0107"
+"""The readable number a filed request is shown by."""
 
 # Obviously fake ids, tests only.
 REQUEST_ID = uuid.UUID("77777777-7777-5777-8777-777777777777")
@@ -122,6 +127,7 @@ def _create_payload(**overrides: Any) -> dict[str, Any]:
     """A full `create_access_request` answer, every field the tool emits."""
     payload: dict[str, Any] = {
         "request_id": str(REQUEST_ID),
+        "request_number": REQUEST_NUMBER,
         "status": RequestStatus.PENDING.value,
         "risk_class": RiskClass.PRIVILEGED.value,
         "decision": Decision.APPROVAL.value,
@@ -194,6 +200,7 @@ def test_a_created_request_projects_its_eight_fields() -> None:
     assert set(DecisionCard.model_fields) == CARD_FIELDS
     assert card.model_dump(mode="json") == {
         "request_id": payload["request_id"],
+        "request_number": payload["request_number"],
         "status": payload["status"],
         "decision": payload["decision"],
         "risk_class": payload["risk_class"],
@@ -214,7 +221,7 @@ def test_the_projected_keys_are_the_tools_own_output_fields() -> None:
     outside those eight (`approver_user_ids`, `grant_id`) refuses a payload
     carrying exactly the eight and nothing else.
     """
-    assert len(PROJECTED_KEYS) == 8
+    assert len(PROJECTED_KEYS) == 9
     assert set(CreateAccessRequestOutput.model_fields) >= PROJECTED_KEYS
 
     trimmed = {key: value for key, value in _create_payload().items() if key in PROJECTED_KEYS}
@@ -270,6 +277,7 @@ def test_a_classified_request_projects_a_card_with_no_request_id_and_no_status()
     assert card is not None
     assert card.model_dump(mode="json") == {
         "request_id": None,
+        "request_number": None,
         "status": None,
         "decision": payload["decision"],
         "risk_class": payload["risk_class"],

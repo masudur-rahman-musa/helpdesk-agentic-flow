@@ -26,12 +26,14 @@ export type Citation = {
 export type CardApprover = { slot: string; resolved: boolean };
 
 /**
- * The turn's decision card. `requestId` and `status` are null together when
+ * The turn's decision card. `requestId`, `requestNumber` and `status` are null together when
  * nothing was filed. Enum fields stay strings, so a new server value shows as
  * itself instead of failing to parse.
  */
 export type DecisionCard = {
   requestId: string | null;
+  /** What a person sees, like REQ-0107; the id never reaches the screen. */
+  requestNumber: string | null;
   status: string | null;
   decision: string;
   riskClass: string;
@@ -136,6 +138,7 @@ export function readDecision(data: unknown): DecisionCard | null {
   }
   return {
     requestId: typeof card.request_id === "string" ? card.request_id : null,
+    requestNumber: typeof card.request_number === "string" ? card.request_number : null,
     status: typeof card.status === "string" ? card.status : null,
     decision: text(card.decision),
     riskClass: text(card.risk_class),

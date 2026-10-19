@@ -95,7 +95,7 @@ GOLDEN_SET_POINTER = "backend/evals/golden/helpdesk-v1.jsonl"
 # The category minimums. They sum to exactly 140, so the minimums ARE
 # the count and this mapping is asserted whole.
 CATEGORY_MINIMUMS: dict[str, int] = {
-    "access_auto": 15,
+    "access_auto": 16,
     "access_approval": 20,
     "access_blocked_sod": 10,
     "access_critical": 10,
@@ -109,7 +109,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "review": 3,
 }
 
-TOTAL_CASES = 144
+TOTAL_CASES = 145
 TOTAL_LABELS = 40
 LABELS_PER_SCORE = 8
 SCORES: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
@@ -147,7 +147,7 @@ ACCESS_CATEGORIES: tuple[str, str, str, str] = (
     "access_blocked_sod",
     "access_critical",
 )
-ACCESS_CASE_COUNT = 55
+ACCESS_CASE_COUNT = 56
 """The four access categories sum to 55 of the 140 cases."""
 
 # `create_access_request` is the registry's wire literal for

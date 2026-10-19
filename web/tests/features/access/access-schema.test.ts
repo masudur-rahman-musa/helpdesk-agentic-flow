@@ -28,6 +28,7 @@ import { myAccessSchema, myRequestsSchema } from "@/features/access/schema";
 /** One widened row, every field present, obviously fake. */
 const REQUEST_ROW: Record<string, unknown> = {
   request_id: "66666666-6666-5666-8666-666666666666",
+  request_number: "REQ-0107",
   target_user_id: "22222222-2222-5222-8222-222222222222",
   role_id: "77777777-7777-5777-8777-777777777777",
   justification: "Obviously fake justification.",
@@ -59,9 +60,10 @@ const GRANT_ROW: Record<string, unknown> = {
   expires_at: "2099-03-01T12:00:00Z",
 };
 
-/** The nineteen field names, written out rather than derived from the row. */
+/** The twenty field names, written out rather than derived from the row. */
 const REQUEST_FIELDS = [
   "request_id",
+  "request_number",
   "target_user_id",
   "role_id",
   "justification",
@@ -89,12 +91,12 @@ function withoutField(field: string): Record<string, unknown> {
 }
 
 describe("myRequestsSchema", () => {
-  it("accepts the whole nineteen-field row", () => {
+  it("accepts the whole twenty-field row", () => {
     // The premise every rejection row below depends on: a schema that refused
     // the complete payload would make all nineteen of them pass while the page
     // rendered nothing. Read off the same constant they are built from.
     expect(myRequestsSchema.safeParse({ requests: [REQUEST_ROW] }).success).toBe(true);
-    expect(REQUEST_FIELDS).toHaveLength(19);
+    expect(REQUEST_FIELDS).toHaveLength(20);
   });
 
   it.each(REQUEST_FIELDS)("rejects a row with no %s", (field) => {

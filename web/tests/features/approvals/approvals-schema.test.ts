@@ -11,10 +11,10 @@ import { pendingApprovalsSchema } from "@/features/approvals/schema";
  *   object over the whole `{ approvals: [...] }` ENVELOPE rather than over a
  *   bare row, so the page runs ONE `safeParse` on what the proxy returned —
  *   the shape `access-schema.ts` already has for `/api/me/requests`.
- * - every one of the twenty fields is REQUIRED, and nullable only where the
+ * - every one of the twenty-one fields is REQUIRED, and nullable only where the
  *   tool can answer null (`requested_expiry_days`, and an unresolved seat's
  *   `user_id`), never `.optional()`: a payload missing one of the
- *   twenty is rejected, and an optional field would be silently absent on
+ *   twenty-one is rejected, and an optional field would be silently absent on
  *   every row and render as a blank cell instead.
  * - the schema is NOT `.strict()`: an unknown extra key is accepted, because
  *   the wire may grow and a page that refuses a widened payload breaks on a
@@ -29,6 +29,7 @@ import { pendingApprovalsSchema } from "@/features/approvals/schema";
 /** One widened queue row, every field present, obviously fake. */
 const APPROVAL_ROW: Record<string, unknown> = {
   request_id: "66666666-6666-5666-8666-666666666666",
+  request_number: "REQ-0107",
   requester_user_id: "88888888-8888-5888-8888-888888888888",
   target_user_id: "99999999-9999-5999-8999-999999999999",
   role_id: "77777777-7777-5777-8777-777777777777",
@@ -61,9 +62,10 @@ const APPROVAL_ROW: Record<string, unknown> = {
   ],
 };
 
-/** The twenty field names, written out rather than derived from the row. */
+/** The twenty-one field names, written out rather than derived from the row. */
 const APPROVAL_FIELDS = [
   "request_id",
+  "request_number",
   "requester_user_id",
   "target_user_id",
   "role_id",
@@ -92,12 +94,12 @@ function withoutField(field: string): Record<string, unknown> {
 }
 
 describe("pendingApprovalsSchema", () => {
-  it("accepts the whole twenty-field row", () => {
+  it("accepts the whole twenty-one-field row", () => {
     // The premise every rejection row below depends on: a schema that refused
-    // the complete payload would make all twenty of them pass while the queue
+    // the complete payload would make all twenty-one of them pass while the queue
     // rendered nothing at all. Read off the same constant they are built from.
     expect(pendingApprovalsSchema.safeParse({ approvals: [APPROVAL_ROW] }).success).toBe(true);
-    expect(APPROVAL_FIELDS).toHaveLength(20);
+    expect(APPROVAL_FIELDS).toHaveLength(21);
   });
 
   it.each(APPROVAL_FIELDS)("rejects a row with no %s", (field) => {

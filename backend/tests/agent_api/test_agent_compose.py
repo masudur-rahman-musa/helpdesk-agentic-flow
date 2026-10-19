@@ -372,7 +372,9 @@ def test_everything_the_turn_gathered_is_quoted_as_data_and_not_as_instructions(
     assert PAYLOAD_MARKER in user_content
     assert PLAIN_ERRORS[ErrorCode.SOD_CONFLICT] in user_content
     assert Intent.REQUEST_ACCESS.value in user_content
-    assert str(SYSTEM_ID) in user_content
+    # The resolved rows reach the writer by name; their ids never do.
+    assert '"system_slug": "payroll"' in user_content
+    assert str(SYSTEM_ID) not in user_content
     assert MESSAGE in user_content
 
 

@@ -127,8 +127,13 @@ class Grant(TenantScoped):
 
 class Ticket(TenantScoped):
     __tablename__ = "tickets"
-    __table_args__ = (Index("ix_tickets_tenant_id_user_id", "tenant_id", "user_id"),)
+    __table_args__ = (
+        Index("ix_tickets_tenant_id_user_id", "tenant_id", "user_id"),
+        Index("uq_tickets_tenant_id_number", "tenant_id", "number", unique=True),
+    )
 
+    # The readable number, counted per company; shown as `TCK-0042`.
+    number: Mapped[int] = mapped_column()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     kind: Mapped[str] = mapped_column(String(32))  # password_reset | unlock | general | escalation
     title: Mapped[str] = mapped_column(String(256))

@@ -49,6 +49,7 @@ const LOGIN_URL = "http://localhost:3000/login";
 /** A pending request, nothing granted: `grant_id` and `expires_at` are null. */
 const PENDING_ROW: Record<string, unknown> = {
   request_id: "66666666-6666-5666-8666-666666666666",
+  request_number: "REQ-0001",
   target_user_id: "11111111-1111-5111-8111-111111111111",
   role_id: "77777777-7777-5777-8777-777777777777",
   justification: "Obviously fake justification.",
@@ -76,6 +77,7 @@ const PENDING_ROW: Record<string, unknown> = {
 const EXECUTED_ROW: Record<string, unknown> = {
   ...PENDING_ROW,
   request_id: "88888888-8888-5888-8888-888888888888",
+  request_number: "REQ-0002",
   requested_expiry_days: null,
   risk_class: "low",
   decision: "auto",

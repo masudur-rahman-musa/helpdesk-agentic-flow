@@ -18,7 +18,8 @@ answer from the policy passages and offer to open a ticket for a person.
 ## What to include, when the results carry it
 
 - The decision, and the reason in plain words.
-- The request id, exactly as the tool result states it.
+- The request number (like REQ-0107) or ticket number (like TCK-0042),
+  exactly as the tool result states it. Never any other id.
 - When it expires, exactly as the tool result states it.
 - Who has to approve it and why, when there is an approver.
 - The policy you are relying on, by title and version, from the passages you

@@ -31,6 +31,7 @@ from datetime import UTC, date, datetime
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from helpdesk.shared.core.db import create_engine, tenant_session
+from helpdesk.shared.crud.numbers import next_number
 from helpdesk.shared.models import (
     Base,
     Department,
@@ -43,6 +44,7 @@ from helpdesk.shared.models import (
     Ticket,
     User,
 )
+from helpdesk.shared.models.numbers import NumberKind
 
 TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "departments",
@@ -64,6 +66,7 @@ TENANT_SCOPED_TABLES: tuple[str, ...] = (
     "messages",  # the child table carries tenant_id too
     "notifications",
     "audit_chain_anchors",
+    "reference_counters",
 )
 ALL_TABLES: tuple[str, ...] = ("tenants", *TENANT_SCOPED_TABLES)
 
@@ -199,6 +202,7 @@ async def seed_tenant(factory: async_sessionmaker[AsyncSession], slug: str) -> S
             body="fake body",
             status="open",
             session_id=None,
+            number=await next_number(session, NumberKind.TICKET),
         )
         session.add_all([role_template, sod_rule, grant, ticket])
         await session.flush()

@@ -324,16 +324,17 @@ def _plant_request_row(
     request_id = uuid.uuid4()
     _execute(
         database_url,
-        "INSERT INTO access_requests (id, tenant_id, requester_user_id, target_user_id, role_id,"
-        " justification, requested_expiry_days, risk_class, decision, decision_reasons, citations,"
-        " status, approver_user_ids, approvals, session_id, trace_id, idempotency_key,"
+        "INSERT INTO access_requests (id, tenant_id, number, requester_user_id, target_user_id,"
+        " role_id, justification, requested_expiry_days, risk_class, decision, decision_reasons,"
+        " citations, status, approver_user_ids, approvals, session_id, trace_id, idempotency_key,"
         " created_at, updated_at)"
-        " VALUES (:id, :tenant, :user, :user, :role, :justification, NULL, 'low', 'auto',"
+        " VALUES (:id, :tenant, :number, :user, :user, :role, :justification, NULL, 'low', 'auto',"
         " '[]'::jsonb, '[]'::jsonb, :status, ARRAY[]::uuid[], '[]'::jsonb, NULL, NULL, NULL,"
         " now(), now())",
         {
             "id": request_id,
             "tenant": tenant_id,
+            "number": request_id.int % 2_000_000_000 + 1,
             "user": user_id,
             "role": role_id,
             "justification": f"fake rollback fixture request {uuid.uuid4().hex}",

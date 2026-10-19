@@ -45,6 +45,7 @@ from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
+from helpdesk.shared.models.numbers import NumberKind, format_number
 from helpdesk.shared.policy.types import ApproverSlot
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
@@ -81,6 +82,7 @@ class PendingApproval(BaseModel):
     browser has no directory lookup."""
 
     request_id: uuid.UUID
+    request_number: str
     requester_user_id: uuid.UUID
     target_user_id: uuid.UUID
     role_id: uuid.UUID
@@ -125,6 +127,7 @@ class ApproveRequestInput(RequestDecisionInput):
 
 class ApproveRequestOutput(BaseModel):
     request_id: uuid.UUID
+    request_number: str
     status: RequestStatus
     slot: ApproverSlot
     """The seat this call filled."""
@@ -143,6 +146,7 @@ class RejectRequestInput(RequestDecisionInput):
 
 class RejectRequestOutput(BaseModel):
     request_id: uuid.UUID
+    request_number: str
     status: RequestStatus
     slot: ApproverSlot
 
@@ -172,6 +176,7 @@ def _pending(row: PendingWithContext) -> PendingApproval:
     request = row.request
     return PendingApproval(
         request_id=request.id,
+        request_number=format_number(NumberKind.ACCESS_REQUEST, request.number),
         requester_user_id=request.requester_user_id,
         target_user_id=request.target_user_id,
         role_id=request.role_id,
@@ -295,7 +300,7 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
         await set_request_status(
             ctx.session, request.id, status=RequestStatus.PENDING, approvals=dump_slots(decided)
         )
-        return _approved(request.id, RequestStatus.PENDING, slots[index], False, None, None)
+        return _approved(request, RequestStatus.PENDING, slots[index], False, None, None)
 
     try:
         grant = await _execute(ctx, request)
@@ -305,12 +310,12 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
         await set_request_status(
             ctx.session, request.id, status=RequestStatus.FAILED, approvals=dump_slots(decided)
         )
-        return _approved(request.id, RequestStatus.FAILED, slots[index], True, None, exc.code)
+        return _approved(request, RequestStatus.FAILED, slots[index], True, None, exc.code)
 
     await set_request_status(
         ctx.session, request.id, status=RequestStatus.APPROVED, approvals=dump_slots(decided)
     )
-    return _approved(request.id, RequestStatus.APPROVED, slots[index], True, grant, None)
+    return _approved(request, RequestStatus.APPROVED, slots[index], True, grant, None)
 
 
 async def _execute(ctx: ToolContext, request: AccessRequest) -> Grant:
@@ -332,7 +337,7 @@ async def _execute(ctx: ToolContext, request: AccessRequest) -> Grant:
 
 
 def _approved(
-    request_id: uuid.UUID,
+    request: AccessRequest,
     status: RequestStatus,
     slot: SlotState,
     chain_complete: bool,
@@ -340,7 +345,8 @@ def _approved(
     failure_code: ErrorCode | None,
 ) -> ApproveRequestOutput:
     return ApproveRequestOutput(
-        request_id=request_id,
+        request_id=request.id,
+        request_number=format_number(NumberKind.ACCESS_REQUEST, request.number),
         status=status,
         slot=slot.slot,
         chain_complete=chain_complete,
@@ -375,5 +381,8 @@ async def reject_request(ctx: ToolContext, args: RejectRequestInput) -> RejectRe
         ctx.session, request.id, status=RequestStatus.REJECTED, approvals=dump_slots(decided)
     )
     return RejectRequestOutput(
-        request_id=request.id, status=RequestStatus.REJECTED, slot=slots[index].slot
+        request_id=request.id,
+        request_number=format_number(NumberKind.ACCESS_REQUEST, request.number),
+        status=RequestStatus.REJECTED,
+        slot=slots[index].slot,
     )

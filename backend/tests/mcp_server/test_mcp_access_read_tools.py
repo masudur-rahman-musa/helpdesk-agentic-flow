@@ -577,11 +577,12 @@ def test_a_user_with_no_requests_gets_an_empty_list(
 # ``mcp_env`` schema, planted rows carrying a per-case ``uuid4`` prefix in
 # their justification, and no new fixture of any kind.
 
-# The nineteen fields, written out rather than derived: a set built by
+# The twenty fields, written out rather than derived: a set built by
 # comprehension over the model would agree with any implementation.
 EXPECTED_SUMMARY_FIELDS = frozenset(
     {
         "request_id",
+        "request_number",
         "target_user_id",
         "role_id",
         "justification",
@@ -730,7 +731,7 @@ def _row_for(payload: dict[str, Any], justification: str) -> dict[str, Any]:
     return row
 
 
-def test_the_widened_row_carries_exactly_the_nineteen_planned_fields(
+def test_the_widened_row_carries_exactly_the_twenty_planned_fields(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
     """Catches a widening that drops one of the ten new fields AND one that
@@ -757,7 +758,7 @@ def test_the_widened_row_carries_exactly_the_nineteen_planned_fields(
         )
     )
 
-    assert len(EXPECTED_SUMMARY_FIELDS) == 19
+    assert len(EXPECTED_SUMMARY_FIELDS) == 20
     assert set(_row_for(payload, justification)) == EXPECTED_SUMMARY_FIELDS
 
 

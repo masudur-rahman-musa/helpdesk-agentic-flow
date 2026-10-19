@@ -1617,11 +1617,12 @@ def test_the_decision_event_names_the_request_and_the_seat(
 # ``mcp_env`` schema, an approver named on no other case's seat, and rows
 # planted through this module's own helpers. No new fixture.
 
-# The twenty fields, written out rather than derived: a set built by
+# The twenty-one fields, written out rather than derived: a set built by
 # comprehension over the model would agree with any implementation.
 EXPECTED_PENDING_FIELDS = frozenset(
     {
         "request_id",
+        "request_number",
         "requester_user_id",
         "target_user_id",
         "role_id",
@@ -1740,7 +1741,7 @@ def _pending_row(payload: dict[str, Any], request_id: uuid.UUID) -> dict[str, An
     return row
 
 
-def test_the_widened_queue_row_carries_exactly_the_twenty_planned_fields(
+def test_the_widened_queue_row_carries_exactly_the_twenty_one_planned_fields(
     mcp_env: SeededMcp,  # noqa: F811
 ) -> None:
     """Catches a widening that drops one of the eight new fields AND one that
@@ -1763,7 +1764,7 @@ def test_the_widened_queue_row_carries_exactly_the_twenty_planned_fields(
 
     payload = _structured(call_tool(bearer(token), LIST, {"limit": LIMIT_MAX}))
 
-    assert len(EXPECTED_PENDING_FIELDS) == 20
+    assert len(EXPECTED_PENDING_FIELDS) == 21
     assert set(_pending_row(payload, request_id)) == EXPECTED_PENDING_FIELDS
 
 

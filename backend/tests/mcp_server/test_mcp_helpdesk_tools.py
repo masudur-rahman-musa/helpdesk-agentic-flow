@@ -450,6 +450,7 @@ def test_a_replayed_create_ticket_is_byte_identical_and_files_one_ticket(
     assert second.is_error is False, second.content
     assert _response_text(second) == _response_text(first)
     assert second.structured_content == first.structured_content
+    assert str(_structured(first)["ticket_number"]).startswith("TCK-")
     assert len(_tickets_titled(mcp_env.database_url, title)) == 1
     events_after = _audit_event_types(mcp_env.database_url, caller.tenant_id)
     assert events_after == [*events_before, TICKET_EVENT, REPLAYED_EVENT]

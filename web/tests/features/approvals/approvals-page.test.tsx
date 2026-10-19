@@ -72,6 +72,7 @@ const SEAT_USER_ID = "44444444-4444-5444-8444-444444444444";
  */
 const ROW_ONE: Record<string, unknown> = {
   request_id: REQUEST_ONE,
+  request_number: "REQ-0001",
   requester_user_id: REQUESTER_ID,
   target_user_id: TARGET_ID,
   role_id: "77777777-7777-5777-8777-777777777777",
@@ -116,6 +117,7 @@ const ROW_ONE: Record<string, unknown> = {
 const ROW_TWO: Record<string, unknown> = {
   ...ROW_ONE,
   request_id: REQUEST_TWO,
+  request_number: "REQ-0002",
   requested_expiry_days: null,
   risk_class: "critical",
   my_slot: "system_owner",

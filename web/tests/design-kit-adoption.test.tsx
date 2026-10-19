@@ -123,6 +123,7 @@ function renderWithQuery(ui: React.ReactElement): void {
 
 const REQUEST_ROW: Record<string, unknown> = {
   request_id: "66666666-6666-5666-8666-666666666666",
+  request_number: "REQ-0001",
   target_user_id: "11111111-1111-5111-8111-111111111111",
   role_id: "77777777-7777-5777-8777-777777777777",
   justification: "Obviously fake justification.",
@@ -166,6 +167,7 @@ const EXPIRED_WORD = "-3 days left";
 
 const APPROVAL_ROW: Record<string, unknown> = {
   request_id: "66666666-6666-5666-8666-666666666666",
+  request_number: "REQ-0001",
   requester_user_id: "11111111-1111-5111-8111-111111111111",
   target_user_id: "22222222-2222-5222-8222-222222222222",
   role_id: "77777777-7777-5777-8777-777777777777",

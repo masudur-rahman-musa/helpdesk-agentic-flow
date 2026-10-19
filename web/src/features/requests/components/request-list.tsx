@@ -54,6 +54,7 @@ function RequestRow({ request }: { request: MyRequest }) {
   return (
     <Card as="li" className="flex flex-col gap-2 p-4 text-sm">
       <div className="flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground tabular-nums">{request.request_number}</span>
         <span className="font-medium">{request.role_name}</span>
         <span className="text-muted-foreground">{request.system_name}</span>
         <span className="text-muted-foreground">{request.target_display_name}</span>

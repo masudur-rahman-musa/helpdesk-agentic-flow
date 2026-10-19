@@ -203,6 +203,8 @@ def _store_request(
                     AccessRequest(
                         id=request_id,
                         tenant_id=env.tenant_id,
+                        # Unique per row: one tenant holds several of these rows.
+                        number=request_id.int % 2_000_000_000 + 1,
                         requester_user_id=env.user_id,
                         target_user_id=env.user_id,
                         role_id=env.role_id,

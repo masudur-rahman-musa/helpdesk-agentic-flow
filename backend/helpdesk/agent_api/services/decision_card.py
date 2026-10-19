@@ -32,11 +32,14 @@ class CardApprover(BaseModel):
 
 
 class DecisionCard(BaseModel):
-    """The card. `request_id` and `status` are `None` when nothing was filed."""
+    """The card. `request_id`, `request_number` and `status` are `None` when nothing was filed."""
 
     model_config = ConfigDict(frozen=True)
 
     request_id: uuid.UUID | None
+    request_number: str | None
+    """What the person sees, like `REQ-0107`; the id stays for the approve links."""
+
     status: RequestStatus | None
     decision: Decision
     risk_class: RiskClass
@@ -62,6 +65,7 @@ class _Created(_Classified):
     """The create tool's fields the card uses. `expires_at` is null while pending."""
 
     request_id: uuid.UUID
+    request_number: str
     status: RequestStatus
     expires_at: datetime | None
 
@@ -71,6 +75,7 @@ def _card(projected: _Classified) -> DecisionCard:
     created = projected if isinstance(projected, _Created) else None
     return DecisionCard(
         request_id=None if created is None else created.request_id,
+        request_number=None if created is None else created.request_number,
         status=None if created is None else created.status,
         decision=projected.decision,
         risk_class=projected.risk_class,

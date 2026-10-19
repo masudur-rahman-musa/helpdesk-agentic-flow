@@ -44,6 +44,7 @@ from helpdesk.shared.models import (
     Ticket,
     User,
 )
+from helpdesk.shared.models.numbers import NumberKind, ReferenceCounter
 
 
 class SeedError(Exception):
@@ -852,10 +853,23 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
                 "title": ticket.title,
                 "body": ticket.body,
                 "status": "open",
+                # Fixed by position, so a rerun gives every ticket the same number.
+                "number": number,
             }
-            for ticket, reporter in reporters
+            for number, (ticket, reporter) in enumerate(reporters, start=1)
         }
     )
+    # The counter starts where the fixed numbers end. A rerun leaves it alone,
+    # so tickets filed since keep their numbers.
+    if reporters:
+        await _SeedRepository(session, ReferenceCounter).upsert_many(
+            {
+                _uid(f"{spec.key}:counter:{NumberKind.TICKET.value}"): {
+                    "kind": NumberKind.TICKET.value,
+                    "last": len(reporters),
+                }
+            }
+        )
 
 
 async def _check_migrated(database_url: str) -> None:

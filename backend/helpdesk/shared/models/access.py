@@ -40,8 +40,11 @@ class AccessRequest(TenantScoped):
             "tenant_id",
             "target_user_id",
         ),
+        Index("uq_access_requests_tenant_id_number", "tenant_id", "number", unique=True),
     )
 
+    # The readable number, counted per company; shown as `REQ-0107`.
+    number: Mapped[int] = mapped_column()
     requester_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     target_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id"))

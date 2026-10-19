@@ -38,6 +38,7 @@ from helpdesk.shared.models.notification import (
     Notification,
     NotificationKind,
 )
+from helpdesk.shared.models.numbers import ReferenceCounter
 from helpdesk.shared.models.policy import PolicyChunk, PolicyDocument
 
 __all__ = [
@@ -60,6 +61,7 @@ __all__ = [
     "NotificationKind",
     "PolicyChunk",
     "PolicyDocument",
+    "ReferenceCounter",
     "RequestStatus",
     "ReviewDecision",
     "ReviewFlag",

@@ -32,6 +32,7 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.access_requests import list_requests_with_context_for_requester
 from helpdesk.shared.crud.grants import is_live_grant
 from helpdesk.shared.models import Grant, RequestStatus, Role, System
+from helpdesk.shared.models.numbers import NumberKind, format_number
 from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.types import (
     Classification,
@@ -95,6 +96,7 @@ class AccessRequestSummary(BaseModel):
     """
 
     request_id: uuid.UUID
+    request_number: str
     target_user_id: uuid.UUID
     role_id: uuid.UUID
     justification: str
@@ -200,6 +202,9 @@ class CreateAccessRequestOutput(BaseModel):
     """The filed request: the engine's verdict plus what the branch did with it."""
 
     request_id: uuid.UUID
+    request_number: str
+    """What the user is told, like `REQ-0107`; the id stays for code."""
+
     status: RequestStatus
     risk_class: RiskClass
     decision: Decision
@@ -310,7 +315,7 @@ async def create_access_request(
     )
 
     grant = await _run_branch(ctx, args, classification, request.id, now)
-    return _output(classification, request.id, status, grant)
+    return _output(classification, request.id, request.number, status, grant)
 
 
 async def _run_branch(
@@ -367,11 +372,13 @@ async def _run_branch(
 def _output(
     classification: Classification,
     request_id: uuid.UUID,
+    number: int,
     status: RequestStatus,
     grant: Grant | None,
 ) -> CreateAccessRequestOutput:
     return CreateAccessRequestOutput(
         request_id=request_id,
+        request_number=format_number(NumberKind.ACCESS_REQUEST, number),
         status=status,
         risk_class=classification.risk_class,
         decision=classification.decision,
@@ -474,6 +481,7 @@ async def list_my_requests(ctx: ToolContext, args: ListMyRequestsInput) -> ListM
         requests=[
             AccessRequestSummary(
                 request_id=row.request.id,
+                request_number=format_number(NumberKind.ACCESS_REQUEST, row.request.number),
                 target_user_id=row.request.target_user_id,
                 role_id=row.request.role_id,
                 justification=row.request.justification,

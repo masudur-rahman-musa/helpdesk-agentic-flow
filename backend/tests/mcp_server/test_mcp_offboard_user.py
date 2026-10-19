@@ -271,6 +271,8 @@ def _plant_request(
                     insert(AccessRequest).values(
                         id=request_id,
                         tenant_id=ROWS.tenant_id,
+                        number=request_id.int % 2_000_000_000
+                        + 1,  # unique per row without a counter
                         requester_user_id=requester_user_id,
                         target_user_id=target_user_id,
                         role_id=role_id,

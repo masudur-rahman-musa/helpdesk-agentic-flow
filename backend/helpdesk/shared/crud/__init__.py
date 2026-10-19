@@ -12,7 +12,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.models import PolicyChunk, TenantScoped
+from helpdesk.shared.crud.numbers import next_number
+from helpdesk.shared.models import AccessRequest, PolicyChunk, TenantScoped, Ticket
+from helpdesk.shared.models.numbers import NumberKind
 
 
 async def count_chunks_by_document(
@@ -40,6 +42,13 @@ async def count_chunks_by_document(
 # Set by the session/mixin, never by callers: accepting them in **fields
 # would let an update move a row across tenants behind the query guard.
 _PROTECTED_FIELDS = frozenset({"id", "tenant_id"})
+
+
+# Models that carry a readable number, and which count each one draws from.
+_NUMBERED: dict[type[TenantScoped], NumberKind] = {
+    Ticket: NumberKind.TICKET,
+    AccessRequest: NumberKind.ACCESS_REQUEST,
+}
 
 
 def _reject_protected(fields: dict[str, Any]) -> None:
@@ -77,6 +86,11 @@ class Repository[M: TenantScoped]:
 
     async def create(self, **fields: Any) -> M:
         _reject_protected(fields)
+        kind = _NUMBERED.get(self._model)
+        if kind is not None and "number" not in fields:
+            # Drawn here, so no path can store a numbered row without one.
+            # Pinned by `test_create_fills_the_number_when_the_caller_gives_none`.
+            fields["number"] = await next_number(self._session, kind)
         obj = self._model(tenant_id=bound_tenant_id(self._session), **fields)
         self._session.add(obj)
         await self._session.flush()

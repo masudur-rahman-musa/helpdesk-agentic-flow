@@ -10,6 +10,8 @@ import { approvalSlotSchema, requestCitationSchema } from "@/features/access/sch
 
 export const pendingApprovalSchema = z.object({
   request_id: z.string(),
+  // What a person sees, like REQ-0107. The id stays for the approve and reject calls.
+  request_number: z.string(),
   requester_user_id: z.string(),
   target_user_id: z.string(),
   role_id: z.string(),

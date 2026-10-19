@@ -22,6 +22,7 @@ from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.access.approvals import lock_request
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.models import RequestStatus
+from helpdesk.shared.models.numbers import NumberKind, format_number
 
 
 class RollbackRequestInput(MutatingToolInput):
@@ -39,6 +40,7 @@ class RollbackRequestOutput(BaseModel):
     """What the undo ended, and where the request now stands."""
 
     request_id: uuid.UUID
+    request_number: str
     status: RequestStatus
     revoked_grant_ids: list[uuid.UUID]
     """Every live grant the request produced: onboarding can grant a whole
@@ -73,6 +75,7 @@ async def rollback_request(ctx: ToolContext, args: RollbackRequestInput) -> Roll
     )
     return RollbackRequestOutput(
         request_id=result.request.id,
+        request_number=format_number(NumberKind.ACCESS_REQUEST, result.request.number),
         status=RequestStatus(result.request.status),
         revoked_grant_ids=[grant.id for grant in result.revoked_grants],
         revoked_count=len(result.revoked_grants),

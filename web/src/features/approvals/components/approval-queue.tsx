@@ -63,6 +63,7 @@ function ApprovalRow({ approval }: { approval: PendingApproval }) {
   return (
     <Card as="li" className="flex flex-col gap-2 p-4 text-sm">
       <div className="flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground tabular-nums">{approval.request_number}</span>
         <span className="font-medium">{approval.role_name}</span>
         <span className="text-muted-foreground">{approval.system_name}</span>
         <span className="text-muted-foreground">{approval.target_display_name}</span>

@@ -454,6 +454,7 @@ describe("ChatPanel — the decision card", () => {
   function filedCard(): Record<string, unknown> {
     return {
       request_id: REQUEST_ID,
+      request_number: "REQ-0107",
       status: "pending",
       decision: "approval",
       risk_class: "privileged",
@@ -471,6 +472,7 @@ describe("ChatPanel — the decision card", () => {
   function classifiedCard(): Record<string, unknown> {
     return {
       request_id: null,
+      request_number: null,
       status: null,
       decision: "auto",
       risk_class: "low",

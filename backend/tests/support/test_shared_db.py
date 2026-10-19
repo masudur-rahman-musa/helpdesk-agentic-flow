@@ -107,15 +107,15 @@ def test_a_fresh_tenants_scoped_tables_start_empty_second(
     asyncio.run(scenario())
 
 
-def test_the_shared_schema_has_all_twenty_tables(shared_engine: AsyncEngine) -> None:
+def test_the_shared_schema_has_all_twenty_one_tables(shared_engine: AsyncEngine) -> None:
     """Catches a shared engine whose schema is missing a table or carries an extra
-    one: the exact-set compare against the 20 names flips on any difference. The
+    one: the exact-set compare against the 21 names flips on any difference. The
     test runs no create_all, so it only passes if the fixture built the schema."""
 
     async def scenario() -> None:
         async with shared_engine.connect() as conn:
             names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
-        assert len(ALL_TABLES) == 20, "ALL_TABLES should name exactly 20 tables"
+        assert len(ALL_TABLES) == 21, "ALL_TABLES should name exactly 21 tables"
         assert set(names) == set(ALL_TABLES)
 
     asyncio.run(scenario())
