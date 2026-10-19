@@ -36,6 +36,7 @@ import pytest
 from helpdesk.agent_api.agent.postcheck import (
     DECISION_WORDS,
     POSTCHECK_FALLBACK_REPLY,
+    asks_after_filing,
     contradicts,
     permitted_words,
     words_in,
@@ -340,3 +341,57 @@ def test_a_turn_records_a_passed_post_check_until_something_says_otherwise() -> 
     report a fallback for every turn that never reached composition and make
     the fallback count meaningless from the first day."""
     assert _state().postcheck is PostCheckOutcome.PASSED
+
+
+# --- a question after the request was already filed ----------------------------
+
+
+@pytest.mark.parametrize(
+    ("reply", "tool_results", "expected"),
+    [
+        pytest.param(
+            "I need one more detail. How long do you need this access for?",
+            (_result({"id": "r1", "status": RequestStatus.PENDING.value}),),
+            True,
+            id="question-after-a-pending-request",
+        ),
+        pytest.param(
+            "Done. Do you need anything else?",
+            (_result({"decision": Decision.AUTO.value}),),
+            True,
+            id="question-after-an-auto-decision",
+        ),
+        pytest.param(
+            "Your request is with your manager.",
+            (_result({"id": "r1", "status": RequestStatus.PENDING.value}),),
+            False,
+            id="statement-after-a-pending-request",
+        ),
+        pytest.param(
+            "How long do you need this access for?",
+            (),
+            False,
+            id="question-when-nothing-was-filed",
+        ),
+        pytest.param(
+            "Should I open a ticket instead?",
+            (_result({"decision": Decision.BLOCKED.value}),),
+            False,
+            id="question-after-a-block-is-allowed",
+        ),
+        pytest.param(
+            "How long do you need this access for?",
+            (_result({"id": "r1", "status": RequestStatus.PENDING.value}, ok=False),),
+            False,
+            id="failed-call-filed-nothing",
+        ),
+    ],
+)
+def test_a_reply_may_not_ask_a_question_once_the_request_is_filed(
+    reply: str, tool_results: tuple[ToolResult, ...], expected: bool
+) -> None:
+    """Catches the reply that says "before I can submit this, how long?" over
+    a card that shows the request already filed. The question reads as if the
+    person's answer still mattered, and it does not. A blocked turn and a turn
+    that filed nothing may still ask, so the rule cannot be a bare `?` check."""
+    assert asks_after_filing(reply, _state(tool_results=tool_results)) is expected

@@ -3,8 +3,9 @@
 The decision is already made; this call only writes it down, so it uses the
 default model. A post-check, not a bigger model, catches a reply that
 contradicts the result: each decision word must match what the turn returned.
-A contradiction is retried once with the allowed words quoted, and a second
-one ends on a fixed template.
+A contradiction is retried once with the allowed words quoted, and so is a
+question asked after the request was filed. A second one ends on a fixed
+template.
 
 Everything the turn gathered goes in as `user` data, never `system`, since
 it includes tool output and policy text. Failures reach the model as plain
@@ -20,6 +21,7 @@ from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from helpdesk.agent_api.agent.postcheck import (
     POSTCHECK_FALLBACK_REPLY,
+    asks_after_filing,
     contradicts,
     permitted_words,
 )
@@ -68,6 +70,16 @@ def _regeneration_note(state: TurnState) -> dict[str, str]:
     )
 
 
+def _question_note() -> dict[str, str]:
+    """The retry message for a reply that asked a question after the request was filed."""
+    return _as_data(
+        "your previous answer asked a question, but the request is already "
+        "filed and nothing more is needed from the person; write it again "
+        "as a statement with no question",
+        [],
+    )
+
+
 def _failed(state: TurnState, exc: ToolError) -> TurnState:
     """End the turn as state, with nothing composed anywhere on it."""
     return state.model_copy(
@@ -112,10 +124,12 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     reply = POSTCHECK_FALLBACK_REPLY
     postcheck = PostCheckOutcome.FALLBACK
 
+    asked = False
     try:
         for attempt in range(COMPOSITION_ATTEMPTS):
             if attempt:
-                messages = [*messages, _regeneration_note(state)]
+                note = _question_note() if asked else _regeneration_note(state)
+                messages = [*messages, note]
             answer = await deps.model.complete(
                 messages,
                 alias=ModelAlias.AGENT_DEFAULT,
@@ -124,7 +138,8 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
             )
             spent += answer.total_tokens
             candidate = check_message_content(answer.text)
-            if not contradicts(candidate, state):
+            asked = asks_after_filing(candidate, state)
+            if not asked and not contradicts(candidate, state):
                 reply = candidate
                 postcheck = (
                     PostCheckOutcome.PASSED if attempt == 0 else PostCheckOutcome.REGENERATED

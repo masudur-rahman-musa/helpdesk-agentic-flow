@@ -767,3 +767,29 @@ def test_a_two_answer_staging_refuses_a_third_request() -> None:
 
     with pytest.raises(AssertionError):
         gateway.handler(request)
+
+
+def test_a_question_after_a_filed_request_is_regenerated_with_its_own_note() -> None:
+    """The reply asks "how long?" over a turn whose request is already filed.
+
+    Catches a node that stores it, and one that retries with the decision-word
+    note, which says nothing about questions and would likely repeat it. The
+    added message must name the question, not the permitted words."""
+    asking = "Your request is filed. How long do you need this access for?"
+    gateway = StagedGateway(
+        answers=[
+            StagedAnswer(text=asking, total_tokens=COMPOSITION_TOKENS),
+            StagedAnswer(text=PENDING_REPLY, total_tokens=REGENERATION_TOKENS),
+        ]
+    )
+    db = RecordingSession()
+
+    result = _compose(_pending_state(), gateway, db)
+
+    first = _messages(gateway.requests[0])
+    added = [item for item in _messages(gateway.requests[1]) if item not in first]
+    assert result.reply == PENDING_REPLY
+    assert result.postcheck is PostCheckOutcome.REGENERATED
+    assert [row.content for row in db.messages] == [PENDING_REPLY]
+    assert len(added) == 1
+    assert "question" in added[0]["content"]

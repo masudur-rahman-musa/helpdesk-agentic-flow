@@ -77,3 +77,36 @@ def contradicts(reply: str, state: TurnState) -> bool:
     """Whether `reply` uses a decision word the turn did not return. Every word
     must be allowed, not just one."""
     return not words_in(reply) <= permitted_words(state)
+
+
+_FILED_STATUSES = frozenset(
+    {
+        RequestStatus.PENDING.value,
+        RequestStatus.APPROVED.value,
+        RequestStatus.EXECUTED.value,
+    }
+)
+_FILED_DECISIONS = frozenset({Decision.APPROVAL.value, Decision.AUTO.value})
+
+
+def request_filed(state: TurnState) -> bool:
+    """Whether a successful call this turn already filed or granted a request."""
+    if state.outcome is TurnOutcome.AWAIT_APPROVAL:
+        return True
+    return any(
+        result.ok
+        and (
+            result.payload.get("status") in _FILED_STATUSES
+            or result.payload.get("decision") in _FILED_DECISIONS
+        )
+        for result in state.tool_results
+    )
+
+
+def asks_after_filing(reply: str, state: TurnState) -> bool:
+    """Whether `reply` asks a question although the request is already filed.
+
+    The question reads as if an answer still mattered, and it does not. A
+    blocked turn, or one that filed nothing, may still ask.
+    """
+    return "?" in reply and request_filed(state)
