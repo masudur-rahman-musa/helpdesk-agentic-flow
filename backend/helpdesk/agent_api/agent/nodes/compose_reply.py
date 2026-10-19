@@ -25,6 +25,11 @@ pointers come from the real matrix, never a written list (a design note, pinned 
 and the roles held are one sentence written by code ahead of the reply, so two
 replies cannot disagree about them (`requestable.py`).
 
+Every turn also gets the only next steps the reply may offer, built by code
+from the role data and the permission matrix, an empty list included, so the
+writer never offers a level or an action that does not exist
+(`next_steps.py`).
+
 A question asked on a request or revoke turn that filed nothing is recorded
 like a clarifying question, so the next message gets the best reading, not a
 second question (a design note, pinned by `test_agent_clarify_cap.py`).
@@ -37,6 +42,7 @@ from typing import Any
 from helpdesk.agent_api.agent.clarify_cap import BEST_READING_FALLBACK, CORRECT_ME_LINE
 from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
 from helpdesk.agent_api.agent.gates import REQUIRED_ENTITIES
+from helpdesk.agent_api.agent.next_steps import next_step_lines
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from helpdesk.agent_api.agent.postcheck import (
     asks_after_filing,
@@ -113,6 +119,10 @@ def _capability_data(state: TurnState) -> list[dict[str, str]]:
         return []
     return [_as_data("what this person can do here, from their real permissions", lines)]
 
+
+NEXT_STEPS_LABEL = "the only next steps you may offer this person"
+"""Sent on every turn, an empty list included: an empty list is what tells the
+writer to offer nothing (`test_an_empty_next_steps_list_is_still_sent`)."""
 
 LIST_REQUESTABLE_ROLES = "list_requestable_roles"
 
@@ -248,6 +258,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         *_requestable_data(rows),
         _as_data("what did not work, in plain words", _failure_sentences(state.tool_results)),
         *_capability_data(state),
+        _as_data(NEXT_STEPS_LABEL, next_step_lines(state.principals, state.resolved)),
         {"role": "user", "content": state.user_message},
     ]
 

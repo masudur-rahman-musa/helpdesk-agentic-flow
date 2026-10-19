@@ -87,7 +87,9 @@ class PostCheckOutcome(StrEnum):
 
 class ResolvedEntities(BaseModel):
     """The caller's own directory rows: ids for tools, slugs for people, names
-    for the "Do you mean ...?" question."""
+    for the "Do you mean ...?" question. `other_role_names` are the resolved
+    role's siblings on its system, sorted by slug, so a reply offers another
+    role only when one exists (`next_steps.py`)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -97,6 +99,7 @@ class ResolvedEntities(BaseModel):
     role_id: uuid.UUID | None = None
     role_slug: str | None = None
     role_name: str | None = None
+    other_role_names: tuple[str, ...] = ()
 
 
 class Citation(BaseModel):

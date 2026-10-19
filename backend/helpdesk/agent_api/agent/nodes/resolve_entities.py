@@ -7,6 +7,8 @@ or, right after one, answers with no tools.
 System and role are resolved on their own and the stricter answer wins. Roles
 are matched across the tenant when no system is named, and only inside the
 system when one system was named: "wiki editor" must not offer every editor.
+The resolved role's siblings on its system are read from the same rows, so
+the reply step can offer another role without a second read.
 """
 
 import logging
@@ -101,6 +103,7 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
                 role_id=resolved_role.id if resolved_role else None,
                 role_slug=resolved_role.slug if resolved_role else None,
                 role_name=resolved_role.name if resolved_role else None,
+                other_role_names=other_role_names(all_roles, resolved_role),
             ),
         }
     )
@@ -113,6 +116,17 @@ def roles_in_system(roles: Sequence[Role], system_matches: Sequence[Candidate]) 
         return roles
     system_id: uuid.UUID = system_matches[0].id
     return [role for role in roles if role.system_id == system_id]
+
+
+def other_role_names(roles: Sequence[Role], resolved: Candidate | None) -> tuple[str, ...]:
+    """The names of the other roles on the resolved role's system, sorted by
+    slug; empty when no role was resolved. Pinned by
+    `test_other_role_names_leave_out_the_asked_role`."""
+    if resolved is None:
+        return ()
+    owner_id = next(role.system_id for role in roles if role.id == resolved.id)
+    siblings = [role for role in roles if role.system_id == owner_id and role.id != resolved.id]
+    return tuple(role.name for role in sorted(siblings, key=lambda role: role.slug))
 
 
 def _candidates(rows: Sequence[System] | Sequence[Role]) -> tuple[Candidate, ...]:

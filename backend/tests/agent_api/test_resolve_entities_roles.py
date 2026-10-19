@@ -1,11 +1,26 @@
 """A named system narrows the roles: "wiki editor" must not offer every editor."""
 
+import asyncio
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Any, cast
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.agent.matching import Candidate, match_candidates
-from helpdesk.agent_api.agent.nodes.resolve_entities import roles_in_system
-from helpdesk.shared.models import Role
+from helpdesk.agent_api.agent.nodes.resolve_entities import resolve_entities, roles_in_system
+from helpdesk.agent_api.agent.state import (
+    Intent,
+    IntentEntities,
+    IntentExtraction,
+    ResolvedEntities,
+    TurnState,
+)
+from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.agent_api.services.mcp_client import ToolCaller
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
+from helpdesk.shared.models import Role, System
 
 
 def _role(system_id: uuid.UUID, slug: str, name: str) -> Role:
@@ -50,3 +65,108 @@ def test_no_single_system_keeps_every_role() -> None:
 
     assert list(roles_in_system(roles, ())) == roles
     assert list(roles_in_system(roles, two)) == roles
+
+
+class _Rows:
+    def __init__(self, rows: Sequence[Any]) -> None:
+        self._rows = rows
+
+    def scalars(self) -> "_Rows":
+        return self
+
+    def all(self) -> Sequence[Any]:
+        return self._rows
+
+
+class _FakeDb:
+    """Answers `Repository.list()` for `System` and `Role` from plain lists."""
+
+    def __init__(self, systems: Sequence[System], roles: Sequence[Role]) -> None:
+        self._by_model: dict[Any, Sequence[Any]] = {System: systems, Role: roles}
+
+    async def execute(self, statement: Any) -> _Rows:
+        return _Rows(self._by_model[statement.column_descriptions[0]["entity"]])
+
+
+def _system(slug: str, name: str) -> System:
+    return System(id=uuid.uuid4(), tenant_id=uuid.uuid4(), slug=slug, name=name)
+
+
+def _resolve(
+    systems: Sequence[System], roles: Sequence[Role], *, system: str | None, role: str | None
+) -> ResolvedEntities:
+    state = TurnState(
+        tenant_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        tenant_slug="fake-tenant",
+        user_message="fake message",
+        extraction=IntentExtraction(
+            intent=Intent.REQUEST_ACCESS,
+            entities=IntentEntities(
+                system=system,
+                role=role,
+                target_user=None,
+                department=None,
+                expiry_days=None,
+                justification=None,
+            ),
+            confidence=0.9,
+            clarifying_question=None,
+        ),
+        started_at=datetime(2026, 6, 2, tzinfo=UTC),
+    )
+    deps = TurnDeps(
+        db=cast(AsyncSession, _FakeDb(systems, roles)),
+        model=cast(ModelClient, None),
+        tools=cast(ToolCaller, None),
+        now=lambda: datetime(2026, 6, 2, tzinfo=UTC),
+    )
+    resolved = asyncio.run(resolve_entities(state, deps)).resolved
+    assert resolved is not None
+    return resolved
+
+
+def test_other_role_names_leave_out_the_asked_role() -> None:
+    """Catches an implementation that includes the asked role in the list,
+    includes roles of other systems, or sorts by display name instead of slug.
+    The names are chosen so slug order and name order differ."""
+    kyc, vpn = _system("kyc", "KYC"), _system("vpn", "VPN")
+    roles = [
+        _role(kyc.id, "kyc-viewer", "Alpha Viewer"),
+        _role(kyc.id, "kyc-admin", "KYC Admin"),
+        _role(kyc.id, "kyc-analyst", "Zulu Analyst"),
+        _role(vpn.id, "vpn-user", "VPN User"),
+    ]
+
+    resolved = _resolve([kyc, vpn], roles, system="kyc", role="kyc-admin")
+
+    assert resolved.role_slug == "kyc-admin"
+    assert resolved.other_role_names == ("Zulu Analyst", "Alpha Viewer")
+
+
+def test_a_one_role_system_has_no_other_role_names() -> None:
+    """Catches an implementation that lists the asked role itself (or roles of
+    other systems) as "another role" when the system has only one."""
+    kyc, vpn = _system("kyc", "KYC"), _system("vpn", "VPN")
+    roles = [_role(vpn.id, "vpn-user", "VPN User"), _role(kyc.id, "kyc-admin", "KYC Admin")]
+
+    resolved = _resolve([kyc, vpn], roles, system="vpn", role="vpn-user")
+
+    assert resolved.role_slug == "vpn-user"
+    assert resolved.other_role_names == ()
+
+
+def test_no_resolved_role_gives_no_other_role_names() -> None:
+    """Catches an implementation that fills the list from the system alone, so
+    a person who only named a system is invited to ask for "another role"
+    they never started with. The system has roles, so only the missing role id
+    can make the list empty."""
+    kyc = _system("kyc", "KYC")
+    roles = [_role(kyc.id, "kyc-admin", "KYC Admin"), _role(kyc.id, "kyc-viewer", "Viewer")]
+
+    resolved = _resolve([kyc], roles, system="kyc", role=None)
+
+    assert resolved.system_slug == "kyc"
+    assert resolved.role_id is None
+    assert resolved.other_role_names == ()

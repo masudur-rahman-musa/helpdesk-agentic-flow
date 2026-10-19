@@ -848,3 +848,68 @@ def test_a_question_after_a_classification_is_kept() -> None:
     assert result.postcheck is PostCheckOutcome.PASSED
     assert result.reply == asking
     assert [row.content for row in db.messages] == [asking]
+
+
+# --- the next steps the writer may offer ---------------------------
+
+NEXT_STEPS_LABEL = "the only next steps you may offer this person"
+
+
+def _next_steps_messages(request: httpx.Request) -> list[dict[str, str]]:
+    return [
+        item for item in _messages(request) if item["content"].startswith(f"{NEXT_STEPS_LABEL}:\n")
+    ]
+
+
+def test_the_next_steps_reach_the_writer_as_data() -> None:
+    """Catches a composition that leaves the next steps to the prompt (the
+    writer then invents them), or puts them in a system message, where gathered
+    material would act as an instruction.
+
+    Both lines are asserted whole and in order, in one `user` message."""
+    from helpdesk.shared.auth.capabilities import SENTENCES
+    from helpdesk.shared.auth.rbac import Tool
+
+    state = _state().model_copy(
+        update={
+            "principals": ("employee",),
+            "resolved": ResolvedEntities(
+                system_slug="kyc",
+                system_name="KYC",
+                role_slug="kyc-analyst",
+                role_name="Analyst",
+                other_role_names=("Approver", "Viewer"),
+            ),
+        }
+    )
+    gateway = StagedGateway()
+
+    _compose(state, gateway, RecordingSession())
+
+    messages = _messages(gateway.requests[0])
+    found = _next_steps_messages(gateway.requests[0])
+    expected = [
+        "Ask for another role on KYC: Approver, Viewer.",
+        SENTENCES[Tool.CREATE_TICKET],
+    ]
+    assert len(found) == 1
+    assert found[0]["role"] == "user"
+    assert found[0]["content"] == f"{NEXT_STEPS_LABEL}:\n{json.dumps(expected)}"
+    assert len([item for item in messages if item["role"] == "system"]) == 2
+
+
+def test_an_empty_next_steps_list_is_still_sent() -> None:
+    """Catches a composition that sends the message only when there are steps:
+    with nothing sent, the writer sees no list and falls back to offering
+    whatever it likes. An empty list is what tells it to offer nothing."""
+    state = _state().model_copy(
+        update={"principals": (), "resolved": ResolvedEntities(system_slug="vpn")}
+    )
+    gateway = StagedGateway()
+
+    _compose(state, gateway, RecordingSession())
+
+    found = _next_steps_messages(gateway.requests[0])
+    assert len(found) == 1
+    assert found[0]["role"] == "user"
+    assert found[0]["content"] == f"{NEXT_STEPS_LABEL}:\n[]"
