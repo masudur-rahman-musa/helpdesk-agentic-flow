@@ -261,10 +261,11 @@ def _payload(point: Any) -> dict[str, Any]:
 # --- collection_name, at the boundary and one over ----------------------------
 
 
-def test_the_collection_name_is_the_prefixed_tenant_slug() -> None:
+def test_the_collection_name_is_the_prefixed_tenant_slug(monkeypatch: pytest.MonkeyPatch) -> None:
     """Catches a name built from anything but `policy_` + the tenant slug —
     a per-tenant collection whose name does not name the tenant is a
     collection a later search would have to guess at."""
+    monkeypatch.delenv("QDRANT_COLLECTION_PREFIX", raising=False)
     assert collection_name("nordlicht") == "policy_nordlicht"
 
 

@@ -4,6 +4,7 @@ The length caps are also the column widths, so a check and its column cannot
 drift. Patterns use `fullmatch`, so a trailing newline is refused, not a second spelling.
 """
 
+import os
 import re
 
 from helpdesk.shared.core.errors import ErrorCode, ToolError
@@ -19,7 +20,27 @@ SOURCE_PATH_LENGTH = 256
 
 COLLECTION_NAME_PREFIX = "policy_"
 
-COLLECTION_NAME_LENGTH = len(COLLECTION_NAME_PREFIX) + SLUG_LENGTH
+COLLECTION_PREFIX_ENV = "QDRANT_COLLECTION_PREFIX"
+
+MAX_COLLECTION_PREFIX_LENGTH = len(COLLECTION_NAME_PREFIX)
+"""A different prefix may be no longer than the default, so the column cap holds."""
+
+COLLECTION_NAME_LENGTH = MAX_COLLECTION_PREFIX_LENGTH + SLUG_LENGTH
+
+
+def collection_prefix() -> str:
+    """The prefix of every policy collection, read on each call.
+
+    The default in real use. The test run sets `QDRANT_COLLECTION_PREFIX` so its
+    collections never share a name with the ones the running app reads.
+    """
+    prefix = os.environ.get(COLLECTION_PREFIX_ENV) or COLLECTION_NAME_PREFIX
+    if len(prefix) > MAX_COLLECTION_PREFIX_LENGTH:
+        raise InvalidPolicyNameError(
+            f"{COLLECTION_PREFIX_ENV} is longer than {MAX_COLLECTION_PREFIX_LENGTH} characters"
+        )
+    return prefix
+
 
 MAX_QUERY_CHARS = 1000
 """The embedder quietly cuts long input instead of refusing it, so the cap is here."""

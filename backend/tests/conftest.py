@@ -358,6 +358,12 @@ def migrated_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
     pg.drop(url)
 
 
+# The suite shares the compose Qdrant with the running app. Its collections
+# take their own prefix, so no test ever creates or drops `policy_<tenant>`,
+# the name the app reads. Set at import, before any test builds a name.
+os.environ["QDRANT_COLLECTION_PREFIX"] = "ptests_"
+
+
 @pytest.fixture(scope="session")
 def restricted_db_password() -> str:
     """A throwaway password generated per run, never a secret and never from env.

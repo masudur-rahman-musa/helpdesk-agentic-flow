@@ -19,9 +19,9 @@ from helpdesk.mcp_server.services.rag.embedding import DENSE_DIMENSION
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.core.naming import (
-    COLLECTION_NAME_PREFIX,
     check_collection_name,
     check_slug,
+    collection_prefix,
 )
 
 DENSE_VECTOR_NAME = "dense"
@@ -44,7 +44,7 @@ class VectorStoreUnavailableError(ToolError):
 def collection_name(tenant_slug: str) -> str:
     """`policy_{tenant_slug}`, or `InvalidPolicyNameError`. Builds no request."""
     check_slug(tenant_slug)
-    return check_collection_name(f"{COLLECTION_NAME_PREFIX}{tenant_slug}")
+    return check_collection_name(f"{collection_prefix()}{tenant_slug}")
 
 
 def create_client(settings: Settings) -> AsyncQdrantClient:
