@@ -18,6 +18,7 @@ const LINKS = [
   { key: "approvals", href: "/approvals", name: "Approvals" },
   { key: "reviews", href: "/reviews", name: "Reviews" },
   { key: "notifications", href: "/notifications", name: "Notifications" },
+  { key: "tickets", href: "/admin/tickets", name: "Tickets" },
   { key: "audit", href: "/admin/audit", name: "Audit log" },
   { key: "killswitch", href: "/admin/killswitch", name: "Kill switch" },
   { key: "rules", href: "/admin/rules", name: "Rules" },

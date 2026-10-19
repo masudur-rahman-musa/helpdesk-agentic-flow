@@ -627,6 +627,7 @@ ME_UNIVERSAL: frozenset[str] = frozenset({"chat", "requests", "access", "notific
 ME_ALL: frozenset[str] = ME_UNIVERSAL | {
     "approvals",
     "reviews",
+    "tickets",
     "audit",
     "killswitch",
     "rules",

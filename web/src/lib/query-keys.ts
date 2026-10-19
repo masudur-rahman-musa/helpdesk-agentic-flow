@@ -16,6 +16,7 @@ export const queryKeys = {
   killSwitchBoard: ["admin", "killswitch", "board"] as const,
   policiesBoard: ["admin", "policies", "board"] as const,
   rulesBoard: ["admin", "rules", "board"] as const,
+  openTickets: ["admin", "tickets", "open"] as const,
   chatMessages: (chatId: string) => ["chat", "messages", chatId] as const,
   notificationPage: (unreadOnly: boolean) => ["notifications", "page", unreadOnly] as const,
   reviewQueue: (status: string) => ["me", "reviews", status] as const,

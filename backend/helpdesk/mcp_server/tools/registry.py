@@ -30,6 +30,7 @@ from helpdesk.mcp_server.tools import (
     rules,
     self_service,
     tenant_settings,
+    tickets,
 )
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.auth import rbac
@@ -471,6 +472,18 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
         handler=self_service.list_my_tickets,
+    ),
+    ToolSpec(
+        name=rbac.Tool.LIST_OPEN_TICKETS.value,
+        tool=rbac.Tool.LIST_OPEN_TICKETS,
+        description=(
+            "List every open ticket in this tenant, oldest first, with who opened it. Reads only."
+        ),
+        input_model=tickets.ListOpenTicketsInput,
+        output_model=tickets.ListOpenTicketsOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=tickets.list_open_tickets,
     ),
 )
 

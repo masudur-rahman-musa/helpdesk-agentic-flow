@@ -26,6 +26,7 @@ SENTENCES: Mapping[Tool, str] = MappingProxyType(
         Tool.LIST_MY_TICKETS: (
             "Show the tickets you have opened and whether each is open or solved."
         ),
+        Tool.LIST_OPEN_TICKETS: "Show every open ticket in your company.",
         Tool.CLASSIFY_ACCESS_REQUEST: "Check if a request would need approval, before you file it.",
         Tool.LIST_PENDING_APPROVALS: "Show the requests waiting for your approval.",
         Tool.APPROVE_REQUEST: "Approve a request that is waiting on you.",

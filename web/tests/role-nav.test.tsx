@@ -47,6 +47,7 @@ const ACCESS = { name: "My access", href: "/access" };
 const APPROVALS = { name: "Approvals", href: "/approvals" };
 const REVIEWS = { name: "Reviews", href: "/reviews" };
 const NOTIFICATIONS = { name: "Notifications", href: "/notifications" };
+const TICKETS = { name: "Tickets", href: "/admin/tickets" };
 const AUDIT = { name: "Audit log", href: "/admin/audit" };
 const KILLSWITCH = { name: "Kill switch", href: "/admin/killswitch" };
 const RULES = { name: "Rules", href: "/admin/rules" };
@@ -61,6 +62,7 @@ const ALL_KEYS = [
   "approvals",
   "reviews",
   "notifications",
+  "tickets",
   "audit",
   "killswitch",
   "rules",
@@ -170,8 +172,39 @@ describe("the shell by profile", () => {
         APPROVALS,
         REVIEWS,
         NOTIFICATIONS,
+        TICKETS,
         AUDIT,
         KILLSWITCH,
+        RULES,
+        POLICIES,
+      ],
+    },
+    {
+      who: "an it_admin",
+      principals: ["it_admin"],
+      tabs: [
+        "chat",
+        "requests",
+        "access",
+        "approvals",
+        "reviews",
+        "notifications",
+        "tickets",
+        "audit",
+        "rules",
+        "policies",
+      ],
+      labels: ["IT admin"],
+      absent: ["Employee", "Platform admin"],
+      links: [
+        CHAT,
+        REQUESTS,
+        ACCESS,
+        APPROVALS,
+        REVIEWS,
+        NOTIFICATIONS,
+        TICKETS,
+        AUDIT,
         RULES,
         POLICIES,
       ],
@@ -234,6 +267,7 @@ describe("the tab keys the web knows", () => {
     { key: "approvals", link: APPROVALS },
     { key: "reviews", link: REVIEWS },
     { key: "notifications", link: NOTIFICATIONS },
+    { key: "tickets", link: TICKETS },
     { key: "audit", link: AUDIT },
     { key: "killswitch", link: KILLSWITCH },
     { key: "rules", link: RULES },

@@ -24,6 +24,7 @@ from helpdesk.agent_api.api.routes.admin.killswitch import router as killswitch_
 from helpdesk.agent_api.api.routes.admin.policies import router as policies_router
 from helpdesk.agent_api.api.routes.admin.rules import router as rules_router
 from helpdesk.agent_api.api.routes.admin.settings import router as settings_router
+from helpdesk.agent_api.api.routes.admin.tickets import router as tickets_router
 from helpdesk.agent_api.api.routes.approvals import router as approval_router
 from helpdesk.agent_api.api.routes.auth import router as auth_router
 from helpdesk.agent_api.api.routes.chat import router as chat_router
@@ -164,6 +165,7 @@ app.include_router(killswitch_router)
 app.include_router(settings_router)
 app.include_router(rules_router)
 app.include_router(policies_router)
+app.include_router(tickets_router)
 
 # The only place typed errors become HTTP responses. Starlette picks the most
 # specific handler, so a rate limit gets 429, not the generic `ToolError` code.

@@ -62,6 +62,16 @@ describe("query key list", () => {
     expect(queryKeys.myTickets).not.toEqual(queryKeys.myRequests);
   });
 
+  it('openTickets is ["admin", "tickets", "open"]', () => {
+    // Kill: catches an open-tickets key outside the `admin` prefix (a refresh
+    // of the admin boards would miss it) or one that collides with the
+    // employee's own list `myTickets`, so the two lists would share one cache
+    // entry and an admin would see their own tickets as the company's.
+    expect(queryKeys.openTickets).toEqual(["admin", "tickets", "open"]);
+    expect(queryKeys.openTickets).not.toEqual(queryKeys.myTickets);
+    expect(startsWith(queryKeys.openTickets, ["admin"])).toBe(true);
+  });
+
   it("keys keep today's values", () => {
     // Kill: catches a renamed or reshaped key, which would split the cache the
     // screens share today.

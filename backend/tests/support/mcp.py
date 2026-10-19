@@ -58,7 +58,7 @@ from helpdesk.mcp_server.services.rag.vectors import (
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine
-from helpdesk.shared.models import Base, Grant, Role, System, Tenant, User
+from helpdesk.shared.models import Base, Grant, Role, System, Tenant, Ticket, User
 from scripts.seed import seed_all
 
 # Obviously fake, tests only; 36 bytes so the Settings length gate (>= 32) passes.
@@ -967,3 +967,46 @@ async def plant_policy_document(
         texts=tuple(texts),
         chunk_ids=tuple(chunk_ids),
     )
+
+
+def plant_ticket(
+    database_url: str,
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    number: int,
+    created_at: datetime,
+    status: str = "open",
+) -> uuid.UUID:
+    """One ticket written around the tools, with the time and number chosen.
+
+    The tools stamp `now()` and count numbers themselves, so a case that needs
+    a known order (older planted after newer, or two at the same instant)
+    writes the row here. The engine is built and disposed inside this one
+    call, like `_admin_execute`; no test file builds its own.
+    """
+    ticket_id = uuid.uuid4()
+
+    async def scenario() -> None:
+        engine = create_async_engine(database_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    insert(Ticket).values(
+                        id=ticket_id,
+                        tenant_id=tenant_id,
+                        number=number,
+                        user_id=user_id,
+                        kind="general",
+                        title=f"fake planted ticket {ticket_id.hex}",
+                        body="fake body that a list must leave out",
+                        status=status,
+                        session_id=None,
+                        created_at=created_at,
+                    )
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+    return ticket_id

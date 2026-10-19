@@ -19,6 +19,7 @@ export const API = {
   policies: "/api/admin/policies",
   policyReingest: "/api/admin/policies/reingest",
   rules: "/api/admin/rules",
+  openTickets: "/api/admin/tickets",
   chatStream: "/api/chat/stream",
   chatMessages: "/api/chat/messages",
   chatList: "/api/chat/chats",

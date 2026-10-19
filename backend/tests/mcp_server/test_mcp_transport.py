@@ -143,6 +143,12 @@ EXPECTED_TOOL_NAMES = {
     # list on `/requests` had nothing to render (this literal is the wire
     # surface, and it is part of every diff adding a REGISTRY entry).
     "list_my_tickets",
+    # The admin side of tickets. Thirty-two names become thirty-three, the new
+    # one a READ: tickets could be filed and listed by their owner but no admin
+    # could see the open ones, so `/admin/tickets` had nothing to render (this
+    # literal is the wire surface, and it is part of every diff adding a
+    # REGISTRY entry).
+    "list_open_tickets",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

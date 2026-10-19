@@ -7,8 +7,8 @@ Surface under test:
     - it lives in ``rbac.py`` itself, beside ``authorize``, and takes the raw
       principal STRINGS off the token (unknown strings included), not a set of
       ``Principal`` members, so the unknown-string row can be asked.
-    - the keys are ``chat requests access approvals reviews notifications audit
-      killswitch rules policies settings``, the same eleven the web's link table is keyed
+    - the keys are ``chat requests access approvals reviews notifications tickets
+      audit killswitch rules policies settings``, the same twelve the web's link table is keyed
       by (``web/tests/role-nav.test.tsx`` holds the same literal list).
     - the four universal keys (``chat requests access notifications``) are
       ALWAYS returned, even for an empty or all-unknown principal list: they
@@ -17,7 +17,8 @@ Surface under test:
 
 Each gated tab is tied to ONE read tool: approvals to ``list_pending_approvals``,
 reviews to ``list_reviews``, audit to ``search_audit``, killswitch to
-``list_kill_switches``, rules to ``list_sod_rules``, policies to
+``list_kill_switches``, rules to ``list_sod_rules``, tickets to
+``list_open_tickets``, policies to
 ``list_policy_documents``. The literal table below pins the expected key sets;
 the drift table derives them from ``authorize`` itself, so a tab whose tool is
 swapped for a different one is caught by the drift table even where the two
@@ -31,10 +32,11 @@ from helpdesk.shared.auth.rbac import Principal, RbacDenied, Tool, authorize, ta
 
 UNIVERSAL: frozenset[str] = frozenset({"chat", "requests", "access", "notifications"})
 
-# The eleven keys, as literals: the web's link table is keyed by the same list.
+# The twelve keys, as literals: the web's link table is keyed by the same list.
 ALL_KEYS: frozenset[str] = UNIVERSAL | {
     "approvals",
     "reviews",
+    "tickets",
     "audit",
     "killswitch",
     "rules",
@@ -60,6 +62,7 @@ LITERAL_ROWS: tuple[tuple[str, list[str], frozenset[str]], ...] = (
 TAB_TOOLS: dict[str, Tool] = {
     "approvals": Tool.LIST_PENDING_APPROVALS,
     "reviews": Tool.LIST_REVIEWS,
+    "tickets": Tool.LIST_OPEN_TICKETS,
     "audit": Tool.SEARCH_AUDIT,
     "killswitch": Tool.LIST_KILL_SWITCHES,
     "rules": Tool.LIST_SOD_RULES,
@@ -98,8 +101,8 @@ def test_each_principal_sees_exactly_its_literal_tab_set(
 ) -> None:
     """Catches a tab set that is wider or narrower than the expected counts.
 
-    Employee four, manager/system_owner/hr seven, it_admin nine, auditor five,
-    platform_admin eleven. An implementation giving managers the two admin boards,
+    Employee four, manager/system_owner/hr seven, it_admin ten, auditor five,
+    platform_admin twelve. An implementation giving managers the two admin boards,
     or it_admin the kill switch, fails its own row. The union row also pins that
     two principals never lose a tab to each other.
     """
@@ -162,7 +165,7 @@ def test_an_unknown_principal_string_never_adds_a_tab(principals: list[str]) -> 
     """Catches a matcher that honours a near-miss string.
 
     A case-folding or `startswith` match would turn `PLATFORM_ADMIN` or
-    `platform_admin ` into the real principal and open all eleven tabs. The only
+    `platform_admin ` into the real principal and open all twelve tabs. The only
     known principal on any row is `employee` (or none), so the four universal
     tabs are all that may ever come back.
     """
@@ -180,3 +183,28 @@ def test_settings_tab_is_for_platform_admin_only(principal: str) -> None:
     shown = "settings" in set(tabs_for([principal]))
 
     assert shown is (principal == "platform_admin")
+
+
+@pytest.mark.parametrize("principal", [member.value for member in Principal])
+def test_tickets_tab_is_for_it_admin_and_platform_admin_only(principal: str) -> None:
+    """Catches a tickets tab shown to anyone but the two admins (an employee
+    would get a link to a page that lists colleagues' tickets), and one hidden
+    from either admin.
+
+    The expected answer is a literal pair, not derived from `authorize`, so a
+    matrix cell widened for `list_open_tickets` and a tab tied to a wider read
+    tool (`list_my_tickets` is open to all seven) both fail the same row.
+    """
+    shown = "tickets" in set(tabs_for([principal]))
+
+    assert shown is (principal in {"it_admin", "platform_admin"})
+
+
+@pytest.mark.parametrize("principal", ["it_admin", "platform_admin"])
+def test_tickets_tab_sits_after_notifications_and_before_audit(principal: str) -> None:
+    """Catches a tab appended at the end of the list (the nav is filtered from
+    this order, so Tickets would draw after Settings), or one placed before
+    Notifications. Order is read from the returned list itself."""
+    returned = list(tabs_for([principal]))
+
+    assert returned.index("notifications") < returned.index("tickets") < returned.index("audit")

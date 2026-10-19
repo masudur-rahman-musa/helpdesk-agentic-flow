@@ -348,6 +348,21 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # The open tickets board row: the two cells the `/admin/tickets` page
+    # needs, both at `Scope.ANY`. `employee` is the cell that matters: every
+    # principal may read their OWN tickets (`list_my_tickets` is `True` for all
+    # seven above), and a row copied from that neighbour would hand the whole
+    # company every colleague's open tickets. `auditor` and `manager` are the
+    # other two a copy from the audit or approval rows would open.
+    "list_open_tickets": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # the re-ingest row: the WRITE on `/admin/policies`,
     # with the same two cells as the board directly above. `platform_admin`
     # alone - the shape `set_kill_switch` has, and the one a mutation this
@@ -585,6 +600,16 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # and the plain permitted branch of the sweep is the strict assertion
         # that pins the two cells.
         "list_policy_documents",
+        # `list_open_tickets` takes one optional `limit` and no id at all, so
+        # there is no id for a cross-tenant call to carry. Whose tickets it
+        # answers comes from the TOKEN, and that isolation is pinned instead
+        # by `test_mcp_open_tickets.py::
+        # test_the_list_holds_every_open_ticket_of_the_tenant_oldest_first`,
+        # which plants an open ticket in the OTHER tenant. It belongs in
+        # neither `ALLOW_ANSWERS_NOT_FOUND` nor `SCOPE_BEFORE_EXISTENCE_TOOLS`:
+        # both its cells are `Scope.ANY`, so a permitted caller SUCCEEDS and
+        # the plain permitted branch of the sweep pins the two cells.
+        "list_open_tickets",
         # `reingest_policy_document` takes a `slug` and a `version`,
         # which name a file inside the TOKEN tenant's own corpus directory and
         # are not ids of anybody's rows - there is no other tenant's slug to

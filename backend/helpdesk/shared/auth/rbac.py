@@ -30,6 +30,7 @@ class Tool(StrEnum):
     SEARCH_POLICY = "search_policy"
     CREATE_TICKET = "create_ticket"
     LIST_MY_TICKETS = "list_my_tickets"
+    LIST_OPEN_TICKETS = "list_open_tickets"
     CLASSIFY_ACCESS_REQUEST = "classify_access_request"
     EXECUTE_GRANT = "execute_grant"
     LIST_PENDING_APPROVALS = "list_pending_approvals"
@@ -246,6 +247,11 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
+        # Every open ticket in the company is admin work, not a person's own.
+        Tool.LIST_OPEN_TICKETS: {
+            Principal.IT_ADMIN: Scope.ANY,
+            Principal.PLATFORM_ADMIN: Scope.ANY,
+        },
         # The policy files' version history, which only an admin can act
         # on. Everyone can still search the policy text itself.
         Tool.LIST_POLICY_DOCUMENTS: {
@@ -327,6 +333,7 @@ _TAB_TOOLS: Mapping[str, Tool | None] = MappingProxyType(
         "approvals": Tool.LIST_PENDING_APPROVALS,
         "reviews": Tool.LIST_REVIEWS,
         "notifications": None,
+        "tickets": Tool.LIST_OPEN_TICKETS,
         "audit": Tool.SEARCH_AUDIT,
         "killswitch": Tool.LIST_KILL_SWITCHES,
         "rules": Tool.LIST_SOD_RULES,
