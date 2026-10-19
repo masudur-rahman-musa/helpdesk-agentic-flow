@@ -14,6 +14,8 @@ export const auditEventRowSchema = z.object({
   event_type: z.string(),
   subject_type: z.string(),
   subject_id: z.string().nullable(),
+  /** The request's shown number, like `REQ-0107`; null for every other subject. */
+  subject_number: z.string().nullable(),
   payload: z.record(z.string(), z.unknown()),
   hash: z.string(),
 });

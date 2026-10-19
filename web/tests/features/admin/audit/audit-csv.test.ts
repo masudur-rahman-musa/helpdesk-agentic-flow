@@ -51,6 +51,7 @@ const BASE: AuditEventRow = {
   event_type: "grant.created",
   subject_type: "grant",
   subject_id: "fake-subject-id",
+  subject_number: null,
   payload: {},
   hash: HASH,
 };
@@ -111,6 +112,7 @@ describe("toCsv — the wire values, not the screen's labels", () => {
       event_type: "review.opened",
       subject_type: "access_review",
       subject_id: null,
+      subject_number: null,
       payload: { fake_note: "fake detail", fake_flag: false },
       hash: HASH,
     };

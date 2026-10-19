@@ -95,6 +95,7 @@ const EVENT_ONE: Record<string, unknown> = {
   event_type: "grant.created",
   subject_type: "grant",
   subject_id: "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa",
+  subject_number: null,
   payload: PAYLOAD_ONE,
   hash: HASH_ONE,
 };
@@ -108,6 +109,7 @@ const EVENT_TWO: Record<string, unknown> = {
   event_type: "review.opened",
   subject_type: "access_review",
   subject_id: null,
+  subject_number: null,
   payload: {},
   hash: HASH_TWO,
 };
@@ -121,6 +123,7 @@ const EVENT_THREE: Record<string, unknown> = {
   event_type: "user.offboarded",
   subject_type: "user",
   subject_id: "bbbbbbbb-bbbb-5bbb-8bbb-bbbbbbbbbbbb",
+  subject_number: null,
   payload: { fake_reason: "fake leaver" },
   hash: HASH_THREE,
 };

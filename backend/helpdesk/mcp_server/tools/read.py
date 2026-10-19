@@ -38,6 +38,7 @@ from helpdesk.shared.models import (
     System,
     User,
 )
+from helpdesk.shared.models.numbers import NumberKind, format_number
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
 
@@ -220,6 +221,12 @@ class AuditEventRow(BaseModel):
     event_type: str
     subject_type: str
     subject_id: str | None
+    subject_number: str | None
+    """What the page shows in place of `subject_id`, like `REQ-0107`.
+
+    Set only for an `access_request` subject found in the caller's company. It
+    is looked up on read, so the stored, hashed row never changes.
+    """
     payload: dict[str, Any]
     hash: str
 
@@ -357,7 +364,30 @@ async def _resolve_subjects(
     return resolved
 
 
-def _audit_row(row: AuditEvent) -> AuditEventRow:
+async def _request_numbers(session: AsyncSession, events: Sequence[AuditEvent]) -> dict[str, str]:
+    """Each request subject's shown number, keyed by the subject id as stored.
+
+    One tenant-filtered read for the page, so a foreign id comes back missing
+    and gets no number (`test_a_request_from_another_company_gets_no_number`).
+    """
+    wanted = {
+        row.subject_id: subject_uuid
+        for row in events
+        if row.subject_type == _REQUEST_SUBJECT
+        and row.subject_id is not None
+        and (subject_uuid := _as_uuid(row.subject_id)) is not None
+    }
+    if not wanted:
+        return {}
+    requests = await Repository(session, AccessRequest).get_many(set(wanted.values()))
+    return {
+        subject_id: format_number(NumberKind.ACCESS_REQUEST, request.number)
+        for subject_id, subject_uuid in wanted.items()
+        if (request := requests.get(subject_uuid)) is not None
+    }
+
+
+def _audit_row(row: AuditEvent, numbers: dict[str, str]) -> AuditEventRow:
     return AuditEventRow(
         seq=row.seq,
         occurred_at=row.occurred_at,
@@ -366,6 +396,11 @@ def _audit_row(row: AuditEvent) -> AuditEventRow:
         event_type=row.event_type,
         subject_type=row.subject_type,
         subject_id=row.subject_id,
+        subject_number=(
+            numbers.get(row.subject_id)
+            if row.subject_type == _REQUEST_SUBJECT and row.subject_id is not None
+            else None
+        ),
         payload=dict(row.payload),
         hash=row.hash,
     )
@@ -419,6 +454,7 @@ async def search_audit(ctx: ToolContext, args: SearchAuditInput) -> SearchAuditO
     else:
         returned = visible
         next_before_seq = page.lowest_seq if page.has_more else None
+    numbers = await _request_numbers(ctx.session, returned)
     return SearchAuditOutput(
-        events=[_audit_row(row) for row in returned], next_before_seq=next_before_seq
+        events=[_audit_row(row, numbers) for row in returned], next_before_seq=next_before_seq
     )

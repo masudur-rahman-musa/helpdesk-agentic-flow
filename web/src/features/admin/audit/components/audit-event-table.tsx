@@ -38,7 +38,7 @@ export function AuditEventTable({ events }: { events: AuditEventRow[] }) {
             <TableCell>{event.actor_kind}</TableCell>
             <TableCell>{event.actor_ref ?? "no actor"}</TableCell>
             <TableCell>{event.subject_type}</TableCell>
-            <TableCell>{event.subject_id ?? "no subject id"}</TableCell>
+            <TableCell>{event.subject_number ?? event.subject_id ?? "no subject id"}</TableCell>
             <TableCell title={event.hash}>{event.hash.slice(0, 12)}</TableCell>
             <TableCell>
               {/* Payload shape differs per event type, so it shows whole. */}

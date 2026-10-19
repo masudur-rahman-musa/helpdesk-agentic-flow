@@ -12,13 +12,13 @@ import { auditSearchSchema, auditVerifySchema } from "@/features/admin/audit/sch
  *   `AuditEventRow`, `AuditSearch` and `AuditVerify` in one file,
  *   both envelopes, `reviews-schema.ts`' own naming.
  * - the search envelope is `{ events: [...], next_before_seq: number | null }`
- *   with the NINE `AuditEventRow` fields, and the verify envelope the FOUR
+ *   with the TEN `AuditEventRow` fields, and the verify envelope the FOUR
  *   fields `{ ok: boolean, broken_at: number | null, truncated_at: number |
  *   null, anchored_seq: number | null }` — both read off
  *   `mcp_server/tools/read.py` and the verify route as they stand,
  *    never invented here.
  * - every field is REQUIRED, and nullable exactly where the tool's own model
- *   is — six names: `actor_ref`, `subject_id`, `next_before_seq`,
+ *   is — seven names: `actor_ref`, `subject_id`, `subject_number`, `next_before_seq`,
  *   `broken_at`, `truncated_at` and `anchored_seq` — never `.optional()`: a
  *   missing column would otherwise reach the page as `undefined` and render
  *   as a blank cell instead of a refused payload.
@@ -43,11 +43,12 @@ const EVENT_ROW: Record<string, unknown> = {
   event_type: "access_request.created",
   subject_type: "access_request",
   subject_id: REQUEST_ID,
+  subject_number: "REQ-0107",
   payload: { risk_class: "medium", role_name: "Fake Payroll Read" },
   hash: "0".repeat(64),
 };
 
-/** The nine field names, written out rather than derived from the row. */
+/** The ten field names, written out rather than derived from the row. */
 const EVENT_FIELDS = [
   "seq",
   "occurred_at",
@@ -56,6 +57,7 @@ const EVENT_FIELDS = [
   "event_type",
   "subject_type",
   "subject_id",
+  "subject_number",
   "payload",
   "hash",
 ] as const;
@@ -71,13 +73,13 @@ function page(row: Record<string, unknown>, nextBeforeSeq: number | null = 901):
 }
 
 describe("auditSearchSchema", () => {
-  it("accepts the whole nine-field row", () => {
+  it("accepts the whole ten-field row", () => {
     // The premise every rejection row below depends on: a schema that refused
-    // the complete payload would make all nine of them pass while the page
+    // the complete payload would make all ten of them pass while the page
     // rendered nothing at all. The count is asserted beside it because the
-    // row has exactly nine.
+    // row has exactly ten.
     expect(auditSearchSchema.safeParse(page(EVENT_ROW)).success).toBe(true);
-    expect(EVENT_FIELDS).toHaveLength(9);
+    expect(EVENT_FIELDS).toHaveLength(10);
   });
 
   it.each(EVENT_FIELDS)("rejects an event row with no %s", (field) => {

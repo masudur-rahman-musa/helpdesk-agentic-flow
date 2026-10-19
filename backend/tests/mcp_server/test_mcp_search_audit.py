@@ -16,7 +16,7 @@ Surface under test (written before it exists):
     from the token.
     ``AuditEventRow`` — ``seq``, ``occurred_at``, ``actor_kind``,
     ``actor_ref``, ``event_type``, ``subject_type``, ``subject_id``,
-    ``payload`` and ``hash``.
+    ``subject_number``, ``payload`` and ``hash``.
     ``SearchAuditOutput`` — ``events`` and ``next_before_seq`` (``None`` when
     the scan reached the end).
     ``search_audit`` — a registered READ tool (``mutating=False``, no
@@ -146,7 +146,7 @@ OCCURRED_AT = datetime(2026, 5, 1, 9, 0, tzinfo=UTC)
 # describes.
 TOOL_SUBJECT_TYPE = "tool"
 
-# The nine fields every returned row carries.
+# The ten fields every returned row carries.
 ROW_FIELDS = frozenset(
     {
         "seq",
@@ -156,6 +156,7 @@ ROW_FIELDS = frozenset(
         "event_type",
         "subject_type",
         "subject_id",
+        "subject_number",
         "payload",
         "hash",
     }
