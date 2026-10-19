@@ -3,7 +3,7 @@
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.graph.state``
-    ``class Intent(StrEnum)`` — exactly thirteen labels.
+    ``class Intent(StrEnum)`` — exactly fourteen labels.
     ``class IntentEntities(BaseModel)`` (frozen) — ``system``, ``role``,
         ``target_user``, ``department``, ``expiry_days``, ``justification``,
         every one nullable and required.
@@ -26,7 +26,7 @@ The same file also holds the planner's own gates:
 
 ``agent_api.graph.gates``
     ``INTENT_TOOLS: Mapping[Intent, frozenset[str]]`` — a row for EVERY
-        intent, union exactly the eighteen planner tools, ``search_policy`` in
+        intent, union exactly the nineteen planner tools, ``search_policy`` in
         none of them.
     ``def allowed_tools(intent: Intent) -> frozenset[str]`` — reads the table.
     ``MAX_TOOL_CALLS = 6`` · ``MAX_CALLS_PER_ROUND = 3`` ·
@@ -100,13 +100,14 @@ SPEC_INTENTS: frozenset[str] = frozenset(
         "open_ticket",
         "ask_policy",
         "check_my_access",
+        "ask_capabilities",
         "approvals",
         "review",
         "other",
     }
 )
 """The closed label set, written out rather than derived: counted from
-the list in the design, thirteen of them."""
+the list in the design, fourteen of them."""
 
 PLANNED_REQUIREMENTS: dict[str, frozenset[str]] = {
     "reset_password": frozenset(),
@@ -119,6 +120,7 @@ PLANNED_REQUIREMENTS: dict[str, frozenset[str]] = {
     "open_ticket": frozenset(),
     "ask_policy": frozenset(),
     "check_my_access": frozenset(),
+    "ask_capabilities": frozenset(),
     "approvals": frozenset(),
     "review": frozenset(),
     "other": frozenset(),
@@ -137,12 +139,13 @@ PLANNED_RETRIEVAL: dict[str, bool] = {
     "open_ticket": False,
     "ask_policy": True,
     "check_my_access": False,
+    "ask_capabilities": False,
     "approvals": False,
     "review": False,
     "other": False,
 }
 """As a literal: retrieval runs for exactly two of the
-thirteen intents. Written out rather than derived from a `True` set, so a row
+fourteen intents. Written out rather than derived from a `True` set, so a row
 added to `Intent` with no answer here is a red test and not a silent default."""
 
 FULL_CONFIDENCE = 1.0
@@ -175,13 +178,13 @@ def test_the_gate_constants_are_exactly_the_planned_values() -> None:
     assert MAX_DISAMBIGUATION_OPTIONS == 3
 
 
-def test_intent_has_exactly_the_thirteen_spec_members() -> None:
+def test_intent_has_exactly_the_fourteen_spec_members() -> None:
     """Catches an intent added,
-    renamed or dropped relative to the thirteen labels. The value is what the gateway's
+    renamed or dropped relative to the fourteen labels. The value is what the gateway's
     JSON schema encloses, so a renamed member silently changes the closed set
     the model may answer with."""
     assert {intent.value for intent in Intent} == SPEC_INTENTS
-    assert len(list(Intent)) == 13
+    assert len(list(Intent)) == 14
 
 
 def test_required_entities_covers_exactly_every_intent() -> None:
@@ -360,7 +363,7 @@ def test_retrieves_policy_covers_exactly_every_intent() -> None:
     policy-answering intent ships answering from nothing. Same reasoning as
     `REQUIRED_ENTITIES`."""
     assert set(RETRIEVES_POLICY) == set(Intent)
-    assert len(RETRIEVES_POLICY) == 13
+    assert len(RETRIEVES_POLICY) == 14
 
 
 @pytest.mark.parametrize(
@@ -410,6 +413,7 @@ PLANNER_TOOLS: frozenset[str] = frozenset(
         "get_me",
         "list_my_access",
         "list_my_requests",
+        "list_requestable_roles",
         "classify_access_request",
         "create_access_request",
         "revoke_access",
@@ -427,9 +431,9 @@ PLANNER_TOOLS: frozenset[str] = frozenset(
         "create_ticket",
     }
 )
-"""The eighteen tools a planner may propose, as a literal.
+"""The nineteen tools a planner may propose, as a literal.
 
-`TOOL_INPUTS`' nineteen minus `search_policy`, counted from the server's own
+`TOOL_INPUTS`' twenty minus `search_policy`, counted from the server's own
 registry: twenty-eight registered, less the six that belong to the admin tools (`search_audit`,
 `set_kill_switch`, `rollback_request`, `list_kill_switches`,
 `list_sod_rules`, `list_policy_documents`), less
@@ -457,11 +461,12 @@ PLANNED_INTENT_TOOLS: dict[str, frozenset[str]] = {
     "open_ticket": frozenset({"create_ticket"}),
     "ask_policy": frozenset(),
     "check_my_access": frozenset({"get_me", "list_my_access", "list_my_requests"}),
+    "ask_capabilities": frozenset({"list_requestable_roles"}),
     "approvals": frozenset({"list_pending_approvals", "approve_request", "reject_request"}),
     "review": frozenset({"open_access_review", "list_review_items", "decide_review_item"}),
     "other": frozenset(),
 }
-"""The table as a literal: thirteen rows whose union is the eighteen.
+"""The table as a literal: fourteen rows whose union is the nineteen.
 
 Written out here rather than derived, so a row widened in `gates.py` — an
 approvals turn gaining `offboard_user` — is a red row rather than a tool the
@@ -491,10 +496,10 @@ def test_intent_tools_covers_exactly_every_intent() -> None:
     added to the enum would inherit whatever that default is — either every
     tool or none — instead of waiting for somebody to write its row."""
     assert set(INTENT_TOOLS) == set(Intent)
-    assert len(INTENT_TOOLS) == 13
+    assert len(INTENT_TOOLS) == 14
 
 
-def test_the_union_of_the_rows_is_exactly_the_eighteen_planner_tools() -> None:
+def test_the_union_of_the_rows_is_exactly_the_nineteen_planner_tools() -> None:
     """Both directions at once. Catches a tool the catalogue registers that no
     row offers — dead weight nothing can ever propose — and a row naming a
     tool the catalogue does not carry, which would be proposed and then fail
@@ -504,7 +509,7 @@ def test_the_union_of_the_rows_is_exactly_the_eighteen_planner_tools() -> None:
     union: frozenset[str] = frozenset().union(*INTENT_TOOLS.values())
 
     assert union == PLANNER_TOOLS
-    assert len(union) == 18
+    assert len(union) == 19
     assert union == set(TOOL_INPUTS) - {SEARCH_POLICY}
     assert all(SEARCH_POLICY not in row for row in INTENT_TOOLS.values())
 

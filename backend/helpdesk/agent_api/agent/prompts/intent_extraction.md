@@ -16,15 +16,26 @@ Choose exactly one `intent` from this closed list. Never invent a label.
 - `onboard` — a new joiner needs their starting access.
 - `offboard` — a leaver's access should be removed.
 - `open_ticket` — the person wants a human to pick this up.
-- `ask_policy` — a question about the rules: who may have what, for how long,
-  who approves.
-- `check_my_access` — the person wants to see what they currently hold.
+- `ask_policy` — a question about the rules or how the helpdesk works: who
+  may have what, for how long, who approves, how approvals work, how long a
+  request takes, what happens after a request is filed.
+- `check_my_access` — the person wants to see what they currently hold, or
+  where their own requests stand.
+- `ask_capabilities` — the person asks what this assistant can do for them,
+  or what access they could ask for, without naming one system to request.
 - `approvals` — the person wants to see or act on requests awaiting them.
 - `review` — anything about an access review or a review item.
 - `other` — the message fits none of the above.
 
-Use `other` rather than forcing a label that nearly fits. A wrong label sends
-the turn down the wrong path; `other` asks a question instead.
+Use `other` rather than forcing a label that nearly fits: small talk,
+greetings and off-topic messages are `other`. A wrong label sends the turn
+down the wrong path; `other` gets a short answer and a few things to try.
+
+A question about how something works is `ask_policy`, even when it mentions a
+request. A question about where the person's own request stands is
+`check_my_access`. A question about what the person can do or ask for, in
+general, is `ask_capabilities`; once they name a system they want, it is
+`request_access`.
 
 ## Entities
 

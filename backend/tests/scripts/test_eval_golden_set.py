@@ -23,8 +23,8 @@ imports with no ``sys.path`` surgery; ``scripts.seed`` imports because
 ``sys.path`` before any test module is imported.
 
 Claims pinned here, each by the test named beside it:
-- the golden file holds exactly 120 cases, one per line, no blank line:
-  ``test_the_golden_file_holds_one_hundred_and_twenty_parsable_cases``;
+- the golden file holds exactly 140 cases, one per line, no blank line:
+  ``test_the_golden_file_holds_one_hundred_and_forty_parsable_cases``;
 - the twelve category counts are exactly the category minimums:
   ``test_category_counts_equal_the_spec_minimums_exactly``;
 - each access case agrees with the real policy engine on decision and risk
@@ -92,15 +92,15 @@ BASELINE = _repo_root() / "backend/evals/baseline.json"
 GOLDEN_SET_POINTER = "backend/evals/golden/helpdesk-v1.jsonl"
 """What ``baseline.json`` must name as its golden set."""
 
-# The category minimums. They sum to exactly 120, so the minimums ARE
+# The category minimums. They sum to exactly 140, so the minimums ARE
 # the count and this mapping is asserted whole.
 CATEGORY_MINIMUMS: dict[str, int] = {
     "access_auto": 15,
     "access_approval": 20,
     "access_blocked_sod": 10,
     "access_critical": 10,
-    "helpdesk": 10,
-    "policy_qa": 15,
+    "helpdesk": 26,
+    "policy_qa": 19,
     "refusal_out_of_corpus": 10,
     "clarify_ambiguous": 10,
     "injection": 8,
@@ -109,7 +109,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "review": 3,
 }
 
-TOTAL_CASES = 120
+TOTAL_CASES = 140
 TOTAL_LABELS = 40
 LABELS_PER_SCORE = 8
 SCORES: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
@@ -148,7 +148,7 @@ ACCESS_CATEGORIES: tuple[str, str, str, str] = (
     "access_critical",
 )
 ACCESS_CASE_COUNT = 55
-"""The four access categories sum to 55 of the 120 cases."""
+"""The four access categories sum to 55 of the 140 cases."""
 
 # `create_access_request` is the registry's wire literal for
 # `rbac.Tool.CREATE_ACCESS_REQUEST_SELF` (in the MCP server's
@@ -565,7 +565,7 @@ def rows_by_slug(nordlicht_rows: TenantRows, cuan_rows: TenantRows) -> dict[str,
 # --- the golden file ---------------------------------------------------------
 
 
-def test_the_golden_file_holds_one_hundred_and_twenty_parsable_cases() -> None:
+def test_the_golden_file_holds_one_hundred_and_forty_parsable_cases() -> None:
     """Catches a golden set delivered short, padded, wrapped over several lines,
     ending in a blank line, or holding a message whose role is not `user` or
     whose content is under 10 characters."""
@@ -615,7 +615,7 @@ def test_ids_at_the_inclusive_pattern_boundary() -> None:
 def test_category_counts_equal_the_spec_minimums_exactly(
     golden_cases: tuple[GoldenCase, ...],
 ) -> None:
-    """Catches a golden set that hits 120 by over-authoring the cheap categories
+    """Catches a golden set that hits 140 by over-authoring the cheap categories
     and under-authoring the expensive ones; the whole mapping is compared in one
     assertion, so a thirteenth category also fails here."""
     _check_category_counts(list(golden_cases))
@@ -894,7 +894,7 @@ def test_no_email_outside_the_two_fake_domains() -> None:
 
 def test_a_malformed_line_is_reported_with_its_line_number() -> None:
     """Catches a parser that swallows a broken line or reports only "invalid
-    JSON", leaving a 120-line file with no way to find the offender."""
+    JSON", leaving a 140-line file with no way to find the offender."""
     text = json.dumps(_case_payload()) + "\n" + "{not json," + "\n"
     with pytest.raises(AssertionError, match="line 2"):
         _parse_cases(text, source="<in-test>")
@@ -954,7 +954,7 @@ def test_a_duplicate_id_and_an_unknown_tool_name_are_rejected() -> None:
 def test_a_category_count_one_off_is_rejected() -> None:
     """Catches a count check written as a floor (`>=` per category) rather than
     an equality: one case too many in `access_auto` and one too few in `review`
-    keeps the total at 120 and still has to fail."""
+    keeps the total at 140 and still has to fail."""
     cases: list[GoldenCase] = []
     counter = 0
     for category, wanted in CATEGORY_MINIMUMS.items():

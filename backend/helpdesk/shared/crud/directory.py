@@ -1,13 +1,14 @@
-"""Directory reads: department role templates and live grant role ids."""
+"""Directory reads: department role templates, live grant role ids, and the role catalogue."""
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.crud.grants import ACTIVE_GRANT_STATUS
-from helpdesk.shared.models import Grant, RoleTemplate
+from helpdesk.shared.models import Grant, Role, RoleTemplate, System
 
 
 async def fetch_role_templates_for_department(
@@ -33,3 +34,18 @@ async def fetch_live_role_ids_for_user(
         )
     )
     return frozenset(grant.role_id for grant in result.scalars())
+
+
+async def list_role_catalogue(
+    session: AsyncSession, system_slug: str | None, limit: int
+) -> Sequence[tuple[Role, System]]:
+    """The tenant's roles with their systems, by system then role slug.
+
+    Whole rows are selected so the tenant guard scopes both tables. The
+    system filter is an exact slug match.
+    """
+    query = select(Role, System).join(System, System.id == Role.system_id)
+    if system_slug is not None:
+        query = query.where(System.slug == system_slug)
+    result = await session.execute(query.order_by(System.slug, Role.slug).limit(limit))
+    return [(role, system) for role, system in result.all()]

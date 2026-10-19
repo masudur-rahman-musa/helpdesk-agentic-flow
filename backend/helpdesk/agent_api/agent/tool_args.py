@@ -71,6 +71,15 @@ class ListMyRequestsArgs(_ToolArgs):
     limit: int = Field(default=50, description="How many requests to return, at most.")
 
 
+class ListRequestableRolesArgs(_ToolArgs):
+    """`limit` copies the server's default. A test keeps the two equal."""
+
+    system: str | None = Field(
+        default=None, description="Only this system's roles, by its slug, or all when absent."
+    )
+    limit: int = Field(default=50, description="How many roles to return, at most.")
+
+
 class ClassifyAccessRequestArgs(_ToolArgs):
     """Asks for a risk decision in advance; nothing is written."""
 
@@ -210,6 +219,7 @@ TOOL_INPUTS: Mapping[str, type[BaseModel]] = MappingProxyType(
         "get_me": GetMeArgs,
         "list_my_access": ListMyAccessArgs,
         "list_my_requests": ListMyRequestsArgs,
+        "list_requestable_roles": ListRequestableRolesArgs,
         "classify_access_request": ClassifyAccessRequestArgs,
         "create_access_request": CreateAccessRequestArgs,
         "revoke_access": RevokeAccessArgs,

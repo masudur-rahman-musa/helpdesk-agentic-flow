@@ -22,6 +22,7 @@ class Tool(StrEnum):
     GET_ME = "get_me"
     LIST_MY_ACCESS = "list_my_access"
     LIST_MY_REQUESTS = "list_my_requests"
+    LIST_REQUESTABLE_ROLES = "list_requestable_roles"
     RESET_OWN_PASSWORD = "reset_own_password"
     UNLOCK_OWN_ACCOUNT = "unlock_own_account"
     CREATE_ACCESS_REQUEST_SELF = "create_access_request_self"
@@ -119,6 +120,9 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.GET_ME: _all(Scope.SELF_ONLY),
         Tool.LIST_MY_ACCESS: _all(Scope.SELF_ONLY),
         Tool.LIST_MY_REQUESTS: _all(Scope.SELF_ONLY),
+        # The tenant's catalogue plus the caller's own template and grants;
+        # nothing about another person.
+        Tool.LIST_REQUESTABLE_ROLES: _all(Scope.SELF_ONLY),
         Tool.RESET_OWN_PASSWORD: _all(Scope.SELF_ONLY),
         Tool.UNLOCK_OWN_ACCOUNT: _all(Scope.SELF_ONLY),
         Tool.CREATE_ACCESS_REQUEST_SELF: _all(Scope.SELF_ONLY),
@@ -291,6 +295,17 @@ def principals_of(claims: TokenClaims) -> frozenset[Principal]:
     return frozenset(
         principal for raw in claims.principals if (principal := _as_principal(raw)) is not None
     )
+
+
+def tools_for(principals: Sequence[str]) -> list[Tool]:
+    """Every tool at least one of these principal strings may call, in `Tool`
+    order, so the result does not depend on the order of the principals.
+
+    An unknown string adds nothing. Like `tabs_for`, this only says what to
+    show; the tool's own `authorize` is still the real check.
+    """
+    held = {principal for raw in principals if (principal := _as_principal(raw)) is not None}
+    return [tool for tool in Tool if any(principal in _MATRIX[tool] for principal in held)]
 
 
 def _as_principal(raw: str) -> Principal | None:

@@ -28,9 +28,9 @@ Run: `make eval` or `/project-evals`. Reports land in `project-evals/reports/` (
 
 ## The delivered set
 
-`golden/helpdesk-v1.jsonl` holds 120 cases and
+`golden/helpdesk-v1.jsonl` holds 140 cases and
 `labels/helpdesk-judge-calibration.jsonl` holds 40 graded replies. Both are
-validated in CI by `packages/helpdesk/tests/test_eval_golden_set.py`, which
+validated in CI by `backend/tests/scripts/test_eval_golden_set.py`, which
 resolves every named value against the code that owns it: tenant slugs and
 seats against the seed, intents against the agent's intent enum, decisions and
 risk classes against the policy engine, tool names against the permission

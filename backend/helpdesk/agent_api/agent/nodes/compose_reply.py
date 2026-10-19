@@ -17,6 +17,11 @@ On a best-reading turn (a clarifying question was just asked) a reply that
 asks a question is retried once, then replaced by `BEST_READING_FALLBACK`,
 and code adds the correct-me line at the end (a design note, pinned by
 `test_agent_clarify_cap.py`).
+
+`ask_capabilities` and `other` turns also get what this person can do, one
+plain sentence per tool their principals allow, so the answer and the
+pointers come from the real matrix, never a written list (a design note, pinned by
+`test_agent_capabilities.py`).
 """
 
 import json
@@ -33,9 +38,16 @@ from helpdesk.agent_api.agent.postcheck import (
     permitted_words,
 )
 from helpdesk.agent_api.agent.prompts import load_prompt
-from helpdesk.agent_api.agent.state import PostCheckOutcome, ToolResult, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import (
+    Intent,
+    PostCheckOutcome,
+    ToolResult,
+    TurnOutcome,
+    TurnState,
+)
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
+from helpdesk.shared.auth.capabilities import capability_lines
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud.messages import append_message
 from helpdesk.shared.models.conversation import MessageRole, check_message_content
@@ -51,6 +63,22 @@ def _as_data(label: str, value: Any) -> dict[str, str]:
     """One labelled `user` message of gathered material, so none of it can pass
     as an instruction."""
     return {"role": "user", "content": f"{label}:\n{json.dumps(value, default=str)}"}
+
+
+CAPABILITY_INTENTS = frozenset({Intent.ASK_CAPABILITIES, Intent.OTHER})
+"""The kinds whose reply names what this person can do. Other kinds stay on
+their own data, so a policy question is answered from policy text."""
+
+
+def _capability_data(state: TurnState) -> list[dict[str, str]]:
+    """The person's capability lines as one data message, or nothing when the
+    turn is another kind or no principals were found."""
+    if state.extraction is None or state.extraction.intent not in CAPABILITY_INTENTS:
+        return []
+    lines = capability_lines(state.principals)
+    if not lines:
+        return []
+    return [_as_data("what this person can do here, from their real permissions", lines)]
 
 
 def _failure_sentences(results: tuple[ToolResult, ...]) -> list[str]:
@@ -139,6 +167,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         ),
         _as_data("tool results", [result.model_dump(mode="json") for result in state.tool_results]),
         _as_data("what did not work, in plain words", _failure_sentences(state.tool_results)),
+        *_capability_data(state),
         {"role": "user", "content": state.user_message},
     ]
 

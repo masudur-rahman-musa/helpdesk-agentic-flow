@@ -26,6 +26,7 @@ class Intent(StrEnum):
     OPEN_TICKET = "open_ticket"
     ASK_POLICY = "ask_policy"
     CHECK_MY_ACCESS = "check_my_access"
+    ASK_CAPABILITIES = "ask_capabilities"
     APPROVALS = "approvals"
     REVIEW = "review"
     OTHER = "other"
@@ -203,6 +204,10 @@ class TurnState(BaseModel):
     tenant_slug: str
     user_message: str
     history: tuple[str, ...] = ()
+    principals: tuple[str, ...] = ()
+    """The caller's principals from their own directory row, read by
+    `load_session`; empty when no row is found. Never from the message."""
+
     extraction: IntentExtraction | None = None
     prompt_version: str | None = None
     outcome: TurnOutcome = TurnOutcome.CONTINUE

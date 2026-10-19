@@ -59,7 +59,7 @@ from helpdesk.shared.models import (
     ReviewStatus,
     User,
 )
-from scripts.seed import CUAN, NORDLICHT, TenantRows, generate_tenant
+from scripts.seed import CUAN, NORDLICHT, TenantRows, TenantSpec, generate_tenant
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     RecordingEmbedder,
     RecordingQdrant,
@@ -108,6 +108,7 @@ MATRIX: dict[str, dict[str, bool]] = {
     "create_ticket": dict.fromkeys(PRINCIPALS, True),
     "classify_access_request": dict.fromkeys(PRINCIPALS, True),
     "list_my_requests": dict.fromkeys(PRINCIPALS, True),
+    "list_requestable_roles": dict.fromkeys(PRINCIPALS, True),
     "create_access_request": dict.fromkeys(PRINCIPALS, True),
     # The first rows on this axis that are not "everyone": the matrix
     # gives the approval rows five cells and leaves `employee` and `auditor`
@@ -496,6 +497,7 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         "get_me",
         "list_my_access",
         "list_my_requests",
+        "list_requestable_roles",
         "reset_own_password",
         "unlock_own_account",
         "create_ticket",
@@ -600,6 +602,7 @@ IDENTITY_ONLY_TOOLS: tuple[str, ...] = (
     "get_me",
     "list_my_access",
     "list_my_requests",
+    "list_requestable_roles",
     "reset_own_password",
     "unlock_own_account",
 )
@@ -619,6 +622,9 @@ def _tenant_rows(slug: str) -> TenantRows:
     """The deterministic seed rows for one tenant, computed once: a classify
     call needs a real role id in the caller's own tenant."""
     return generate_tenant({CUAN.slug: CUAN, NORDLICHT.slug: NORDLICHT}[slug])
+
+
+_SPECS: dict[str, TenantSpec] = {CUAN.slug: CUAN, NORDLICHT.slug: NORDLICHT}
 
 
 def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
@@ -1326,6 +1332,14 @@ def test_an_identity_only_tool_answers_about_the_callers_own_tenant(
         assert grant_ids, "the seeded caller holds grants; an empty answer pins nothing"
         assert str(other_grant_id) not in grant_ids
         assert _tenants_of(mcp_env.database_url, Grant, grant_ids) == {caller.tenant_id}
+    elif tool_name == "list_requestable_roles":
+        roles = payload["roles"]
+        own_pairs = {(role.system, role.slug) for role in _SPECS[caller.tenant_slug].roles}
+        other_only = {(role.system, role.slug) for role in _SPECS[other.tenant_slug].roles}
+        other_only -= own_pairs
+        assert other_only, "the other tenant has roles this one lacks; else absence pins nothing"
+        seen = {(row["system_slug"], row["role_slug"]) for row in roles}
+        assert seen == own_pairs, "every role of the caller's tenant, and no other tenant's"
     elif tool_name == "list_my_requests":
         request_ids = [str(entry["request_id"]) for entry in payload["requests"]]
         assert str(own_request_id) in request_ids, "the caller's own row must be there"

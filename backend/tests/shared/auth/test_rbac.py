@@ -59,6 +59,9 @@ MATRIX: dict[str, dict[str, str | None]] = {
     "get_me": dict.fromkeys(PRINCIPALS, "self_only"),
     "list_my_access": dict.fromkeys(PRINCIPALS, "self_only"),
     "list_my_requests": dict.fromkeys(PRINCIPALS, "self_only"),
+    # The catalogue the caller may ask from: the caller's own tenant and
+    # template and grants, so every principal reads it at self scope.
+    "list_requestable_roles": dict.fromkeys(PRINCIPALS, "self_only"),
     "reset_own_password": dict.fromkeys(PRINCIPALS, "self_only"),
     "unlock_own_account": dict.fromkeys(PRINCIPALS, "self_only"),
     "create_access_request_self": dict.fromkeys(PRINCIPALS, "self_only"),

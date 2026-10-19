@@ -14,7 +14,7 @@ Surface under test (written before it exists):
 ``agent_api.graph.state``
     ``class Citation(BaseModel)`` (frozen) — the seven wire fields.
 
-``TOOL_INPUTS`` holds the nineteen tools
+``TOOL_INPUTS`` holds the twenty tools
 the agent may reach, the drift sweep is parametrized over every one of them,
 and the catalogue gains
 
@@ -48,6 +48,7 @@ from helpdesk.agent_api.agent.tool_args import (
     SEARCH_POLICY,
     SEARCH_POLICY_TOP_K,
     TOOL_INPUTS,
+    ListRequestableRolesArgs,
     SearchPolicyArgs,
     SearchPolicyResult,
     planner_schema,
@@ -114,6 +115,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
         "get_me",
         "list_my_access",
         "list_my_requests",
+        "list_requestable_roles",
         "classify_access_request",
         "create_access_request",
         "revoke_access",
@@ -132,9 +134,9 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
         "create_ticket",
     }
 )
-"""Every tool the agent may reach, as a literal: nineteen.
+"""Every tool the agent may reach, as a literal: twenty.
 
-Counted from the server's own `REGISTRY` — twenty-nine specs — less the seven
+Counted from the server's own `REGISTRY` — thirty specs — less the seven
 in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools
 deliberately left out: a tool the model may call is
 model-driven behaviour and owes golden cases before it merges, and the
@@ -206,7 +208,7 @@ def test_the_args_model_defaults_top_k_to_the_catalogue_constant() -> None:
     assert SearchPolicyArgs.model_fields["top_k"].default == SEARCH_POLICY_TOP_K
 
 
-def test_tool_inputs_holds_exactly_the_nineteen_tools_the_agent_may_reach() -> None:
+def test_tool_inputs_holds_exactly_the_twenty_tools_the_agent_may_reach() -> None:
     """Catches a
     catalogue short of a tool — a name in an `INTENT_TOOLS` row that no model
     validates, so its arguments reach the server unchecked — and one that
@@ -220,7 +222,7 @@ def test_tool_inputs_holds_exactly_the_nineteen_tools_the_agent_may_reach() -> N
     mapping lets a node register a tool at runtime, and a tool registered at
     runtime is a tool the drift sweep below never compares."""
     assert set(TOOL_INPUTS) == CATALOGUED_TOOLS
-    assert len(TOOL_INPUTS) == 19
+    assert len(TOOL_INPUTS) == 20
     assert ADMIN_TOOLS.isdisjoint(TOOL_INPUTS)
     assert TOOL_INPUTS[SEARCH_POLICY] is SearchPolicyArgs
     assert isinstance(TOOL_INPUTS, MappingProxyType)
@@ -293,8 +295,8 @@ def catalogue_mcp_env(
 def advertised(catalogue_mcp_env: SeededMcp) -> dict[str, Any]:
     """One `tools/list`, read once for the whole sweep.
 
-    Nineteen parametrized rows driving their own MCP session would pay the
-    handshake nineteen times for an answer that cannot change between them."""
+    Twenty parametrized rows driving their own MCP session would pay the
+    handshake twenty times for an answer that cannot change between them."""
     return _advertised(catalogue_mcp_env)
 
 
@@ -316,7 +318,7 @@ def test_every_catalogued_tool_is_one_the_server_advertises(
 def test_every_catalogued_schema_agrees_with_the_advertised_one(
     name: str, advertised: dict[str, Any]
 ) -> None:
-    """Over all nineteen tools. Catches a field renamed on
+    """Over all twenty tools. Catches a field renamed on
     either side and a field that changed from optional to required.
 
     The property-name comparison catches `query` becoming `question` or
@@ -403,3 +405,21 @@ def test_the_citation_fields_are_the_ones_the_server_returns(
     assert set(_properties(citation_schema)) == set(CITATION_FIELDS)
     assert _required(citation_schema) == CITATION_FIELDS
     assert set(_properties(output)) == set(SearchPolicyResult.model_fields)
+
+
+def test_list_requestable_roles_args_match_the_server_input(
+    advertised: dict[str, Any],
+) -> None:
+    """Catches the agent's `ListRequestableRolesArgs` drifting from the
+    server's input in the one place the name sweep cannot see: an agent-side
+    `limit` default that is not the server's 50, or an argument the server
+    does not take. The tool must also be advertised, so the new name is not
+    only a catalogue entry."""
+    theirs: dict[str, Any] = advertised["list_requestable_roles"].input_schema
+    ours = ListRequestableRolesArgs.model_json_schema()
+
+    assert TOOL_INPUTS["list_requestable_roles"] is ListRequestableRolesArgs
+    assert set(_properties(ours)) == set(_properties(theirs)) == {"system", "limit"}
+    assert _required(ours) == _required(theirs) == frozenset()
+    assert _properties(theirs)["limit"]["default"] == 50
+    assert _properties(ours)["limit"]["default"] == _properties(theirs)["limit"]["default"]

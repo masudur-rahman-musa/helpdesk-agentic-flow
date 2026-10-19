@@ -13,6 +13,10 @@ runs the normal flow (a design note, pinned by `test_agent_confirm.py`).
 The time of the last clarifying question is read and cleared the same way, so
 only the very next message may not ask again (a design note, pinned by
 `test_agent_clarify_cap.py`).
+
+The caller's principals are read from their own directory row by the token's
+user id, so a message claiming a role changes nothing. No row gives no
+principals (a design note, pinned by `test_agent_capabilities.py`).
 """
 
 from helpdesk.agent_api.agent.clarify_cap import parse_asked_at
@@ -32,6 +36,7 @@ from helpdesk.shared.crud.sessions import (
     set_asked_clarifying,
     set_open_question,
 )
+from helpdesk.shared.crud.users import find_user_by_id
 from helpdesk.shared.models.conversation import Message, MessageRole
 
 
@@ -57,6 +62,7 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
     if asked_at is not None:
         await set_asked_clarifying(db, session_id=state.session_id, value=None)
     history = await list_recent_messages(db, state.session_id)
+    user = await find_user_by_id(db, state.user_id)
     await append_message(
         db,
         session_id=state.session_id,
@@ -67,6 +73,7 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
         update={
             "history": tuple(render_message(message) for message in history),
             "asked_before": asked_before,
+            "principals": () if user is None else tuple(user.principals),
         }
     )
     if question is None:

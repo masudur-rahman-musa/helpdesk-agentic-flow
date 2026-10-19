@@ -132,6 +132,19 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=access.list_my_requests,
     ),
     ToolSpec(
+        name=rbac.Tool.LIST_REQUESTABLE_ROLES.value,
+        tool=rbac.Tool.LIST_REQUESTABLE_ROLES,
+        description=(
+            "List the systems and roles the calling user may request, marking their "
+            "template and held roles; filing still goes through the policy engine."
+        ),
+        input_model=read.ListRequestableRolesInput,
+        output_model=read.ListRequestableRolesOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=read.list_requestable_roles,
+    ),
+    ToolSpec(
         # One wire name, two matrix rows: self and on behalf.
         name="create_access_request",
         tool=rbac.Tool.CREATE_ACCESS_REQUEST_SELF,

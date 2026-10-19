@@ -66,6 +66,8 @@ EXPECTED_TOOL_NAMES = {
     "create_ticket",
     "classify_access_request",
     "list_my_requests",
+    # The roles this person may ask for: what the capability answer reads.
+    "list_requestable_roles",
     "create_access_request",
     # The approval queue and the two deciding tools.
     "list_pending_approvals",

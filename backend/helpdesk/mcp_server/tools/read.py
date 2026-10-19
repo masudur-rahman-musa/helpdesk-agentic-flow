@@ -1,4 +1,4 @@
-"""The read tools: `get_me`, `list_my_access` and `search_audit`.
+"""The read tools: `get_me`, `list_my_access`, `list_requestable_roles` and `search_audit`.
 
 The user is always the token's; a stray `user_id` argument is ignored.
 """
@@ -20,6 +20,11 @@ from helpdesk.shared.auth import rbac
 from helpdesk.shared.auth.rbac import Scope
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.directory import (
+    fetch_live_role_ids_for_user,
+    fetch_role_templates_for_department,
+    list_role_catalogue,
+)
 from helpdesk.shared.crud.grants import ActiveGrant, list_active_grants_for_user
 from helpdesk.shared.crud.tenants import find_tenant_by_id, tool_steps_visible
 from helpdesk.shared.crud.users import find_user_by_id
@@ -87,6 +92,78 @@ async def list_my_access(ctx: ToolContext, args: ListMyAccessInput) -> ListMyAcc
     """Every grant the token user holds at the call's own instant."""
     grants = await list_active_grants_for_user(ctx.session, ctx.identity.user_id, ctx.now)
     return ListMyAccessOutput(grants=list(grants))
+
+
+# --- list_requestable_roles ------------------------------------------------------
+#
+# The tenant's catalogue plus the caller's own template and grants; nothing
+# about another person. A role listed is not a promise: the policy engine
+# decides when a request is filed.
+
+ROLES_LIMIT_MIN = 1
+ROLES_LIMIT_DEFAULT = 50
+ROLES_LIMIT_MAX = 200
+
+_system_slug_type = System.__table__.c["slug"].type
+assert isinstance(_system_slug_type, String) and _system_slug_type.length is not None
+SYSTEM_SLUG_MAX_LENGTH: int = _system_slug_type.length
+"""The slug column's length, so the input cap and storage never disagree."""
+
+
+class ListRequestableRolesInput(BaseModel):
+    model_config = _IGNORE_EXTRAS
+
+    system: str | None = Field(default=None, max_length=SYSTEM_SLUG_MAX_LENGTH)
+    """A system slug, matched exactly; all systems when absent."""
+
+    limit: int = Field(default=ROLES_LIMIT_DEFAULT, ge=ROLES_LIMIT_MIN, le=ROLES_LIMIT_MAX)
+
+
+class RequestableRole(BaseModel):
+    system_slug: str
+    system_name: str
+    system_sensitivity: str
+    role_slug: str
+    role_name: str
+    privilege: str
+    default_expiry_days: int
+    in_my_template: bool
+    """The caller's own department template gives this role."""
+
+    already_held: bool
+    """The caller has a live grant of this role."""
+
+
+class ListRequestableRolesOutput(BaseModel):
+    roles: list[RequestableRole]
+
+
+async def list_requestable_roles(
+    ctx: ToolContext, args: ListRequestableRolesInput
+) -> ListRequestableRolesOutput:
+    """The roles the token user may ask for, marked against their own template and grants."""
+    rows = await list_role_catalogue(ctx.session, args.system, args.limit)
+    user = await find_user_by_id(ctx.session, ctx.identity.user_id)
+    template: frozenset[uuid.UUID] = frozenset()
+    if user is not None and user.department_id is not None:
+        template = await fetch_role_templates_for_department(ctx.session, user.department_id)
+    held = await fetch_live_role_ids_for_user(ctx.session, ctx.identity.user_id, ctx.now)
+    return ListRequestableRolesOutput(
+        roles=[
+            RequestableRole(
+                system_slug=system.slug,
+                system_name=system.name,
+                system_sensitivity=system.sensitivity,
+                role_slug=role.slug,
+                role_name=role.name,
+                privilege=role.privilege,
+                default_expiry_days=role.default_expiry_days,
+                in_my_template=role.id in template,
+                already_held=role.id in held,
+            )
+            for role, system in rows
+        ]
+    )
 
 
 # --- search_audit ---------------------------------------------------------------
