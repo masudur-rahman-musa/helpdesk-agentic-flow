@@ -23,7 +23,7 @@ export function Conversation({
       role="log"
       aria-label="Conversation"
       aria-live="polite"
-      className="flex flex-1 flex-col gap-3 py-4"
+      className="flex flex-col gap-3 py-4"
     >
       {messages.length === 0 && live.length === 0 ? (
         <p className="text-sm text-muted-foreground">

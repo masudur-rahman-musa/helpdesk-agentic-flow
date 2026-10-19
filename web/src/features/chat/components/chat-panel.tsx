@@ -190,6 +190,9 @@ export function ChatPanel() {
 
         <div ref={endMarker} aria-hidden="true" />
 
+        {/* The free space sits below the sources, so they stay under their reply. */}
+        <div aria-hidden="true" className="flex-1" />
+
         <div ref={composerBox} className="sticky bottom-0 bg-background pb-4 pt-2">
           <Composer
             onSend={(message) => void send(message)}

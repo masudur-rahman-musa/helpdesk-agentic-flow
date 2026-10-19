@@ -6,7 +6,10 @@ import type { Citation } from "@/features/chat/components/types";
 
 /**
  * The answer's sources. Text is hidden until asked for, since it can be long.
- * It renders as plain text: retrieved content is data, never markup.
+ * It renders as plain text: retrieved content is data, never markup. The box
+ * takes the card color and a left border, not the reply's muted color, so it
+ * reads as a note on the reply and not as a second reply
+ * (`test_sources_box_has_its_own_color`).
  */
 export function Citations({ citations }: { citations: Citation[] }) {
   if (citations.length === 0) {
@@ -14,7 +17,7 @@ export function Citations({ citations }: { citations: Citation[] }) {
   }
 
   return (
-    <section className="rounded-md bg-muted p-4">
+    <section className="rounded-md border border-border border-l-2 border-l-primary bg-card p-4">
       <h2 className="text-sm font-semibold">Sources</h2>
       <ul className="mt-2 flex flex-col gap-2">
         {citations.map((citation) => (
@@ -41,7 +44,7 @@ function CitationRow({ citation }: { citation: Citation }) {
       <span className="flex flex-wrap gap-2 text-xs text-muted-foreground">
         <span>{citation.version}</span>
         <span>{citation.headingPath.join(" › ")}</span>
-        <span>{citation.score}</span>
+        <span>{citation.score.toFixed(4)}</span>
       </span>
       {expanded ? <p className="whitespace-pre-wrap text-sm">{citation.text}</p> : null}
     </li>

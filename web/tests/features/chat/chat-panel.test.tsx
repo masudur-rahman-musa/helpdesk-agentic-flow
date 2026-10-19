@@ -323,3 +323,70 @@ describe("ChatPanel typing dots and follow-the-reply scroll", () => {
     expect(scrollStub).not.toHaveBeenCalled();
   });
 });
+
+/** Send one message, answer with a one-citation reply and no decision card. */
+async function replyWithOneCitation(): Promise<{ log: HTMLElement; sources: HTMLElement }> {
+  showToolSteps = false;
+  await sendAndStream();
+  streamController?.enqueue(
+    frame("reply", {
+      reply: "Fake answer.",
+      outcome: "answered",
+      citations: [
+        {
+          document: "fake-access-policy",
+          title: "Fake Access Policy",
+          version: "v3",
+          heading_path: ["Fake Section"],
+          chunk_id: "00000000-0000-4000-8000-000000000abc",
+          text: "Fake policy text.",
+          score: 0.42,
+        },
+      ],
+      request_id: null,
+      decision: null,
+    }),
+  );
+  streamController?.close();
+
+  const heading = await screen.findByRole("heading", { name: "Sources" });
+  const sources = heading.closest("section");
+  expect(sources).not.toBeNull();
+  return {
+    log: screen.getByRole("log", { name: "Conversation" }),
+    sources: sources as HTMLElement,
+  };
+}
+
+describe("ChatPanel — where the sources sit", () => {
+  it("test_sources_sit_right_under_the_reply", async () => {
+    // Kills an implementation that leaves the conversation stretched
+    // (`flex-1`) so the Sources box stays pinned at the bottom of the column,
+    // far from its reply, or that puts something between the log and the box.
+    const { log, sources } = await replyWithOneCitation();
+
+    expect(log.nextElementSibling).toBe(sources);
+    expect(log).not.toHaveClass("flex-1");
+  });
+
+  it("test_free_space_sits_below_the_sources", async () => {
+    // Kills an implementation that removes the stretch from the log but adds
+    // no spacer (the composer then rides up under the sources), or puts the
+    // spacer above the Sources box so the empty space is still above it.
+    const { log, sources } = await replyWithOneCitation();
+
+    const column = log.parentElement;
+    expect(column).not.toBeNull();
+    const children = Array.from(column?.children ?? []);
+    const composer = children.find((child) =>
+      child.contains(screen.getByRole("textbox", { name: "Message" })),
+    );
+    expect(composer).toBeDefined();
+    const spacers = children.filter((child) => child.classList.contains("flex-1"));
+    expect(spacers).toHaveLength(1);
+
+    const spacerIndex = children.indexOf(spacers[0] as Element);
+    expect(spacerIndex).toBeGreaterThan(children.indexOf(sources));
+    expect(spacerIndex).toBeLessThan(children.indexOf(composer as Element));
+  });
+});
