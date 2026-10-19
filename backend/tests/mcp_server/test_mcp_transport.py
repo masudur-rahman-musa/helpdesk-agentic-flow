@@ -138,6 +138,11 @@ EXPECTED_TOOL_NAMES = {
     # literal is the wire surface, and it is part of every diff adding a
     # REGISTRY entry).
     "reingest_policy_document",
+    # The person's own tickets. Thirty-one names become thirty-two, the new
+    # one a READ: tickets could be filed but never listed, so the My tickets
+    # list on `/requests` had nothing to render (this literal is the wire
+    # surface, and it is part of every diff adding a REGISTRY entry).
+    "list_my_tickets",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

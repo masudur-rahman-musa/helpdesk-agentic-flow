@@ -57,6 +57,7 @@ from helpdesk.shared.models import (
     ReviewFlag,
     ReviewItem,
     ReviewStatus,
+    Ticket,
     User,
 )
 from scripts.seed import CUAN, NORDLICHT, TenantRows, TenantSpec, generate_tenant
@@ -108,6 +109,7 @@ MATRIX: dict[str, dict[str, bool]] = {
     "create_ticket": dict.fromkeys(PRINCIPALS, True),
     "classify_access_request": dict.fromkeys(PRINCIPALS, True),
     "list_my_requests": dict.fromkeys(PRINCIPALS, True),
+    "list_my_tickets": dict.fromkeys(PRINCIPALS, True),
     "list_requestable_roles": dict.fromkeys(PRINCIPALS, True),
     "create_access_request": dict.fromkeys(PRINCIPALS, True),
     # The first rows on this axis that are not "everyone": the matrix
@@ -497,6 +499,7 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         "get_me",
         "list_my_access",
         "list_my_requests",
+        "list_my_tickets",
         "list_requestable_roles",
         "reset_own_password",
         "unlock_own_account",
@@ -602,6 +605,7 @@ IDENTITY_ONLY_TOOLS: tuple[str, ...] = (
     "get_me",
     "list_my_access",
     "list_my_requests",
+    "list_my_tickets",
     "list_requestable_roles",
     "reset_own_password",
     "unlock_own_account",
@@ -1313,6 +1317,8 @@ def test_an_identity_only_tool_answers_about_the_callers_own_tenant(
         _tenant_rows(caller.tenant_slug).role_ids[("wiki", "viewer")],
     )
     other_grant_id = _live_grant_id(mcp_env.database_url, other.tenant_id)
+    other_ticket_id = _plant_ticket(mcp_env.database_url, other.tenant_id, other.user_id)
+    own_ticket_id = _plant_ticket(mcp_env.database_url, caller.tenant_id, caller.user_id)
     before = _stamp(mcp_env.database_url, tool_name, other.user_id)
     arguments: dict[str, Any] = (
         {"idempotency_key": f"fake-key-{uuid.uuid4().hex}"}
@@ -1346,6 +1352,11 @@ def test_an_identity_only_tool_answers_about_the_callers_own_tenant(
         assert str(own_request_id) in request_ids, "the caller's own row must be there"
         assert str(other_request_id) not in request_ids
         assert _tenants_of(mcp_env.database_url, AccessRequest, request_ids) == {caller.tenant_id}
+    elif tool_name == "list_my_tickets":
+        ticket_ids = [str(entry["ticket_id"]) for entry in payload["tickets"]]
+        assert str(own_ticket_id) in ticket_ids, "the caller's own row must be there"
+        assert str(other_ticket_id) not in ticket_ids
+        assert _tenants_of(mcp_env.database_url, Ticket, ticket_ids) == {caller.tenant_id}
     else:
         assert _stamp(mcp_env.database_url, tool_name, caller.user_id) is not None, (
             "the effect must land on the caller's own row"
@@ -1353,6 +1364,26 @@ def test_an_identity_only_tool_answers_about_the_callers_own_tenant(
         assert _stamp(mcp_env.database_url, tool_name, other.user_id) == before, (
             "and on no row in the other tenant"
         )
+
+
+def _plant_ticket(database_url: str, tenant_id: uuid.UUID, user_id: uuid.UUID) -> uuid.UUID:
+    """One open ticket in the named tenant, for the own-tenant case."""
+    ticket_id = uuid.uuid4()
+    _write(
+        database_url,
+        insert(Ticket).values(
+            id=ticket_id,
+            tenant_id=tenant_id,
+            number=ticket_id.int % 2_000_000_000 + 1,  # unique per row without a counter
+            user_id=user_id,
+            kind="general",
+            title=f"fake own-tenant ticket {uuid.uuid4().hex}",
+            body="fake body",
+            status="open",
+            session_id=None,
+        ),
+    )
+    return ticket_id
 
 
 def _tenants_of(database_url: str, entity: Any, ids: list[str]) -> set[uuid.UUID]:

@@ -54,6 +54,14 @@ describe("query key list", () => {
     expect(startsWith(queryKeys.chatList, ["chat"])).toBe(true);
   });
 
+  it('myTickets is ["me", "tickets"]', () => {
+    // Kill: catches a tickets key outside the `me` prefix (a refresh of "me"
+    // would leave the tickets list stale) or one that collides with
+    // `myRequests`, so the two lists would share one cache entry.
+    expect(queryKeys.myTickets).toEqual(["me", "tickets"]);
+    expect(queryKeys.myTickets).not.toEqual(queryKeys.myRequests);
+  });
+
   it("keys keep today's values", () => {
     // Kill: catches a renamed or reshaped key, which would split the cache the
     // screens share today.

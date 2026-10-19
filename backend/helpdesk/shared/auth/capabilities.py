@@ -23,6 +23,9 @@ SENTENCES: Mapping[Tool, str] = MappingProxyType(
         Tool.CREATE_ACCESS_REQUEST_ON_BEHALF: "Ask for access on behalf of someone else.",
         Tool.SEARCH_POLICY: "Answer questions about the access rules, with sources.",
         Tool.CREATE_TICKET: "Open a ticket for a person to pick up.",
+        Tool.LIST_MY_TICKETS: (
+            "Show the tickets you have opened and whether each is open or solved."
+        ),
         Tool.CLASSIFY_ACCESS_REQUEST: "Check if a request would need approval, before you file it.",
         Tool.LIST_PENDING_APPROVALS: "Show the requests waiting for your approval.",
         Tool.APPROVE_REQUEST: "Approve a request that is waiting on you.",

@@ -29,6 +29,7 @@ from helpdesk.shared.models.directory import (
     System,
     Tenant,
     Ticket,
+    TicketStatus,
     User,
 )
 from helpdesk.shared.models.idempotency import IdempotencyKey
@@ -75,6 +76,7 @@ __all__ = [
     "Tenant",
     "TenantScoped",
     "Ticket",
+    "TicketStatus",
     "User",
     "check_message_content",
 ]

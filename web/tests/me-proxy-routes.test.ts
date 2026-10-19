@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as accessGET } from "@/app/api/me/access/route";
 import { GET as meGET } from "@/app/api/me/route";
 import { GET as requestsGET } from "@/app/api/me/requests/route";
+import { GET as ticketsGET } from "@/app/api/me/tickets/route";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 /**
@@ -53,6 +54,7 @@ const fetchStub = vi.fn<typeof fetch>();
 const routes = [
   { name: "/api/me/requests", handler: requestsGET, upstream: "/me/requests" },
   { name: "/api/me/access", handler: accessGET, upstream: "/me/access" },
+  { name: "/api/me/tickets", handler: ticketsGET, upstream: "/me/tickets" },
   // The shell's own read. The upstream URL is compared whole, so a
   // query string or a path suffix on the proxied call fails the bearer row.
   { name: "/api/me", handler: meGET, upstream: "/me" },

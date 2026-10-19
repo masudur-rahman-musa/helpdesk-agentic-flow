@@ -1,4 +1,4 @@
-"""GET /me, GET /me/requests and GET /me/access: the reads the web shows.
+"""GET /me, GET /me/requests, GET /me/tickets and GET /me/access: the reads the web shows.
 
 These call the same MCP tools the agent uses, so access checks, the kill
 switch and audit apply to the browser exactly as to the model. The caller's
@@ -16,6 +16,8 @@ from helpdesk.agent_api.schemas.me import (
     ListMyAccessArgs,
     ListMyRequestsArgs,
     ListMyRequestsArgsWithLimit,
+    ListMyTicketsArgs,
+    ListMyTicketsArgsWithLimit,
 )
 from helpdesk.agent_api.services.tool_proxy import proxy_tool
 from helpdesk.shared.auth.jwt import TokenClaims
@@ -41,6 +43,15 @@ async def my_requests(
         else ListMyRequestsArgsWithLimit(status=status, limit=limit)
     )
     return await proxy_tool(request, "list_my_requests", arguments)
+
+
+@router.get("/me/tickets")
+async def my_tickets(
+    request: Request, limit: int | None = Query(default=None)
+) -> Mapping[str, Any]:
+    """Tickets this caller opened, newest first. An unset limit falls to the tool's default."""
+    arguments = ListMyTicketsArgs() if limit is None else ListMyTicketsArgsWithLimit(limit=limit)
+    return await proxy_tool(request, "list_my_tickets", arguments)
 
 
 @router.get("/me/access")

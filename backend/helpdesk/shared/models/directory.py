@@ -7,6 +7,7 @@ Enum-valued columns are plain strings, checked at the Pydantic edges.
 
 import uuid
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text
@@ -125,6 +126,13 @@ class Grant(TenantScoped):
     status: Mapped[str] = mapped_column(String(16))  # active | expired | revoked
 
 
+class TicketStatus(StrEnum):
+    """A ticket is `open` until someone marks it `solved`."""
+
+    OPEN = "open"
+    SOLVED = "solved"
+
+
 class Ticket(TenantScoped):
     __tablename__ = "tickets"
     __table_args__ = (
@@ -138,6 +146,6 @@ class Ticket(TenantScoped):
     kind: Mapped[str] = mapped_column(String(32))  # password_reset | unlock | general | escalation
     title: Mapped[str] = mapped_column(String(256))
     body: Mapped[str] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))  # a TicketStatus value
     # No foreign key to `sessions` yet.
     session_id: Mapped[uuid.UUID | None] = mapped_column()

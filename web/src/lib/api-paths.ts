@@ -11,6 +11,7 @@ export const API = {
   myNotifications: "/api/me/notifications",
   myRequests: "/api/me/requests",
   myReviews: "/api/me/reviews",
+  myTickets: "/api/me/tickets",
   auditSearch: "/api/admin/audit/search",
   auditVerify: "/api/admin/audit/verify",
   killSwitch: "/api/admin/killswitch",

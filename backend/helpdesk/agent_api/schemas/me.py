@@ -1,4 +1,4 @@
-"""Argument models for the /me, /me/requests and /me/access routes."""
+"""Argument models for the /me, /me/requests, /me/tickets and /me/access routes."""
 
 from pydantic import BaseModel
 
@@ -16,6 +16,16 @@ class ListMyRequestsArgs(BaseModel):
 
 class ListMyRequestsArgsWithLimit(ListMyRequestsArgs):
     """`list_my_requests` with the caller's own page size."""
+
+    limit: int
+
+
+class ListMyTicketsArgs(BaseModel):
+    """`list_my_tickets` with no page size, so the tool's default applies."""
+
+
+class ListMyTicketsArgsWithLimit(ListMyTicketsArgs):
+    """`list_my_tickets` with the caller's own page size."""
 
     limit: int
 

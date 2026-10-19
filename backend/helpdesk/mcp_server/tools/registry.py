@@ -462,6 +462,16 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         mutating=True,
         handler=self_service.create_ticket,
     ),
+    ToolSpec(
+        name=rbac.Tool.LIST_MY_TICKETS.value,
+        tool=rbac.Tool.LIST_MY_TICKETS,
+        description="List the tickets the calling user has opened, newest first.",
+        input_model=self_service.ListMyTicketsInput,
+        output_model=self_service.ListMyTicketsOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=self_service.list_my_tickets,
+    ),
 )
 
 REGISTRY: Mapping[str, ToolSpec[Any, Any]] = MappingProxyType({spec.name: spec for spec in _SPECS})

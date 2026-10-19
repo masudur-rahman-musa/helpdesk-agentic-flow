@@ -59,6 +59,7 @@ MATRIX: dict[str, dict[str, str | None]] = {
     "get_me": dict.fromkeys(PRINCIPALS, "self_only"),
     "list_my_access": dict.fromkeys(PRINCIPALS, "self_only"),
     "list_my_requests": dict.fromkeys(PRINCIPALS, "self_only"),
+    "list_my_tickets": dict.fromkeys(PRINCIPALS, "self_only"),
     # The catalogue the caller may ask from: the caller's own tenant and
     # template and grants, so every principal reads it at self scope.
     "list_requestable_roles": dict.fromkeys(PRINCIPALS, "self_only"),
@@ -326,6 +327,17 @@ def test_matrix_single_principal(tool: str, principal: str, expected: str | None
         result = authorize(claims, tool)
         assert result.tool == Tool(tool)
         assert result.scope == Scope(expected)
+
+
+def test_list_my_tickets_is_open_to_every_principal_as_self_only() -> None:
+    """Catches a tool added to the enum with a wider scope (a person reading
+    other people's tickets) or with a role left out (an auditor or a manager
+    who cannot see their own tickets): all seven principals get exactly
+    `self_only`, asserted straight from `authorize`, not from the table above."""
+    assert Tool.LIST_MY_TICKETS.value == "list_my_tickets"
+    for principal in PRINCIPALS:
+        result = authorize(_claims([principal]), Tool.LIST_MY_TICKETS.value)
+        assert result.scope == Scope.SELF_ONLY, principal
 
 
 def test_matrix_covers_every_tool_enum_member() -> None:

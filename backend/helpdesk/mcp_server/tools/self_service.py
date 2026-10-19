@@ -1,6 +1,6 @@
-"""The self-service tools: password reset, account unlock, and new ticket.
+"""The self-service tools: password reset, account unlock, new ticket, my tickets.
 
-All three act only for the token's user. Reset and unlock are simulated:
+All four act only for the token's user. Reset and unlock are simulated:
 each stamps a time on the user's own row, and no real credential or
 directory change happens anywhere.
 """
@@ -18,7 +18,8 @@ from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import Ticket, User
+from helpdesk.shared.crud.tickets import list_tickets_for_user
+from helpdesk.shared.models import Ticket, TicketStatus, User
 from helpdesk.shared.models.numbers import NumberKind, format_number
 
 RESET_EVENT_TYPE = "user.password_reset"
@@ -42,7 +43,10 @@ assert isinstance(_TITLE_TYPE, String), _TITLE_TYPE
 assert _TITLE_TYPE.length is not None, "tickets.title must be a sized column"
 TITLE_MAX_LENGTH: int = _TITLE_TYPE.length
 
-_OPEN_STATUS = "open"
+TICKETS_LIMIT_MIN = 1
+TICKETS_LIMIT_DEFAULT = 50
+TICKETS_LIMIT_MAX = 200
+"""Page bounds for `list_my_tickets`, the same as the requests list."""
 
 
 class TicketKind(StrEnum):
@@ -87,6 +91,26 @@ class CreateTicketOutput(BaseModel):
     status: str
 
 
+class ListMyTicketsInput(BaseModel):
+    limit: int = Field(default=TICKETS_LIMIT_DEFAULT, ge=TICKETS_LIMIT_MIN, le=TICKETS_LIMIT_MAX)
+    """Checked by the input model, before any database access."""
+
+
+class TicketSummary(BaseModel):
+    """One ticket in a list. The body is left out; a list shows titles."""
+
+    ticket_id: uuid.UUID
+    ticket_number: str
+    kind: TicketKind
+    title: str
+    status: TicketStatus
+    created_at: datetime
+
+
+class ListMyTicketsOutput(BaseModel):
+    tickets: list[TicketSummary]
+
+
 async def _stamp_user(session: AsyncSession, identity: Identity, **field: datetime) -> datetime:
     """Set one timestamp flag on the token's own user row."""
     (when,) = field.values()
@@ -123,7 +147,7 @@ async def create_ticket(ctx: ToolContext, args: CreateTicketInput) -> CreateTick
         kind=args.kind.value,
         title=args.title,
         body=args.body,
-        status=_OPEN_STATUS,
+        status=TicketStatus.OPEN.value,
         session_id=None,
     )
     return CreateTicketOutput(
@@ -132,4 +156,22 @@ async def create_ticket(ctx: ToolContext, args: CreateTicketInput) -> CreateTick
         kind=args.kind,
         title=ticket.title,
         status=ticket.status,
+    )
+
+
+async def list_my_tickets(ctx: ToolContext, args: ListMyTicketsInput) -> ListMyTicketsOutput:
+    """The token user's own tickets, newest first."""
+    rows = await list_tickets_for_user(ctx.session, ctx.identity.user_id, args.limit)
+    return ListMyTicketsOutput(
+        tickets=[
+            TicketSummary(
+                ticket_id=row.id,
+                ticket_number=format_number(NumberKind.TICKET, row.number),
+                kind=TicketKind(row.kind),
+                title=row.title,
+                status=TicketStatus(row.status),
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
     )

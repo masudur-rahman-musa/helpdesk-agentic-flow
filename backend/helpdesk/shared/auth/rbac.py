@@ -29,6 +29,7 @@ class Tool(StrEnum):
     CREATE_ACCESS_REQUEST_ON_BEHALF = "create_access_request_on_behalf"
     SEARCH_POLICY = "search_policy"
     CREATE_TICKET = "create_ticket"
+    LIST_MY_TICKETS = "list_my_tickets"
     CLASSIFY_ACCESS_REQUEST = "classify_access_request"
     EXECUTE_GRANT = "execute_grant"
     LIST_PENDING_APPROVALS = "list_pending_approvals"
@@ -120,6 +121,7 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.GET_ME: _all(Scope.SELF_ONLY),
         Tool.LIST_MY_ACCESS: _all(Scope.SELF_ONLY),
         Tool.LIST_MY_REQUESTS: _all(Scope.SELF_ONLY),
+        Tool.LIST_MY_TICKETS: _all(Scope.SELF_ONLY),
         # The tenant's catalogue plus the caller's own template and grants;
         # nothing about another person.
         Tool.LIST_REQUESTABLE_ROLES: _all(Scope.SELF_ONLY),

@@ -104,3 +104,13 @@ def test_unknown_principals_give_nothing() -> None:
     assert capability_lines(()) == []
     assert tools_for(("root",)) == []
     assert capability_lines(("root", "employee")) == capability_lines(("employee",))
+
+
+def test_an_employee_is_told_they_can_see_their_tickets() -> None:
+    """Catches a new tool with no sentence, or a sentence worded differently
+    from the one the plan names: the employee's lines must hold exactly this
+    text, and it must be the sentence of the new tool."""
+    sentence = "Show the tickets you have opened and whether each is open or solved."
+
+    assert SENTENCES[Tool.LIST_MY_TICKETS] == sentence
+    assert sentence in capability_lines(("employee",))

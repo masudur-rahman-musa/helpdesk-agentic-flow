@@ -71,9 +71,11 @@ from helpdesk.shared.core.errors import ErrorCode
 
 REQUESTS_PATH = "/me/requests"
 ACCESS_PATH = "/me/access"
+TICKETS_PATH = "/me/tickets"
 
 LIST_MY_REQUESTS = "list_my_requests"
 LIST_MY_ACCESS = "list_my_access"
+LIST_MY_TICKETS = "list_my_tickets"
 
 # Obviously fake, tests only: none of these is a credential, and
 # nothing in this file connects to any of these hosts.
@@ -140,6 +142,20 @@ ACCESS_PAYLOAD: Mapping[str, Any] = {
         }
     ]
 }
+
+TICKETS_PAYLOAD: Mapping[str, Any] = {
+    "tickets": [
+        {
+            "ticket_id": "88888888-8888-5888-8888-888888888888",
+            "ticket_number": "TCK-0042",
+            "kind": "general",
+            "title": "Obviously fake ticket title.",
+            "status": "open",
+            "created_at": "2026-06-02T10:15:00Z",
+        }
+    ]
+}
+"""One row exactly as the tool answers it; the route must hand it back as is."""
 
 
 # --- the scripted seam --------------------------------------------------------
@@ -380,6 +396,66 @@ def test_the_requests_route_passes_no_status_and_no_filter_when_none_is_asked_fo
     assert response.status_code == 200
     _name, arguments = caller.calls[0]
     assert arguments.get("status") is None
+
+
+def test_the_tickets_route_answers_the_tools_output_unchanged(
+    me_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a route that reshapes or renames the tool's output, calls a
+    different tool, invents a limit when the caller sent none (the tool's
+    own default of 50 must stay the only place for that number), or sends an
+    argument naming a user on a self-scoped tool. The token is forwarded
+    verbatim, so the tool's own RBAC and tenant guard apply."""
+    caller = ScriptedToolCaller(TICKETS_PAYLOAD)
+    token = _token()
+
+    response, spy = _get(
+        monkeypatch=monkeypatch, path=TICKETS_PATH, caller=caller, headers=_auth(token)
+    )
+
+    assert response.status_code == 200
+    assert response.json() == TICKETS_PAYLOAD
+    assert caller.names == [LIST_MY_TICKETS]
+    _name, arguments = caller.calls[0]
+    assert "limit" not in arguments
+    assert "user_id" not in arguments
+    assert spy.bearer_tokens == [token]
+
+
+def test_the_tickets_route_passes_the_callers_limit(
+    me_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a route that drops the query parameter (the page size the
+    caller asked for is lost) or sends it as text instead of the number 5."""
+    caller = ScriptedToolCaller(TICKETS_PAYLOAD)
+
+    response, _spy = _get(
+        monkeypatch=monkeypatch,
+        path=f"{TICKETS_PATH}?limit=5",
+        caller=caller,
+        headers=_auth(_token()),
+    )
+
+    assert response.status_code == 200
+    _name, arguments = caller.calls[0]
+    assert arguments["limit"] == 5
+
+
+def test_the_tickets_route_without_a_bearer_is_a_typed_401(
+    me_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a tickets route outside the token check: the caller is scripted
+    with nothing, so a route that opened a session or called a tool fails
+    outright, and the refusal must be the typed 401 body, not free text."""
+    caller = ScriptedToolCaller()
+
+    response, spy = _get(monkeypatch=monkeypatch, path=TICKETS_PATH, caller=caller, headers={})
+
+    assert response.status_code == 401
+    assert response.json() == {"code": ErrorCode.FORBIDDEN.value}
+    assert caller.entered == 0
+    assert caller.calls == []
+    assert spy.bearer_tokens == []
 
 
 # --- the refusals -------------------------------------------------------------

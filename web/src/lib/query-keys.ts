@@ -9,6 +9,7 @@ export const queryKeys = {
   myApprovals: ["me", "approvals"] as const,
   myRequests: ["me", "requests"] as const,
   myReviews: ["me", "reviews"] as const,
+  myTickets: ["me", "tickets"] as const,
   notifications: ["notifications"] as const,
   unreadCount: ["notifications", "unread"] as const,
   chatList: ["chat", "list"] as const,
