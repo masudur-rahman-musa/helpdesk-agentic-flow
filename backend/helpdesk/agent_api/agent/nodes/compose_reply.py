@@ -38,8 +38,7 @@ writer never offers a level or an action that does not exist
 Each policy passage goes in with its 1-based `passage` number, and the
 accepted answer's `used_passages` picks `reply_citations`, the passages the
 Sources box shows (`sources.py`). On the fixed sentence no marks are known, so
-it stays `None` and every passage is shown
-(`test_a_fixed_sentence_leaves_the_citations_unknown`).
+it stays `None` and every passage is shown.
 
 A question asked on a request or revoke turn that filed nothing is recorded
 like a clarifying question, so the next message gets the best reading, not a

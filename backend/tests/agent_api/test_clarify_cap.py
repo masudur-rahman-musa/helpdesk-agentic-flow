@@ -5,7 +5,7 @@ asked_before)``, ``state.TurnOutcome.ANSWER``, and ``clarify_cap`` holding
 ``parse_asked_at``, ``CLARIFY_CAP_LIFE``, ``BEST_READING_FALLBACK`` and
 ``CORRECT_ME_LINE``, plus ``postcheck.asks_on_a_best_reading``.
 
-An earlier change adds ``gates.REQUIRED_ENTITIES[REQUEST_ACCESS] == {"system",
+The code adds ``gates.REQUIRED_ENTITIES[REQUEST_ACCESS] == {"system",
 "justification"}`` and ``clarify_cap.details_question(missing, *, length_missing)``:
 ``missing`` is the set from ``gates.missing_required_entities`` and
 ``length_missing`` is True when ``expiry_days`` is not given. It returns the

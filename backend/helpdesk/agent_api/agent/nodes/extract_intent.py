@@ -91,8 +91,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
 
 def _clarifying_reply(extraction: IntentExtraction) -> str:
     """A confident request asks the code-worded details question; anything
-    else keeps the model's own question
-    (`test_a_low_confidence_request_keeps_the_models_question`)."""
+    else keeps the model's own question."""
     confident = extraction.confidence >= gates.CONFIDENCE_THRESHOLD
     if confident and extraction.intent is Intent.REQUEST_ACCESS:
         return details_question(

@@ -143,7 +143,7 @@ def test_no_rows_gives_no_held_sentence() -> None:
     assert held_sentence([_row("a", "free")]) is None
 
 
-# --- the two groups kept apart -----------------------------------------
+# --- the two groups kept apart -------------------------------------------------
 
 MANAGER_LINE = "need your manager's approval"
 CRITICAL_MARK = "(critical, always needs approval)"

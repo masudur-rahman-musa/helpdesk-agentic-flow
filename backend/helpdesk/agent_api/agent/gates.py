@@ -81,8 +81,7 @@ def clarify_outcome(extraction: IntentExtraction, asked_before: bool) -> TurnOut
     """At most one clarifying question in a row. After a question,
     an unclear message goes on with its best reading, or is answered with no
     tools when something required is still missing, so nothing runs on a guess.
-    A request with no length asks once, then goes on
-    (`test_after_the_question_a_missing_length_goes_on`)."""
+    A request with no length asks once, then goes on."""
     if not needs_clarification(extraction):
         if length_missing(extraction) and not asked_before:
             return TurnOutcome.CLARIFY

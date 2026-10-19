@@ -98,7 +98,7 @@ def mixes_groups(reply: str, groups: Sequence[Group]) -> bool:
 
     It does when an other-group role is named before the last named template
     role, or when any other-group role is named without both words "manager"
-    and "approval". Pinned by `test_requestable.py`.
+    and "approval".
     """
     template = [row for group in groups if group.label == TEMPLATE_GROUP for row in group.rows]
     other = [row for group in groups if group.label == OTHER_GROUP for row in group.rows]
@@ -108,7 +108,7 @@ def mixes_groups(reply: str, groups: Sequence[Group]) -> bool:
     template_at = _positions(reply, template)
     if template_at and min(other_at) < max(template_at):
         return True
-    return not MANAGER_WORDS <= frozenset(_WORDS.findall(reply.lower()))
+    return not frozenset(_WORDS.findall(reply.lower())) >= MANAGER_WORDS
 
 
 def _listed(rows: Sequence[MarkedRow]) -> str:

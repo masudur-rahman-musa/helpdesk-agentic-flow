@@ -14,9 +14,7 @@ from helpdesk.agent_api.agent.state import Citation, TurnState
 def pick_used(citations: Sequence[Citation], marks: Sequence[int]) -> tuple[Citation, ...]:
     """The passages whose number is among `marks`, in search order."""
     wanted = set(marks)
-    return tuple(
-        citation for number, citation in enumerate(citations, start=1) if number in wanted
-    )
+    return tuple(citation for number, citation in enumerate(citations, start=1) if number in wanted)
 
 
 def shown_citations(state: TurnState) -> tuple[Citation, ...]:

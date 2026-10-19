@@ -62,6 +62,16 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
         role_matches = matching.match_candidates(system_term, _candidates(all_roles))
         if role_matches:
             role_term, system_term = system_term, ""
+    # "payroll read" also names the system `payroll` by its words. Inside that
+    # one system, the extra words may still name a role.
+    elif (
+        len(system_matches) == 1
+        and not role_term
+        and not _names_exactly(system_term, system_matches[0])
+    ):
+        role_matches = matching.match_candidates(system_term, roles)
+        if role_matches:
+            role_term = system_term
 
     logger.info(
         "resolve_entities terms system=%r role=%r matches system=%d role=%d",
@@ -126,6 +136,11 @@ def other_role_names(roles: Sequence[Role], resolved: Candidate | None) -> tuple
     owner_id = next(role.system_id for role in roles if role.id == resolved.id)
     siblings = [role for role in roles if role.system_id == owner_id and role.id != resolved.id]
     return tuple(role.name for role in sorted(siblings, key=lambda role: role.slug))
+
+
+def _names_exactly(term: str, candidate: Candidate) -> bool:
+    """Whether `term` is the candidate's own name, with nothing added."""
+    return matching.normalise(term) in matching.aliases_for(candidate)
 
 
 def _candidates(rows: Sequence[System] | Sequence[Role]) -> tuple[Candidate, ...]:
