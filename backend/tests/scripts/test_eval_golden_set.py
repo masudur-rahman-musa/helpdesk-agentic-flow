@@ -830,6 +830,18 @@ def test_every_judge_rubric_is_one_sentence_of_at_most_forty_words(
         )
 
 
+def test_help_027_rubric_asks_for_two_groups_and_manager_approval(
+    golden_cases: tuple[GoldenCase, ...],
+) -> None:
+    """Catches a rubric that still lets a mixed list pass: the judge for the
+    "what can I ask for" case must be told to want the template roles first and
+    the manager approval line."""
+    rubric = _case_by_id(golden_cases, "help-027").judge_rubric.lower()
+
+    assert "manager approval" in rubric
+    assert "template roles first" in rubric
+
+
 # --- the calibration labels --------------------------------------------------
 
 

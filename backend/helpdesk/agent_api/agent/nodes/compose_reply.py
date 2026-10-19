@@ -25,7 +25,10 @@ and code adds the correct-me line at the end.
 plain sentence per tool their principals allow, so the answer and the
 pointers come from the real matrix, never a written list. The requestable rows go in already sorted,
 and the roles held are one sentence written by code ahead of the reply, so two
-replies cannot disagree about them (`requestable.py`).
+replies cannot disagree about them (`requestable.py`). A reply that mixes the
+template group with the other group, or names the other group without saying
+it needs manager approval, is retried once with a note, then replaced by the
+list code writes (`groups_reply`).
 
 Every turn also gets the only next steps the reply may offer, built by code
 from the role data and the permission matrix, an empty list included, so the
@@ -55,7 +58,12 @@ from helpdesk.agent_api.agent.postcheck import (
     request_filed,
 )
 from helpdesk.agent_api.agent.prompts import load_prompt
-from helpdesk.agent_api.agent.requestable import held_sentence, ordered_requestable
+from helpdesk.agent_api.agent.requestable import (
+    groups_reply,
+    held_sentence,
+    mixes_groups,
+    ordered_requestable,
+)
 from helpdesk.agent_api.agent.state import (
     ComposedReply,
     Intent,
@@ -205,6 +213,16 @@ def _question_note() -> dict[str, str]:
     )
 
 
+def _groups_note() -> dict[str, str]:
+    """The retry message for a reply that mixed the two groups of roles."""
+    return _as_data(
+        "your previous answer mixed the roles that fit this person's job with "
+        "the other roles; keep the two groups apart, the roles that fit their "
+        "job first, and say the other roles need manager approval",
+        [],
+    )
+
+
 def _best_reading_note() -> dict[str, str]:
     """The retry message for a reply that asked a question right after one was asked."""
     return _as_data(
@@ -240,6 +258,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     prompt = load_prompt(COMPOSITION_PROMPT)
     system = load_prompt(SYSTEM_PROMPT)
     rows = _requestable_rows(state)
+    groups = ordered_requestable(rows)
 
     messages = [
         {"role": "system", "content": system.text},
@@ -271,6 +290,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
 
     asked = False
     asked_again = False
+    mixed = False
     try:
         for attempt in range(COMPOSITION_ATTEMPTS):
             if attempt:
@@ -278,6 +298,8 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
                     note = _question_note()
                 elif asked_again:
                     note = _best_reading_note()
+                elif mixed:
+                    note = _groups_note()
                 else:
                     note = _regeneration_note(state)
                 messages = [*messages, note]
@@ -293,7 +315,13 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
             candidate = check_message_content(_with_correct_me(composed.text, state))
             asked = asks_after_filing(composed.asks_question, state)
             asked_again = asks_on_a_best_reading(composed.asks_question, state)
-            if not asked and not asked_again and not contradicts(composed.text, state):
+            mixed = mixes_groups(composed.text, groups)
+            if (
+                not asked
+                and not asked_again
+                and not mixed
+                and not contradicts(composed.text, state)
+            ):
                 reply = candidate
                 asks_question = composed.asks_question
                 postcheck = (
@@ -303,6 +331,8 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     except ToolError as exc:
         return _failed(state, exc)
     if postcheck is PostCheckOutcome.FALLBACK:
+        if mixed:
+            reply = groups_reply(groups)
         reply = _with_correct_me(reply, state)
     reply = check_message_content(_with_held(reply, rows))
     if _asks_before_filing(asks_question, state):

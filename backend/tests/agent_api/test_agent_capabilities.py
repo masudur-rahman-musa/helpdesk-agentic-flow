@@ -30,8 +30,12 @@ import httpx
 import pytest
 
 from helpdesk.agent_api.agent.graph import TurnDeps, run_turn
-from helpdesk.agent_api.agent.requestable import held_sentence
-from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
+from helpdesk.agent_api.agent.requestable import (
+    groups_reply,
+    held_sentence,
+    ordered_requestable,
+)
+from helpdesk.agent_api.agent.state import PostCheckOutcome, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.shared.auth.capabilities import SENTENCES, capability_lines
@@ -354,3 +358,98 @@ def test_a_can_i_question_on_kyc_searches_policy_and_files_nothing(env: Env) -> 
     assert SEARCH_POLICY in tools.names
     assert CREATE not in tools.names
     assert "Obviously fake policy text about fake wiki access." in _user_text(gateway.requests[-1])
+
+
+class TwoGroupTools(HeldRoleTools):
+    """The held fake, plus one role outside the person's job (the other group)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows.append(
+            {
+                "system_slug": "fake-other-system",
+                "system_name": "Fake Other System",
+                "system_sensitivity": "low",
+                "role_slug": "fake-other-role-slug",
+                "role_name": "Fake Other Role",
+                "privilege": "read",
+                "default_expiry_days": 365,
+                "in_my_template": False,
+                "already_held": False,
+            }
+        )
+
+
+MIXED = (
+    "Fake Other System Fake Other Role needs your manager's approval. "
+    "Fake System Fake Role fits your job."
+)
+APART = (
+    "Roles that fit your job: Fake System Fake Role. "
+    "Other roles need your manager's approval: Fake Other System Fake Other Role."
+)
+ASK_LIST = ("what more accesses can i ask for",)
+
+
+def test_a_mixed_list_is_retried_with_the_groups_note(env: Env) -> None:
+    """Catches a compose step that does not run the groups check (the mixed text
+    is stored), or retries with the same prompt: the stored reply must be the
+    second text, the postcheck `regenerated`, and only the retry request carries
+    the note about keeping the two groups apart and manager approval."""
+    tools = TwoGroupTools()
+
+    state, gateway = _run(
+        env,
+        message=ASK_LIST[0],
+        answers=(_extraction("ask_capabilities"), _list_roles_round(), EMPTY_ROUND, MIXED, APART),
+        tools=tools,
+    )
+
+    assert state.outcome is TurnOutcome.DONE
+    assert state.postcheck is PostCheckOutcome.REGENERATED
+    assert state.reply is not None
+    assert state.reply.endswith(APART)
+    assert MIXED not in state.reply
+    first, retry = gateway.requests[-2], gateway.requests[-1]
+    assert "groups apart" in _user_text(retry).lower()
+    assert "manager approval" in _user_text(retry).lower()
+    assert "groups apart" not in _user_text(first).lower()
+
+
+def test_a_mixed_list_twice_ends_on_the_code_written_groups(env: Env) -> None:
+    """Catches a second mixed text that is stored anyway, or a fallback put
+    before the held sentence or built from the wrong rows: the reply must be the
+    held sentence, then the text code wrote, and the postcheck `fallback`."""
+    tools = TwoGroupTools()
+    held = held_sentence(tools.rows)
+    assert held is not None, "fixture premise: one row is held"
+    fallback = groups_reply(ordered_requestable(tools.rows))
+
+    state, _gateway = _run(
+        env,
+        message=ASK_LIST[0],
+        answers=(_extraction("ask_capabilities"), _list_roles_round(), EMPTY_ROUND, MIXED, MIXED),
+        tools=tools,
+    )
+
+    assert state.outcome is TurnOutcome.DONE
+    assert state.postcheck is PostCheckOutcome.FALLBACK
+    assert state.reply == f"{held}\n\n{fallback}"
+    assert MIXED not in state.reply
+
+
+def test_a_turn_without_requestable_rows_skips_the_groups_check(env: Env) -> None:
+    """Catches a groups check that runs on every turn (or falls back to a
+    code-written list with no rows): a policy answer that names roles in any
+    order, with no requestable rows this turn, must be stored as written."""
+    text = "Fake Other System Fake Other Role comes before Fake System Fake Role here."
+
+    state, _gateway = _run(
+        env,
+        message="how long does an approval take",
+        answers=(_extraction("ask_policy"), text),
+        tools=TwoGroupTools(),
+    )
+
+    assert state.postcheck is PostCheckOutcome.PASSED
+    assert state.reply == text

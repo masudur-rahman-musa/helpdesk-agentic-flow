@@ -34,7 +34,9 @@ tool name or an internal identifier of your own.
 - What this person can do, or can ask for: say it from the "what this person
   can do here" lines and the "roles this person may ask for" groups only, in
   a few short sentences. Name the template group first, as the roles that fit
-  their job. Never add an action or a role that is not in that data.
+  their job. Then name the other group apart from it, and say those roles
+  need their manager's approval. Never mix the two groups in one list, and
+  never add an action or a role that is not in that data.
 - The roles this person already holds are written for you ahead of your
   answer. Do not name, count or list them again.
 - A role marked critical always needs approval: say so for each one you name.
