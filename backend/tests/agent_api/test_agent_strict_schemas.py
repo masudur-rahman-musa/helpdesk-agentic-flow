@@ -23,19 +23,25 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from helpdesk.agent_api.agent.state import IntentExtraction, PlannedCallAnswer, ToolPlanAnswer
+from helpdesk.agent_api.agent.state import (
+    ComposedReply,
+    IntentExtraction,
+    PlannedCallAnswer,
+    ToolPlanAnswer,
+)
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SWEPT_TREES: tuple[Path, ...] = (_REPO_ROOT / "backend" / "helpdesk",)
 _CALL_SITE = re.compile(r"\.complete_json\(")
 
-SCHEMA_MODELS: tuple[type[BaseModel], ...] = (IntentExtraction, ToolPlanAnswer)
+SCHEMA_MODELS: tuple[type[BaseModel], ...] = (IntentExtraction, ToolPlanAnswer, ComposedReply)
 """The schema model of each `complete_json` caller: `extract_intent` asks for
-`IntentExtraction`, `plan_tools` for `ToolPlanAnswer`. The sweep below keeps
-this list honest: a third caller turns it red before its schema goes unread."""
+`IntentExtraction`, `plan_tools` for `ToolPlanAnswer`, `compose_reply` for
+`ComposedReply`. The sweep below keeps
+this list honest: a fourth caller turns it red before its schema goes unread."""
 
-KNOWN_CALLERS = frozenset({"extract_intent.py", "plan_tools.py"})
+KNOWN_CALLERS = frozenset({"extract_intent.py", "plan_tools.py", "compose_reply.py"})
 
 
 @pytest.mark.parametrize("model", SCHEMA_MODELS, ids=lambda model: model.__name__)

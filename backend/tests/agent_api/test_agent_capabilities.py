@@ -273,7 +273,13 @@ def test_an_ask_policy_turn_sends_no_capability_lines(env: Env) -> None:
     everything = "\n".join(
         _user_text(request) + _system_text(request) for request in gateway.requests
     )
-    lines = {SENTENCES[tool] for tool in tools_for(("employee",)) if tool in SENTENCES}
+    # The ticket line is the one next step every reply may offer, so it is the
+    # one capability line that rightly rides along on this turn.
+    lines = {
+        SENTENCES[tool]
+        for tool in tools_for(("employee",))
+        if tool in SENTENCES and tool is not Tool.CREATE_TICKET
+    }
     assert Tool.LIST_MY_ACCESS in SENTENCES and lines
     for line in lines:
         assert line not in everything, line

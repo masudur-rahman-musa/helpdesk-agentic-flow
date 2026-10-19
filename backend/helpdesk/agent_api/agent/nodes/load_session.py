@@ -8,15 +8,14 @@ Identity comes from the verified token, never from the message.
 An open "Do you mean ...?" question is read and cleared on every message, so
 it is answered once at most. A yes routes straight to `execute_tools` with
 exactly the stored calls; a bare no ends with a fixed reply; anything else
-runs the normal flow (a design note, pinned by `test_agent_confirm.py`).
+runs the normal flow.
 
 The time of the last clarifying question is read and cleared the same way, so
-only the very next message may not ask again (a design note, pinned by
-`test_agent_clarify_cap.py`).
+only the very next message may not ask again.
 
 The caller's principals are read from their own directory row by the token's
 user id, so a message claiming a role changes nothing. No row gives no
-principals (a design note, pinned by `test_agent_capabilities.py`).
+principals.
 """
 
 from helpdesk.agent_api.agent.clarify_cap import parse_asked_at

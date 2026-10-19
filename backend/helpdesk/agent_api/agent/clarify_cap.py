@@ -2,7 +2,7 @@
 
 Pure. The time of the last clarifying question is kept on the chat row as an
 ISO string and checked here on every read, like the open question of
-`confirmation.py` (a design note, pinned by `test_clarify_cap.py`).
+`confirmation.py`.
 """
 
 from datetime import datetime, timedelta

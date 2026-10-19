@@ -2,7 +2,7 @@
 
 Pure: no I/O. The lines come from the RBAC matrix through `rbac.tools_for`, so
 the assistant never offers an action the person's token would be refused. A
-tool with no sentence is never shown, and `test_capabilities.py` fails when a
+tool with no sentence is never shown, and a check fails when a
 tool someone can call has none, so the list cannot drift from the real tools.
 """
 

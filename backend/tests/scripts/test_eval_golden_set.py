@@ -784,7 +784,7 @@ SECOND_UNCLEAR_CASES = frozenset({"clar-005", "clar-008"})
 def test_clarify_cases_ask_and_call_no_tool(golden_cases: tuple[GoldenCase, ...]) -> None:
     """Catches an ambiguous case that expects the agent to guess a system or role
     and act, rather than asking one clarifying question first, and a one-message
-    case that does not ask. A case with two unclear messages (the cap of an earlier change)
+    case that does not ask. A case with two unclear messages (the one-question cap)
     asks nothing on the last and calls no tool; a longer case whose first message
     was clear is not constrained on asking."""
     for case in (c for c in golden_cases if c.category == "clarify_ambiguous"):

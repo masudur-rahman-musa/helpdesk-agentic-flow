@@ -17,8 +17,8 @@ are exact. Requests are real rows made through the repository, the way
 production makes them, then read back for their stored number.
 
 Cost: rides the session-scoped ``mcp_env`` seam (one seeded database). The
-probes below use a short-lived engine per call, as the neighbouring tool tests
-do. Per-test isolation is the marker and the fresh request rows.
+probes below reach the database through the shared probe helpers in
+`tests/support/mcp.py`. Per-test isolation is the marker and the fresh request rows.
 """
 
 import asyncio
@@ -31,11 +31,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest
 from helpdesk.shared.models.numbers import NumberKind, format_number
@@ -49,7 +48,10 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     mcp_pg,
     mcp_redis_base_url,
     mcp_redis_url,
+    probe_session_factory,
     seeded_mcp_db,
+    sql_execute,
+    sql_rows,
     token_for,
 )
 
@@ -84,65 +86,37 @@ def _caller(rows: TenantRows) -> SeededUser:
     )
 
 
-def _rows(database_url: str, sql: str, params: dict[str, Any]) -> list[Any]:
-    async def scenario() -> list[Any]:
-        engine = create_async_engine(database_url)
-        try:
-            async with engine.connect() as conn:
-                return list(await conn.execute(text(sql), params))
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(scenario())
-
-
-def _execute(database_url: str, sql: str, params: dict[str, Any]) -> None:
-    async def scenario() -> None:
-        engine = create_async_engine(database_url)
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text(sql), params)
-        finally:
-            await engine.dispose()
-
-    asyncio.run(scenario())
-
-
 def _plant_request(database_url: str, rows: TenantRows) -> uuid.UUID:
     """One pending request in `rows`' company, drawn through the repository."""
     user = _first_user(rows)
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(database_url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, rows.tenant_id) as session:
-                row = await Repository(session, AccessRequest).create(
-                    requester_user_id=user.id,
-                    target_user_id=user.id,
-                    role_id=_first_role(rows),
-                    justification=f"fake audit numbered request {uuid.uuid4().hex}",
-                    requested_expiry_days=365,
-                    risk_class="critical",
-                    decision="approval",
-                    decision_reasons=[],
-                    citations=[],
-                    status="pending",
-                    approver_user_ids=[],
-                    approvals=[],
-                    session_id=None,
-                    trace_id=None,
-                    idempotency_key=None,
-                )
-                return row.id
-        finally:
-            await engine.dispose()
+        factory = probe_session_factory(database_url)
+        async with tenant_session(factory, rows.tenant_id) as session:
+            row = await Repository(session, AccessRequest).create(
+                requester_user_id=user.id,
+                target_user_id=user.id,
+                role_id=_first_role(rows),
+                justification=f"fake audit numbered request {uuid.uuid4().hex}",
+                requested_expiry_days=365,
+                risk_class="critical",
+                decision="approval",
+                decision_reasons=[],
+                citations=[],
+                status="pending",
+                approver_user_ids=[],
+                approvals=[],
+                session_id=None,
+                trace_id=None,
+                idempotency_key=None,
+            )
+            return row.id
 
     return asyncio.run(scenario())
 
 
 def _stored_number(database_url: str, request_id: uuid.UUID) -> int:
-    found = _rows(
+    found = sql_rows(
         database_url, "SELECT number FROM access_requests WHERE id = :id", {"id": request_id}
     )
     assert len(found) == 1, f"expected one access_requests row for {request_id}"
@@ -162,7 +136,7 @@ def _plant_event(
     subject_id: str | None,
 ) -> None:
     """One committed `audit_events` row written AROUND the tool (fake digests)."""
-    _execute(
+    sql_execute(
         database_url,
         "INSERT INTO audit_events (id, tenant_id, occurred_at, actor_kind, actor_ref,"
         " session_id, trace_id, event_type, subject_type, subject_id, payload, prev_hash, hash,"

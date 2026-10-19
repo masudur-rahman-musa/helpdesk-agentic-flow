@@ -42,7 +42,13 @@ from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
 from sqlalchemy import insert, select, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool
 from starlette.routing import Mount
 
 from helpdesk.mcp_server.services.rag.chunking import Chunk
@@ -57,7 +63,7 @@ from helpdesk.mcp_server.services.rag.vectors import (
 )
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import load_settings
-from helpdesk.shared.core.db import create_engine
+from helpdesk.shared.core.db import create_engine, create_session_factory
 from helpdesk.shared.models import Base, Grant, Role, System, Tenant, Ticket, User
 from scripts.seed import seed_all
 
@@ -495,6 +501,46 @@ def mcp_env(
     monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("QDRANT_URL", TEST_QDRANT_URL)
     return seeded_mcp_db
+
+
+# --- one engine per database, shared by every probe ---------------------------
+
+_PROBE_ENGINES: dict[str, AsyncEngine] = {}
+
+
+def probe_engine(database_url: str) -> AsyncEngine:
+    """The one engine for `database_url` in this run, built on first use.
+
+    `NullPool` keeps no connection between calls, so the same engine is safe in
+    every test's own `asyncio.run` loop. Test files reach the database through
+    this and the helpers below; none builds its own.
+    """
+    engine = _PROBE_ENGINES.get(database_url)
+    if engine is None:
+        engine = create_async_engine(database_url, poolclass=NullPool)
+        _PROBE_ENGINES[database_url] = engine
+    return engine
+
+
+def probe_session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
+    """A session factory (tenant guard included) over `probe_engine`."""
+    return create_session_factory(probe_engine(database_url))
+
+
+def sql_rows(database_url: str, sql: str, params: dict[str, Any]) -> list[Any]:
+    """Run one statement in its own transaction; rows back when it returns any."""
+
+    async def scenario() -> list[Any]:
+        async with probe_engine(database_url).begin() as conn:
+            result = await conn.execute(text(sql), params)
+            return list(result) if result.returns_rows else []
+
+    return asyncio.run(scenario())
+
+
+def sql_execute(database_url: str, sql: str, params: dict[str, Any]) -> None:
+    """Run one write statement in its own transaction."""
+    sql_rows(database_url, sql, params)
 
 
 # --- tokens -------------------------------------------------------------------

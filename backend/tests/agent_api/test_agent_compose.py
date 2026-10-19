@@ -2,7 +2,7 @@
 
 Expected implementation surface (the implementer must provide exactly this):
 
-Since an earlier change the writer answers in the `ComposedReply` shape (`text` and
+The writer answers in the `ComposedReply` shape (`text` and
 `asks_question`) through `complete_json`, and the question checks read the mark.
 
 ``agent_api.graph.nodes.compose_reply``
@@ -359,7 +359,7 @@ def test_the_composition_makes_exactly_one_call_under_the_default_alias() -> Non
     `agent-strong` — paid on every turn that gets this far, for a call that
     writes down a decision the policy engine and the tools already made.
 
-    Since an earlier change the writer returns a structured answer, so the body asks for
+    The writer returns a structured answer, so the body asks for
     `ComposedReply`; this also catches a composition left on plain `complete`,
     where the mark would never be asked for."""
     gateway = StagedGateway()

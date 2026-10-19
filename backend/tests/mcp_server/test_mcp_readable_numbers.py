@@ -24,10 +24,8 @@ import uuid
 from typing import Any
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
-from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
+from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest
 from helpdesk.shared.models.numbers import NumberKind, format_number
@@ -42,7 +40,9 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     mcp_pg,
     mcp_redis_base_url,
     mcp_redis_url,
+    probe_session_factory,
     seeded_mcp_db,
+    sql_rows,
     token_for,
 )
 
@@ -95,20 +95,8 @@ def _structured(result: Any) -> dict[str, Any]:
     return content
 
 
-def _rows(database_url: str, sql: str, params: dict[str, Any]) -> list[Any]:
-    async def scenario() -> list[Any]:
-        engine = create_async_engine(database_url)
-        try:
-            async with engine.connect() as conn:
-                return list(await conn.execute(text(sql), params))
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(scenario())
-
-
 def _counter(database_url: str, tenant_id: uuid.UUID, kind: NumberKind) -> int:
-    rows = _rows(
+    rows = sql_rows(
         database_url,
         "SELECT last FROM reference_counters WHERE tenant_id = :t AND kind = :k",
         {"t": tenant_id, "k": kind.value},
@@ -117,7 +105,7 @@ def _counter(database_url: str, tenant_id: uuid.UUID, kind: NumberKind) -> int:
 
 
 def _stored_number(database_url: str, table: str, row_id: uuid.UUID) -> int:
-    rows = _rows(
+    rows = sql_rows(
         database_url,
         f"SELECT number FROM {table} WHERE id = :id",
         {"id": row_id},
@@ -137,30 +125,26 @@ def _plant_request(
     """One pending request, made through the repository like production does."""
 
     async def scenario() -> uuid.UUID:
-        engine = create_engine(database_url)
-        try:
-            factory = create_session_factory(engine)
-            async with tenant_session(factory, requester.tenant_id) as session:
-                row = await Repository(session, AccessRequest).create(
-                    requester_user_id=requester.user_id,
-                    target_user_id=target.id,
-                    role_id=role_id,
-                    justification=f"fake numbered request {uuid.uuid4().hex}",
-                    requested_expiry_days=365,
-                    risk_class="critical",
-                    decision="approval",
-                    decision_reasons=[],
-                    citations=[],
-                    status="pending",
-                    approver_user_ids=[],
-                    approvals=approvals,
-                    session_id=None,
-                    trace_id=None,
-                    idempotency_key=None,
-                )
-                return row.id
-        finally:
-            await engine.dispose()
+        factory = probe_session_factory(database_url)
+        async with tenant_session(factory, requester.tenant_id) as session:
+            row = await Repository(session, AccessRequest).create(
+                requester_user_id=requester.user_id,
+                target_user_id=target.id,
+                role_id=role_id,
+                justification=f"fake numbered request {uuid.uuid4().hex}",
+                requested_expiry_days=365,
+                risk_class="critical",
+                decision="approval",
+                decision_reasons=[],
+                citations=[],
+                status="pending",
+                approver_user_ids=[],
+                approvals=approvals,
+                session_id=None,
+                trace_id=None,
+                idempotency_key=None,
+            )
+            return row.id
 
     return asyncio.run(scenario())
 
@@ -190,7 +174,7 @@ def test_create_ticket_answers_with_its_ticket_number(
         )
     )
 
-    rows = _rows(
+    rows = sql_rows(
         mcp_env.database_url, "SELECT id, number FROM tickets WHERE title = :t", {"t": title}
     )
     assert len(rows) == 1

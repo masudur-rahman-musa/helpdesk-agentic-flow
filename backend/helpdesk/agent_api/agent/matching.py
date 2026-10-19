@@ -81,7 +81,7 @@ def _word_matches(normalised_term: str, candidates: Sequence[Candidate]) -> tupl
     """The candidates whose whole slug or whole name sits among the typed words,
     keeping only those with the most words; a tie keeps every one, in order.
     Every word must be typed: one shared word would turn "billing read access"
-    into `billing-admin` (`test_one_shared_word_is_not_enough`)."""
+    into `billing-admin`."""
     typed = set(normalised_term.split())
     counts = [
         (

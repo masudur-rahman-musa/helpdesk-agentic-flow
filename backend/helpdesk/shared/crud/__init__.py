@@ -89,7 +89,6 @@ class Repository[M: TenantScoped]:
         kind = _NUMBERED.get(self._model)
         if kind is not None and "number" not in fields:
             # Drawn here, so no path can store a numbered row without one.
-            # Pinned by `test_create_fills_the_number_when_the_caller_gives_none`.
             fields["number"] = await next_number(self._session, kind)
         obj = self._model(tenant_id=bound_tenant_id(self._session), **fields)
         self._session.add(obj)

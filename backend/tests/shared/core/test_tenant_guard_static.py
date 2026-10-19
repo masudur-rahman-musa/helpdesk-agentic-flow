@@ -103,18 +103,20 @@ TEXT_ALLOWLIST: frozenset[str] = frozenset(
         "backend/helpdesk/shared/core/health.py",
         "backend/helpdesk/shared/crud/audit.py",
         "backend/helpdesk/shared/crud/idempotency.py",
+        "backend/helpdesk/shared/crud/numbers.py",
     }
 )
-"""The three modules in the whole tree that may import `sqlalchemy.text`.
+"""The four modules in the whole tree that may import `sqlalchemy.text`.
 
 `helpdesk/core/db.py`'s `do_orm_execute` guard covers ORM SELECT, UPDATE and
 DELETE and does NOT intercept a `text()` statement, so this is the one path by
 which a read can reach Postgres untenanted. The shared health probes run `SELECT 1`
 on a raw engine connection; `crud/audit.py` and `crud/idempotency.py` hold the
 only two advisory locks in the system (audit chain serialisation and idempotency
-key claim). Asserted as an EXACT set by
+key claim); `crud/numbers.py` runs one upsert that takes the bound tenant id.
+Asserted as an EXACT set by
 `test_sqlalchemy_text_is_imported_by_exactly_the_allowlisted_modules`,
-the diff that adds a fourth site extends this list."""
+the diff that adds a fifth site extends this list."""
 
 SCANNED_TREES: tuple[str, ...] = ("backend/helpdesk",)
 """The one tree the `text` allowlist is checked over, tests excluded.
@@ -410,6 +412,7 @@ _EXPECTED_TEXT_ALLOWLIST: frozenset[str] = frozenset(
         "backend/helpdesk/shared/core/health.py",
         "backend/helpdesk/shared/crud/audit.py",
         "backend/helpdesk/shared/crud/idempotency.py",
+        "backend/helpdesk/shared/crud/numbers.py",
     }
 )
 """The exact set TEXT_ALLOWLIST must equal.
@@ -417,18 +420,18 @@ _EXPECTED_TEXT_ALLOWLIST: frozenset[str] = frozenset(
 The shared health module keeps its entry because its probes run a SELECT 1 liveness
 check through a raw engine connection. The two new entries replace the old
 guard.py and writer.py paths: the only callers of sqlalchemy.text
-outside the health probes are the two crud helpers."""
+outside the health probes are the crud helpers, the number counter included."""
 
 
 def test_text_is_imported_by_exactly_the_probes_and_crud() -> None:
     """Catches an implementation that updates the code but forgets to update
-    TEXT_ALLOWLIST, or that updates the list to the wrong paths: the exact three
+    TEXT_ALLOWLIST, or that updates the list to the wrong paths: the exact four
     entries are pinned so that neither the old paths nor any new unlisted path
     can silently remain.
     """
     assert TEXT_ALLOWLIST == _EXPECTED_TEXT_ALLOWLIST, (
         f"TEXT_ALLOWLIST must be exactly the shared health module plus "
-        f"crud/audit.py and crud/idempotency.py after plan 70.\n"
+        f"crud/audit.py, crud/idempotency.py and crud/numbers.py.\n"
         f"  extra entries : {sorted(TEXT_ALLOWLIST - _EXPECTED_TEXT_ALLOWLIST)}\n"
         f"  missing entries: {sorted(_EXPECTED_TEXT_ALLOWLIST - TEXT_ALLOWLIST)}"
     )

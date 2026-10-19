@@ -3,7 +3,7 @@
 Pure: no I/O. Another role is offered only when the resolved role's system has
 one, and a ticket only when the person's principals may call `create_ticket`,
 in the matrix's own words. The writer gets this list and may offer nothing
-else. Pinned by `test_next_steps.py`.
+else.
 """
 
 from collections.abc import Sequence

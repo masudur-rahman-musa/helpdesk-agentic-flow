@@ -21,14 +21,11 @@ below, so no case depends on the order the file runs in.
 No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 """
 
-import asyncio
 import json
 import uuid
 from typing import Any
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     SeededMcp,
@@ -40,6 +37,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     mcp_redis_base_url,
     mcp_redis_url,
     seeded_mcp_db,
+    sql_rows,
     token_for,
 )
 
@@ -58,21 +56,8 @@ DENIED_PRINCIPALS = ("employee", "system_owner", "auditor", "it_admin", "manager
 # --- probes around the tool, never through it ---------------------------------
 
 
-def _run_sql(database_url: str, sql: str, params: dict[str, Any]) -> list[Any]:
-    async def scenario() -> list[Any]:
-        engine = create_async_engine(database_url)
-        try:
-            async with engine.begin() as conn:
-                result = await conn.execute(text(sql), params)
-                return list(result) if result.returns_rows else []
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(scenario())
-
-
 def _set_settings(database_url: str, tenant_id: uuid.UUID, settings: dict[str, Any]) -> None:
-    _run_sql(
+    sql_rows(
         database_url,
         "UPDATE tenants SET settings = CAST(:settings AS jsonb) WHERE id = :tenant",
         {"settings": json.dumps(settings), "tenant": tenant_id},
@@ -80,7 +65,7 @@ def _set_settings(database_url: str, tenant_id: uuid.UUID, settings: dict[str, A
 
 
 def _stored_settings(database_url: str, tenant_id: uuid.UUID) -> dict[str, Any]:
-    rows = _run_sql(
+    rows = sql_rows(
         database_url, "SELECT settings FROM tenants WHERE id = :tenant", {"tenant": tenant_id}
     )
     stored: dict[str, Any] = dict(rows[0][0])
@@ -88,7 +73,7 @@ def _stored_settings(database_url: str, tenant_id: uuid.UUID) -> dict[str, Any]:
 
 
 def _audit_rows(database_url: str, tenant_id: uuid.UUID) -> list[Any]:
-    return _run_sql(
+    return sql_rows(
         database_url,
         "SELECT event_type, subject_id FROM audit_events WHERE tenant_id = :tenant ORDER BY seq",
         {"tenant": tenant_id},

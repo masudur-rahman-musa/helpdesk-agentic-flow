@@ -368,7 +368,7 @@ async def _request_numbers(session: AsyncSession, events: Sequence[AuditEvent]) 
     """Each request subject's shown number, keyed by the subject id as stored.
 
     One tenant-filtered read for the page, so a foreign id comes back missing
-    and gets no number (`test_a_request_from_another_company_gets_no_number`).
+    and gets no number.
     """
     wanted = {
         row.subject_id: subject_uuid

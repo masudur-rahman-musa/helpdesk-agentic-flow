@@ -19,7 +19,7 @@ Expected implementation surface (the implementer must provide exactly this):
         (``difflib.SequenceMatcher(None, term, alias).ratio() >=
         FUZZY_CUTOFF``, best ratio first). The cutoff is INCLUSIVE.
 
-An earlier change replaced the old filler-word list with the whole-name word step.
+The old filler-word list was replaced by the whole-name word step.
 
 Every ratio this file depends on is asserted with `difflib` BEFORE the
 behaviour that depends on it, so a boundary pair that stops being the

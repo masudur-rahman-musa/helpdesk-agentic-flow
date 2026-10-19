@@ -498,8 +498,8 @@ def _run_paused_turn(
     tools: ScriptedToolCaller,
 ) -> Any:
     """The request turn and its yes against the real checkpointer, over this
-    case's own thread id. The first turn only asks "Do you mean ...?" (plan
-    85); the yes runs the held create call, which is what pauses."""
+    case's own thread id. The first turn only asks "Do you mean ...?"; the yes runs the held create
+    call, which is what pauses."""
 
     async def scenario(pool: Any) -> Any:
         checkpointer = build_checkpointer(pool)

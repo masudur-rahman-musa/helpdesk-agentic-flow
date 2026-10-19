@@ -120,8 +120,7 @@ def roles_in_system(roles: Sequence[Role], system_matches: Sequence[Candidate]) 
 
 def other_role_names(roles: Sequence[Role], resolved: Candidate | None) -> tuple[str, ...]:
     """The names of the other roles on the resolved role's system, sorted by
-    slug; empty when no role was resolved. Pinned by
-    `test_other_role_names_leave_out_the_asked_role`."""
+    slug; empty when no role was resolved."""
     if resolved is None:
         return ()
     owner_id = next(role.system_id for role in roles if role.id == resolved.id)

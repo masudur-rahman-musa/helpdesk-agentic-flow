@@ -25,7 +25,7 @@ async def solve(
 
     The clock and the solver are passed in. A ticket solved before keeps its
     first time and solver whatever the key, so a second admin cannot move
-    them (`test_a_solved_ticket_keeps_its_first_stamp`).
+    them.
 
     An unknown id and another tenant's id both answer `NOT_FOUND`, and nothing
     is written. `FORBIDDEN` would confirm the id names a real ticket somewhere.

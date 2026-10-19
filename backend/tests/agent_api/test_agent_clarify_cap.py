@@ -291,7 +291,7 @@ def test_the_message_after_a_bare_no_is_answered(env: Env) -> None:
 
 def test_a_confirm_question_alone_stores_no_time(env: Env) -> None:
     """Catches an `ask_confirmation` that also stores the clarifying time (the
-    "Do you mean ...?" check is not a clarifying question, a design note), which would
+    "Do you mean ...?" check is not a clarifying question), which would
     cap the very next unclear message."""
     session_id = uuid.uuid4()
 

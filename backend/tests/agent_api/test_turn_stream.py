@@ -957,7 +957,7 @@ def test_an_execution_step_carries_the_tool_name_and_its_error_code(
         RemotePolicyBlockedError("the fake policy engine refused this fake request"),
     )
 
-    # An earlier change: the request turn classifies and asks; the yes runs the create.
+    # The request turn classifies and asks; the yes runs the create.
     asked = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools)
     frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools, message=YES)
 
@@ -1084,7 +1084,7 @@ def test_a_paused_turn_stores_exactly_one_assistant_row(stream_env: StreamEnv) -
     frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools, message=YES)
     stored = _stored_messages(stream_env, session_id)
 
-    # An earlier change: the request and its question come first, then the yes and the pause.
+    # The request and its question come first, then the yes and the pause.
     assert [role for role, _content in stored] == [
         MessageRole.USER.value,
         MessageRole.ASSISTANT.value,

@@ -3,8 +3,7 @@
 The decision is already made; this call only writes it down, so it uses the
 default model. The writer answers as `ComposedReply`: the text, and its own
 mark of whether that text asks the person something. Every question check
-reads that mark, never the text (a design note, pinned by
-`test_no_question_check_looks_for_a_question_mark`). An answer off the shape
+reads that mark, never the text. An answer off the shape
 twice ends the turn failed, like a gateway failure. Fixed sentences and the
 lines code adds never count as a question. A post-check, not a bigger model, catches a reply that
 contradicts the result: each decision word must match what the turn returned.
@@ -20,13 +19,11 @@ as state with no row. Tokens from both calls are counted, used or not.
 
 On a best-reading turn (a clarifying question was just asked) a reply that
 asks a question is retried once, then replaced by `BEST_READING_FALLBACK`,
-and code adds the correct-me line at the end (a design note, pinned by
-`test_agent_clarify_cap.py`).
+and code adds the correct-me line at the end.
 
 `ask_capabilities` and `other` turns also get what this person can do, one
 plain sentence per tool their principals allow, so the answer and the
-pointers come from the real matrix, never a written list (a design note, pinned by
-`test_agent_capabilities.py`). The requestable rows go in already sorted,
+pointers come from the real matrix, never a written list. The requestable rows go in already sorted,
 and the roles held are one sentence written by code ahead of the reply, so two
 replies cannot disagree about them (`requestable.py`).
 
@@ -37,7 +34,7 @@ writer never offers a level or an action that does not exist
 
 A question asked on a request or revoke turn that filed nothing is recorded
 like a clarifying question, so the next message gets the best reading, not a
-second question (a design note, pinned by `test_agent_clarify_cap.py`).
+second question.
 """
 
 import json
@@ -96,8 +93,7 @@ def strip_id_keys(data: Any) -> Any:
 
     The writer only sees what it may quote, so a database id never reaches a
     reply even by mistake; it names `request_number` instead. The stored tool
-    result is left as it is, since the web still needs the ids. Pinned by
-    `test_writer_data_has_no_uuid_anywhere`.
+    result is left as it is, since the web still needs the ids.
     """
     if isinstance(data, dict):
         return {
@@ -128,7 +124,7 @@ def _capability_data(state: TurnState) -> list[dict[str, str]]:
 
 NEXT_STEPS_LABEL = "the only next steps you may offer this person"
 """Sent on every turn, an empty list included: an empty list is what tells the
-writer to offer nothing (`test_an_empty_next_steps_list_is_still_sent`)."""
+writer to offer nothing."""
 
 LIST_REQUESTABLE_ROLES = "list_requestable_roles"
 

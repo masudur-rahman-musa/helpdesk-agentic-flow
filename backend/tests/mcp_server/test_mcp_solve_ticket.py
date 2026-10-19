@@ -25,7 +25,6 @@ The clock cannot be faked through the transport, so the solved time is checked
 against the wall clock around the call.
 """
 
-import asyncio
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -33,8 +32,6 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.mcp_server.tools import tickets
 from helpdesk.mcp_server.tools.registry import REGISTRY
@@ -51,6 +48,8 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     mcp_redis_url,
     plant_ticket,
     seeded_mcp_db,
+    sql_execute,
+    sql_rows,
     token_for,
 )
 
@@ -76,34 +75,10 @@ def _number() -> int:
     return uuid.uuid4().int % 1_000_000_000 + 1_000_000
 
 
-def _rows(database_url: str, sql: str, params: dict[str, Any]) -> list[Any]:
-    async def scenario() -> list[Any]:
-        engine = create_async_engine(database_url)
-        try:
-            async with engine.connect() as conn:
-                return list(await conn.execute(text(sql), params))
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(scenario())
-
-
-def _execute(database_url: str, sql: str, params: dict[str, Any]) -> None:
-    async def scenario() -> None:
-        engine = create_async_engine(database_url)
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text(sql), params)
-        finally:
-            await engine.dispose()
-
-    asyncio.run(scenario())
-
-
 def _plant_user(env: SeededMcp, *, tenant: SeededUser) -> SeededUser:
     """One fresh, token-ready user in the named seeded tenant (the namespace)."""
     user_id = uuid.uuid4()
-    _execute(
+    sql_execute(
         env.database_url,
         "INSERT INTO users (id, tenant_id, department_id, email, display_name, password_hash,"
         " principals, status, start_date, end_date, created_at, updated_at)"
@@ -147,7 +122,7 @@ def _plant_open(env: SeededMcp, *, opener: SeededUser) -> uuid.UUID:
 
 
 def _stored(env: SeededMcp, ticket_id: uuid.UUID) -> Any:
-    rows = _rows(
+    rows = sql_rows(
         env.database_url,
         "SELECT status, solved_at, solved_by_user_id FROM tickets WHERE id = :id",
         {"id": ticket_id},
@@ -157,7 +132,7 @@ def _stored(env: SeededMcp, ticket_id: uuid.UUID) -> Any:
 
 
 def _events_of(env: SeededMcp, actor: SeededUser) -> list[str]:
-    rows = _rows(
+    rows = sql_rows(
         env.database_url,
         "SELECT event_type FROM audit_events WHERE tenant_id = :tenant AND actor_ref = :actor"
         " ORDER BY seq",

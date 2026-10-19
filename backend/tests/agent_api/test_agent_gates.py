@@ -632,7 +632,7 @@ SPEC_OUTCOMES: frozenset[str] = frozenset(
 )
 """Every branch a node may record, written out as a literal: TEN, counted
 from the five first fixed, plus the later `DONE` and `AWAIT_APPROVAL`, and
-an earlier change's `CONFIRM` and `CONFIRMED`."""
+the `CONFIRM` and `CONFIRMED` branches."""
 
 
 def test_turn_outcome_has_exactly_the_ten_members() -> None:

@@ -2,8 +2,7 @@
 
 Pure: no I/O. The model gets the rows already grouped, template roles first,
 and the roles the person holds are said by `held_sentence`, never by the
-model, so two replies cannot disagree about what is held. Pinned by
-`test_requestable.py` and `test_agent_capabilities.py`.
+model, so two replies cannot disagree about what is held.
 """
 
 from collections.abc import Mapping, Sequence

@@ -142,6 +142,7 @@ def test_the_registry_declares_the_non_success_event_types_exactly() -> None:
         "ticket.created",
         "request.classified",
         "request.created",
+        "ticket.solved",
         # The corpus is what every access decision cites,
         # so a change to it is a governance record and not a generic
         # `tool.succeeded`. The audit event list is explicitly a minimum.
@@ -271,6 +272,7 @@ MUTATING_TOOL_NAMES = frozenset(
         "reset_own_password",
         "unlock_own_account",
         "create_ticket",
+        "solve_ticket",
         "create_access_request",
         # Both record a decision and one of them executes a grant,
         # so both ride the idempotency guard. `list_pending_approvals` is a

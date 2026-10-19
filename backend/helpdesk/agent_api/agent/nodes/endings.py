@@ -34,7 +34,7 @@ async def ask_clarifying(state: TurnState, deps: TurnDeps) -> TurnState:
 
 async def ask_disambiguation(state: TurnState, deps: TurnDeps) -> TurnState:
     """End: offer the options, already capped and ranked, and ask which. It is
-    a question too, so it is noted like one (`test_agent_clarify_cap.py`)."""
+    a question too, so it is noted like one."""
     await set_asked_clarifying(deps.db, session_id=state.session_id, value=deps.now().isoformat())
     return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
 

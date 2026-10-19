@@ -8,7 +8,7 @@ idempotency key. The agent derives the key instead. Pure: no database,
 gateway or tool calls.
 
 A round holding `create_access_request` is kept on `validated` and sent to
-`ask_confirmation` until the person says yes (`test_agent_confirm.py`).
+`ask_confirmation` until the person says yes.
 """
 
 from typing import Any

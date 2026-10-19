@@ -193,8 +193,7 @@ def outcome_reply(state: TurnState) -> str:
     A filed request wins over a classification, and the latest result wins
     within each. Each sentence uses only the decision words its result earns
     and asks nothing, so it passes the check it replaces. A turn with no
-    usable outcome gets the generic text. Pinned by
-    `test_the_last_reply_names_what_the_turn_did`.
+    usable outcome gets the generic text.
     """
     ok = [result for result in reversed(state.tool_results) if result.ok]
     for result in ok:

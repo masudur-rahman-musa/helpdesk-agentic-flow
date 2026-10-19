@@ -129,6 +129,9 @@ ANCHOR_MIGRATION_GRANTS = _migration_table_grants("*_audit_chain_anchors.py")
 RETENTION_MIGRATION_GRANTS = _migration_table_grants("*_audit_chain_anchor_retention.py")
 """The retention revision's map: `audit_chain_anchors` again, DELETE and nothing else."""
 
+READABLE_NUMBERS_MIGRATION_GRANTS = _migration_table_grants("*_readable_numbers.py")
+"""The readable-numbers revision's map: `reference_counters`, read and write."""
+
 
 def _union_grants(*maps: Mapping[str, frozenset[str]]) -> Mapping[str, frozenset[str]]:
     """The per-table UNION of several revisions' `TABLE_GRANTS`.
@@ -153,6 +156,7 @@ EXPECTED_GRANTS: Mapping[str, frozenset[str]] = _union_grants(
     ROLE_MIGRATION_GRANTS,
     ANCHOR_MIGRATION_GRANTS,
     RETENTION_MIGRATION_GRANTS,
+    READABLE_NUMBERS_MIGRATION_GRANTS,
 )
 
 
@@ -430,9 +434,10 @@ def test_expected_grant_map_covers_exactly_the_metadata_tables() -> None:
     assert len(ROLE_MIGRATION_GRANTS) == 19
     assert len(ANCHOR_MIGRATION_GRANTS) == 1
     assert len(RETENTION_MIGRATION_GRANTS) == 1
+    assert len(READABLE_NUMBERS_MIGRATION_GRANTS) == 1
     assert set(ROLE_MIGRATION_GRANTS) & set(ANCHOR_MIGRATION_GRANTS) == set()
     assert set(ROLE_MIGRATION_GRANTS) & set(RETENTION_MIGRATION_GRANTS) == set()
-    assert len(EXPECTED_GRANTS) == 20
+    assert len(EXPECTED_GRANTS) == 21
     assert ANCHOR_MIGRATION_GRANTS["audit_chain_anchors"] == frozenset({"SELECT", "INSERT"})
     assert RETENTION_MIGRATION_GRANTS["audit_chain_anchors"] == frozenset({"DELETE"})
     assert EXPECTED_GRANTS["audit_chain_anchors"] == frozenset({"SELECT", "INSERT", "DELETE"})
