@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { POST as solvePOST } from "@/app/api/admin/tickets/solve/route";
 import { GET as ticketsGET } from "@/app/api/admin/tickets/route";
 import { SESSION_COOKIE_NAME } from "@/lib/session";
 
@@ -149,5 +150,50 @@ describe("the open tickets proxy", () => {
     expect(response.headers.get("location")?.endsWith("/login")).toBe(true);
     const [cookie] = response.headers.getSetCookie();
     expect(cookie?.startsWith(`${SESSION_COOKIE_NAME}=;`)).toBe(true);
+  });
+});
+
+describe("the solve proxy", () => {
+  const SOLVE_UPSTREAM_PATH = "/admin/tickets/solve";
+  const SOLVE_BODY = {
+    ticket_id: "88888888-8888-5888-8888-888888888888",
+    idempotency_key: "00000000-0000-4000-8000-000000000001",
+  };
+  const SOLVE_ANSWER = {
+    ticket_id: "88888888-8888-5888-8888-888888888888",
+    ticket_number: "TCK-0042",
+    status: "solved",
+    solved_at: "2026-06-04T09:30:00Z",
+    solved_by_user_id: "22222222-2222-5222-8222-222222222222",
+  };
+
+  function solveRequest(): Request {
+    return new Request("http://web.test/api/admin/tickets/solve", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(SOLVE_BODY),
+    });
+  }
+
+  it("/api/admin/tickets/solve proxies POST to /admin/tickets/solve", async () => {
+    // Kill: catches a route that calls the wrong upstream path, one that
+    // re-serialises the body (key order changes), one that drops the
+    // browser's key or makes a key of its own (a retry would then solve
+    // twice), one that sends no content type, and one that bypasses
+    // `proxyAgentApi` (no bearer). The string compare is against
+    // `JSON.stringify` of the same object, so a reordered body is red.
+    fetchStub.mockResolvedValue(jsonResponse(SOLVE_ANSWER, 200));
+
+    const response = await solvePOST(solveRequest());
+
+    const [url, init] = firstCall();
+    expect(String(url)).toBe(`${UPSTREAM_ORIGIN}${SOLVE_UPSTREAM_PATH}`);
+    expect(String(url)).not.toContain(TOKEN);
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${TOKEN}`);
+    expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+    expect(String(init?.body)).toBe(JSON.stringify(SOLVE_BODY));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(SOLVE_ANSWER);
   });
 });

@@ -286,6 +286,18 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": None,
         "platform_admin": "any",
     },
+    # The Solve button on that board: the same two cells. `employee` is the
+    # cell that matters, since `create_ticket` above gives it `any` and a row
+    # copied from that neighbour would let anybody close a colleague's ticket.
+    "solve_ticket": {
+        "employee": None,
+        "manager": None,
+        "system_owner": None,
+        "hr": None,
+        "it_admin": "any",
+        "auditor": None,
+        "platform_admin": "any",
+    },
     # The WRITE half of the row above, with the same two cells.
     # Only `it_admin` and `platform_admin` may open `/admin/policies`,
     # and this is the action on that page, so a wider row would hand somebody
@@ -365,6 +377,20 @@ def test_list_open_tickets_is_for_it_admin_and_platform_admin_only() -> None:
     for principal in ("employee", "manager", "system_owner", "hr", "auditor"):
         with pytest.raises(RbacDenied):
             authorize(_claims([principal]), Tool.LIST_OPEN_TICKETS.value)
+
+
+def test_solve_ticket_is_for_it_admin_and_platform_admin_only() -> None:
+    """Catches a tool added to the enum with a cell copied from
+    `create_ticket` (every principal may solve) or with one admin left out:
+    the two admins get exactly `any`, and each of the other five is refused.
+    Asserted straight from `authorize`, not from the table above."""
+    assert Tool.SOLVE_TICKET.value == "solve_ticket"
+    for principal in ("it_admin", "platform_admin"):
+        result = authorize(_claims([principal]), Tool.SOLVE_TICKET.value)
+        assert result.scope == Scope.ANY, principal
+    for principal in ("employee", "manager", "system_owner", "hr", "auditor"):
+        with pytest.raises(RbacDenied):
+            authorize(_claims([principal]), Tool.SOLVE_TICKET.value)
 
 
 def test_matrix_covers_every_tool_enum_member() -> None:

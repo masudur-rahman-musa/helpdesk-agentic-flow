@@ -37,6 +37,7 @@ No pytest-asyncio: each case is a sync function driving one ``asyncio.run``.
 import asyncio
 import itertools
 import uuid
+from datetime import UTC, datetime
 from functools import cache
 from typing import Any
 
@@ -73,6 +74,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     mcp_pg,
     mcp_redis_base_url,
     mcp_redis_url,
+    plant_ticket,
     seeded_mcp_db,
     token_for,
 )
@@ -363,6 +365,20 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # The WRITE half of the open tickets board: the Solve button on
+    # `/admin/tickets`, with the same two cells as `list_open_tickets` above.
+    # `employee` is the cell that matters: every principal may FILE a ticket
+    # (`create_ticket` is `True` for all seven), and a row copied from that
+    # neighbour would let anybody close a colleague's ticket.
+    "solve_ticket": {
+        "employee": False,
+        "manager": False,
+        "system_owner": False,
+        "hr": False,
+        "it_admin": True,
+        "auditor": False,
+        "platform_admin": True,
+    },
     # the re-ingest row: the WRITE on `/admin/policies`,
     # with the same two cells as the board directly above. `platform_admin`
     # alone - the shape `set_kill_switch` has, and the one a mutation this
@@ -450,6 +466,12 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
         # permitted call that SUCCEEDED would re-ingest a document per
         # (tool, principal) cell into the shared seeded database.
         "reingest_policy_document",
+        # It runs no scope helper at all (two `Scope.ANY` cells), so it tests
+        # EXISTENCE after permission. The id it is sent below is a random
+        # uuid, which resolves nowhere: a permitted caller must get past RBAC
+        # and be refused NOT_FOUND by the read, and a permitted call that
+        # SUCCEEDED would close a real ticket per (tool, principal) cell.
+        "solve_ticket",
     }
 )
 
@@ -498,6 +520,8 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "list_review_items",
         # It takes a review ITEM id, so it has one too.
         "decide_review_item",
+        # It takes a TICKET id, so it has a cross-tenant call to make.
+        "solve_ticket",
         # It takes an access REQUEST id.
         "rollback_request",
         # It takes a TENANT id as `scope`, which is the
@@ -822,6 +846,15 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         # SUCCEED and this tool is in `ALLOW_ANSWERS_NOT_FOUND`.
         return {
             "notification_id": str(_colleagues_notification(env)),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "solve_ticket":
+        # A ticket id that resolves nowhere, so no principal closes a real
+        # ticket per matrix cell in the shared seeded database. A permitted
+        # caller is refused NOT_FOUND by the read, which is why this tool is
+        # in `ALLOW_ANSWERS_NOT_FOUND`.
+        return {
+            "ticket_id": str(uuid.uuid4()),
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "search_policy":
@@ -1153,6 +1186,18 @@ def _plant_notification(env: SeededMcp, *, tenant_id: uuid.UUID, user_id: uuid.U
 
 
 @cache
+def _foreign_ticket(env: SeededMcp) -> uuid.UUID:
+    """One real, open `tickets` row in the OTHER tenant, planted once."""
+    return plant_ticket(
+        env.database_url,
+        tenant_id=env.tenant_b.tenant_id,
+        user_id=env.tenant_b.user_id,
+        number=uuid.uuid4().int % 1_000_000_000 + 1_000_000,
+        created_at=datetime(1975, 3, 1, 9, 0, tzinfo=UTC),
+    )
+
+
+@cache
 def _live_grant_id(database_url: str, tenant_id: uuid.UUID) -> uuid.UUID:
     """A grant the seed already wrote in the named tenant."""
     rows = _fetch(
@@ -1249,6 +1294,13 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         # nobody could resolve anyway.
         return {
             "notification_id": str(_foreign_notification(env)),
+            "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
+        }
+    if tool_name == "solve_ticket":
+        # Tenant B's open ticket, a real row there: the refusal has to come
+        # from the tenant guard rather than from an id nobody could resolve.
+        return {
+            "ticket_id": str(_foreign_ticket(env)),
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
     if tool_name == "list_review_items":

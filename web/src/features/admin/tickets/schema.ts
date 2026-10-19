@@ -20,3 +20,14 @@ export const openTicketsSchema = z.object({
 });
 
 export type OpenTicket = z.infer<typeof openTicketSchema>;
+
+/** The answer to a solve: the ticket, and when and by whom it was first solved. */
+export const solveTicketResultSchema = z.object({
+  ticket_id: z.string(),
+  ticket_number: z.string(),
+  status: z.literal("solved"),
+  solved_at: z.string(),
+  solved_by_user_id: z.string(),
+});
+
+export type SolveTicketResult = z.infer<typeof solveTicketResultSchema>;

@@ -149,3 +149,6 @@ class Ticket(TenantScoped):
     status: Mapped[str] = mapped_column(String(16))  # a TicketStatus value
     # No foreign key to `sessions` yet.
     session_id: Mapped[uuid.UUID | None] = mapped_column()
+    # Both stay empty while the ticket is open; set once by the first solve.
+    solved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    solved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))

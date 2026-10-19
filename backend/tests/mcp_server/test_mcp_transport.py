@@ -149,6 +149,11 @@ EXPECTED_TOOL_NAMES = {
     # literal is the wire surface, and it is part of every diff adding a
     # REGISTRY entry).
     "list_open_tickets",
+    # An admin closes a ticket from that board. Thirty-three names become
+    # thirty-four, the new one a MUTATING tool: the board could list open
+    # tickets but nothing could mark one solved (this literal is the wire
+    # surface, and it is part of every diff adding a REGISTRY entry).
+    "solve_ticket",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

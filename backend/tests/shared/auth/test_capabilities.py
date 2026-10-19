@@ -125,3 +125,14 @@ def test_an_it_admin_is_told_they_can_see_open_tickets() -> None:
     assert SENTENCES[Tool.LIST_OPEN_TICKETS] == sentence
     assert sentence in capability_lines(("it_admin",))
     assert sentence not in capability_lines(("employee",))
+
+
+def test_an_it_admin_is_told_they_can_solve_tickets() -> None:
+    """Catches a new tool with no sentence, a sentence worded differently from
+    the one the plan names, and a sentence that also reaches the employee, who
+    is refused the tool."""
+    sentence = "Mark an open ticket solved."
+
+    assert SENTENCES[Tool.SOLVE_TICKET] == sentence
+    assert sentence in capability_lines(("it_admin",))
+    assert sentence not in capability_lines(("employee",))

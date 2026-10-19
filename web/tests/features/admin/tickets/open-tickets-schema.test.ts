@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { openTicketsSchema } from "@/features/admin/tickets/schema";
+import { openTicketsSchema, solveTicketResultSchema } from "@/features/admin/tickets/schema";
 
 /**
  * `open-tickets-schema.test.ts`: the zod shape of `/api/admin/tickets`. No DOM,
@@ -49,4 +49,30 @@ describe("openTicketsSchema", () => {
       expect(openTicketsSchema.safeParse({ tickets: [without] }).success).toBe(false);
     },
   );
+});
+
+const SOLVED = {
+  ticket_id: "88888888-8888-5888-8888-888888888888",
+  ticket_number: "TCK-0042",
+  status: "solved",
+  solved_at: "2026-06-04T09:30:00Z",
+  solved_by_user_id: "22222222-2222-5222-8222-222222222222",
+};
+
+describe("solveTicketResultSchema", () => {
+  it("accepts a full solve answer", () => {
+    // Kill: catches a schema that refuses the shape the server really sends
+    // (every good solve would read as a failure), and keeps the refusal case
+    // below honest: it differs from this answer by one field.
+    expect(solveTicketResultSchema.safeParse(SOLVED).success).toBe(true);
+  });
+
+  it("refuses a solve answer without solved_at", () => {
+    // Kill: catches an optional `solved_at`, which lets an answer with no time
+    // pass as a solve. It is the only field that differs from the accepted
+    // answer above.
+    const without: Record<string, unknown> = { ...SOLVED };
+    delete without.solved_at;
+    expect(solveTicketResultSchema.safeParse(without).success).toBe(false);
+  });
 });

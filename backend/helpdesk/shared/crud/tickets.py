@@ -1,4 +1,4 @@
-"""Ticket reads: a person's own tickets, and every open ticket for an admin."""
+"""Ticket reads: a person's own tickets, every open ticket for an admin, and one by id."""
 
 import uuid
 from collections.abc import Sequence
@@ -43,3 +43,9 @@ async def list_open_tickets_with_opener(
         .limit(limit)
     )
     return result.all()
+
+
+async def fetch_ticket(session: AsyncSession, ticket_id: uuid.UUID) -> Ticket | None:
+    """One ticket by id, or None. The session's tenant guard hides other tenants' rows."""
+    result = await session.execute(select(Ticket).where(Ticket.id == ticket_id))
+    return result.scalars().one_or_none()

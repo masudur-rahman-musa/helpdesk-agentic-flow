@@ -485,6 +485,19 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         mutating=False,
         handler=tickets.list_open_tickets,
     ),
+    ToolSpec(
+        name=rbac.Tool.SOLVE_TICKET.value,
+        tool=rbac.Tool.SOLVE_TICKET,
+        description=(
+            "Mark one open ticket in this tenant solved; "
+            "an already solved one answers its first solve."
+        ),
+        input_model=tickets.SolveTicketInput,
+        output_model=tickets.SolveTicketOutput,
+        event_type=tickets.SOLVED_EVENT_TYPE,
+        mutating=True,
+        handler=tickets.solve_ticket,
+    ),
 )
 
 REGISTRY: Mapping[str, ToolSpec[Any, Any]] = MappingProxyType({spec.name: spec for spec in _SPECS})

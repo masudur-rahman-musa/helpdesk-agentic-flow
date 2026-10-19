@@ -39,14 +39,18 @@ import pytest
 from pydantic import BaseModel
 
 from helpdesk.agent_api.api.router import app
-from helpdesk.agent_api.schemas.tickets import ListOpenTicketsArgs, ListOpenTicketsArgsWithLimit
+from helpdesk.agent_api.schemas.tickets import (
+    ListOpenTicketsArgs,
+    ListOpenTicketsArgsWithLimit,
+    SolveTicketArgs,
+)
 from helpdesk.agent_api.services import tool_proxy as deps
 from helpdesk.agent_api.services.mcp_client import (
     RemoteForbiddenError,
     RemoteToolError,
     ToolCaller,
 )
-from helpdesk.mcp_server.tools.tickets import ListOpenTicketsOutput
+from helpdesk.mcp_server.tools.tickets import ListOpenTicketsOutput, SolveTicketOutput
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.errors import ErrorCode
@@ -324,3 +328,111 @@ def test_a_tool_refusal_answers_its_own_typed_403(
     assert response.status_code == 403
     assert response.json() == {"code": ErrorCode.FORBIDDEN.value}
     assert caller.entered == 1
+
+
+# --- solve: POST /admin/tickets/solve --------------------------------------------
+
+SOLVE_PATH = "/admin/tickets/solve"
+SOLVE_TICKET = "solve_ticket"
+SOLVE_KEY = "fake-solve-key-0123456789abcdef"
+SOLVE_BODY: Mapping[str, Any] = {
+    "ticket_id": "88888888-8888-5888-8888-888888888888",
+    "idempotency_key": SOLVE_KEY,
+}
+SOLVE_PAYLOAD: Mapping[str, Any] = {
+    "ticket_id": "88888888-8888-5888-8888-888888888888",
+    "ticket_number": "TCK-0042",
+    "status": "solved",
+    "solved_at": "2026-06-04T09:30:00Z",
+    "solved_by_user_id": "22222222-2222-5222-8222-222222222222",
+}
+"""One solve exactly as the tool answers it."""
+
+
+def _post(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    caller: ToolCaller,
+    body: Mapping[str, Any],
+) -> tuple[httpx.Response, CallerSpy]:
+    """One solve against the app, with the tool caller replaced at the seam."""
+    spy = CallerSpy(caller)
+    monkeypatch.setattr(deps, "build_tool_caller", spy.build)
+
+    async def scenario(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post(
+            SOLVE_PATH,
+            json=dict(body),
+            headers={"Authorization": f"Bearer {_token()}"},
+        )
+
+    return _drive(scenario), spy
+
+
+def test_the_staged_solve_payload_is_exactly_what_the_tool_model_produces() -> None:
+    """Catches a fixture invented here instead of read off the tool's model,
+    which would let the equality case pass while the route answered a shape the
+    web's parser refuses."""
+    assert SolveTicketOutput.model_validate(SOLVE_PAYLOAD).model_dump(mode="json") == dict(
+        SOLVE_PAYLOAD
+    )
+
+
+def test_the_solve_route_forwards_the_body_to_the_tool(
+    tickets_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a route that mints its own idempotency key (a double click
+    would then solve twice), drops the browser's key, calls another tool, or
+    reshapes the answer. The one call must carry exactly `ticket_id` and the
+    browser's key, and the answer must equal the tool's."""
+    caller = ScriptedToolCaller(SOLVE_PAYLOAD)
+
+    response, _spy = _post(monkeypatch=monkeypatch, caller=caller, body=SOLVE_BODY)
+
+    assert response.status_code == 200
+    assert response.json() == dict(SOLVE_PAYLOAD)
+    assert caller.calls == [(SOLVE_TICKET, dict(SOLVE_BODY))]
+
+
+def test_the_solve_route_refuses_an_extra_field_as_a_typed_400(
+    tickets_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches an arguments model that tolerates extra fields: a `tenant_id`
+    or `user_id` in the body would ride on to the tool (or be dropped without
+    a word). The scripted caller holds no answer, so any tool call fails
+    outright; the body is otherwise valid, so only the extra field can refuse."""
+    caller = ScriptedToolCaller()
+
+    response, _spy = _post(
+        monkeypatch=monkeypatch,
+        caller=caller,
+        body={**SOLVE_BODY, "tenant_id": "11111111-1111-5111-8111-111111111111"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"code": ErrorCode.VALIDATION.value}
+    assert caller.calls == []
+
+
+def test_the_solve_route_refuses_a_body_without_a_key(
+    tickets_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a key made optional with a server-made default: the click would
+    then have no key of the browser's making and a double click would solve
+    twice. The ticket id is valid, so only the missing key can refuse."""
+    caller = ScriptedToolCaller()
+
+    response, _spy = _post(
+        monkeypatch=monkeypatch,
+        caller=caller,
+        body={"ticket_id": SOLVE_BODY["ticket_id"]},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"code": ErrorCode.VALIDATION.value}
+    assert caller.calls == []
+
+
+def test_the_solve_arguments_model_declares_exactly_the_id_and_the_key() -> None:
+    """Catches an arguments model that grows a tenant or user field."""
+    assert set(SolveTicketArgs.model_fields) == {"ticket_id", "idempotency_key"}

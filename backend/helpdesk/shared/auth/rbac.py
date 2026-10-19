@@ -31,6 +31,7 @@ class Tool(StrEnum):
     CREATE_TICKET = "create_ticket"
     LIST_MY_TICKETS = "list_my_tickets"
     LIST_OPEN_TICKETS = "list_open_tickets"
+    SOLVE_TICKET = "solve_ticket"
     CLASSIFY_ACCESS_REQUEST = "classify_access_request"
     EXECUTE_GRANT = "execute_grant"
     LIST_PENDING_APPROVALS = "list_pending_approvals"
@@ -249,6 +250,11 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         },
         # Every open ticket in the company is admin work, not a person's own.
         Tool.LIST_OPEN_TICKETS: {
+            Principal.IT_ADMIN: Scope.ANY,
+            Principal.PLATFORM_ADMIN: Scope.ANY,
+        },
+        # The write half of the row above, with the same audience.
+        Tool.SOLVE_TICKET: {
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
