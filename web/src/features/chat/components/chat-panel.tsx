@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useMe } from "@/features/auth/api";
 import { postChatMessage, useChatHistory } from "@/features/chat/api";
@@ -43,6 +43,9 @@ export function ChatPanel() {
   const [citations, setCitations] = useState<Citation[]>([]);
   const [decision, setDecision] = useState<DecisionCardData | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const endMarker = useRef<HTMLDivElement>(null);
+  const composerBox = useRef<HTMLDivElement>(null);
   const streaming = useRef(false);
   // Read once. The window check covers the server render, which has no URL.
   const [prefill] = useState(() =>
@@ -50,6 +53,19 @@ export function ChatPanel() {
   );
 
   const messages = [...(history.data ?? []), ...turn];
+
+  // Keep the end of the turn in view as it grows. Nothing is sent yet means the
+  // person is reading old history, so their place is kept. The margin is the
+  // composer's height, so the reply never ends up under the sticky box. The
+  // jump is instant, so streamed text does not shake.
+  useEffect(() => {
+    const marker = endMarker.current;
+    if (marker === null || turn.length === 0) {
+      return;
+    }
+    marker.style.scrollMarginBottom = `${composerBox.current?.offsetHeight ?? 0}px`;
+    marker.scrollIntoView({ block: "end" });
+  }, [turn, live, working, decision, citations, failure]);
 
   async function send(message: string): Promise<void> {
     // A ref, so a second submit in the same tick sees the first.
@@ -65,6 +81,7 @@ export function ChatPanel() {
     }
 
     streaming.current = true;
+    setWorking(true);
     setFailure(null);
     setSteps([]);
     setCitations([]);
@@ -92,6 +109,7 @@ export function ChatPanel() {
       setFailure("INTERNAL");
     } finally {
       streaming.current = false;
+      setWorking(false);
     }
   }
 
@@ -153,14 +171,16 @@ export function ChatPanel() {
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <h1 className="text-lg font-semibold">Chat</h1>
 
-        <Conversation messages={messages} live={live} />
+        <Conversation messages={messages} live={live} working={working} />
 
         {failure !== null ? <Alert tone="destructive">{failureMessage(failure)}</Alert> : null}
 
         {decision !== null ? <DecisionCard card={decision} /> : null}
         <Citations citations={citations} />
 
-        <div className="sticky bottom-0 bg-background pb-4 pt-2">
+        <div ref={endMarker} aria-hidden="true" />
+
+        <div ref={composerBox} className="sticky bottom-0 bg-background pb-4 pt-2">
           <Composer
             onSend={(message) => void send(message)}
             onRefuse={setFailure}

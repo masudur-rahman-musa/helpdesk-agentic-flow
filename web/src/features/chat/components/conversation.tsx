@@ -1,13 +1,23 @@
 "use client";
 
+import { TypingDots } from "@/features/chat/components/typing-dots";
 import type { ChatMessage } from "@/features/chat/components/types";
 
 /**
  * The transcript, oldest first. `role="log"` makes a screen reader announce
  * streamed text. The live turn is replaced by the final reply, never added to:
- * the final check may have rewritten the streamed text.
+ * the final check may have rewritten the streamed text. While `working` and no
+ * text has arrived yet, three dots stand where the reply will appear.
  */
-export function Conversation({ messages, live }: { messages: ChatMessage[]; live: string }) {
+export function Conversation({
+  messages,
+  live,
+  working = false,
+}: {
+  messages: ChatMessage[];
+  live: string;
+  working?: boolean;
+}) {
   return (
     <div
       role="log"
@@ -26,6 +36,8 @@ export function Conversation({ messages, live }: { messages: ChatMessage[]; live
       ))}
 
       {live.length > 0 ? <Message role="assistant" content={live} /> : null}
+
+      {working && live.length === 0 ? <TypingDots /> : null}
     </div>
   );
 }

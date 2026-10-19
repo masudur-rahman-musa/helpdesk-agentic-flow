@@ -22,6 +22,10 @@ const fetchStub = vi.fn<typeof fetch>();
 let showToolSteps = false;
 let meCalls = 0;
 let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+let history: { role: string; content: string }[] = [];
+let streamRejects = false;
+// jsdom has no `scrollIntoView`; the panel calls it, so this file stubs it.
+const scrollStub = vi.fn<(options?: ScrollIntoViewOptions) => void>();
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -44,6 +48,10 @@ function urlOf(input: RequestInfo | URL): string {
 beforeEach(() => {
   meCalls = 0;
   streamController = undefined;
+  history = [];
+  streamRejects = false;
+  scrollStub.mockReset();
+  Element.prototype.scrollIntoView = scrollStub;
   fetchStub.mockReset();
   fetchStub.mockImplementation(async (input) => {
     const url = urlOf(input);
@@ -57,9 +65,12 @@ beforeEach(() => {
       });
     }
     if (url.includes("/api/chat/messages")) {
-      return json({ messages: [] });
+      return json({ messages: history });
     }
     if (url.includes("/api/chat/stream")) {
+      if (streamRejects) {
+        throw new TypeError("network down");
+      }
       const body = new ReadableStream<Uint8Array>({
         start(controller) {
           streamController = controller;
@@ -77,6 +88,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // @ts-expect-error jsdom has no such method; remove the stub so tests share nothing.
+  delete Element.prototype.scrollIntoView;
 });
 
 async function sendAndStream(): Promise<void> {
@@ -147,5 +160,127 @@ describe("ChatPanel tool steps and the show_tool_steps setting", () => {
     expect(chatColumn).not.toBe(aside);
     expect(chatColumn).toContainElement(screen.getByRole("log", { name: "Conversation" }));
     expect(parent?.className).toMatch(/(sm|md|lg|xl):flex-row/);
+  });
+});
+
+/** Open the chat and send one message, without sending any stream frame. */
+async function sendOnly(): Promise<void> {
+  render(
+    <QueryProvider>
+      <ChatPanel />
+    </QueryProvider>,
+  );
+  await waitFor(() => expect(meCalls).toBeGreaterThan(0));
+  const user = userEvent.setup();
+  await user.type(await screen.findByRole("textbox", { name: "Message" }), "Hello there");
+  await user.click(screen.getByRole("button", { name: "Send" }));
+}
+
+function replyFrame(decision: unknown): Uint8Array {
+  return frame("reply", {
+    reply: "Fake answer.",
+    outcome: "answered",
+    citations: [],
+    request_id: null,
+    decision,
+  });
+}
+
+describe("ChatPanel typing dots and follow-the-reply scroll", () => {
+  it("shows the dots after a send, before any frame, and clears them on the reply", async () => {
+    // Catches a panel that never tracks working (nothing shows while the model
+    // thinks), and one that sets it but never clears it on the reply.
+    await sendOnly();
+    await waitFor(() => expect(streamController).toBeDefined());
+
+    expect(await screen.findByRole("status", { name: "Assistant is working" })).toBeInTheDocument();
+
+    streamController?.enqueue(replyFrame(null));
+    streamController?.close();
+
+    await waitFor(() => expect(screen.getByText("Fake answer.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
+
+  it("clears the dots when the turn fails", async () => {
+    // Catches a panel that clears working only on the happy path, so a dropped
+    // connection leaves the dots pulsing beside the error for ever.
+    streamRejects = true;
+    await sendOnly();
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("scrolls to the end after the send, after a token and after the reply", async () => {
+    // Catches a panel that scrolls on only one of the three growth points: the
+    // person's message, streamed text (a live-text-only change), or the final
+    // reply. The stub is cleared before each step so an earlier call cannot
+    // satisfy a later check.
+    await sendOnly();
+    await waitFor(() => expect(streamController).toBeDefined());
+    await waitFor(() => expect(scrollStub).toHaveBeenCalledWith({ block: "end" }));
+
+    scrollStub.mockClear();
+    streamController?.enqueue(frame("token", { text: "Hel" }));
+    await screen.findByText("Hel");
+    await waitFor(() => expect(scrollStub).toHaveBeenCalledWith({ block: "end" }));
+
+    scrollStub.mockClear();
+    streamController?.enqueue(replyFrame(null));
+    streamController?.close();
+    await screen.findByText("Fake answer.");
+    await waitFor(() => expect(scrollStub).toHaveBeenCalledWith({ block: "end" }));
+  });
+
+  it("scrolls after the decision card is in the document", async () => {
+    // Catches a scroll that runs before the card is drawn (the card then sits
+    // below the fold) or one that watches only the reply text and misses the
+    // card. The stub records whether the card existed at the moment of each call.
+    const seenWithCard: boolean[] = [];
+    scrollStub.mockImplementation(() => {
+      seenWithCard.push(screen.queryByRole("region", { name: "Decision" }) !== null);
+    });
+    await sendOnly();
+    await waitFor(() => expect(streamController).toBeDefined());
+    await waitFor(() => expect(scrollStub).toHaveBeenCalled());
+
+    scrollStub.mockClear();
+    seenWithCard.length = 0;
+    streamController?.enqueue(
+      replyFrame({
+        request_id: null,
+        status: null,
+        decision: "auto",
+        risk_class: "low",
+        reasons: ["IN_TEMPLATE"],
+        approvers: [{ slot: "department_manager", resolved: false }],
+        effective_expiry_days: 30,
+        expires_at: null,
+      }),
+    );
+    streamController?.close();
+
+    await screen.findByRole("region", { name: "Decision" });
+    await waitFor(() => expect(seenWithCard).toContain(true));
+    expect(seenWithCard.at(-1)).toBe(true);
+  });
+
+  it("makes no scroll call when the chat opens with history and nothing is sent", async () => {
+    // Catches a panel that scrolls on mount or when history loads, which would
+    // yank a returning person away from where they were reading.
+    history = [
+      { role: "user", content: "Old question" },
+      { role: "assistant", content: "Old answer" },
+    ];
+    render(
+      <QueryProvider>
+        <ChatPanel />
+      </QueryProvider>,
+    );
+
+    expect(await screen.findByText("Old answer")).toBeInTheDocument();
+    await waitFor(() => expect(meCalls).toBeGreaterThan(0));
+    expect(scrollStub).not.toHaveBeenCalled();
   });
 });
