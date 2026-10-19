@@ -4,12 +4,27 @@ Opens or reloads the session, reads the recent history, then stores the new
 message. History is read first so it holds only earlier messages. The message
 is stored even if the model later fails, so the record stays complete.
 Identity comes from the verified token, never from the message.
+
+An open "Do you mean ...?" question is read and cleared on every message, so
+it is answered once at most. A yes routes straight to `execute_tools` with
+exactly the stored calls; a bare no ends with a fixed reply; anything else
+runs the normal flow (a design note, pinned by `test_agent_confirm.py`).
 """
 
-from helpdesk.agent_api.agent.state import TurnState
+from helpdesk.agent_api.agent.confirmation import (
+    NOTHING_FILED_REPLY,
+    Answer,
+    parse_open_question,
+    read_answer,
+)
+from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.shared.crud.messages import append_message, list_recent_messages
-from helpdesk.shared.crud.sessions import get_or_create_session
+from helpdesk.shared.crud.sessions import (
+    get_open_question,
+    get_or_create_session,
+    set_open_question,
+)
 from helpdesk.shared.models.conversation import Message, MessageRole
 
 
@@ -20,11 +35,16 @@ def render_message(message: Message) -> str:
 
 
 async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
-    """Load or open the conversation, take the history, store the new message."""
+    """Load or open the conversation, take the history, store the new message,
+    and answer any open question."""
     db = deps.db
     await get_or_create_session(
         db, session_id=state.session_id, user_id=state.user_id, now=deps.now()
     )
+    raw = await get_open_question(db, session_id=state.session_id)
+    question = parse_open_question(raw, now=deps.now())
+    if raw is not None:
+        await set_open_question(db, session_id=state.session_id, value=None)
     history = await list_recent_messages(db, state.session_id)
     await append_message(
         db,
@@ -32,6 +52,25 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
         role=MessageRole.USER,
         content=state.user_message,
     )
-    return state.model_copy(
+    loaded = state.model_copy(
         update={"history": tuple(render_message(message) for message in history)}
     )
+    if question is None:
+        return loaded
+    answer = read_answer(state.user_message)
+    if answer is Answer.YES:
+        return loaded.model_copy(
+            update={
+                "outcome": TurnOutcome.CONFIRMED,
+                "confirmed": True,
+                "validated": question.calls,
+                "extraction": question.extraction,
+                "resolved": question.resolved,
+                "citations": question.citations,
+            }
+        )
+    if answer is Answer.NO:
+        return loaded.model_copy(
+            update={"outcome": TurnOutcome.CLARIFY, "reply": NOTHING_FILED_REPLY}
+        )
+    return loaded

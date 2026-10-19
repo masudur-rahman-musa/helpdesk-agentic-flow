@@ -480,7 +480,9 @@ def _run_paused_turn(
     gateway: StagedGateway,
     tools: ScriptedToolCaller,
 ) -> Any:
-    """One turn against the real checkpointer, over this case's own thread id."""
+    """The request turn and its yes against the real checkpointer, over this
+    case's own thread id. The first turn only asks "Do you mean ...?" (plan
+    85); the yes runs the held create call, which is what pauses."""
 
     async def scenario(pool: Any) -> Any:
         checkpointer = build_checkpointer(pool)
@@ -495,15 +497,18 @@ def _run_paused_turn(
             try:
                 async with tenant_session(factory, env.tenant_id) as db:
                     deps = TurnDeps(db=db, model=client, now=lambda: NOW, tools=tools)
-                    return await run_turn(
-                        deps=deps,
-                        tenant_id=env.tenant_id,
-                        user_id=env.user_id,
-                        session_id=session_id,
-                        tenant_slug=TENANT_SLUG,
-                        message="I need access to fake payroll",
-                        checkpointer=checkpointer,
-                    )
+                    state = None
+                    for message in ("I need access to fake payroll", "Yes, that is right."):
+                        state = await run_turn(
+                            deps=deps,
+                            tenant_id=env.tenant_id,
+                            user_id=env.user_id,
+                            session_id=session_id,
+                            tenant_slug=TENANT_SLUG,
+                            message=message,
+                            checkpointer=checkpointer,
+                        )
+                    return state
             finally:
                 await client.aclose()
         finally:

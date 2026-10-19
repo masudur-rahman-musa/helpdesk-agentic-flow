@@ -609,14 +609,24 @@ def test_validation_outcome_maps_the_rounds_verdict_to_its_branch(
 # --- the execution cycle's two predicates ----------------------------
 
 SPEC_OUTCOMES: frozenset[str] = frozenset(
-    {"continue", "clarify", "disambiguate", "refuse", "failed", "done", "await_approval"}
+    {
+        "continue",
+        "clarify",
+        "disambiguate",
+        "refuse",
+        "failed",
+        "done",
+        "await_approval",
+        "confirm",
+        "confirmed",
+    }
 )
-"""Every branch a node may record, written out as a literal: SEVEN, counted
-from the five first fixed, plus the later `DONE` and
-`AWAIT_APPROVAL`."""
+"""Every branch a node may record, written out as a literal: NINE, counted
+from the five first fixed, plus the later `DONE` and `AWAIT_APPROVAL`, and
+an earlier change's `CONFIRM` and `CONFIRMED`."""
 
 
-def test_turn_outcome_has_exactly_the_seven_members() -> None:
+def test_turn_outcome_has_exactly_the_nine_members() -> None:
     """Catches `DONE` added as a seventh spelling of an existing branch (a
     `COMPOSE` beside it), and catches it never being added at all — the empty
     round would then have to reuse `CONTINUE`, which the edge after validation
@@ -633,9 +643,11 @@ def test_turn_outcome_has_exactly_the_seven_members() -> None:
     renamed member is a checkpoint no later process can read
     (`test_agent_approval_interrupt.py::test_the_paused_state_is_readable_from_a_second_checkpointer`)."""
     assert {member.value for member in TurnOutcome} == SPEC_OUTCOMES
-    assert len(TurnOutcome) == 7
+    assert len(TurnOutcome) == 9
     assert TurnOutcome.DONE.value == "done"
     assert TurnOutcome.AWAIT_APPROVAL.value == "await_approval"
+    assert TurnOutcome.CONFIRM.value == "confirm"
+    assert TurnOutcome.CONFIRMED.value == "confirmed"
 
 
 @pytest.mark.parametrize(

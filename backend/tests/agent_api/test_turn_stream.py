@@ -729,6 +729,10 @@ def _request_plan(env: StreamEnv) -> str:
 # --- driving the generator ----------------------------------------------------
 
 
+YES = "Yes, that is right."
+"""The second message every access request now needs."""
+
+
 def _stream(
     env: StreamEnv,
     *,
@@ -936,14 +940,18 @@ def test_an_execution_step_carries_the_tool_name_and_its_error_code(
         RemotePolicyBlockedError("the fake policy engine refused this fake request"),
     )
 
-    frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools)
+    # An earlier change: the request turn classifies and asks; the yes runs the create.
+    asked = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools)
+    frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools, message=YES)
 
-    executions = [frame for frame in _of(frames, STEP) if frame.data["node"] == "execute_tools"]
-    assert [step.data["round"] for step in executions] == [1, 2]
-    assert executions[0].data["tools"] == [
+    asked_executions = [s for s in _of(asked, STEP) if s.data["node"] == "execute_tools"]
+    assert [step.data["round"] for step in asked_executions] == [1]
+    assert asked_executions[0].data["tools"] == [
         {"tool": CLASSIFY, "ok": True, "error_code": None},
     ]
-    assert executions[1].data["tools"] == [
+    executions = [frame for frame in _of(frames, STEP) if frame.data["node"] == "execute_tools"]
+    assert len(executions) == 1
+    assert executions[0].data["tools"] == [
         {"tool": CREATE_REQUEST, "ok": False, "error_code": ErrorCode.POLICY_BLOCKED.value},
     ]
     assert tools.names == [SEARCH_POLICY, CLASSIFY, CREATE_REQUEST]
@@ -1026,7 +1034,8 @@ def test_a_paused_turn_streams_its_pending_reply_and_the_request_id(
     gateway = StagedGateway([_extraction_answer(), _request_plan(stream_env)])
     tools = ScriptedToolCaller(_page(), _approval_payload())
 
-    frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools)
+    _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools)
+    frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools, message=YES)
 
     final = _of(frames, REPLY)
     assert len(final) == 1
@@ -1054,15 +1063,21 @@ def test_a_paused_turn_stores_exactly_one_assistant_row(stream_env: StreamEnv) -
     gateway = StagedGateway([_extraction_answer(), _request_plan(stream_env)])
     tools = ScriptedToolCaller(_page(), _approval_payload())
 
-    frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools)
+    _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools)
+    frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools, message=YES)
     stored = _stored_messages(stream_env, session_id)
 
+    # An earlier change: the request and its question come first, then the yes and the pause.
     assert [role for role, _content in stored] == [
+        MessageRole.USER.value,
+        MessageRole.ASSISTANT.value,
         MessageRole.USER.value,
         MessageRole.ASSISTANT.value,
     ]
     assert stored[0][1] == MESSAGE
-    assert stored[1][1] == _streamed_text(frames)
+    assert stored[1][1].startswith("Do you mean")
+    assert stored[2][1] == YES
+    assert stored[3][1] == _streamed_text(frames)
 
 
 # --- a failure after the first byte -------------------------------------------

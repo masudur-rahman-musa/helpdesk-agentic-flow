@@ -20,6 +20,7 @@ from helpdesk.agent_api.agent.nodes.await_approval import await_approval, pendin
 from helpdesk.agent_api.agent.nodes.compose_reply import COMPOSITION_PROMPT, compose_reply
 from helpdesk.agent_api.agent.nodes.endings import (
     ask_clarifying,
+    ask_confirmation,
     ask_disambiguation,
     fail_turn,
     refuse_and_ticket,
@@ -84,6 +85,7 @@ COMPOSE_REPLY = "compose_reply"
 REFUSE_AND_TICKET = "refuse_and_ticket"
 ASK_CLARIFYING = "ask_clarifying"
 ASK_DISAMBIGUATION = "ask_disambiguation"
+ASK_CONFIRMATION = "ask_confirmation"
 FAIL_TURN = "fail_turn"
 
 _CachedGraph = CompiledStateGraph[TurnState, None, TurnState, TurnState]
@@ -170,6 +172,10 @@ async def _ask_disambiguation(state: TurnState, config: RunnableConfig) -> dict[
     return (await ask_disambiguation(state, _deps(config))).model_dump()
 
 
+async def _ask_confirmation(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await ask_confirmation(state, _deps(config))).model_dump()
+
+
 async def _fail_turn(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
     return (await fail_turn(state, _deps(config))).model_dump()
 
@@ -234,6 +240,16 @@ def _turn_telemetry() -> Any:
             yield
 
 
+def _after_session(state: TurnState) -> str:
+    """Route on `outcome`: a yes runs the stored calls, a bare no ends, and
+    anything else is read by the model as usual."""
+    if state.outcome is TurnOutcome.CONFIRMED:
+        return EXECUTE_TOOLS
+    if state.outcome is TurnOutcome.CLARIFY:
+        return ASK_CLARIFYING
+    return EXTRACT_INTENT
+
+
 def _after_intent(state: TurnState) -> str:
     """Route on `outcome`."""
     if state.outcome is TurnOutcome.FAILED:
@@ -279,6 +295,8 @@ def _after_validation(state: TurnState) -> str:
         return REFUSE_AND_TICKET
     if state.outcome is TurnOutcome.DONE:
         return COMPOSE_REPLY
+    if state.outcome is TurnOutcome.CONFIRM:
+        return ASK_CONFIRMATION
     return EXECUTE_TOOLS
 
 
@@ -316,10 +334,19 @@ def _compile_graph(
     graph.add_node(REFUSE_AND_TICKET, _traced(REFUSE_AND_TICKET, _refuse_and_ticket))  # type: ignore[call-overload]
     graph.add_node(ASK_CLARIFYING, _traced(ASK_CLARIFYING, _ask_clarifying))  # type: ignore[call-overload]
     graph.add_node(ASK_DISAMBIGUATION, _traced(ASK_DISAMBIGUATION, _ask_disambiguation))  # type: ignore[call-overload]
+    graph.add_node(ASK_CONFIRMATION, _traced(ASK_CONFIRMATION, _ask_confirmation))  # type: ignore[call-overload]
     graph.add_node(FAIL_TURN, _traced(FAIL_TURN, _fail_turn))  # type: ignore[call-overload]
 
     graph.add_edge(START, LOAD_SESSION)
-    graph.add_edge(LOAD_SESSION, EXTRACT_INTENT)
+    graph.add_conditional_edges(
+        LOAD_SESSION,
+        _after_session,
+        {
+            EXECUTE_TOOLS: EXECUTE_TOOLS,
+            ASK_CLARIFYING: ASK_CLARIFYING,
+            EXTRACT_INTENT: EXTRACT_INTENT,
+        },
+    )
     graph.add_conditional_edges(
         EXTRACT_INTENT,
         _after_intent,
@@ -363,6 +390,7 @@ def _compile_graph(
         {
             REFUSE_AND_TICKET: REFUSE_AND_TICKET,
             COMPOSE_REPLY: COMPOSE_REPLY,
+            ASK_CONFIRMATION: ASK_CONFIRMATION,
             EXECUTE_TOOLS: EXECUTE_TOOLS,
         },
     )
@@ -380,6 +408,7 @@ def _compile_graph(
     graph.add_edge(REFUSE_AND_TICKET, END)
     graph.add_edge(ASK_CLARIFYING, END)
     graph.add_edge(ASK_DISAMBIGUATION, END)
+    graph.add_edge(ASK_CONFIRMATION, END)
     graph.add_edge(FAIL_TURN, END)
     return graph.compile(checkpointer=checkpointer)
 

@@ -66,6 +66,10 @@ One JSON object per line, exactly seven keys:
   resolves it the way the validator does: department by name, index within the
   department, and the seat must hold the named principal. Departments whose
   name is not a single lowercase word cannot be addressed this way.
+- `messages` may hold several user messages. A runner sends them in order
+  on one chat and grades the last reply. Every access request takes two:
+  the request, then "Yes, that is right.", since the assistant asks
+  "Do you mean ...?" before it files anything.
 - `expected` always carries `intent`, `should_refuse` and `should_clarify`.
   `tool_calls`, `decision`, `risk_class`, `citation_documents` and
   `forbidden_phrases` appear where the category needs them; an unknown key is

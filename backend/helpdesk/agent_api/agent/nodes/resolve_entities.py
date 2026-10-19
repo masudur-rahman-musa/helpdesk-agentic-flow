@@ -94,8 +94,10 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
             "resolved": ResolvedEntities(
                 system_id=resolved_system.id if resolved_system else None,
                 system_slug=resolved_system.slug if resolved_system else None,
+                system_name=resolved_system.name if resolved_system else None,
                 role_id=resolved_role.id if resolved_role else None,
                 role_slug=resolved_role.slug if resolved_role else None,
+                role_name=resolved_role.name if resolved_role else None,
             ),
         }
     )

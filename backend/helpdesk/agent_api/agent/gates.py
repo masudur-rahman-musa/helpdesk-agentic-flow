@@ -180,6 +180,17 @@ CREATE_ACCESS_REQUEST = "create_access_request"
 `classify_access_request` returns the same `decision` field but files
 nothing."""
 
+
+def held_round_outcome(*, holds_create: bool, confirmed: bool) -> TurnOutcome | None:
+    """`CONFIRM` when an accepted round would file a request nobody said yes
+    to. A confirmed turn already ran the calls the person agreed to, so a new
+    create there is dropped with `DONE`: it was never asked about. `None`
+    leaves the round as it was."""
+    if not holds_create:
+        return None
+    return TurnOutcome.DONE if confirmed else TurnOutcome.CONFIRM
+
+
 APPROVAL_DECISION = "approval"
 """The decision value for a request that needs an approval chain."""
 

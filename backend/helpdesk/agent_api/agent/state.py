@@ -58,7 +58,8 @@ class IntentExtraction(BaseModel):
 
 class TurnOutcome(StrEnum):
     """Where the turn stands; graph edges read only this. `DONE` means reply
-    now; `AWAIT_APPROVAL` means paused, read back later from a checkpoint."""
+    now; `AWAIT_APPROVAL` means paused, read back later from a checkpoint.
+    `CONFIRM` asks "Do you mean ...?" before filing; `CONFIRMED` is the yes."""
 
     CONTINUE = "continue"
     CLARIFY = "clarify"
@@ -67,6 +68,8 @@ class TurnOutcome(StrEnum):
     FAILED = "failed"
     DONE = "done"
     AWAIT_APPROVAL = "await_approval"
+    CONFIRM = "confirm"
+    CONFIRMED = "confirmed"
 
 
 class PostCheckOutcome(StrEnum):
@@ -79,14 +82,17 @@ class PostCheckOutcome(StrEnum):
 
 
 class ResolvedEntities(BaseModel):
-    """The caller's own directory rows: ids for tools, slugs for people."""
+    """The caller's own directory rows: ids for tools, slugs for people, names
+    for the "Do you mean ...?" question."""
 
     model_config = ConfigDict(frozen=True)
 
     system_id: uuid.UUID | None = None
     system_slug: str | None = None
+    system_name: str | None = None
     role_id: uuid.UUID | None = None
     role_slug: str | None = None
+    role_name: str | None = None
 
 
 class Citation(BaseModel):
@@ -213,6 +219,9 @@ class TurnState(BaseModel):
     started_at: datetime | None = None
     round_number: int = 0
     planning_prompt_version: str | None = None
+    confirmed: bool = False
+    """The person said yes to the open question, so a create round may run."""
+
     awaiting_request_id: uuid.UUID | None = None
     """The request a paused turn waits on, so a resume can refuse a mismatch.
 Set by `execute_tools`, since LangGraph drops the pausing node's update."""

@@ -5,10 +5,12 @@ the decision was made earlier. `fail_turn` exists so a turn the model could
 not read ends with one fixed reply, not a clarifying question nobody asked.
 """
 
+from helpdesk.agent_api.agent.confirmation import OpenQuestion, question_reply
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
-from helpdesk.agent_api.agent.state import TurnState
+from helpdesk.agent_api.agent.state import ResolvedEntities, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.shared.crud.messages import append_message
+from helpdesk.shared.crud.sessions import set_open_question
 from helpdesk.shared.models.conversation import MessageRole
 
 
@@ -31,6 +33,28 @@ async def ask_clarifying(state: TurnState, deps: TurnDeps) -> TurnState:
 async def ask_disambiguation(state: TurnState, deps: TurnDeps) -> TurnState:
     """End: offer the options, already capped and ranked, and ask which."""
     return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
+
+
+async def ask_confirmation(state: TurnState, deps: TurnDeps) -> TurnState:
+    """End: ask "Do you mean ...?" and store the held round for the next
+    message. Nothing is filed; `validated` is cleared once stored, so the
+    calls live only on the chat row until a yes."""
+    extraction = state.extraction
+    if extraction is None:  # pragma: no cover - the graph never routes here
+        return state
+    question = OpenQuestion(
+        asked_at=deps.now(),
+        message=state.user_message,
+        calls=state.validated,
+        extraction=extraction,
+        resolved=state.resolved or ResolvedEntities(),
+        citations=state.citations,
+    )
+    await set_open_question(
+        deps.db, session_id=state.session_id, value=question.model_dump(mode="json")
+    )
+    stored = await _store_reply(state, deps, question_reply(state.resolved, state.tool_results))
+    return stored.model_copy(update={"validated": ()})
 
 
 REFUSAL_REPLY = (

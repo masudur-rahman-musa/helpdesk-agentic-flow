@@ -10,7 +10,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from helpdesk.agent_api.agent.gates import CREATE_ACCESS_REQUEST
-from helpdesk.agent_api.agent.state import ToolResult, TurnState
+from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.policy.types import ApproverSlot, Decision, RequiredApprover, RiskClass
 
@@ -99,7 +99,10 @@ def _projected(
 
 
 def decision_card(state: TurnState) -> DecisionCard | None:
-    """This turn's card, or `None`. A filed request wins over a classification."""
+    """This turn's card, or `None`. A filed request wins over a classification.
+    A turn still asking "Do you mean ...?" has filed nothing, so it has no card."""
+    if state.outcome is TurnOutcome.CONFIRM:
+        return None
     created = _projected(state.tool_results, CREATE_ACCESS_REQUEST, _Created)
     if created is not None:
         return _card(created)

@@ -71,6 +71,8 @@ test("asking for the other half of a seeded SoD pair is blocked, with the confli
 
   await page.goto("/chat");
   await sendTurn(page, `Please give me ${PAYMENTS_INITIATOR} so I can raise payment runs.`);
+  // The assistant first asks "Do you mean ...?"; only the yes files it.
+  await sendTurn(page, "Yes, that is right.");
 
   // `DECISION_LABELS.blocked` and `STATUS_LABELS.rejected`
   // (`_STATUS_FOR_DECISION[BLOCKED]` is `rejected`).

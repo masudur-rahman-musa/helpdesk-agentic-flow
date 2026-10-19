@@ -287,7 +287,8 @@ def test_a_resumed_turn_counts_exactly_one(
         "decision": TurnOutcome.DONE.value,
     }
     assert _sample(fresh_registry, TURNS, resumed_labels) == 1.0
-    assert _sum_of(fresh_registry, TURNS) == 2.0
+    # The asking turn counts too: ask, pause, resume.
+    assert _sum_of(fresh_registry, TURNS) == 3.0
     assert _sum_of(fresh_registry, REFUSALS) == 0.0
 
 

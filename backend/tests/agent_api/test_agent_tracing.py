@@ -764,9 +764,11 @@ def test_a_paused_turn_closes_its_trace_and_the_resume_opens_its_own(
     assert paused.outcome is TurnOutcome.AWAIT_APPROVAL
     assert resumed.outcome is TurnOutcome.DONE
 
-    assert len(traced.roots) == 2
-    first, second = traced.roots
-    assert [root.name for root in traced.roots] == [TURN_TRACE_NAME, TURN_TRACE_NAME]
+    # The asking turn has its own trace first: ask, pause, resume.
+    assert len(traced.roots) == 3
+    asking, first, second = traced.roots
+    assert asking.metadata["decision"] == TurnOutcome.CONFIRM.value
+    assert [root.name for root in traced.roots] == [TURN_TRACE_NAME] * 3
     assert first.trace_id != second.trace_id
     assert first.metadata["decision"] == TurnOutcome.AWAIT_APPROVAL.value
     assert first.metadata["refused"] is False

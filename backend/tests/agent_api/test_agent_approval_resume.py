@@ -608,7 +608,10 @@ def test_a_resumed_turn_leaves_exactly_one_pending_message(
     assistant_at_pause = [
         content for role, content in stored_at_pause if role == MessageRole.ASSISTANT.value
     ]
-    assert assistant_at_pause == [pending_reply_text], (
+    # An earlier change: the request turn first asks "Do you mean ...?"; the yes pauses.
+    assert len(assistant_at_pause) == 2
+    assert assistant_at_pause[0].startswith("Do you mean")
+    assert assistant_at_pause[1:] == [pending_reply_text], (
         "the pause itself must store exactly one assistant message"
     )
 
@@ -629,8 +632,9 @@ def test_a_resumed_turn_leaves_exactly_one_pending_message(
     contents = [content for _role, content in stored]
     roles = [role for role, _content in stored]
 
-    assert len(stored) == 3
-    assert roles.count(MessageRole.USER.value) == 1
+    # Plus the asking turn's two rows: request and question, then the yes.
+    assert len(stored) == 5
+    assert roles.count(MessageRole.USER.value) == 2
     assert contents.count(pending_reply_text) == 1
     assert contents.count(COMPOSED_APPROVAL) == 1
 

@@ -3,6 +3,7 @@
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
@@ -104,3 +105,32 @@ async def get_or_create_session(
     except IntegrityError as exc:
         raise SessionConflictError("this session id is already in use") from exc
     return row
+
+
+OPEN_QUESTION_KEY = "open_question"
+"""Where the "Do you mean ...?" question waits for the next message."""
+
+
+async def get_open_question(session: AsyncSession, *, session_id: uuid.UUID) -> object | None:
+    """The stored question as raw JSON, unchecked; `None` when there is none."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return None
+    return (row.session_metadata or {}).get(OPEN_QUESTION_KEY)
+
+
+async def set_open_question(
+    session: AsyncSession, *, session_id: uuid.UUID, value: dict[str, Any] | None
+) -> None:
+    """Store the question, or drop it with `None`. A new dict is assigned,
+    since SQLAlchemy does not see a change made inside a JSONB value."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return
+    metadata = dict(row.session_metadata or {})
+    if value is None:
+        metadata.pop(OPEN_QUESTION_KEY, None)
+    else:
+        metadata[OPEN_QUESTION_KEY] = value
+    row.session_metadata = metadata
+    await session.flush()

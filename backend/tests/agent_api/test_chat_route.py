@@ -630,6 +630,37 @@ def _post_chat(
     )
 
 
+YES = "Yes, that is right."
+"""The second message every access request now needs."""
+
+
+def _post_request_and_yes(
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    token: str,
+    gateway_handler: Callable[[httpx.Request], httpx.Response],
+    tools: ToolCaller | None = None,
+) -> httpx.Response:
+    """Send `MESSAGE`, which only asks "Do you mean ...?", then the yes on the
+    same chat, which files. Returns the yes turn's response."""
+    asked = _post_chat(
+        monkeypatch=monkeypatch,
+        token=token,
+        body={"message": MESSAGE},
+        gateway_handler=gateway_handler,
+        tools=tools,
+    )
+    assert asked.status_code == 200, asked.text
+    assert asked.json()["outcome"] == TurnOutcome.CONFIRM.value
+    return _post_chat(
+        monkeypatch=monkeypatch,
+        token=token,
+        body={"message": YES, "chat_id": asked.json()["chat_id"]},
+        gateway_handler=gateway_handler,
+        tools=tools,
+    )
+
+
 def _get_messages(
     *, monkeypatch: pytest.MonkeyPatch, token: str, chat_id: str | None
 ) -> httpx.Response:
@@ -956,10 +987,9 @@ def test_a_paused_turn_answers_with_the_pending_reply_and_the_request_id(
     tools = ScriptedToolCaller(_page(), _approval_payload())
     token = _token(chat_env.tenant_a, session_id)
 
-    response = _post_chat(
+    response = _post_request_and_yes(
         monkeypatch=monkeypatch,
         token=token,
-        body={"message": MESSAGE},
         gateway_handler=gateway.handler,
         tools=tools,
     )
@@ -996,10 +1026,9 @@ def test_a_filed_request_answers_its_decision_card(
     gateway = StagedGateway([_extraction_answer(), _request_plan(chat_env)])
     tools = ScriptedToolCaller(_page(), _card_payload())
 
-    response = _post_chat(
+    response = _post_request_and_yes(
         monkeypatch=monkeypatch,
         token=_token(chat_env.tenant_a, session_id),
-        body={"message": MESSAGE},
         gateway_handler=gateway.handler,
         tools=tools,
     )
@@ -1730,10 +1759,9 @@ def test_paused_request_resumes_in_a_chat_that_is_not_the_login(
     login_sid = uuid.uuid4()
     gateway = StagedGateway([_extraction_answer(), _request_plan(chat_env)])
 
-    response = _post_chat(
+    response = _post_request_and_yes(
         monkeypatch=monkeypatch,
         token=_token(chat_env.tenant_a, login_sid),
-        body={"message": MESSAGE},
         gateway_handler=gateway.handler,
     )
 

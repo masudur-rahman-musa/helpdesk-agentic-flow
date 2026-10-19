@@ -66,6 +66,8 @@ test("an in-template ask is granted on the spot, cites policy, and lands on /acc
 
   await page.goto("/chat");
   await sendTurn(page, `Please give me ${WIKI_VIEWER} access to the internal wiki.`);
+  // The assistant first asks "Do you mean ...?"; only the yes files it.
+  await sendTurn(page, "Yes, that is right.");
 
   // `DECISION_LABELS.auto`, `RISK_LABELS.low` and `STATUS_LABELS.executed`
   // from `web/lib/decision-labels.ts`, verbatim. Asserting the risk beside the

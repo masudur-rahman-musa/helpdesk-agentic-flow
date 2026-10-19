@@ -6,6 +6,9 @@ allowed for this intent (blocks a prompt-injected `offboard_user`), the
 arguments fit its input model, and the model did not name its own
 idempotency key. The agent derives the key instead. Pure: no database,
 gateway or tool calls.
+
+A round holding `create_access_request` is kept on `validated` and sent to
+`ask_confirmation` until the person says yes (`test_agent_confirm.py`).
 """
 
 from typing import Any
@@ -14,7 +17,7 @@ from pydantic import ValidationError
 
 from helpdesk.agent_api.agent import gates
 from helpdesk.agent_api.agent.keys import derive_idempotency_key
-from helpdesk.agent_api.agent.state import ProposedCall, TurnState, ValidatedCall
+from helpdesk.agent_api.agent.state import ProposedCall, TurnOutcome, TurnState, ValidatedCall
 from helpdesk.agent_api.agent.tool_args import (
     IDEMPOTENCY_KEY,
     TOOL_INPUTS,
@@ -72,6 +75,14 @@ async def validate_tool_calls(state: TurnState, deps: TurnDeps) -> TurnState:
             )
         validated.append(call)
 
+    held = gates.held_round_outcome(
+        holds_create=any(call.tool == gates.CREATE_ACCESS_REQUEST for call in validated),
+        confirmed=state.confirmed,
+    )
+    if held is TurnOutcome.DONE:
+        return state.model_copy(update={"outcome": held, "validated": ()})
+    if held is TurnOutcome.CONFIRM:
+        return state.model_copy(update={"outcome": held, "validated": tuple(validated)})
     return state.model_copy(
         update={"outcome": gates.execution_outcome(len(validated)), "validated": tuple(validated)}
     )

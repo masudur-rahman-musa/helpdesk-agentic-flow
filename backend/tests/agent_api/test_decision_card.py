@@ -41,7 +41,7 @@ from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.agent.state import ToolResult, TurnState
+from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.services.decision_card import CardApprover, DecisionCard, decision_card
 from helpdesk.mcp_server.tools.access import CreateAccessRequestOutput
@@ -397,3 +397,18 @@ def test_a_value_outside_its_enum_answers_none(payload: dict[str, Any]) -> None:
     missing-key guard cannot, because nothing is missing.
     """
     assert decision_card(_state(_ok(CREATE_REQUEST, payload))) is None
+
+
+def test_a_turn_asking_to_confirm_has_no_card() -> None:
+    """Catches a card built from the turn's `classify_access_request` result while
+    the assistant is still asking "Do you mean ...?": the person would see a
+    decision card for a request that was not filed and has not been confirmed.
+
+    The same classify payload gives a card on a turn that is not asking (the first
+    assert), so only the `confirm` outcome can explain the `None`."""
+    state = _state(_ok(CLASSIFY_REQUEST, _classify_payload()))
+    assert decision_card(state) is not None
+
+    asking = state.model_copy(update={"outcome": TurnOutcome.CONFIRM})
+
+    assert decision_card(asking) is None
