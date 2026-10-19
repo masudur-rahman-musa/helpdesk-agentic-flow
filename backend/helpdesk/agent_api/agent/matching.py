@@ -1,4 +1,5 @@
-"""Turns a typed name into directory rows: exact, then alias, then fuzzy.
+"""Turns a typed name into directory rows: exact, then alias, then whole-name
+words, then fuzzy.
 
 The first tier with a match wins, so an exact name never comes back mixed
 with near neighbours. Pure: the node reads the rows and passes them in.
@@ -33,20 +34,6 @@ def normalise(value: str) -> str:
     return _SEPARATORS.sub(" ", value.casefold()).strip()
 
 
-FILLER_WORDS = frozenset(
-    {"access", "role", "roles", "rights", "permission", "permissions", "level"}
-)
-"""Words people add around a role name ("approver access", "editor role")
-that no directory name needs. Pinned by `test_agent_matching.py`."""
-
-
-def without_filler(normalised: str) -> str:
-    """The normalised term with filler words dropped, or the term as it was
-    when nothing else would be left: "access" alone may be a real name."""
-    kept = [word for word in normalised.split() if word not in FILLER_WORDS]
-    return " ".join(kept) if kept else normalised
-
-
 def aliases_for(candidate: Candidate) -> frozenset[str]:
     """The names this candidate answers to: slug and name, each also without
     spaces, since people type `billingadmin` and would otherwise fall to fuzzy."""
@@ -57,7 +44,7 @@ def aliases_for(candidate: Candidate) -> frozenset[str]:
 def match_candidates(term: str, candidates: Sequence[Candidate]) -> tuple[Candidate, ...]:
     """The candidates `term` names, best first. Empty leads to a question; there
     is no "closest anyway" guess."""
-    normalised = without_filler(normalise(term))
+    normalised = normalise(term)
     if not normalised or not candidates:
         return ()
 
@@ -73,6 +60,10 @@ def match_candidates(term: str, candidates: Sequence[Candidate]) -> tuple[Candid
     if alias:
         return alias
 
+    words = _word_matches(normalised, candidates)
+    if words:
+        return words
+
     scored = [
         (best, candidate)
         for candidate, best in (
@@ -84,6 +75,35 @@ def match_candidates(term: str, candidates: Sequence[Candidate]) -> tuple[Candid
     # unsorted list could drop the closest one.
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return tuple(candidate for _, candidate in scored)
+
+
+def _word_matches(normalised_term: str, candidates: Sequence[Candidate]) -> tuple[Candidate, ...]:
+    """The candidates whose whole slug or whole name sits among the typed words,
+    keeping only those with the most words; a tie keeps every one, in order.
+    Every word must be typed: one shared word would turn "billing read access"
+    into `billing-admin` (`test_one_shared_word_is_not_enough`)."""
+    typed = set(normalised_term.split())
+    counts = [
+        (
+            max(
+                (
+                    len(words)
+                    for words in (
+                        set(normalise(candidate.slug).split()),
+                        set(normalise(candidate.name).split()),
+                    )
+                    if words and words <= typed
+                ),
+                default=0,
+            ),
+            candidate,
+        )
+        for candidate in candidates
+    ]
+    most = max(count for count, _ in counts)
+    if most == 0:
+        return ()
+    return tuple(candidate for count, candidate in counts if count == most)
 
 
 def _best_ratio(normalised_term: str, candidate: Candidate) -> float:

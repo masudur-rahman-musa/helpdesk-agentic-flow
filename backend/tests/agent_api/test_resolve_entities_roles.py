@@ -170,3 +170,20 @@ def test_no_resolved_role_gives_no_other_role_names() -> None:
     assert resolved.system_slug == "kyc"
     assert resolved.role_id is None
     assert resolved.other_role_names == ()
+
+
+def test_extra_words_around_a_role_in_a_named_system_match_it() -> None:
+    """Catches a resolver that cannot read a role out of a longer sentence:
+    "please give me approver rights" holds the whole word "approver" of exactly
+    one role in the named KYC, so that role, and only it, must resolve."""
+    kyc = _system("kyc", "KYC")
+    roles = [
+        _role(kyc.id, "approver", "kyc.approver"),
+        _role(kyc.id, "analyst", "kyc.analyst"),
+        _role(kyc.id, "editor", "kyc.editor"),
+    ]
+
+    resolved = _resolve([kyc], roles, system="kyc", role="please give me approver rights")
+
+    assert resolved.role_slug == "approver"
+    assert resolved.role_name == "kyc.approver"

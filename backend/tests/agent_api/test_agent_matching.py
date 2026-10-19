@@ -11,10 +11,15 @@ Expected implementation surface (the implementer must provide exactly this):
         derived from the normalised slug and name, plus each with its spaces
         removed. No alias column, no hand-written list.
     ``def match_candidates(term, candidates) -> tuple[Candidate, ...]`` —
-        three tiers, and a NON-EMPTY HIGHER TIER WINS OUTRIGHT: exact (term
-        equals the normalised slug or name) beats alias beats fuzzy
+        four tiers, and a NON-EMPTY HIGHER TIER WINS OUTRIGHT: exact (term
+        equals the normalised slug or name) beats alias beats whole-name words
+        (every word of a candidate's normalised slug, or of its normalised name,
+        is among the typed words; the most matched words wins, a tie returns all
+        tied in the order given) beats fuzzy
         (``difflib.SequenceMatcher(None, term, alias).ratio() >=
         FUZZY_CUTOFF``, best ratio first). The cutoff is INCLUSIVE.
+
+An earlier change replaced the old filler-word list with the whole-name word step.
 
 Every ratio this file depends on is asserted with `difflib` BEFORE the
 behaviour that depends on it, so a boundary pair that stops being the
@@ -227,7 +232,8 @@ def test_approver_access_matches_the_approver_role() -> None:
     """Catches a matcher that keeps the word "access" in the typed name: the
     live chat typed "approver access" for KYC and matched no role at all. The
     premise first: the raw phrase is far below the cutoff against every alias,
-    so only dropping the filler word can make it match."""
+    so only the word step (every word of "approver" is typed) can make it
+    match."""
     approver, analyst, editor = _kyc_roles()
     assert max(_ratio("approver access", alias) for alias in aliases_for(approver)) < FUZZY_CUTOFF
 
@@ -236,10 +242,10 @@ def test_approver_access_matches_the_approver_role() -> None:
 
 @pytest.mark.parametrize("filler", ["role", "rights", "permissions", "level"])
 def test_each_filler_word_is_dropped(filler: str) -> None:
-    """Catches a filler list that is missing a word the plan names: each of
-    "editor role", "editor rights", "editor permissions" and "editor level" must
-    match the editor role and nothing else. Each phrase is below the cutoff
-    unchanged, so the list entry alone decides it."""
+    """Catches a matcher without the word step: each of "editor role", "editor
+    rights", "editor permissions" and "editor level" must match the editor role
+    and nothing else. Each phrase is below the cutoff, so the word step alone
+    decides it, whatever the extra word is."""
     approver, analyst, editor = _kyc_roles()
     term = f"editor {filler}"
     assert max(_ratio(term, alias) for alias in aliases_for(editor)) < FUZZY_CUTOFF
@@ -248,9 +254,9 @@ def test_each_filler_word_is_dropped(filler: str) -> None:
 
 
 def test_the_plural_roles_is_a_filler_word_too() -> None:
-    """Catches a filler list that has "role" but not "roles": "editor roles"
-    scores under the cutoff against the editor aliases, so only the list entry
-    makes it match."""
+    """Catches a matcher without the word step: "editor roles" scores under the
+    cutoff against the editor aliases, so only the word step (the word "editor"
+    is typed) makes it match, with no plural handling needed."""
     approver, analyst, editor = _kyc_roles()
     assert max(_ratio("editor roles", alias) for alias in aliases_for(editor)) < FUZZY_CUTOFF
 
@@ -258,12 +264,100 @@ def test_the_plural_roles_is_a_filler_word_too() -> None:
 
 
 def test_a_term_of_only_filler_words_is_kept() -> None:
-    """Catches a matcher that empties a term made only of filler words: "access"
-    must stay "access". With no candidate of that name it matches nothing, and
-    with a candidate literally named Access it matches that one, which an emptied
-    term (the early empty return) could never do."""
+    """Catches a matcher that drops or empties the typed word "access": with no
+    candidate of that name the word step matches nothing, and with a candidate
+    literally named Access the word step (and exact) matches that one, which an
+    emptied term (the early empty return) could never do."""
     approver, analyst, editor = _kyc_roles()
     named_access = _candidate("access", "Access")
 
     assert match_candidates("access", [approver, analyst, editor]) == ()
     assert match_candidates("access", [approver, named_access]) == (named_access,)
+
+
+# --- the whole-name word step ---------------------------------
+
+
+def _best(term: str, candidate: Candidate) -> float:
+    return max(_ratio(normalise(term), alias) for alias in aliases_for(candidate))
+
+
+def test_the_filler_list_is_gone() -> None:
+    """Catches a matcher that keeps the hand-kept word list next to the word
+    step: any leftover list is a second place that decides what a phrase means."""
+    assert not hasattr(matching_module, "FILLER_WORDS")
+    assert not hasattr(matching_module, "without_filler")
+
+
+def test_every_word_of_a_role_name_in_the_term_matches_it() -> None:
+    """Catches a word step that is missing or too loose: "read access to
+    billing" holds every word of `billing-read` and not all of `billing-admin`,
+    so only the first may come back. Premise first: neither scores 0.85 on
+    fuzzy, so only the word step can decide it."""
+    read = _candidate("billing-read", "Billing Read")
+    admin = _candidate("billing-admin", "Billing Admin")
+    term = "read access to billing"
+    assert _best(term, read) < FUZZY_CUTOFF
+    assert _best(term, admin) < FUZZY_CUTOFF
+
+    assert match_candidates(term, [admin, read]) == (read,)
+
+
+def test_one_shared_word_is_not_enough() -> None:
+    """Catches a word step where one shared word is enough ("most shared words
+    wins"): "billing read access" would turn into `billing-admin`, a role the
+    person never asked for. Premise first: fuzzy scores it under 0.85."""
+    admin = _candidate("billing-admin", "Billing Admin")
+    term = "billing read access"
+    assert _best(term, admin) < FUZZY_CUTOFF
+
+    assert match_candidates(term, [admin]) == ()
+
+
+def test_the_name_with_more_matched_words_wins() -> None:
+    """Catches a word step that returns every match: "billing admin access"
+    holds all of `admin` and all of `billing-admin`, and the longer name is the
+    better answer, so asking "which one" would be a needless question."""
+    short = _candidate("admin", "Admin")
+    long = _candidate("billing-admin", "Billing Admin")
+    term = "billing admin access"
+    assert _best(term, short) < FUZZY_CUTOFF
+    assert _best(term, long) < FUZZY_CUTOFF
+
+    assert match_candidates(term, [short, long]) == (long,)
+
+
+def test_a_tie_returns_every_tied_candidate() -> None:
+    """Catches a word step that picks one of two equal matches: "editor
+    approver" names two roles, so both must come back, in the order given, to
+    lead to the "which one do you mean" question. The analyst, not typed, must
+    stay out."""
+    approver, analyst, editor = _kyc_roles()
+    term = "editor approver"
+    assert _best(term, approver) < FUZZY_CUTOFF
+    assert _best(term, editor) < FUZZY_CUTOFF
+
+    assert match_candidates(term, [approver, analyst, editor]) == (approver, editor)
+    assert match_candidates(term, [editor, analyst, approver]) == (editor, approver)
+
+
+def test_the_display_name_words_count_too() -> None:
+    """Catches a word step that reads only the slug: the slug `kyc-appr` has
+    the word "appr", which was not typed, so only the words of the display name
+    "KYC Approver" can match "kyc approver please". Premise first: fuzzy scores
+    it under 0.85."""
+    candidate = _candidate("kyc-appr", "KYC Approver")
+    term = "kyc approver please"
+    assert _best(term, candidate) < FUZZY_CUTOFF
+
+    assert match_candidates(term, [candidate]) == (candidate,)
+
+
+def test_an_exact_match_beats_the_word_step() -> None:
+    """Catches a word step placed before the exact step: "wiki editor" holds
+    every word of slug `editor` too, but the row whose name is exactly "wiki
+    editor" must be the only answer."""
+    exact = _candidate("wiki-ed", "wiki editor")
+    words_only = _candidate("editor", "Editor")
+
+    assert match_candidates("wiki editor", [words_only, exact]) == (exact,)
