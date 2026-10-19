@@ -4,9 +4,11 @@ Candidates are read through the tenant-scoped repository, so only the
 caller's own tenant's systems and roles can match. A system or role is never
 guessed: one match resolves, several ask, none asks a clarifying question.
 System and role are resolved on their own and the stricter answer wins. Roles
-are matched across the tenant, since a user may name a role but no system.
+are matched across the tenant when no system is named, and only inside the
+system when one system was named: "wiki editor" must not offer every editor.
 """
 
+import uuid
 from collections.abc import Sequence
 
 from helpdesk.agent_api.agent import gates, matching
@@ -39,12 +41,13 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
         return state
 
     systems = _candidates(await Repository(deps.db, System).list())
-    roles = _candidates(await Repository(deps.db, Role).list())
+    all_roles = await Repository(deps.db, Role).list()
 
     system_term = (extraction.entities.system or "").strip()
     role_term = (extraction.entities.role or "").strip()
 
     system_matches = matching.match_candidates(system_term, systems) if system_term else ()
+    roles = _candidates(roles_in_system(all_roles, system_matches))
     role_matches = matching.match_candidates(role_term, roles) if role_term else ()
 
     for term, matches in ((system_term, system_matches), (role_term, role_matches)):
@@ -76,6 +79,15 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
             ),
         }
     )
+
+
+def roles_in_system(roles: Sequence[Role], system_matches: Sequence[Candidate]) -> Sequence[Role]:
+    """The roles of the one system the user named; all roles when no single
+    system was named (none, or several that are asked about first)."""
+    if len(system_matches) != 1:
+        return roles
+    system_id: uuid.UUID = system_matches[0].id
+    return [role for role in roles if role.system_id == system_id]
 
 
 def _candidates(rows: Sequence[System] | Sequence[Role]) -> tuple[Candidate, ...]:
