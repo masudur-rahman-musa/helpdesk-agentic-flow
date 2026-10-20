@@ -15,8 +15,12 @@ cleared the same way, so only the very next message may not ask again.
 
 The caller's principals are read from their own directory row by the token's
 user id, so a message claiming a role changes nothing. No row gives no
-principals.
+principals. The role ids of that row's department template are read the
+same way, through the tenant-bound session; no row or no department reads
+none (`test_template_asks_nothing.py`).
 """
+
+import uuid
 
 from helpdesk.agent_api.agent.clarify_cap import parse_asked_at, parse_asked_kind
 from helpdesk.agent_api.agent.confirmation import (
@@ -27,6 +31,7 @@ from helpdesk.agent_api.agent.confirmation import (
 )
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.shared.crud.directory import fetch_role_templates_for_department
 from helpdesk.shared.crud.messages import append_message, list_recent_messages
 from helpdesk.shared.crud.sessions import (
     get_asked_clarifying,
@@ -68,6 +73,9 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
         await set_asked_kind(db, session_id=state.session_id, value=None)
     history = await list_recent_messages(db, state.session_id)
     user = await find_user_by_id(db, state.user_id)
+    template: frozenset[uuid.UUID] = frozenset()
+    if user is not None and user.department_id is not None:
+        template = await fetch_role_templates_for_department(db, user.department_id)
     await append_message(
         db,
         session_id=state.session_id,
@@ -80,6 +88,7 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
             "asked_before": asked_before,
             "asked_kind": asked_kind,
             "principals": () if user is None else tuple(user.principals),
+            "template_role_ids": template,
         }
     )
     if question is None:

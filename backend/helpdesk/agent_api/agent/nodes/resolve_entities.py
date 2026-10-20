@@ -17,6 +17,10 @@ A request is checked for its details only once the role is found, so the
 person is asked how long and why about a real role. Right after the details
 question a still missing reason is asked for alone, by role name, and a still
 missing length takes the role's default (`test_question_kinds.py`).
+A found role in the caller's own department template asks nothing: a missing
+reason becomes `TEMPLATE_REASON` on the extraction the planner reads, and a
+missing length stays empty so the role's default applies. A system found with
+no role still asks (`test_template_asks_nothing.py`).
 """
 
 import logging
@@ -26,7 +30,13 @@ from collections.abc import Sequence
 from helpdesk.agent_api.agent import gates, matching
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind, details_question, reason_question
 from helpdesk.agent_api.agent.matching import Candidate
-from helpdesk.agent_api.agent.state import Intent, ResolvedEntities, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import (
+    Intent,
+    IntentExtraction,
+    ResolvedEntities,
+    TurnOutcome,
+    TurnState,
+)
 from helpdesk.agent_api.agent.tool_args import (
     SUGGEST_ROLES,
     SuggestedRole,
@@ -46,6 +56,9 @@ NOTHING_MATCHED_QUESTION = (
 "I know what you want, but nothing by that name exists here"."""
 
 logger = logging.getLogger(__name__)
+
+TEMPLATE_REASON = "Part of my department's starting access."
+"""The reason filed for a template role when the person gave none."""
 
 DISAMBIGUATION_PREFIX = "Which one do you mean?"
 SUGGESTION_PREFIX = "Did you mean one of these?"
@@ -105,6 +118,8 @@ def _ask_details(state: TurnState, resolved: ResolvedEntities) -> TurnState | No
     extraction = state.extraction
     if extraction is None or extraction.intent is not Intent.REQUEST_ACCESS:
         return None
+    if resolved.role_id is not None and resolved.role_id in state.template_role_ids:
+        return _template_goes_on(state, extraction, resolved)
     missing = gates.missing_required_entities(extraction) - {"system"}
     if state.asked_kind is QuestionKind.DETAILS:
         if not missing:
@@ -121,6 +136,21 @@ def _ask_details(state: TurnState, resolved: ResolvedEntities) -> TurnState | No
             "resolved": resolved,
             "question_kind": QuestionKind.DETAILS,
         }
+    )
+
+
+def _template_goes_on(
+    state: TurnState, extraction: IntentExtraction, resolved: ResolvedEntities
+) -> TurnState:
+    """A template role goes on with no question: a given reason is kept word
+    for word, a missing one is filed as `TEMPLATE_REASON`."""
+    if extraction.entities.justification and extraction.entities.justification.strip():
+        filled = extraction
+    else:
+        entities = extraction.entities.model_copy(update={"justification": TEMPLATE_REASON})
+        filled = extraction.model_copy(update={"entities": entities})
+    return state.model_copy(
+        update={"outcome": TurnOutcome.CONTINUE, "resolved": resolved, "extraction": filled}
     )
 
 

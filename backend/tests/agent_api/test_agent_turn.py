@@ -151,7 +151,17 @@ from helpdesk.shared.core.naming import check_slug
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.messages import HISTORY_LIMIT, append_message
 from helpdesk.shared.crud.sessions import get_or_create_session
-from helpdesk.shared.models import Base, Department, Message, Role, Session, System, Tenant, User
+from helpdesk.shared.models import (
+    Base,
+    Department,
+    Message,
+    Role,
+    RoleTemplate,
+    Session,
+    System,
+    Tenant,
+    User,
+)
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS, MessageRole, MessageTooLongError
 from tests.agent_api.test_agent_confirm import _classify_payload, _create_payload
 
@@ -162,9 +172,12 @@ GATEWAY_URL = "http://gateway.invalid:8080"
 TENANT_A = "turn-tenant-a"
 TENANT_B = "turn-tenant-b"
 TENANT_C = "turn-tenant-c"
+TENANT_D = "turn-tenant-d"
 
 # Obviously fake, tests only: these are not credentials.
-API_KEYS: dict[str, str] = {slug: f"fake-key-{slug}" for slug in (TENANT_A, TENANT_B, TENANT_C)}
+API_KEYS: dict[str, str] = {
+    slug: f"fake-key-{slug}" for slug in (TENANT_A, TENANT_B, TENANT_C, TENANT_D)
+}
 
 PLANTED_MESSAGES = 25
 """More than `HISTORY_LIMIT`, so the window has something to cut off."""
@@ -238,6 +251,7 @@ class TurnEnv:
     tenant_a: SeededTurnTenant
     tenant_b: SeededTurnTenant
     tenant_c: SeededTurnTenant
+    tenant_d: SeededTurnTenant
 
 
 async def _seed(
@@ -245,6 +259,7 @@ async def _seed(
     slug: str,
     systems: Sequence[tuple[str, str]],
     roles: Sequence[tuple[str, str]],
+    template_role_slugs: Sequence[str] = (),
 ) -> SeededTurnTenant:
     """One tenant, two users, and the systems/roles a case matches against.
 
@@ -312,6 +327,16 @@ async def _seed(
             await session.flush()
             role_ids[role_slug] = role.id
 
+        for template_slug in template_role_slugs:
+            session.add(
+                RoleTemplate(
+                    tenant_id=tenant_id,
+                    department_id=department.id,
+                    role_id=role_ids[template_slug],
+                )
+            )
+        await session.flush()
+
         return SeededTurnTenant(
             tenant_id=tenant_id,
             tenant_slug=slug,
@@ -351,8 +376,19 @@ def turn_env(pg: TempDatabaseFactory) -> Iterator[TurnEnv]:
                 [("billing-eu", "Fake Billing"), ("billing-us", "Fake Billing")],
                 [],
             )
+            tenant_d = await _seed(
+                factory,
+                TENANT_D,
+                [("wiki", "Fake Wiki")],
+                [("wiki-read", "Fake Wiki Read")],
+                template_role_slugs=("wiki-read",),
+            )
             return TurnEnv(
-                database_url=url, tenant_a=tenant_a, tenant_b=tenant_b, tenant_c=tenant_c
+                database_url=url,
+                tenant_a=tenant_a,
+                tenant_b=tenant_b,
+                tenant_c=tenant_c,
+                tenant_d=tenant_d,
             )
         finally:
             await engine.dispose()
@@ -2337,4 +2373,97 @@ def test_the_screenshot_conversation_files_a_non_template_role(turn_env: TurnEnv
     assert creates[0]["requested_expiry_days"] == 15
     assert creates[0]["justification"] == reason
     replies = [first.reply, second.reply, third.reply, fourth.reply]
+    assert all(reply is not None and BEST_READING_FALLBACK not in reply for reply in replies)
+
+
+def test_the_screenshot_conversation_files_a_template_role(turn_env: TurnEnv) -> None:
+    """Catches a template role still asked for its reason and length: after the
+    pick the second turn must go straight to the preview, with the reason filled
+    in as part of the department's starting access, no length asked, no
+    best-reading fallback on any reply, and a filing only after the yes.
+
+    Tenant D holds `wiki-read` in its department template. Three turns after the
+    suggestions: the pick ends on the preview, and only the yes files."""
+    tenant = turn_env.tenant_d
+    session_id = uuid.uuid4()
+    role_id = str(tenant.role_ids["wiki-read"])
+    reason = "Part of my department's starting access."
+    tools = _ScriptedTools(
+        {
+            SUGGEST_ROLES: {
+                "roles": [
+                    {
+                        "system_slug": "wiki",
+                        "system_name": "Fake Wiki",
+                        "role_slug": "wiki-read",
+                        "role_name": "Fake Wiki Read",
+                        "score": 0.8,
+                    }
+                ]
+            },
+            SEARCH_POLICY: _page(_citation("fake-access-policy", score=0.8)),
+            "classify_access_request": _classify_payload(),
+            "create_access_request": _create_payload(),
+        }
+    )
+    classify = _plan_json(
+        _proposal(
+            "classify_access_request",
+            target_user_id=str(tenant.user_id),
+            role_id=role_id,
+            requested_expiry_days=None,
+        )
+    )
+    create = _plan_json(
+        _proposal(
+            "create_access_request",
+            target_user_id=str(tenant.user_id),
+            role_id=role_id,
+            justification=reason,
+            requested_expiry_days=None,
+            citations=[],
+        )
+    )
+
+    def say(message: str, *answers: str) -> TurnState:
+        return _run_turn(
+            turn_env,
+            tenant,
+            session_id=session_id,
+            message=message,
+            gateway=StagedGateway(list(answers)),
+            tools=tools,
+        )
+
+    first = say(
+        "i want doc access",
+        _extraction_json(intent="request_access", confidence=0.95, entities={"system": "doc"}),
+    )
+    assert first.outcome is TurnOutcome.DISAMBIGUATE
+    assert first.options[0].startswith("wiki.wiki-read")
+    assert tools.names == [SUGGEST_ROLES]
+
+    second = say(
+        "wiki.wiki-read",
+        _extraction_json(
+            intent="request_access",
+            confidence=0.95,
+            entities={"system": "wiki", "role": "wiki-read"},
+        ),
+        classify,
+        create,
+    )
+    assert second.outcome is TurnOutcome.CONFIRM
+    assert second.extraction is not None
+    assert second.extraction.entities.justification == reason
+    assert second.extraction.entities.expiry_days is None
+    assert "create_access_request" not in tools.names
+
+    third = say("yes", EMPTY_PLAN, COMPOSED_REPLY)
+    assert third.outcome is TurnOutcome.DONE
+    creates = [args for name, args in tools.calls if name == "create_access_request"]
+    assert len(creates) == 1
+    assert creates[0]["justification"] == reason
+    assert creates[0]["requested_expiry_days"] is None
+    replies = [first.reply, second.reply, third.reply]
     assert all(reply is not None and BEST_READING_FALLBACK not in reply for reply in replies)

@@ -225,6 +225,11 @@ class TurnState(BaseModel):
     """The caller's principals from their own directory row, read by
     `load_session`; empty when no row is found. Never from the message."""
 
+    template_role_ids: frozenset[uuid.UUID] = frozenset()
+    """The role ids of the caller's own department template, read by
+    `load_session` from their directory row; empty when the user or the
+    department is not found. A role in it asks no details question."""
+
     extraction: IntentExtraction | None = None
     prompt_version: str | None = None
     outcome: TurnOutcome = TurnOutcome.CONTINUE
