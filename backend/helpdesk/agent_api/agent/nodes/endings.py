@@ -1,22 +1,30 @@
 """The end nodes: every way the turn can stop early.
 
-Each only stores the reply already on the state as the assistant message;
-the decision was made earlier. `fail_turn` exists so a turn the model could
+Each only stores the reply already on the state as the assistant message,
+with the second-request line when the message held two requests; the decision
+was made earlier. `fail_turn` exists so a turn the model could
 not read ends with one fixed reply, not a clarifying question nobody asked.
 """
 
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind, stored_kind
 from helpdesk.agent_api.agent.confirmation import OpenQuestion, summary_reply
+from helpdesk.agent_api.agent.follow_up import with_second_line
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.state import ResolvedEntities, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.shared.crud.messages import append_message
-from helpdesk.shared.crud.sessions import set_asked_clarifying, set_asked_kind, set_open_question
+from helpdesk.shared.crud.sessions import (
+    set_asked_clarifying,
+    set_asked_kind,
+    set_open_question,
+    set_request_draft,
+)
 from helpdesk.shared.models.conversation import MessageRole
 
 
 async def _store_reply(state: TurnState, deps: TurnDeps, reply: str) -> TurnState:
     """Write the assistant message and carry the reply on the state."""
+    reply = with_second_line(reply, state)
     await append_message(
         deps.db,
         session_id=state.session_id,
@@ -44,8 +52,9 @@ async def ask_clarifying(state: TurnState, deps: TurnDeps) -> TurnState:
 
 async def stop_asking(state: TurnState, deps: TurnDeps) -> TurnState:
     """End: a required field was asked twice and is still missing, so say it
-    cannot be filed, in fixed words. No question is noted, so the next
-    message starts clean."""
+    cannot be filed, in fixed words. No question is noted and the saved draft
+    goes, so the next message starts clean."""
+    await set_request_draft(deps.db, session_id=state.session_id, value=None)
     return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
 
 

@@ -27,6 +27,7 @@ REQUIRED_ENTITIES: Mapping[Intent, frozenset[str]] = {
     Intent.ASK_CAPABILITIES: frozenset(),
     Intent.APPROVALS: frozenset(),
     Intent.REVIEW: frozenset(),
+    Intent.FOLLOW_UP: frozenset(),
     Intent.OTHER: frozenset(),
 }
 """What each intent must name before the turn goes on. Every intent has a
@@ -49,6 +50,7 @@ RETRIEVES_POLICY: Mapping[Intent, bool] = {
     Intent.ASK_CAPABILITIES: True,
     Intent.APPROVALS: False,
     Intent.REVIEW: False,
+    Intent.FOLLOW_UP: False,
     Intent.OTHER: False,
 }
 """Which intents search the policy text: a request, decided against policy,
@@ -190,6 +192,7 @@ INTENT_TOOLS: Mapping[Intent, frozenset[str]] = {
     Intent.ASK_CAPABILITIES: frozenset({"list_requestable_roles"}),
     Intent.APPROVALS: frozenset({"list_pending_approvals", "approve_request", "reject_request"}),
     Intent.REVIEW: frozenset({"open_access_review", "list_review_items", "decide_review_item"}),
+    Intent.FOLLOW_UP: frozenset(),
     Intent.OTHER: frozenset(),
 }
 """Which tools the planner may pick per intent. Not permission (RBAC does

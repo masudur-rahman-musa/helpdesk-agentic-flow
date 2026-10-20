@@ -399,6 +399,7 @@ def _question(asked_at: datetime) -> OpenQuestion:
             ),
             confidence=0.95,
             clarifying_question=None,
+            second_request=None,
         ),
         resolved=_resolved(),
     )

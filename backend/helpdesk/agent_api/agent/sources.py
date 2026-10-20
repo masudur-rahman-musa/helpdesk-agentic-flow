@@ -2,8 +2,10 @@
 
 Pure: no I/O. The reply writer marks the passages its text relies on by their
 1-based `passage` number. A mark outside the list is ignored, a repeated mark
-counts once, and the kept passages stay in search order. When the marks are not
-known (a fixed sentence or a fixed ending was sent), every passage is shown.
+counts once, and the kept passages stay in search order. A fixed
+sentence sent in place of a refused reply shows none: code wrote it from tool
+results and it uses no policy text. When the marks are not known (a fixed
+ending that never composed), every passage is shown.
 """
 
 from collections.abc import Sequence

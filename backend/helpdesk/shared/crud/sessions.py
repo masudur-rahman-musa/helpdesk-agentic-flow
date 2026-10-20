@@ -191,3 +191,31 @@ async def set_asked_kind(
         metadata[ASKED_KIND_KEY] = value
     row.session_metadata = metadata
     await session.flush()
+
+
+REQUEST_DRAFT_KEY = "request_draft"
+"""The request the chat is building: its fields, kept between messages."""
+
+
+async def get_request_draft(session: AsyncSession, *, session_id: uuid.UUID) -> object | None:
+    """The stored draft as raw JSON, unchecked; `None` when there is none."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return None
+    return (row.session_metadata or {}).get(REQUEST_DRAFT_KEY)
+
+
+async def set_request_draft(
+    session: AsyncSession, *, session_id: uuid.UUID, value: dict[str, Any] | None
+) -> None:
+    """Store the draft, or drop it with `None`. The other keys on the row stay."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return
+    metadata = dict(row.session_metadata or {})
+    if value is None:
+        metadata.pop(REQUEST_DRAFT_KEY, None)
+    else:
+        metadata[REQUEST_DRAFT_KEY] = value
+    row.session_metadata = metadata
+    await session.flush()

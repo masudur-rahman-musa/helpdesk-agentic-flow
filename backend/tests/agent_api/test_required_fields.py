@@ -377,6 +377,7 @@ def _extraction(intent: Intent = Intent.REQUEST_ACCESS, **entities: object) -> I
         entities=IntentEntities.model_validate(values),
         confidence=0.95,
         clarifying_question=None,
+        second_request=None,
     )
 
 

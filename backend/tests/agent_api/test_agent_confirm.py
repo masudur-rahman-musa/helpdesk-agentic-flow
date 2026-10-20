@@ -303,6 +303,7 @@ def _extraction(
             },
             "confidence": 0.95,
             "clarifying_question": None,
+            "second_request": None,
         }
     )
 

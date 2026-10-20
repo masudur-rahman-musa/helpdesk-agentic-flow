@@ -121,6 +121,7 @@ def _extraction(
         ),
         confidence=confidence,
         clarifying_question=None,
+        second_request=None,
     )
 
 
@@ -202,6 +203,7 @@ def _onboard(
         ),
         confidence=confidence,
         clarifying_question=question,
+        second_request=None,
     )
 
 

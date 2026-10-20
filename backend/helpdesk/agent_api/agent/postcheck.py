@@ -1,7 +1,8 @@
 """The decision-word check on a composed reply, as a pure table.
 
 The allowed words come from everything the turn returned, so a turn that ran
-no tool allows none. Only successful results count. Unknown values allow
+no tool allows none (a follow-up also allows the words of the reply it
+reshapes). Only successful results count. Unknown values allow
 nothing, so a new status narrows the reply instead of widening it. Matching
 is on whole lowercase words, so `approvals` never matches `approved`.
 """
@@ -10,7 +11,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.follow_up import last_assistant_reply
+from helpdesk.agent_api.agent.state import Intent, ToolResult, TurnOutcome, TurnState
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.policy.types import Decision
 
@@ -61,8 +63,16 @@ def words_in(text: str) -> frozenset[str]:
 
 
 def permitted_words(state: TurnState) -> frozenset[str]:
-    """The decision words this turn's own results entitle a reply to use."""
+    """The decision words this turn's own results entitle a reply to use. A
+    follow-up also gets the words of the last stored assistant reply, which
+    already passed this check; never the new message's, and never on any other
+    intent (`test_follow_up.py`)."""
     permitted: set[str] = set()
+
+    if state.extraction is not None and state.extraction.intent is Intent.FOLLOW_UP:
+        earlier = last_assistant_reply(state.history)
+        if earlier is not None:
+            permitted |= words_in(earlier)
 
     if state.outcome is TurnOutcome.AWAIT_APPROVAL:
         permitted |= {"pending"}

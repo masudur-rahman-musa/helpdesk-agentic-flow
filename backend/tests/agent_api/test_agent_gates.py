@@ -3,7 +3,7 @@
 Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.graph.state``
-    ``class Intent(StrEnum)`` — exactly fourteen labels.
+    ``class Intent(StrEnum)`` — exactly fifteen labels.
     ``class IntentEntities(BaseModel)`` (frozen) — ``system``, ``role``,
         ``target_user``, ``department``, ``expiry_days``, ``justification``,
         every one nullable and required.
@@ -103,11 +103,12 @@ SPEC_INTENTS: frozenset[str] = frozenset(
         "ask_capabilities",
         "approvals",
         "review",
+        "follow_up",
         "other",
     }
 )
 """The closed label set, written out rather than derived: counted from
-the list in the design, fourteen of them."""
+the list in the design, fifteen of them."""
 
 PLANNED_REQUIREMENTS: dict[str, frozenset[str]] = {
     "reset_password": frozenset(),
@@ -123,6 +124,7 @@ PLANNED_REQUIREMENTS: dict[str, frozenset[str]] = {
     "ask_capabilities": frozenset(),
     "approvals": frozenset(),
     "review": frozenset(),
+    "follow_up": frozenset(),
     "other": frozenset(),
 }
 """The decision table as a literal, so a requirement quietly dropped
@@ -142,11 +144,13 @@ PLANNED_RETRIEVAL: dict[str, bool] = {
     "ask_capabilities": True,
     "approvals": False,
     "review": False,
+    "follow_up": False,
     "other": False,
 }
 """As a literal: retrieval runs for exactly two of the
-fourteen intents. Written out rather than derived from a `True` set, so a row
-added to `Intent` with no answer here is a red test and not a silent default."""
+fifteen intents (`follow_up` searches nothing). Written out rather than derived
+from a `True` set, so a row added to `Intent` with no answer here is a red test
+and not a silent default."""
 
 FULL_CONFIDENCE = 1.0
 """Used wherever the case must be decided by the ENTITY half of the gate, so
@@ -159,6 +163,7 @@ def _extraction(intent: Intent, *, confidence: float, **entities: Any) -> Intent
         entities=IntentEntities(**{**dict.fromkeys(IntentEntities.model_fields), **entities}),
         confidence=confidence,
         clarifying_question=None,
+        second_request=None,
     )
 
 
@@ -179,12 +184,13 @@ def test_the_gate_constants_are_exactly_the_planned_values() -> None:
 
 
 def test_intent_has_exactly_the_fourteen_spec_members() -> None:
-    """Catches an intent added,
-    renamed or dropped relative to the fourteen labels. The value is what the gateway's
+    """Catches an intent added, renamed or dropped relative to the fifteen
+    labels (the name keeps its old word so the plan can find it; an earlier change made
+    it fifteen with `follow_up`). The value is what the gateway's
     JSON schema encloses, so a renamed member silently changes the closed set
     the model may answer with."""
     assert {intent.value for intent in Intent} == SPEC_INTENTS
-    assert len(list(Intent)) == 14
+    assert len(list(Intent)) == 15
 
 
 def test_required_entities_covers_exactly_every_intent() -> None:
@@ -368,7 +374,7 @@ def test_retrieves_policy_covers_exactly_every_intent() -> None:
     policy-answering intent ships answering from nothing. Same reasoning as
     `REQUIRED_ENTITIES`."""
     assert set(RETRIEVES_POLICY) == set(Intent)
-    assert len(RETRIEVES_POLICY) == 14
+    assert len(RETRIEVES_POLICY) == 15
 
 
 @pytest.mark.parametrize(
@@ -472,9 +478,10 @@ PLANNED_INTENT_TOOLS: dict[str, frozenset[str]] = {
     "ask_capabilities": frozenset({"list_requestable_roles"}),
     "approvals": frozenset({"list_pending_approvals", "approve_request", "reject_request"}),
     "review": frozenset({"open_access_review", "list_review_items", "decide_review_item"}),
+    "follow_up": frozenset(),
     "other": frozenset(),
 }
-"""The table as a literal: fourteen rows whose union is the twenty.
+"""The table as a literal: fifteen rows whose union is the twenty.
 
 Written out here rather than derived, so a row widened in `gates.py` — an
 approvals turn gaining `offboard_user` — is a red row rather than a tool the
@@ -504,7 +511,7 @@ def test_intent_tools_covers_exactly_every_intent() -> None:
     added to the enum would inherit whatever that default is — either every
     tool or none — instead of waiting for somebody to write its row."""
     assert set(INTENT_TOOLS) == set(Intent)
-    assert len(INTENT_TOOLS) == 14
+    assert len(INTENT_TOOLS) == 15
 
 
 def test_the_union_of_the_rows_is_exactly_the_twenty_planner_tools() -> None:

@@ -14,6 +14,10 @@ The time of the last clarifying question, what it asked and how often each
 required field was asked are read and cleared the same way, so only the very
 next message may not ask again.
 
+The saved request draft is read here and kept on the state as loaded; a yes
+and a bare no clear it (`test_draft_turns.py`). The yes runs on the stored
+extraction without its second request, so that line is never said twice.
+
 The caller's principals are read from their own directory row by the token's
 user id, so a message claiming a role changes nothing. No row gives no
 principals. The role ids of that row's department template are read the
@@ -34,6 +38,7 @@ from helpdesk.agent_api.agent.confirmation import (
     parse_open_question,
     read_answer,
 )
+from helpdesk.agent_api.agent.request_draft import parse_request_draft
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.shared.crud.directory import fetch_role_templates_for_department
@@ -43,9 +48,11 @@ from helpdesk.shared.crud.sessions import (
     get_asked_kind,
     get_open_question,
     get_or_create_session,
+    get_request_draft,
     set_asked_clarifying,
     set_asked_kind,
     set_open_question,
+    set_request_draft,
 )
 from helpdesk.shared.crud.users import find_user_by_id
 from helpdesk.shared.models.conversation import Message, MessageRole
@@ -68,6 +75,9 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
     question = parse_open_question(raw, now=deps.now())
     if raw is not None:
         await set_open_question(db, session_id=state.session_id, value=None)
+    draft = parse_request_draft(
+        await get_request_draft(db, session_id=state.session_id), now=deps.now()
+    )
     asked_at = await get_asked_clarifying(db, session_id=state.session_id)
     asked_before = parse_asked_at(asked_at, now=deps.now())
     if asked_at is not None:
@@ -94,6 +104,7 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
             "asked_before": asked_before,
             "asked_kind": asked_kind,
             "asks": asks,
+            "request_draft": draft,
             "principals": () if user is None else tuple(user.principals),
             "template_role_ids": template,
         }
@@ -101,13 +112,17 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
     if question is None:
         return loaded
     answer = read_answer(state.user_message)
+    if answer is not Answer.OTHER:
+        # A request filed or dropped leaves nothing to carry over.
+        await set_request_draft(db, session_id=state.session_id, value=None)
+        loaded = loaded.model_copy(update={"request_draft": None})
     if answer is Answer.YES:
         return loaded.model_copy(
             update={
                 "outcome": TurnOutcome.CONFIRMED,
                 "confirmed": True,
                 "validated": question.calls,
-                "extraction": question.extraction,
+                "extraction": question.extraction.model_copy(update={"second_request": None}),
                 "resolved": question.resolved,
                 "citations": question.citations,
             }

@@ -91,6 +91,7 @@ def _unclear(
             },
             "confidence": confidence,
             "clarifying_question": question,
+            "second_request": None,
         }
     )
 

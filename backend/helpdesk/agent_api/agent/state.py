@@ -30,6 +30,7 @@ class Intent(StrEnum):
     ASK_CAPABILITIES = "ask_capabilities"
     APPROVALS = "approvals"
     REVIEW = "review"
+    FOLLOW_UP = "follow_up"
     OTHER = "other"
 
 
@@ -56,6 +57,25 @@ class IntentExtraction(BaseModel):
     entities: IntentEntities
     confidence: float
     clarifying_question: str | None
+    second_request: Intent | None
+    """A second request in the same message, named by its intent. The turn
+    handles the first; code says the second needs its own message."""
+
+
+class RequestDraft(BaseModel):
+    """The request the chat is building, kept on the chat row between messages
+    (`request_draft.py`). Plain JSON in, so a bad value reads as no draft."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    intent: Intent
+    system: str | None = None
+    role: str | None = None
+    target_user: str | None = None
+    department: str | None = None
+    expiry_days: int | None = None
+    justification: str | None = None
+    saved_at: datetime
 
 
 class TurnOutcome(StrEnum):
@@ -233,6 +253,13 @@ class TurnState(BaseModel):
     """The role ids of the caller's own department template, read by
     `load_session` from their directory row; empty when the user or the
     department is not found. A role in it asks no details question."""
+
+    request_draft: RequestDraft | None = None
+    """The saved draft as loaded by `load_session`, before this message changes
+    it; `None` when there is none, or it is too old or badly shaped."""
+
+    draft_to_save: RequestDraft | None = None
+    """The merged draft `extract_intent` leaves for the graph to store."""
 
     extraction: IntentExtraction | None = None
     prompt_version: str | None = None

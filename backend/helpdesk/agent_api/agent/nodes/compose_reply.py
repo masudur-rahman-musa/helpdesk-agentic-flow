@@ -37,8 +37,13 @@ writer never offers a level or an action that does not exist
 
 Each policy passage goes in with its 1-based `passage` number, and the
 accepted answer's `used_passages` picks `reply_citations`, the passages the
-Sources box shows (`sources.py`). On the fixed sentence no marks are known, so
-it stays `None` and every passage is shown.
+Sources box shows (`sources.py`). A fixed sentence is written by code from
+tool results and uses no policy text, so on a fallback the box shows none.
+
+A fallback on a turn that ran no tool is `CANNOT_PLACE_REPLY`, never the
+generic "something went wrong" text. A follow-up turn hands the writer the last
+stored assistant reply as data, and the post-check allows the decision words
+that reply used (`follow_up.py`). Code adds the second-request line last.
 
 A question asked on a request or revoke turn that filed nothing is recorded
 like a clarifying question, so the next message gets the best reading, not a
@@ -55,6 +60,11 @@ from helpdesk.agent_api.agent.clarify_cap import (
     QuestionKind,
 )
 from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
+from helpdesk.agent_api.agent.follow_up import (
+    CANNOT_PLACE_REPLY,
+    last_assistant_reply,
+    with_second_line,
+)
 from helpdesk.agent_api.agent.gates import REQUIRED_ENTITIES
 from helpdesk.agent_api.agent.next_steps import next_step_lines
 from helpdesk.agent_api.agent.nodes.endings import note_question
@@ -140,6 +150,17 @@ def _capability_data(state: TurnState) -> list[dict[str, str]]:
     if not lines:
         return []
     return [_as_data("what this person can do here, from their real permissions", lines)]
+
+
+EARLIER_REPLY_LABEL = "the earlier reply to reshape or explain"
+
+
+def _earlier_reply_data(state: TurnState) -> list[dict[str, str]]:
+    """The last stored assistant reply as data on a follow-up turn, else nothing."""
+    if state.extraction is None or state.extraction.intent is not Intent.FOLLOW_UP:
+        return []
+    earlier = last_assistant_reply(state.history)
+    return [] if earlier is None else [_as_data(EARLIER_REPLY_LABEL, earlier)]
 
 
 NEXT_STEPS_LABEL = "the only next steps you may offer this person"
@@ -295,11 +316,17 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         _as_data("what did not work, in plain words", _failure_sentences(state.tool_results)),
         *_capability_data(state),
         _as_data(NEXT_STEPS_LABEL, next_step_lines(state.principals, state.resolved)),
+        *_earlier_reply_data(state),
         {"role": "user", "content": state.user_message},
     ]
 
     spent = 0
-    reply = BEST_READING_FALLBACK if state.best_reading else outcome_reply(state)
+    if state.best_reading:
+        reply = BEST_READING_FALLBACK
+    elif state.tool_results or state.outcome is TurnOutcome.AWAIT_APPROVAL:
+        reply = outcome_reply(state)
+    else:
+        reply = CANNOT_PLACE_REPLY
     postcheck = PostCheckOutcome.FALLBACK
     asks_question = False
     reply_citations: tuple[Citation, ...] | None = None
@@ -351,7 +378,8 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         if mixed:
             reply = groups_reply(groups)
         reply = _with_correct_me(reply, state)
-    reply = check_message_content(_with_held(reply, rows))
+        reply_citations = ()
+    reply = check_message_content(with_second_line(_with_held(reply, rows), state))
     if _asks_before_filing(asks_question, state):
         await note_question(state, deps, QuestionKind.OTHER)
 

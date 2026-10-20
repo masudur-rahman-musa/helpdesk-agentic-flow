@@ -114,6 +114,7 @@ def _resolve(
             ),
             confidence=0.9,
             clarifying_question=None,
+            second_request=None,
         ),
         started_at=datetime(2026, 6, 2, tzinfo=UTC),
     )

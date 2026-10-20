@@ -267,17 +267,22 @@ def test_a_missing_prompt_still_raises_prompt_not_found() -> None:
     assert excinfo.value.code is ErrorCode.INTERNAL
 
 
-def test_the_intent_prompt_carries_details_across_one_request() -> None:
-    """Catches an extraction prompt that reads only the last message: the answer
-    "Two weeks, to read the runbooks" names no system, so the turn would ask again
-    unless the prompt says to fill system, role and justification from the earlier
-    messages of the same request."""
+def test_the_extraction_prompt_takes_only_the_latest_message() -> None:
+    """An earlier change replaces `test_the_intent_prompt_carries_details_across_one_request`:
+    code now carries the details in the saved draft, so the model fills only what
+    the latest message says.
+
+    Catches a prompt that still tells the model to fill system, role and reason
+    "from the earlier messages of the same request" (the model and the draft
+    would then both carry details, and a stale one could win), one that never
+    names `second_request` (the model is never told to report a second ask, so
+    it is dropped silently), and one that never describes the `follow_up` label
+    (a message about the last reply would be forced into an action label)."""
     text = " ".join(load_prompt(INTENT_PROMPT).text.lower().split())
 
-    assert "earlier messages" in text
-    assert "same request" in text
-    for name in ("system", "role", "justification"):
-        assert name in text
+    assert "earlier messages of the same request" not in text
+    assert "`second_request`" in text
+    assert "`follow_up`" in text
 
 
 def test_the_planning_prompt_files_the_reason_and_the_length() -> None:

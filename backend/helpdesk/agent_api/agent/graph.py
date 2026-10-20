@@ -31,6 +31,7 @@ from helpdesk.agent_api.agent.nodes.extract_intent import (
     EXTRACTION_PROMPT,
     FAILURE_REPLY,
     extract_intent,
+    save_request_draft,
 )
 from helpdesk.agent_api.agent.nodes.load_session import load_session
 from helpdesk.agent_api.agent.nodes.plan_tools import PLANNING_PROMPT, plan_tools
@@ -132,7 +133,10 @@ async def _load_session(state: TurnState, config: RunnableConfig) -> dict[str, A
 
 
 async def _extract_intent(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
-    return (await extract_intent(state, _deps(config))).model_dump()
+    deps = _deps(config)
+    extracted = await extract_intent(state, deps)
+    await save_request_draft(extracted, deps)
+    return extracted.model_dump()
 
 
 async def _resolve_entities(state: TurnState, config: RunnableConfig) -> dict[str, Any]:

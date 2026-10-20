@@ -87,9 +87,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from helpdesk.agent_api.agent.checkpointer import build_checkpointer, build_pool, psycopg_dsn
 from helpdesk.agent_api.agent.checkpointer import setup_checkpointer as setup_checkpoint_tables
 from helpdesk.agent_api.agent.events import ErrorEvent, ReplyEvent, StepEvent
+from helpdesk.agent_api.agent.follow_up import CANNOT_PLACE_REPLY
 from helpdesk.agent_api.agent.graph import TurnDeps, stream_turn
 from helpdesk.agent_api.agent.nodes.await_approval import PENDING_APPROVAL_REPLY
-from helpdesk.agent_api.agent.postcheck import POSTCHECK_FALLBACK_REPLY
 from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.api.sse import (
@@ -693,6 +693,7 @@ def _extraction_answer() -> str:
             },
             "confidence": 0.95,
             "clarifying_question": None,
+            "second_request": None,
         }
     )
 
@@ -1003,9 +1004,10 @@ def test_no_token_is_emitted_before_the_composition_returns(stream_env: StreamEn
 
 def test_a_fallback_streams_the_template_and_neither_attempt(stream_env: StreamEnv) -> None:
     """Catches a stream that reaches for the model's last answer when the
-    post-check refused both: what a twice-contradicting turn streams is
-    `POSTCHECK_FALLBACK_REPLY` and nothing else, because both attempts made a
-    claim the turn cannot support.
+    post-check refused both: what a twice-contradicting turn that ran no
+    tool streams is `CANNOT_PLACE_REPLY` and nothing else (an earlier change: it ran no
+    tool, so there is no result to build the sentence from), because both
+    attempts made a claim the turn cannot support.
 
     The two attempts use DIFFERENT decision words, so a stream that emitted
     either one is caught by name rather than by a shared prefix.
@@ -1023,13 +1025,13 @@ def test_a_fallback_streams_the_template_and_neither_attempt(stream_env: StreamE
 
     frames = _stream(stream_env, session_id=session_id, gateway=gateway, tools=tools)
 
-    assert _streamed_text(frames) == POSTCHECK_FALLBACK_REPLY
+    assert _streamed_text(frames) == CANNOT_PLACE_REPLY
     wire = _raw(frames)
     assert CONTRADICTING_REPLY not in wire
     assert SECOND_CONTRADICTING_REPLY not in wire
     assert "granted" not in wire
     assert "approved" not in wire
-    assert _of(frames, REPLY)[0].data["reply"] == POSTCHECK_FALLBACK_REPLY
+    assert _of(frames, REPLY)[0].data["reply"] == CANNOT_PLACE_REPLY
 
 
 # --- the paused turn ----------------------------------------------------------

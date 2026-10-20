@@ -117,6 +117,7 @@ def _state(
             ),
             confidence=1.0,
             clarifying_question=None,
+            second_request=None,
         ),
         round_number=round_number,
         proposed=proposed,

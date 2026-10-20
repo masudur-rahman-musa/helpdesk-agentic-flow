@@ -51,6 +51,7 @@ def _extraction(intent: Intent, *, confidence: float, **entities: Any) -> Intent
         entities=IntentEntities(**{**dict.fromkeys(IntentEntities.model_fields), **entities}),
         confidence=confidence,
         clarifying_question=None,
+        second_request=None,
     )
 
 

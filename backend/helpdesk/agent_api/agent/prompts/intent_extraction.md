@@ -1,7 +1,7 @@
 # Intent extraction
 
-Read the employee's latest message, with the conversation so far as context,
-and return one JSON object matching the schema you were given. Return nothing
+Read the employee's latest message, with the conversation so far as context
+for what it refers to, and return one JSON object matching the schema you were given. Return nothing
 else: no prose, no explanation, no code fence.
 
 ## The label set
@@ -27,6 +27,9 @@ Choose exactly one `intent` from this closed list. Never invent a label.
   filed for it.
 - `approvals` — the person wants to see or act on requests awaiting them.
 - `review` — anything about an access review or a review item.
+- `follow_up` — the message is about the assistant's last reply, not a new
+  request: "show me that as a list", "say it shorter", "explain that", "what
+  did you mean by critical", "why?".
 - `other` — the message fits none of the above.
 
 Use `other` rather than forcing a label that nearly fits: small talk,
@@ -60,14 +63,22 @@ message, and never put the whole phrase into one field.
 
 One request can take more than one message. When the latest message answers
 a question about a request, as in "Two weeks, to read the runbooks", it is
-still `request_access`: fill `system`, `role` and `justification` from the
-earlier messages of the same request, and `expiry_days` and `justification`
-from the answer. Never carry details over from an earlier request that is
-already filed or was dropped.
+still `request_access`. Fill only what the latest message says ("Two weeks,
+to read the runbooks" gives `expiry_days` and `justification` and nothing
+else). Never copy a detail from an earlier message: code keeps what was said
+before and puts it together with your answer. A newer answer ("make it 10
+days") is simply the new value.
 
 Copy the person's own wording into `system` and `role`. Do not normalise,
 correct or translate it: a deterministic matcher resolves those names against
 the company directory afterwards, and it needs what was actually said.
+
+## A second request
+
+When one message holds two requests ("reset my password and give me wiki
+access"), set `intent` to the first and `second_request` to the intent of the
+second, from the same list. Fill `entities` for the first request only. When
+there is no second request, `second_request` is null.
 
 ## Confidence and the clarifying question
 

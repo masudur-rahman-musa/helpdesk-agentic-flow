@@ -300,6 +300,7 @@ def _state(
             ),
             confidence=0.95,
             clarifying_question=None,
+            second_request=None,
         ),
         resolved=ResolvedEntities(
             system_id=SYSTEM_ID,
@@ -1031,8 +1032,9 @@ def test_a_retried_answer_uses_its_own_marks() -> None:
 
 
 def test_a_fixed_sentence_leaves_the_citations_unknown() -> None:
-    """Catches a composition that keeps the last attempt's marks (or an empty
-    tuple) when the fixed sentence is sent: the box must then show every passage."""
+    """Catches a composition that keeps the last attempt's marks, or leaves the
+    citations unknown (`None`), when the fixed sentence is sent: a fixed sentence
+    is written by code and uses no policy text, so the box must show none."""
     gateway = StagedGateway(
         answers=[
             StagedAnswer(text=_with_marks(CONTRADICTING_REPLY, [1])),
@@ -1044,7 +1046,7 @@ def test_a_fixed_sentence_leaves_the_citations_unknown() -> None:
     result = _compose(state, gateway, RecordingSession())
 
     assert result.postcheck is PostCheckOutcome.FALLBACK
-    assert result.reply_citations is None
+    assert result.reply_citations == ()
 
 
 def test_the_writer_is_asked_for_the_composed_reply_shape() -> None:

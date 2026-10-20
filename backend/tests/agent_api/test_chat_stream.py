@@ -502,6 +502,7 @@ def _extraction_answer() -> str:
             },
             "confidence": 0.95,
             "clarifying_question": None,
+            "second_request": None,
         }
     )
 

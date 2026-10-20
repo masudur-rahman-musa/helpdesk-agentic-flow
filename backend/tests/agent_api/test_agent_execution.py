@@ -173,6 +173,7 @@ def _state(*validated: ValidatedCall, tool_calls_made: int = 0) -> TurnState:
             ),
             confidence=0.95,
             clarifying_question=None,
+            second_request=None,
         ),
         outcome=TurnOutcome.CONTINUE,
         round_number=1,

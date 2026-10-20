@@ -477,6 +477,7 @@ def _extraction_json(
             "entities": {**dict.fromkeys(IntentEntities.model_fields), **(entities or {})},
             "confidence": confidence,
             "clarifying_question": clarifying_question,
+            "second_request": None,
         }
     )
 
@@ -1536,6 +1537,7 @@ def _planning_state(
             ),
             confidence=0.95,
             clarifying_question=None,
+            second_request=None,
         ),
         started_at=NOW,
         tool_calls_made=tool_calls_made,
@@ -2201,6 +2203,7 @@ def test_a_planner_answer_with_non_object_arguments_is_retried_once() -> None:
             ),
             confidence=0.95,
             clarifying_question=None,
+            second_request=None,
         ),
         started_at=NOW,
     )
