@@ -22,6 +22,13 @@ async def find_user_by_id(session: AsyncSession, user_id: uuid.UUID) -> User | N
     return result.scalars().one_or_none()
 
 
+async def list_user_display_names(session: AsyncSession) -> list[str]:
+    """Every person's display name in the session's own tenant, for the
+    spelling fix. Whole rows, so the tenant guard scopes them."""
+    result = await session.execute(select(User))
+    return [user.display_name for user in result.scalars().all()]
+
+
 async def lock_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
     """The user, locked for this transaction.
 

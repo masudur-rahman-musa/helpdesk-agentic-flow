@@ -73,6 +73,23 @@ Copy the person's own wording into `system` and `role`. Do not normalise,
 correct or translate it: a deterministic matcher resolves those names against
 the company directory afterwards, and it needs what was actually said.
 
+## The last question
+
+When the assistant just asked something, you get one `last question:` data
+message with that question, its `kind` and the `options` it offered. Read the
+latest message against it:
+
+- An answer to it, or a change to what was asked ("make it 10 days",
+  "actually the viewer one"), keeps the intent of the request it is about.
+- A new request ("I need CRM viewer for 7 days to check accounts") is that
+  new request, with only its own details.
+- A question about the last reply ("what do you mean", "why that one?") is
+  `follow_up`.
+- A message that has nothing to do with it, or with the helpdesk, is `other`.
+
+Yes, no and a pick from the options are read by code before you see the
+message, so a message naming one option is simply that option's name.
+
 ## A second request
 
 When one message holds two requests ("reset my password and give me wiki

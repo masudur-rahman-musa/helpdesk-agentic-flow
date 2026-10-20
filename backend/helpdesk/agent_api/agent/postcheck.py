@@ -11,7 +11,11 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from helpdesk.agent_api.agent.follow_up import OUT_OF_SCOPE_REPLY, last_assistant_reply
+from helpdesk.agent_api.agent.follow_up import (
+    CANNOT_PLACE_REPLY,
+    OUT_OF_SCOPE_REPLY,
+    last_assistant_reply,
+)
 from helpdesk.agent_api.agent.gates import ALREADY_REQUESTED
 from helpdesk.agent_api.agent.state import Intent, ToolResult, TurnOutcome, TurnState
 from helpdesk.shared.models.access import RequestStatus
@@ -40,13 +44,14 @@ _STATUS_PERMITS: Mapping[str, frozenset[str]] = {
 """What each request status lets a reply say. `approved` is not `granted`:
 the grant may not have run yet. Statuses with no row allow nothing."""
 
-POSTCHECK_FALLBACK_REPLY = (
-    "Sorry, I couldn't answer that one properly. Try asking it another way, "
-    "or open My requests to see where things stand."
-)
+POSTCHECK_FALLBACK_REPLY = CANNOT_PLACE_REPLY
 """What a reply that contradicted twice ends on when the turn returned nothing
-code can word. It claims nothing, uses no decision word, and never reads like a
-fault in the app (`test_fallback_text_is_plain`)."""
+code can word: the line saying what the assistant helps with. It claims
+nothing, uses no decision word, and never reads like a fault in the app
+(`test_fallback_text_is_plain`, `test_couldnt_answer_text_is_gone`)."""
+
+GRANTS_KEY = "grants"
+"""Where `list_my_access` puts the person's live grants."""
 
 LIST_KEY = "requests"
 """Where `list_my_requests` puts its rows, each with its own `status`."""
@@ -219,7 +224,7 @@ def _classified_reply(payload: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _repeat_reply(payload: Mapping[str, Any]) -> str | None:
+def repeat_reply(payload: Mapping[str, Any]) -> str | None:
     """The sentence for a request that was already open, so nothing was filed."""
     if payload.get(ALREADY_REQUESTED) is not True:
         return None
@@ -275,17 +280,44 @@ def _listing_reply(payload: Mapping[str, Any]) -> str | None:
     return f"You have {'; '.join(parts)}."
 
 
+def held_reply(role_name: str) -> str:
+    """The line for a role the person already holds."""
+    return f"You already hold {role_name}."
+
+
+def _held_from_grants(state: TurnState, results: list[ToolResult]) -> str | None:
+    """The held line when a `list_my_access` result holds the resolved role,
+    matched by system and role slug (a grant row names no role id)."""
+    resolved = state.resolved
+    if resolved is None or not resolved.role_slug or not resolved.role_name:
+        return None
+    for result in results:
+        grants = result.payload.get(GRANTS_KEY)
+        if not isinstance(grants, list):
+            continue
+        for grant in grants:
+            if (
+                isinstance(grant, Mapping)
+                and grant.get("role_slug") == resolved.role_slug
+                and grant.get("system_slug") == resolved.system_slug
+            ):
+                return held_reply(resolved.role_name)
+    return None
+
+
 def outcome_reply(state: TurnState) -> str:
     """The last-resort reply, said from the turn's own results with no model call.
 
     A filed request wins over a classification, and the latest result wins
     within each. Each sentence uses only the decision words its result earns
     and asks nothing, so it passes the check it replaces. A turn with no
-    usable outcome gets the generic text.
+    usable outcome gets the line saying what the assistant helps with, and a
+    listing of the person's access that holds the resolved role gets the held
+    line (`test_held_line_from_tool_data`).
     """
     ok = [result for result in reversed(state.tool_results) if result.ok]
     for result in ok:
-        if (reply := _repeat_reply(result.payload)) is not None:
+        if (reply := repeat_reply(result.payload)) is not None:
             return reply
     for result in ok:
         if _filed(result) and (reply := _filed_reply(result.payload)) is not None:
@@ -298,6 +330,8 @@ def outcome_reply(state: TurnState) -> str:
     for result in ok:
         if (reply := _listing_reply(result.payload)) is not None:
             return reply
+    if (reply := _held_from_grants(state, ok)) is not None:
+        return reply
     if state.extraction is not None and state.extraction.intent is Intent.OTHER:
         return OUT_OF_SCOPE_REPLY
     return POSTCHECK_FALLBACK_REPLY

@@ -2618,17 +2618,13 @@ REASON_REQUIRED_LINE = (
     "The business reason is required. Approvers need it to decide. "
     "Please give a short reason, even one line."
 )
-REASON_STOP_LINE = (
-    "I can't file this without a reason. "
-    "You can start again when you have one, or I can open a ticket for someone to help."
-)
+REASON_STOP_LINE = "I can't file this without a reason. You can start again when you have one."
 DEPARTMENT_REQUIRED_LINE = (
     "The department is required. I need it to pick the right access. "
     "Please give the department's name."
 )
 DEPARTMENT_STOP_LINE = (
-    "I can't file this without a department. "
-    "You can start again when you have one, or I can open a ticket for someone to help."
+    "I can't file this without a department. You can start again when you have one."
 )
 
 

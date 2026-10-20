@@ -33,7 +33,7 @@ async def fetch_live_role_ids_for_user(
             or_(Grant.expires_at.is_(None), Grant.expires_at > now),
         )
     )
-    return frozenset(grant.role_id for grant in result.scalars())
+    return frozenset(grant.role_id for grant in result.scalars().all())
 
 
 async def list_role_catalogue(

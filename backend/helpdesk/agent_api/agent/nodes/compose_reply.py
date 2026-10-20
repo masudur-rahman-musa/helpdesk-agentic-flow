@@ -33,7 +33,9 @@ list code writes (`groups_reply`).
 Every turn also gets the only next steps the reply may offer, built by code
 from the role data and the permission matrix, an empty list included, so the
 writer never offers a level or an action that does not exist
-(`next_steps.py`).
+(`next_steps.py`). A ticket is offered only on an `open_ticket` or `other`
+turn, or after a failed tool; on any other turn a sentence of the writer's
+that offers one is cut (`test_compose_cuts_the_unoffered_ticket_sentence`).
 
 Each policy passage goes in with its 1-based `passage` number, and the
 accepted answer's `used_passages` picks `reply_citations`, the passages the
@@ -68,7 +70,11 @@ from helpdesk.agent_api.agent.follow_up import (
     with_fixed_lines,
 )
 from helpdesk.agent_api.agent.gates import REQUIRED_ENTITIES
-from helpdesk.agent_api.agent.next_steps import next_step_lines
+from helpdesk.agent_api.agent.next_steps import (
+    next_step_lines,
+    offers_ticket,
+    without_ticket_offer,
+)
 from helpdesk.agent_api.agent.nodes.endings import note_question
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from helpdesk.agent_api.agent.postcheck import (
@@ -294,6 +300,9 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     system = load_prompt(SYSTEM_PROMPT)
     rows = _requestable_rows(state)
     groups = ordered_requestable(rows)
+    intent = state.extraction.intent if state.extraction else None
+    tool_failed = any(not result.ok for result in state.tool_results)
+    ticket = offers_ticket(state.principals, intent, tool_failed=tool_failed)
 
     messages = [
         {"role": "system", "content": system.text},
@@ -317,7 +326,10 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         *_requestable_data(rows),
         _as_data("what did not work, in plain words", _failure_sentences(state.tool_results)),
         *_capability_data(state),
-        _as_data(NEXT_STEPS_LABEL, next_step_lines(state.principals, state.resolved)),
+        _as_data(
+            NEXT_STEPS_LABEL,
+            next_step_lines(state.principals, state.resolved, intent, tool_failed=tool_failed),
+        ),
         *_earlier_reply_data(state),
         {"role": "user", "content": state.user_message},
     ]
@@ -369,7 +381,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
                 and not mixed
                 and not contradicts(composed.text, state)
             ):
-                reply = candidate
+                reply = candidate if ticket else without_ticket_offer(candidate)
                 asks_question = composed.asks_question
                 reply_citations = pick_used(state.citations, composed.used_passages)
                 postcheck = (

@@ -36,11 +36,11 @@ async def _store_reply(state: TurnState, deps: TurnDeps, reply: str) -> TurnStat
 
 
 async def note_question(state: TurnState, deps: TurnDeps, kind: QuestionKind) -> None:
-    """Note when a question was asked, what it asked and the asks per field,
-    for the next message."""
+    """Note when a question was asked, what it asked, the asks per field and
+    the options offered, for the next message."""
     now = deps.now()
     await set_asked_clarifying(deps.db, session_id=state.session_id, value=now.isoformat())
-    stored = stored_kind(kind, now=now, asks=state.asks_made or None)
+    stored = stored_kind(kind, now=now, asks=state.asks_made or None, options=state.options)
     await set_asked_kind(deps.db, session_id=state.session_id, value=stored)
 
 

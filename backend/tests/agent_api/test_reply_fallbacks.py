@@ -16,11 +16,13 @@ Surface under test (written before it exists):
 Cost: nothing. Frozen Pydantic objects and pure functions; no service.
 """
 
+import uuid
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.agent.follow_up import OUT_OF_SCOPE_REPLY
+from helpdesk.agent_api.agent.follow_up import CANNOT_PLACE_REPLY, OUT_OF_SCOPE_REPLY
 from helpdesk.agent_api.agent.postcheck import (
     POSTCHECK_FALLBACK_REPLY,
     contradicts,
@@ -32,6 +34,7 @@ from helpdesk.agent_api.agent.state import (
     Intent,
     IntentEntities,
     IntentExtraction,
+    ResolvedEntities,
     ToolResult,
     TurnOutcome,
     TurnState,
@@ -130,13 +133,10 @@ def test_empty_listing_reply() -> None:
 
 
 def test_fallback_text_is_plain() -> None:
-    """Catches the old fallback that reads like a bug in the app, and a new
-    text that drifts from the one the owner chose or brings back a decision
+    """Catches a last resort that is still the old "couldn't answer" text, or a
+    new text that drifts from `CANNOT_PLACE_REPLY` or brings back a decision
     word the turn never earned."""
-    assert POSTCHECK_FALLBACK_REPLY == (
-        "Sorry, I couldn't answer that one properly. Try asking it another way, "
-        "or open My requests to see where things stand."
-    )
+    assert POSTCHECK_FALLBACK_REPLY == CANNOT_PLACE_REPLY
     assert "went wrong" not in POSTCHECK_FALLBACK_REPLY.lower()
     assert words_in(POSTCHECK_FALLBACK_REPLY) == frozenset()
 
@@ -182,3 +182,62 @@ def test_repeat_reply_pending_and_approved(status: str, expected: str) -> None:
         payload={"already_requested": True, "request_number": "REQ-0002", "status": status},
     )
     assert outcome_reply(_state(tool_results=(result,))) == expected
+
+
+AGENT_API = Path(__file__).resolve().parents[2] / "helpdesk" / "agent_api"
+VPN_ROLE_ID = uuid.UUID("77777777-7777-5777-8777-777777777777")
+OTHER_ROLE_ID = uuid.UUID("77777777-7777-5777-8777-777777777778")
+
+
+def test_couldnt_answer_text_is_gone() -> None:
+    """Catches a reply path that still sends "Sorry, I couldn't answer that one
+    properly": no source file under agent_api holds that wording, and a turn
+    with no usable result (a check-my-access turn that returned nothing) ends on
+    `CANNOT_PLACE_REPLY`, the code-written text, not on any apology."""
+    for source in AGENT_API.rglob("*.py"):
+        text = source.read_text().lower()
+        assert "couldn't answer" not in text, source
+        assert "could not answer that" not in text, source
+    state = _with_intent(_state(outcome=TurnOutcome.DONE), Intent.CHECK_MY_ACCESS)
+    reply = outcome_reply(state)
+    assert reply == CANNOT_PLACE_REPLY
+    assert "couldn't answer" not in reply.lower()
+
+
+def _holding(role_id: uuid.UUID, *, slug: str) -> ToolResult:
+    """A `list_my_access` answer with one live grant on the VPN system."""
+    grant = {
+        "grant_id": str(uuid.uuid4()),
+        "role_id": str(role_id),
+        "role_slug": slug,
+        "role_name": f"VPN {slug}",
+        "privilege": "read",
+        "system_slug": "vpn",
+        "system_name": "VPN",
+    }
+    return ToolResult(tool="list_my_access", ok=True, payload={"grants": [grant]})
+
+
+def _vpn_user_turn(result: ToolResult) -> TurnState:
+    resolved = ResolvedEntities(
+        system_slug="vpn",
+        system_name="VPN",
+        role_id=VPN_ROLE_ID,
+        role_slug="user",
+        role_name="VPN user",
+    )
+    state = _with_intent(_state(tool_results=(result,)), Intent.REQUEST_ACCESS)
+    return state.model_copy(update={"resolved": resolved})
+
+
+def test_held_line_from_tool_data() -> None:
+    """Catches a last resort that ignores the person's grants: `list_my_access`
+    shows the resolved role (VPN user), so the reply is "You already hold VPN
+    user." The same turn whose only grant is a different role must not get that
+    line, so the line follows the resolved role and not the mere presence of a
+    grant."""
+    held = outcome_reply(_vpn_user_turn(_holding(VPN_ROLE_ID, slug="user")))
+    assert held == "You already hold VPN user."
+
+    other = outcome_reply(_vpn_user_turn(_holding(OTHER_ROLE_ID, slug="admin")))
+    assert other == CANNOT_PLACE_REPLY

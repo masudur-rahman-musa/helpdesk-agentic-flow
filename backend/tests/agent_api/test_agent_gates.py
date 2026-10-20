@@ -487,7 +487,7 @@ PLANNED_INTENT_TOOLS: dict[str, frozenset[str]] = {
     "onboard": frozenset({"onboard_user", "create_ticket"}),
     "offboard": frozenset({"offboard_user", "create_ticket"}),
     "open_ticket": frozenset({"create_ticket"}),
-    "ask_policy": frozenset(),
+    "ask_policy": frozenset({"get_me", "classify_access_request"}),
     "check_my_access": frozenset(
         {"get_me", "list_my_access", "list_my_requests", "list_my_tickets"}
     ),
@@ -559,12 +559,11 @@ def test_each_intents_row_is_the_planned_one(intent_value: str, expected: frozen
 
 
 def test_the_two_intents_that_plan_nothing_are_offered_nothing() -> None:
-    """The table half. `ask_policy` is answered from the citations
-    alone and `other` is not a request at all, so a row with anything in it
-    invites a model call and a mutation for a turn that asked for neither.
-    Kept apart from the row table above because this is the pair the planner
-    short-circuits on BEFORE the gateway is touched."""
-    assert allowed_tools(Intent.ASK_POLICY) == frozenset()
+    """The table half. `other` is not a request at all, so a row with anything
+    in it invites a model call and a mutation for a turn that asked for
+    neither. `ask_policy` may read the person and classify a role, so "who
+    approves" is answered, and nothing it may call writes."""
+    assert allowed_tools(Intent.ASK_POLICY) == frozenset({"get_me", "classify_access_request"})
     assert allowed_tools(Intent.OTHER) == frozenset()
 
 

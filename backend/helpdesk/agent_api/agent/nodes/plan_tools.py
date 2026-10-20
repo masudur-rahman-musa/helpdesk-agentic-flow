@@ -2,7 +2,8 @@
 
 Uses the strong model: picking a change and its arguments is the riskiest
 choice the model makes, and a wrong answer means a wrong record. Intents with
-no tools, and turns past a budget, make no model call at all. Everything
+no tools, a policy question that names no role, and turns past a budget,
+make no model call at all. Everything
 gathered goes in as `user` data, never `system`, so policy text cannot
 become an instruction that leads to a change. Every round's tokens count,
 refused rounds too. The node never raises.
@@ -50,7 +51,7 @@ async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState:
         return state
 
     allowed = gates.allowed_tools(extraction.intent, extraction.second_request)
-    if not allowed:
+    if not allowed or gates.policy_question_without_role(extraction.intent, state.resolved):
         return state.model_copy(update={"outcome": TurnOutcome.CONTINUE, "proposed": ()})
 
     if not gates.may_plan_another_round(

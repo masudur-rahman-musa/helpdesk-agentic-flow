@@ -43,7 +43,24 @@ SELF_WORDS = frozenset({"me", "myself", "i", "self", "mine", "my"})
 USUAL_LENGTH = "its usual length"
 """Said for the days when neither the policy nor the person gave a number."""
 
-YES_WORDS = frozenset({"yes", "yep", "yeah", "correct", "right", "sure", "ok", "okay", "confirm"})
+YES_WORDS = frozenset(
+    {
+        "yes",
+        "y",
+        "yep",
+        "yup",
+        "ya",
+        "yea",
+        "yeah",
+        "correct",
+        "right",
+        "sure",
+        "ok",
+        "okay",
+        "alright",
+        "confirm",
+    }
+)
 NO_WORDS = frozenset({"no", "nope", "wrong"})
 
 MAX_YES_WORDS = 5
@@ -60,6 +77,12 @@ NOTHING_FILED_REPLY = (
     "system and the role, and I will check it with you before filing."
 )
 """The fixed reply to a bare no. No model call, so nothing new is planned."""
+
+NOTHING_WAITING_REPLY = (
+    "Nothing is waiting for a yes. Tell me what you need, and I'll check it with you first."
+)
+"""The fixed reply to a yes right after a no: the no dropped what it would
+have run, so a yes brings nothing back (`test_no_then_do_it_files_nothing`)."""
 
 _WORD = re.compile(r"[a-z']+")
 

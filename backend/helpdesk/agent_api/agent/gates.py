@@ -5,7 +5,13 @@ import uuid
 from collections.abc import Mapping, Sequence
 
 from helpdesk.agent_api.agent.required_fields import is_non_answer
-from helpdesk.agent_api.agent.state import Intent, IntentExtraction, ToolResult, TurnOutcome
+from helpdesk.agent_api.agent.state import (
+    Intent,
+    IntentExtraction,
+    ResolvedEntities,
+    ToolResult,
+    TurnOutcome,
+)
 from helpdesk.agent_api.agent.tool_args import needs_idempotency_key
 
 CONFIDENCE_THRESHOLD = 0.7
@@ -193,7 +199,7 @@ INTENT_TOOLS: Mapping[Intent, frozenset[str]] = {
     Intent.ONBOARD: frozenset({"onboard_user", "create_ticket"}),
     Intent.OFFBOARD: frozenset({"offboard_user", "create_ticket"}),
     Intent.OPEN_TICKET: frozenset({"create_ticket"}),
-    Intent.ASK_POLICY: frozenset(),
+    Intent.ASK_POLICY: frozenset({"get_me", "classify_access_request"}),
     Intent.CHECK_MY_ACCESS: frozenset(
         {"get_me", "list_my_access", "list_my_requests", "list_my_tickets"}
     ),
@@ -206,6 +212,14 @@ INTENT_TOOLS: Mapping[Intent, frozenset[str]] = {
 """Which tools the planner may pick per intent. Not permission (RBAC does
 that): it narrows what a prompt injection can aim at. `search_policy` is in
 no row, since search runs before planning. Empty rows skip the model call."""
+
+
+def policy_question_without_role(intent: Intent, resolved: ResolvedEntities | None) -> bool:
+    """Whether an `ask_policy` turn named no role: the policy text answers it,
+    so nothing is planned. One that names a role ("who approves CRM editor?")
+    may classify it (`test_who_approves_is_answered`)."""
+    return intent is Intent.ASK_POLICY and (resolved is None or resolved.role_id is None)
+
 
 MAX_TOOL_CALLS = 6
 """The most tool calls one turn may run, inclusive."""

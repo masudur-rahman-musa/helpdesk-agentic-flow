@@ -13,6 +13,15 @@ clear follow-up ("say it shorter") skips resolving, search and tools: it goes
 straight to the reply, or ends on the cannot-place line when there is no
 earlier reply to reshape (`test_follow_up.py`).
 
+Before the model reads it, the message is understood by code
+(`understand.py`): its spelling is fixed against the tenant's system names,
+role words and people's names (`read_catalogue`, run by the graph first),
+and the model reads the fixed message. When
+the fix changed a run, the system and role it named fill a blank `system`
+and `role`. When the message answers a question, the model also gets that
+question, its kind and its options as one data message
+(`test_message_kinds.py`).
+
 Three fixed stops and one fixed blank, by code, never the model. A
 reset or unlock keeps no system or role, so none reaches its reply or draft
 (`test_reset_and_wiki_opens_no_ticket`). A request for access to everything
@@ -20,6 +29,8 @@ ends on the fixed no (`test_everything_stops_with_no`). A request for someone
 else ends on the only-for-you line unless the speaker may ask for others
 (`test_employee_asking_for_a_friend_is_told_no`).
 """
+
+import json
 
 from helpdesk.agent_api.agent import gates
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind
@@ -31,11 +42,15 @@ from helpdesk.agent_api.agent.request_draft import draft_dump, merge_draft
 from helpdesk.agent_api.agent.required_fields import Ask, AskStep, next_ask
 from helpdesk.agent_api.agent.state import Intent, IntentExtraction, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.agent_api.agent.understand import Catalogue, SystemWords, Understood, understand
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.errors import ToolError
+from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.sessions import set_request_draft
+from helpdesk.shared.crud.users import list_user_display_names
+from helpdesk.shared.models import Role, System
 
 SYSTEM_PROMPT = "system"
 EXTRACTION_PROMPT = "intent_extraction"
@@ -73,12 +88,18 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
     prompt = load_prompt(EXTRACTION_PROMPT)
     system = load_prompt(SYSTEM_PROMPT)
     threshold = load_settings().intent_confidence_min
+    understood = (
+        understand(state.user_message, state.catalogue)
+        if state.catalogue is not None
+        else Understood(message=state.user_message)
+    )
 
     messages = [
         {"role": "system", "content": system.text},
         {"role": "system", "content": prompt.text},
         *({"role": "user", "content": line} for line in state.history),
-        {"role": "user", "content": state.user_message},
+        *_last_question_data(state),
+        {"role": "user", "content": understood.message},
     ]
 
     try:
@@ -100,7 +121,10 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
         )
 
     extraction, draft = merge_draft(
-        state.request_draft, _without_systems(answer.value), now=deps.now(), threshold=threshold
+        state.request_draft,
+        _without_systems(_with_found(answer.value, understood)),
+        now=deps.now(),
+        threshold=threshold,
     )
     state = state.model_copy(update={"draft_to_save": draft})
     tokens_used = state.tokens_used + answer.usage.total_tokens
@@ -166,6 +190,54 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             ),
         }
     )
+
+
+async def read_catalogue(state: TurnState, deps: TurnDeps) -> TurnState:
+    """The state with the caller's own tenant's systems, roles and people,
+    read through the tenant-bound session. The graph runs this right before
+    the node, so the node itself reads nothing (`test_message_kinds.py`)."""
+    systems = await Repository(deps.db, System).list()
+    roles = await Repository(deps.db, Role).list()
+    people = await list_user_display_names(deps.db)
+    catalogue = Catalogue(
+        systems=tuple(
+            SystemWords(
+                slug=item.slug,
+                name=item.name,
+                role_slugs=tuple(role.slug for role in roles if role.system_id == item.id),
+            )
+            for item in systems
+        ),
+        people=tuple(people),
+    )
+    return state.model_copy(update={"catalogue": catalogue})
+
+
+def _last_question_data(state: TurnState) -> list[dict[str, str]]:
+    """The question this message answers, as one data message; none when
+    no question was asked."""
+    if state.asked_kind is None:
+        return []
+    data = {
+        "the assistant's last question": last_assistant_reply(state.history) or "",
+        "kind": state.asked_kind.value,
+        "options": list(state.asked_options),
+    }
+    return [{"role": "user", "content": f"last question: {json.dumps(data)}"}]
+
+
+def _with_found(extraction: IntentExtraction, understood: Understood) -> IntentExtraction:
+    """The extraction with a blank system and role filled from the run the
+    spelling fix changed; as it is when no run changed or both are filled."""
+    entities = extraction.entities
+    update: dict[str, str] = {}
+    if understood.system and not (entities.system or "").strip():
+        update["system"] = understood.system
+    if understood.role and not (entities.role or "").strip():
+        update["role"] = understood.role
+    if not update:
+        return extraction
+    return extraction.model_copy(update={"entities": entities.model_copy(update=update)})
 
 
 def _without_systems(extraction: IntentExtraction) -> IntentExtraction:

@@ -82,19 +82,13 @@ REASON_REQUIRED_LINE = (
     "Please give a short reason, even one line."
 )
 """The second ask for the reason; it replaces the old reason question."""
-REASON_STOP_LINE = (
-    "I can't file this without a reason. "
-    "You can start again when you have one, or I can open a ticket for someone to help."
-)
+REASON_STOP_LINE = "I can't file this without a reason. You can start again when you have one."
 SYSTEM_FIRST_ASK = "Before I check this, tell me which system you need."
 SYSTEM_REQUIRED_LINE = (
     "The system is required. I need it to find the right access. "
     "Please give the system's name, even roughly."
 )
-SYSTEM_STOP_LINE = (
-    "I can't file this without a system. "
-    "You can start again when you have one, or I can open a ticket for someone to help."
-)
+SYSTEM_STOP_LINE = "I can't file this without a system. You can start again when you have one."
 DEPARTMENT_FIRST_ASK = "Before I check this, tell me which department."
 TURN_NOW = datetime(2026, 6, 2, tzinfo=UTC)
 
@@ -238,8 +232,7 @@ def test_a_clear_onboard_walks_the_ladder_at_extraction(
     assert state.asks_made == counted
     if outcome is TurnOutcome.STOP:
         assert state.reply == (
-            "I can't file this without a department. "
-            "You can start again when you have one, or I can open a ticket for someone to help."
+            "I can't file this without a department. You can start again when you have one."
         )
     else:
         assert state.reply == (

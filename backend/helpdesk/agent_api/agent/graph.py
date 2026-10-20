@@ -31,11 +31,16 @@ from helpdesk.agent_api.agent.nodes.extract_intent import (
     EXTRACTION_PROMPT,
     FAILURE_REPLY,
     extract_intent,
+    read_catalogue,
     save_request_draft,
 )
 from helpdesk.agent_api.agent.nodes.load_session import load_session
 from helpdesk.agent_api.agent.nodes.plan_tools import PLANNING_PROMPT, plan_tools
-from helpdesk.agent_api.agent.nodes.resolve_entities import resolve_entities
+from helpdesk.agent_api.agent.nodes.resolve_entities import (
+    read_held_roles,
+    resolve_entities,
+    stop_on_open_request,
+)
 from helpdesk.agent_api.agent.nodes.retrieve_policy import retrieve_policy
 from helpdesk.agent_api.agent.nodes.validate_tool_calls import validate_tool_calls
 from helpdesk.agent_api.agent.prompts import load_prompt
@@ -134,13 +139,15 @@ async def _load_session(state: TurnState, config: RunnableConfig) -> dict[str, A
 
 async def _extract_intent(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
     deps = _deps(config)
-    extracted = await extract_intent(state, deps)
+    extracted = await extract_intent(await read_catalogue(state, deps), deps)
     await save_request_draft(extracted, deps)
     return extracted.model_dump()
 
 
 async def _resolve_entities(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
-    return (await resolve_entities(state, _deps(config))).model_dump()
+    deps = _deps(config)
+    resolved = await resolve_entities(await read_held_roles(state, deps), deps)
+    return (await stop_on_open_request(resolved, deps)).model_dump()
 
 
 async def _retrieve_policy(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
@@ -252,12 +259,14 @@ def _turn_telemetry() -> Any:
 
 
 def _after_session(state: TurnState) -> str:
-    """Route on `outcome`: a yes runs the stored calls, a bare no ends, and
-    anything else is read by the model as usual."""
+    """Route on `outcome`: a yes runs the stored calls, a bare no ends, a yes
+    after a no stops, and anything else is read by the model as usual."""
     if state.outcome is TurnOutcome.CONFIRMED:
         return EXECUTE_TOOLS
     if state.outcome is TurnOutcome.CLARIFY:
         return ASK_CLARIFYING
+    if state.outcome is TurnOutcome.STOP:
+        return STOP_ASKING
     return EXTRACT_INTENT
 
 
@@ -367,6 +376,7 @@ def _compile_graph(
         {
             EXECUTE_TOOLS: EXECUTE_TOOLS,
             ASK_CLARIFYING: ASK_CLARIFYING,
+            STOP_ASKING: STOP_ASKING,
             EXTRACT_INTENT: EXTRACT_INTENT,
         },
     )

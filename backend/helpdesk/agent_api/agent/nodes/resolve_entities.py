@@ -17,6 +17,17 @@ the suggestions grouped by system, the role options, the resolved role and
 the "That's <role>." line that opens the details question. System options keep
 `slug (name)`, since two systems can share a name.
 
+The person's live role ids are read once per turn, by `read_held_roles`
+run from the graph right before the node. A request for yourself of a
+role you hold stops with `held_reply` and no tool, and suggestions leave out
+the roles you hold; a request for someone else is not checked against your
+own roles (`test_message_kinds.py`).
+
+A request for yourself of a role with a request still waiting stops before the
+details question or the summary, naming that request's number
+(`stop_on_open_request`, run from the graph right after the node, so the
+node itself reads no requests).
+
 A request is checked for its details only once the role is found, so the
 person is asked how long and why about a real role. A still missing reason
 follows the required-field rule (`required_fields.py`): it is asked, then said
@@ -36,6 +47,7 @@ from helpdesk.agent_api.agent import gates, matching
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind
 from helpdesk.agent_api.agent.confirmation import other_person
 from helpdesk.agent_api.agent.matching import Candidate
+from helpdesk.agent_api.agent.postcheck import held_reply, repeat_reply
 from helpdesk.agent_api.agent.required_fields import AskStep, next_ask
 from helpdesk.agent_api.agent.role_words import grouped_suggestions, plain_role_name, role_word
 from helpdesk.agent_api.agent.state import (
@@ -52,9 +64,13 @@ from helpdesk.agent_api.agent.tool_args import (
     SuggestRolesResult,
 )
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.agent_api.agent.understand import read_pick
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud import Repository
+from helpdesk.shared.crud.access_requests import fetch_open_request
+from helpdesk.shared.crud.directory import fetch_live_role_ids_for_user
 from helpdesk.shared.models import Role, System
+from helpdesk.shared.models.numbers import NumberKind, format_number
 
 NOTHING_MATCHED_QUESTION = (
     "I could not find anything by that name here. Could you give the exact "
@@ -77,15 +93,19 @@ def suggestion_label(role: SuggestedRole) -> str:
     return plain_role_name(role.system_name, role.role_slug)
 
 
-async def _suggest_or_ask(state: TurnState, deps: TurnDeps, words: str) -> TurnState:
+async def _suggest_or_ask(
+    state: TurnState, deps: TurnDeps, words: str, held: frozenset[tuple[str, str]]
+) -> TurnState:
     """Nothing matched the typed words: offer the closest roles by meaning, or
     ask for the exact name when none is close or the search fails. A failed
-    search is never a failed turn: the person can still type the name."""
+    search is never a failed turn: the person can still type the name. Roles
+    in `held`, as (system slug, role slug), are never offered."""
     try:
         payload = await deps.tools.call_tool(SUGGEST_ROLES, SuggestRolesArgs(query=words))
         roles = SuggestRolesResult.model_validate(dict(payload)).roles
     except ToolError:
         roles = []
+    roles = [role for role in roles if (role.system_slug, role.role_slug) not in held]
     if not roles:
         return _ask_exact_name(state)
     offered = gates.capped_options(roles)
@@ -111,13 +131,15 @@ def _ask_exact_name(state: TurnState) -> TurnState:
     )
 
 
-async def _on_a_miss(state: TurnState, deps: TurnDeps, words: str) -> TurnState:
+async def _on_a_miss(
+    state: TurnState, deps: TurnDeps, words: str, held: frozenset[tuple[str, str]]
+) -> TurnState:
     """Nothing matched: suggest, then the exact-name question, then stop."""
     if state.asked_kind is QuestionKind.NAME:
         return state.model_copy(update={"outcome": TurnOutcome.ANSWER, "best_reading": True})
     if state.asked_kind is QuestionKind.SUGGEST:
         return _ask_exact_name(state)
-    return await _suggest_or_ask(state, deps, words)
+    return await _suggest_or_ask(state, deps, words, held)
 
 
 def _ask_details(state: TurnState, resolved: ResolvedEntities) -> TurnState | None:
@@ -197,6 +219,9 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
     def plain(role: Candidate) -> str:
         return plain_role_name(system_of[role.id], role.slug)
 
+    held_ids = state.held_role_ids
+    held = _held_slugs(systems, all_roles, held_ids)
+
     system_term = (extraction.entities.system or "").strip()
     role_term = (extraction.entities.role or "").strip()
 
@@ -241,7 +266,12 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
             continue
         outcome = gates.candidate_outcome(len(matches))
         if outcome is TurnOutcome.CLARIFY:
-            return await _on_a_miss(state, deps, unmatched)
+            held_name = _held_by_words(extraction, unmatched, all_roles, held_ids, system_of)
+            if held_name is not None:
+                return state.model_copy(
+                    update={"outcome": TurnOutcome.STOP, "reply": held_reply(held_name)}
+                )
+            return await _on_a_miss(state, deps, unmatched, held)
         if outcome is TurnOutcome.DISAMBIGUATE:
             options = tuple(label(candidate) for candidate in gates.capped_options(matches))
             return state.model_copy(
@@ -267,10 +297,96 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
         role_name=plain(resolved_role) if resolved_role else None,
         other_role_names=other_role_names(all_roles, resolved_role),
     )
+    if (
+        extraction.intent is Intent.REQUEST_ACCESS
+        and resolved.role_id in held_ids
+        and resolved.role_name
+    ):
+        return state.model_copy(
+            update={
+                "outcome": TurnOutcome.STOP,
+                "reply": held_reply(resolved.role_name),
+                "resolved": resolved,
+            }
+        )
     asked = _ask_details(state, resolved)
     if asked is not None:
         return asked
     return state.model_copy(update={"outcome": TurnOutcome.CONTINUE, "resolved": resolved})
+
+
+async def read_held_roles(state: TurnState, deps: TurnDeps) -> TurnState:
+    """The state with the caller's live role ids, read once. A request for
+    someone else reads none: their roles are not the caller's."""
+    extraction = state.extraction
+    if extraction is None or other_person(extraction.entities) is not None:
+        return state
+    held = await fetch_live_role_ids_for_user(deps.db, state.user_id, deps.now())
+    return state.model_copy(update={"held_role_ids": held})
+
+
+async def stop_on_open_request(state: TurnState, deps: TurnDeps) -> TurnState:
+    """The state stopped on the already-asked line when the person's own
+    request for the found role is still pending or approved; as it is
+    otherwise. Only a request that would go on to ask or to file is checked."""
+    extraction = state.extraction
+    resolved = state.resolved
+    if (
+        extraction is None
+        or extraction.intent is not Intent.REQUEST_ACCESS
+        or other_person(extraction.entities) is not None
+        or resolved is None
+        or resolved.role_id is None
+        or state.outcome not in (TurnOutcome.CONTINUE, TurnOutcome.CLARIFY)
+    ):
+        return state
+    found = await fetch_open_request(deps.db, state.user_id, resolved.role_id)
+    if found is None:
+        return state
+    payload = {
+        gates.ALREADY_REQUESTED: True,
+        "request_number": format_number(NumberKind.ACCESS_REQUEST, found.number),
+        "status": found.status,
+    }
+    return state.model_copy(
+        update={
+            "outcome": TurnOutcome.STOP,
+            "reply": repeat_reply(payload),
+            "question_kind": None,
+            "asks_made": {},
+        }
+    )
+
+
+def _held_by_words(
+    extraction: IntentExtraction,
+    words: str,
+    roles: Sequence[Role],
+    held_ids: frozenset[uuid.UUID],
+    system_of: dict[uuid.UUID, str],
+) -> str | None:
+    """The plain name of the one held role whose name holds every typed word
+    ("mail" for Mail and Files user), on a request that matched nothing; else
+    `None`. Read like a pick among the held roles, since a held role is never
+    offered (`test_a_miss_naming_a_held_role_says_it_is_held`)."""
+    if extraction.intent is not Intent.REQUEST_ACCESS or not held_ids:
+        return None
+    names = [
+        plain_role_name(system_of[role.id], role.slug) for role in roles if role.id in held_ids
+    ]
+    return read_pick(words, names)
+
+
+def _held_slugs(
+    systems: Sequence[Candidate], roles: Sequence[Role], held_ids: frozenset[uuid.UUID]
+) -> frozenset[tuple[str, str]]:
+    """The held roles as (system slug, role slug), the shape a suggestion names."""
+    slugs = {system.id: system.slug for system in systems}
+    return frozenset(
+        (slugs[role.system_id], role.slug)
+        for role in roles
+        if role.id in held_ids and role.system_id in slugs
+    )
 
 
 def roles_in_system(roles: Sequence[Role], system_matches: Sequence[Candidate]) -> Sequence[Role]:

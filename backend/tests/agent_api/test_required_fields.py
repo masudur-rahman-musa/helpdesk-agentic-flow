@@ -55,7 +55,7 @@ DEPARTMENT_REQUIRED = (
     "The department is required. I need it to pick the right access. "
     "Please give the department's name."
 )
-STOP_TAIL = " You can start again when you have one, or I can open a ticket for someone to help."
+STOP_TAIL = " You can start again when you have one."
 REASON_STOP = "I can't file this without a reason." + STOP_TAIL
 
 # name -> (first-ask words, required line, stop name)

@@ -109,7 +109,7 @@ async def fetch_open_request(
         .order_by(AccessRequest.created_at, AccessRequest.id)
         .limit(1)
     )
-    return result.scalars().first()
+    return result.scalars().one_or_none()
 
 
 async def lock_open_requests_for_target(

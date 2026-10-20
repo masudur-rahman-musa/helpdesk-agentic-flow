@@ -67,10 +67,7 @@ _ASKABLE = frozenset(field.name for field in REQUIRED_FIELDS if field.required_l
 
 def stop_line(stop_name: str) -> str:
     """The fixed words a turn ends on when a field was asked twice."""
-    return (
-        f"I can't file this without {stop_name}. You can start again when you "
-        "have one, or I can open a ticket for someone to help."
-    )
+    return f"I can't file this without {stop_name}. You can start again when you have one."
 
 
 def first_question(missing: Set[str], *, length_missing: bool) -> str:

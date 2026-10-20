@@ -25,8 +25,12 @@ from helpdesk.agent_api.agent.clarify_cap import (
     BEST_READING_FALLBACK,
     CLARIFY_CAP_LIFE,
     CORRECT_ME_LINE,
+    QuestionKind,
     details_question,
     parse_asked_at,
+    parse_asked_kind,
+    parse_asked_options,
+    stored_kind,
 )
 from helpdesk.agent_api.agent.gates import (
     REQUIRED_ENTITIES,
@@ -267,3 +271,42 @@ def test_asks_on_a_best_reading() -> None:
     assert asks_on_a_best_reading(True, _state(best_reading=True)) is True
     assert asks_on_a_best_reading(True, _state(best_reading=False)) is False
     assert asks_on_a_best_reading(False, _state(best_reading=True)) is False
+
+
+# --- stored options and the declined kind ---------------------------------------
+
+
+def test_the_declined_kind_has_its_plain_value() -> None:
+    """Catches a `declined` kind stored under another word: the value is what the
+    chat row holds, so it is pinned exactly, and it reads back as the kind."""
+    assert QuestionKind.DECLINED.value == "declined"
+    row = stored_kind(QuestionKind.DECLINED, now=NOW)
+    assert parse_asked_kind(row, now=NOW) is QuestionKind.DECLINED
+
+
+def test_options_round_trip() -> None:
+    """Catches options that are lost, reordered or dropped on the way through
+    the stored row ("1" and "the first one" depend on the order), and a bad or
+    old row that invents options instead of reading as none. The row without
+    options is built by the same function, so only the options argument can
+    add the key."""
+    names = ["Internal Wiki editor", "Mail and Files user"]
+    row = stored_kind(QuestionKind.SUGGEST, now=NOW, options=names)
+
+    assert row["options"] == names
+    assert parse_asked_options(row, now=NOW) == tuple(names)
+    assert "options" not in stored_kind(QuestionKind.SUGGEST, now=NOW)
+
+    old = NOW - CLARIFY_CAP_LIFE
+    stale = stored_kind(QuestionKind.SUGGEST, now=old, options=names)
+    bad_rows: list[object] = [
+        None,
+        "suggest",
+        {"kind": "suggest", "at": NOW.isoformat()},
+        {"kind": "suggest", "at": NOW.isoformat(), "options": "Internal Wiki editor"},
+        {"kind": "suggest", "at": NOW.isoformat(), "options": [1, 2]},
+        {"kind": "suggest", "at": NOW.isoformat(), "options": {"a": "b"}},
+        stale,
+    ]
+    for bad in bad_rows:
+        assert parse_asked_options(bad, now=NOW) == (), bad

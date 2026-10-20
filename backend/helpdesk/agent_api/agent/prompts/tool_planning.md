@@ -41,7 +41,11 @@ fact before a mutation.
   directory ids name one system, pass that system's slug.
 - `classify_access_request` — what a hypothetical request would be judged as:
   its risk, whether it needs approval, what expiry it would get. Decides
-  nothing and writes nothing. Call it before `create_access_request`.
+  nothing and writes nothing. Call it before `create_access_request`. On a
+  policy question about one role ("who approves CRM editor?", "how long
+  would wiki editor last?"), call `classify_access_request` for that role
+  and nothing else, with `get_me` first only if you need the person's id.
+  Its `required_approvers` say who approves.
 - `list_review_items` — the flagged grants of one access review.
 - `list_pending_approvals` — the requests waiting on the calling person.
 

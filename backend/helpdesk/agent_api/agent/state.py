@@ -10,6 +10,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, BeforeValidator, ConfigDict, WithJsonSchema
 
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind
+from helpdesk.agent_api.agent.understand import Catalogue
 from helpdesk.shared.core.errors import ErrorCode
 
 
@@ -254,6 +255,14 @@ class TurnState(BaseModel):
     `load_session` from their directory row; empty when the user or the
     department is not found. A role in it asks no details question."""
 
+    catalogue: Catalogue | None = None
+    """The tenant's systems, roles and people the spelling fix reads; read by
+    the graph right before `extract_intent`. `None` fixes nothing."""
+
+    held_role_ids: frozenset[uuid.UUID] = frozenset()
+    """The caller's live role ids; read by the graph right before
+    `resolve_entities`, and only for a request about the caller."""
+
     request_draft: RequestDraft | None = None
     """The saved draft as loaded by `load_session`, before this message changes
     it; `None` when there is none, or it is too old or badly shaped."""
@@ -292,6 +301,10 @@ class TurnState(BaseModel):
 
     asked_kind: QuestionKind | None = None
     """What the question this message answers asked; `None` when there was none."""
+
+    asked_options: tuple[str, ...] = ()
+    """The options the question this message answers offered, in order; a
+    pick ("1", "mail") names one of them."""
 
     question_kind: QuestionKind | None = None
     """What the question this turn ends on asks; stored by the ending node."""

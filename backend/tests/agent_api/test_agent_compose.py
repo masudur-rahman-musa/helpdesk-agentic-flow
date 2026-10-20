@@ -909,10 +909,8 @@ def test_the_next_steps_reach_the_writer_as_data() -> None:
     writer then invents them), or puts them in a system message, where gathered
     material would act as an instruction.
 
-    Both lines are asserted whole and in order, in one `user` message."""
-    from helpdesk.shared.auth.capabilities import SENTENCES
-    from helpdesk.shared.auth.rbac import Tool
-
+    The request_access turn offers the other-role line and no ticket line (plan
+    110); the list is asserted whole, in one `user` message."""
     state = _state().model_copy(
         update={
             "principals": ("employee",),
@@ -931,10 +929,7 @@ def test_the_next_steps_reach_the_writer_as_data() -> None:
 
     messages = _messages(gateway.requests[0])
     found = _next_steps_messages(gateway.requests[0])
-    expected = [
-        "Ask for another role on KYC: Approver, Viewer.",
-        SENTENCES[Tool.CREATE_TICKET],
-    ]
+    expected = ["Ask for another role on KYC: Approver, Viewer."]
     assert len(found) == 1
     assert found[0]["role"] == "user"
     assert found[0]["content"] == f"{NEXT_STEPS_LABEL}:\n{json.dumps(expected)}"

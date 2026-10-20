@@ -5,7 +5,7 @@ ISO string and checked here on every read, like the open question of
 `confirmation.py`.
 """
 
-from collections.abc import Mapping, Set
+from collections.abc import Mapping, Sequence, Set
 from datetime import datetime, timedelta
 from enum import StrEnum
 
@@ -33,6 +33,8 @@ class QuestionKind(StrEnum):
     NAME = "name"
     DETAILS = "details"
     OTHER = "other"
+    DECLINED = "declined"
+    """A bare no to a summary: a yes right after it has nothing to say yes to."""
 
 
 def parse_asked_kind(raw: object, *, now: datetime) -> QuestionKind | None:
@@ -52,14 +54,31 @@ def parse_asked_kind(raw: object, *, now: datetime) -> QuestionKind | None:
 
 
 def stored_kind(
-    kind: QuestionKind, *, now: datetime, asks: Mapping[str, int] | None = None
+    kind: QuestionKind,
+    *,
+    now: datetime,
+    asks: Mapping[str, int] | None = None,
+    options: Sequence[str] | None = None,
 ) -> dict[str, object]:
     """The kind and its time, in the shape `parse_asked_kind` reads, with the
-    asks per field when given."""
+    asks per field and the offered options when given."""
     stored: dict[str, object] = {"kind": kind.value, "at": now.isoformat()}
     if asks is not None:
         stored["asks"] = dict(asks)
+    if options:
+        stored["options"] = list(options)
     return stored
+
+
+def parse_asked_options(raw: object, *, now: datetime) -> tuple[str, ...]:
+    """The options the last question offered, in the order shown. A missing,
+    bad or too old row reads as none, so nothing can be picked from it."""
+    if parse_asked_kind(raw, now=now) is None or not isinstance(raw, dict):
+        return ()
+    options = raw.get("options")
+    if not isinstance(options, list) or not all(isinstance(o, str) for o in options):
+        return ()
+    return tuple(options)
 
 
 def parse_asked_asks(raw: object, *, now: datetime) -> dict[str, int] | None:
