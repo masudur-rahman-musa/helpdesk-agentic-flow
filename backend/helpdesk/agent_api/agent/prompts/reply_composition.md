@@ -76,7 +76,12 @@ tool name or an internal identifier of your own.
 
 ## How to write it
 
-- A few short sentences. No headings, no bullet lists, no markdown.
+- A few short plain sentences by default.
+- Use a `- ` bullet list, one thing per line, when you name three or more
+  things or when the person asks for a list.
+- Use a numbered list (`1. `, `2. `) for steps they must take in order.
+- Use `**bold**` only for a role name or a request or ticket number.
+- Never write headings, links, tables or code.
 - Plain words. No jargon, no internal code names, no error codes.
 - Name a role only by its `role_name` as given ("Internal Wiki editor"), never by a code value with a dot like `wiki.editor`.
 - Say what happens next when there is a next step, and say nothing about one

@@ -2,12 +2,15 @@
 
 import { TypingDots } from "@/features/chat/components/typing-dots";
 import type { ChatMessage } from "@/features/chat/components/types";
+import { FormattedText } from "@/features/chat/format";
 
 /**
  * The transcript, oldest first. `role="log"` makes a screen reader announce
  * streamed text. The live turn is replaced by the final reply, never added to:
  * the final check may have rewritten the streamed text. While `working` and no
  * text has arrived yet, three dots stand where the reply will appear.
+ * Assistant replies draw their lists and bold; the person's own messages stay
+ * exactly as typed (`test_the_persons_own_message_stays_plain`).
  */
 export function Conversation({
   messages,
@@ -61,7 +64,13 @@ function Message({ role, content }: ChatMessage) {
       <span className="mb-1 block text-xs font-medium opacity-70">
         {role === "user" ? "You" : "Assistant"}
       </span>
-      <p className="whitespace-pre-wrap">{content}</p>
+      {role === "user" ? (
+        <p className="whitespace-pre-wrap">{content}</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <FormattedText text={content} />
+        </div>
+      )}
     </article>
   );
 }

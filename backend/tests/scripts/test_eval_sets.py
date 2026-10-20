@@ -39,7 +39,7 @@ def _repo_root() -> Path:
 ROOT = _repo_root()
 GOLDEN = ROOT / "backend" / "evals" / "golden" / "helpdesk-v1.jsonl"
 MAKEFILE = ROOT / "Makefile"
-TOTAL_CASES = 183
+TOTAL_CASES = 185
 TENANTS = ("nordlicht", "cuan")
 
 
@@ -49,12 +49,12 @@ def test_the_set_splits_into_one_file_per_tenant(tmp_path: Path) -> None:
     reformat keys, and the console loads the line as written).
 
     Every case lands in its own tenant's file exactly once and the counts add up
-    to 183, the size of the golden set. Each line is compared to the source
+    to 185, the size of the golden set. Each line is compared to the source
     line byte for byte, so `args_subset` and every message survive untouched.
     The tenants are the two seeded ones, no more and no fewer.
     """
     source_lines = GOLDEN.read_text(encoding="utf-8").splitlines()
-    assert len(source_lines) == TOTAL_CASES, "premise: the golden set holds 183 cases"
+    assert len(source_lines) == TOTAL_CASES, "premise: the golden set holds 185 cases"
     out_dir = tmp_path / "reports"
 
     files = write_tenant_sets(GOLDEN, out_dir)

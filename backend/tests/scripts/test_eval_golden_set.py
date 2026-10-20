@@ -95,7 +95,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "access_approval": 20,
     "access_blocked_sod": 10,
     "access_critical": 10,
-    "helpdesk": 68,
+    "helpdesk": 70,
     "policy_qa": 19,
     "refusal_out_of_corpus": 10,
     "clarify_ambiguous": 10,
@@ -105,7 +105,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "review": 3,
 }
 
-TOTAL_CASES = 183
+TOTAL_CASES = 185
 TOTAL_LABELS = 40
 LABELS_PER_SCORE = 8
 SCORES: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
@@ -838,6 +838,35 @@ def test_help_027_rubric_asks_for_two_groups_and_manager_approval(
 
     assert "manager approval" in rubric
     assert "template roles first" in rubric
+
+
+def test_help_069_rubric_asks_for_a_bullet_list(
+    golden_cases: tuple[GoldenCase, ...],
+) -> None:
+    """Catches a case that does not pin the list reply: one asked in a single
+    message, or whose judge is not told to want a bullet list with a role on
+    each line, so a comma sentence would still pass."""
+    case = _case_by_id(golden_cases, "help-069")
+    rubric = case.judge_rubric.lower()
+
+    assert [m.role for m in case.messages] == ["user", "user"]
+    assert case.messages[1].content == "show it as a list"
+    assert "bullet list" in rubric
+    assert "one role per line" in rubric
+
+
+def test_help_070_rubric_asks_for_numbered_steps(
+    golden_cases: tuple[GoldenCase, ...],
+) -> None:
+    """Catches a case whose judge is not told to want numbered steps in order
+    (a paragraph would pass), or one that expects a tool call, which would make
+    the how-to answer a change instead of an explanation."""
+    case = _case_by_id(golden_cases, "help-070")
+    rubric = case.judge_rubric.lower()
+
+    assert "numbered steps" in rubric
+    assert "in order" in rubric
+    assert case.expected.tool_calls in (None, [])
 
 
 # --- the calibration labels --------------------------------------------------
