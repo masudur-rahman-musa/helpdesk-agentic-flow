@@ -74,17 +74,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.mcp_server.tools import read
 from helpdesk.shared.models import AuditEvent
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -476,7 +471,7 @@ def _subjects(payload: dict[str, Any]) -> list[tuple[str, str | None]]:
 
 @pytest.mark.parametrize("principal", ANY_SCOPE_PRINCIPALS)
 def test_each_any_scope_principal_reads_every_planted_event(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The wide half, one the matrix cell at a time, plus the
@@ -542,7 +537,7 @@ def test_each_any_scope_principal_reads_every_planted_event(
 
 
 def test_a_manager_reads_only_the_events_of_their_own_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The `own_department` half.
 
@@ -579,7 +574,7 @@ def test_a_manager_reads_only_the_events_of_their_own_department(
 
 
 def test_a_system_owner_reads_only_the_events_of_a_system_they_own(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The `own_systems` half, which the department case cannot reach.
 
@@ -616,7 +611,7 @@ def test_a_system_owner_reads_only_the_events_of_a_system_they_own(
 
 
 def test_an_unresolvable_subject_is_withheld_from_a_manager_and_returned_to_an_auditor(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Both directions of the subject table's last row.
 
@@ -665,7 +660,7 @@ def test_an_unresolvable_subject_is_withheld_from_a_manager_and_returned_to_an_a
 
 
 def test_the_managers_department_comes_from_the_directory_not_the_token(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The department comparison itself.
 
@@ -711,7 +706,7 @@ def test_the_managers_department_comes_from_the_directory_not_the_token(
 
 
 def test_the_employee_principal_reads_forbidden_and_no_data(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The matrix gives `search_audit` a cell to six of the seven
     principals, so `employee` is the ONLY one with none — the "five
@@ -755,7 +750,7 @@ def test_the_employee_principal_reads_forbidden_and_no_data(
 
 
 def test_another_tenants_subject_id_returns_an_empty_page_not_an_error(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """An empty page, never a row and never an existence signal.
 
@@ -850,7 +845,7 @@ LIMIT_CASES: tuple[tuple[str, int, bool], ...] = (
     ids=[case[0] for case in LIMIT_CASES],
 )
 def test_the_limit_boundary_is_inclusive_at_1_and_200(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     limit: int,
     accepted: bool,
 ) -> None:
@@ -906,7 +901,7 @@ BEFORE_SEQ_CASES: tuple[tuple[str, int, bool], ...] = (
     ids=[case[0] for case in BEFORE_SEQ_CASES],
 )
 def test_before_seq_is_accepted_at_1_and_refused_at_0(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     before_seq: int,
     accepted: bool,
 ) -> None:
@@ -957,7 +952,7 @@ STRING_CAP_CASES: tuple[tuple[str, str, int], ...] = (
 )
 @pytest.mark.parametrize("over", [False, True], ids=["at-cap-ok", "over-cap-refused"])
 def test_each_string_filter_is_inclusive_at_its_column_cap_and_refused_one_over(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     field: str,
     cap: int,
     over: bool,
@@ -1005,7 +1000,7 @@ def test_each_string_filter_is_inclusive_at_its_column_cap_and_refused_one_over(
 
 
 def test_one_search_writes_exactly_one_tool_succeeded_naming_the_tool(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """As an exact ordered delta rather than a count.
 

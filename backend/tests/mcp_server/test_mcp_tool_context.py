@@ -42,14 +42,9 @@ from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.mcp_server.tools.dispatch import dispatch
 from helpdesk.mcp_server.tools.registry import REGISTRY, ToolSpec
 from helpdesk.shared.auth import rbac
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -158,7 +153,7 @@ class _FakeClock:
 
 
 def test_dispatch_builds_one_context_and_hands_it_to_the_handler(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a dispatch that still calls `handler(session, identity, args)`
     instead of building a `ToolContext`: the handler must receive one context
@@ -183,7 +178,7 @@ def test_dispatch_builds_one_context_and_hands_it_to_the_handler(
 
 
 def test_a_handler_reads_now_from_the_context(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: Any,
 ) -> None:
     """Catches a dispatch that reads the clock more than once (a fresh
@@ -211,7 +206,7 @@ def test_a_handler_reads_now_from_the_context(
 
 
 def test_a_handler_reads_the_directory_from_the_context(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: Any,
 ) -> None:
     """Catches a handler (or a dispatch) that builds its own
@@ -235,7 +230,7 @@ def test_a_handler_reads_the_directory_from_the_context(
 
 
 def test_the_embedder_is_not_built_for_a_tool_that_never_asks_for_it(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: Any,
 ) -> None:
     """Catches a dispatch that eagerly builds every client when it assembles

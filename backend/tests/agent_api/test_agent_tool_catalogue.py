@@ -61,9 +61,6 @@ from tests.support.mcp import (
     SeededMcp,
     bearer,
     list_tools,
-    mcp_pg,  # noqa: F401 - fixtures are resolved by name
-    mcp_redis_base_url,  # noqa: F401
-    seeded_mcp_db,  # noqa: F401
     token_for,
 )
 
@@ -272,18 +269,21 @@ def test_the_reingest_tool_is_advertised_but_is_not_the_models_to_call() -> None
 # --- the drift test ------------------------------------------------
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def catalogue_mcp_env(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
-    mcp_redis_base_url: str,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
+    mcp_redis_base_url: str,
 ) -> Iterator[SeededMcp]:
-    """`mcp_fixtures.mcp_env`, session-scoped, for this file only.
+    """`mcp_fixtures.mcp_env`, module-scoped, for this file only.
 
     The shared `mcp_env` takes pytest's function-scoped `monkeypatch`, so every
-    session-scoped consumer of it is a `ScopeMismatch` at setup rather than a
+    wider-scoped consumer of it is a `ScopeMismatch` at setup rather than a
     test. The backing services are built once, so this file
     drives its own `pytest.MonkeyPatch()` over the same four variables and
-    reads the SESSION Redis index, undoing them when the session ends.
+    reads the SESSION Redis index, undoing them when this file's last test ends.
+    Module scope, not session: a patch that lived to the end of the run would
+    leak `REDIS_URL` into every later file, and the shared Redis gate then
+    refuses to flush an index equal to the configured one.
 
     Pinned by every row of this file: without it they error instead of running."""
     with pytest.MonkeyPatch.context() as patch:
@@ -294,7 +294,7 @@ def catalogue_mcp_env(
         yield seeded_mcp_db
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def advertised(catalogue_mcp_env: SeededMcp) -> dict[str, Any]:
     """One `tools/list`, read once for the whole sweep.
 

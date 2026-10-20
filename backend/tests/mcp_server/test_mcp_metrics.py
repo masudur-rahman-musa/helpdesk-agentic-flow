@@ -41,17 +41,12 @@ from tests.mcp_server.test_mcp_pipeline import (
     _spec,
     _typed_error,
 )
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
     http_get,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -110,7 +105,7 @@ def _sum_of(registry: CollectorRegistry, name: str) -> float:
 
 
 def test_the_metrics_route_answers_before_the_mcp_mount(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     fresh_registry: CollectorRegistry,
 ) -> None:
     """Catches `/metrics` registered AFTER `app.mount("/", mcp_app)`.
@@ -131,7 +126,7 @@ def test_the_metrics_route_answers_before_the_mcp_mount(
 
 
 def test_a_successful_tool_call_counts_once_and_observes_once(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     fresh_registry: CollectorRegistry,
 ) -> None:
     """Catches a counter incremented on the return statement only, which counts
@@ -155,7 +150,7 @@ def test_a_successful_tool_call_counts_once_and_observes_once(
 
 
 def test_a_refused_tool_call_counts_under_its_error_code(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     fresh_registry: CollectorRegistry,
 ) -> None:
     """Catches instrumentation on the success path alone — the shape a
@@ -182,7 +177,7 @@ def test_a_refused_tool_call_counts_under_its_error_code(
 
 
 def test_a_sod_conflict_increments_the_sod_counter(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     fresh_registry: CollectorRegistry,
 ) -> None:
     """Catches the SoD counter left out, or wired to every refusal.
@@ -215,7 +210,7 @@ def test_a_sod_conflict_increments_the_sod_counter(
 
 
 def test_an_unregistered_tool_name_creates_no_series(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     fresh_registry: CollectorRegistry,
 ) -> None:
     """Catches instrumentation moved up into `main._call_tool`, where the label
@@ -240,7 +235,7 @@ def test_an_unregistered_tool_name_creates_no_series(
 
 
 def test_the_exposition_carries_no_argument_text_from_a_refused_call(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     fresh_registry: CollectorRegistry,
 ) -> None:
     """Catches a `status` (or any other) label built from the exception's text

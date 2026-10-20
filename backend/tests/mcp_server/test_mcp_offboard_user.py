@@ -54,17 +54,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -373,7 +368,7 @@ def _plant_leaver(database_url: str) -> tuple[uuid.UUID, uuid.UUID]:
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_the_two_permitted_principals_each_offboard_somebody(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The allow direction every refusal below depends on, one row of the matrix's
@@ -410,7 +405,7 @@ def test_the_two_permitted_principals_each_offboard_somebody(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_other_five_principals_are_denied_and_offboard_nobody(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The matrix row is the ONLY gate on this tool.
@@ -452,7 +447,7 @@ def test_the_other_five_principals_are_denied_and_offboard_nobody(
 
 
 def test_the_audit_sequence_is_revoked_then_rejected_then_offboarded_then_succeeded(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The audit order as an exact ordered list, which is the only place the order
     of the three domain events is observable at all.
@@ -508,7 +503,7 @@ def test_the_audit_sequence_is_revoked_then_rejected_then_offboarded_then_succee
 
 
 def test_a_missing_and_another_tenants_user_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a user lookup that escapes the tenant guard, and one that
     distinguishes the two absences.
@@ -543,7 +538,7 @@ def test_a_missing_and_another_tenants_user_answer_the_same_not_found(
 
 
 def test_an_already_leaver_target_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """At the boundary: catches the "succeed idempotently"
     alternative, whose only trace is in the audit log.
@@ -589,7 +584,7 @@ def test_an_already_leaver_target_is_refused_policy_blocked(
     ],
 )
 def test_the_input_types_are_refused_before_any_effect(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     user_id: str | None,
     end_date: str,
     accepted: bool,
@@ -634,7 +629,7 @@ def test_the_input_types_are_refused_before_any_effect(
 
 
 def test_an_unknown_field_is_refused_with_no_state_change(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """`MutatingToolInput` forbids extras, and this is the argument that proves
     why: a `tenant_id` in the arguments is a caller who believes they are
@@ -671,7 +666,7 @@ def test_an_unknown_field_is_refused_with_no_state_change(
 
 
 def test_a_replay_returns_the_stored_response_and_revokes_nothing_twice(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a retry that re-runs the body.
 
@@ -710,7 +705,7 @@ def test_a_replay_returns_the_stored_response_and_revokes_nothing_twice(
 
 
 def test_two_callers_racing_the_same_offboard_leave_one_departure(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The `lock_user` row lock. Two different callers send two different
     idempotency keys, so the guard cannot serialise them at all; only

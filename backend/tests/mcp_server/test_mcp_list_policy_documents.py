@@ -68,17 +68,12 @@ from helpdesk.mcp_server.tools.policy_docs import (
     PolicyVersionRow,
 )
 from helpdesk.mcp_server.tools.registry import REGISTRY
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -341,7 +336,7 @@ def _plant_corpus(database_url: str, tenant: SeededUser) -> None:
 
 
 def test_the_tool_declares_no_field_at_all(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The input model is pinned as an exactly empty field set.
 
@@ -358,7 +353,7 @@ def test_the_tool_declares_no_field_at_all(
 
 @pytest.mark.parametrize("key", FORBIDDEN_ARGUMENT_KEYS)
 def test_an_argument_riding_along_is_refused_validation(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     key: str,
 ) -> None:
     """The wire half: `extra="forbid"` and not `ignore`.
@@ -393,7 +388,7 @@ def test_an_argument_riding_along_is_refused_validation(
 
 
 def test_the_output_models_carry_exactly_the_planned_field_sets(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The field sets, read off the models rather than off a payload.
 
@@ -419,7 +414,7 @@ def test_the_output_models_carry_exactly_the_planned_field_sets(
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_the_board_answers_the_whole_corpus_grouped_and_in_the_helpers_order(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The handler maps and reorders NOTHING,
@@ -471,7 +466,7 @@ def test_the_board_answers_the_whole_corpus_grouped_and_in_the_helpers_order(
 
 
 def test_a_tenant_with_no_corpus_answers_an_empty_list_as_a_success(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """An un-ingested tenant is answered, never refused.
 
@@ -500,7 +495,7 @@ def test_a_tenant_with_no_corpus_answers_an_empty_list_as_a_success(
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 @pytest.mark.parametrize("corpus", [True, False], ids=["with-corpus", "empty-corpus"])
 def test_the_five_denied_principals_are_refused_whatever_the_corpus_holds(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
     corpus: bool,
 ) -> None:

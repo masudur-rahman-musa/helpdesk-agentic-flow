@@ -58,17 +58,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.mcp_server.tools.registry import REGISTRY
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -323,7 +318,7 @@ def _remove_tenant(database_url: str, tenant: SeededUser) -> None:
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_the_board_answers_the_envelope_and_an_exact_seven_key_row(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The literal the page parses and renders, for BOTH
@@ -364,7 +359,7 @@ def test_the_board_answers_the_envelope_and_an_exact_seven_key_row(
 
 
 def test_the_rows_arrive_in_the_policy_ref_then_rule_id_order(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The order the helper applies survives the tool.
 
@@ -391,7 +386,7 @@ def test_the_rows_arrive_in_the_policy_ref_then_rule_id_order(
 
 
 def test_the_tool_takes_no_arguments_at_all(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The input model carries NO fields.
 
@@ -425,7 +420,7 @@ def test_the_tool_takes_no_arguments_at_all(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_five_denied_principals_read_no_rules(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The five empty matrix cells on this row, and the record they leave.
@@ -465,7 +460,7 @@ def test_the_five_denied_principals_read_no_rules(
 
 
 def test_another_tenants_rules_are_invisible_to_this_caller(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The rules are the token's tenant's own rows.
 
@@ -508,7 +503,7 @@ def test_another_tenants_rules_are_invisible_to_this_caller(
 
 
 def test_a_tenant_with_no_rules_answers_an_empty_list_as_a_success(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """An unconfigured tenant is answered, never refused.
 
@@ -538,8 +533,8 @@ def test_a_tenant_with_no_rules_answers_an_empty_list_as_a_success(
 
 
 def test_a_switch_on_the_rules_board_answers_tool_disabled(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """This read is not in `PROTECTED_TOOLS` and is not special.
 
@@ -587,7 +582,7 @@ def test_a_switch_on_the_rules_board_answers_tool_disabled(
 
 
 def test_one_call_writes_exactly_one_event_naming_the_tool_and_the_caller(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """What the audit log carries for one rules-board read.
 

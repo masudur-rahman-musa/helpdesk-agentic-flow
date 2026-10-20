@@ -34,14 +34,9 @@ from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.mcp_server.tools.registry import ToolSpec
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.observability.logging import FORBIDDEN_KEYS, REDACTED, JsonFormatter
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_with_claims,
 )
 
@@ -82,8 +77,8 @@ def _request(headers: Mapping[str, str]) -> Request:
 
 
 def test_a_record_logged_during_a_dispatched_call_carries_its_tenant_and_session(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """Catches an MCP server that configures logging but never binds, so every
     line of every tool call is context-free and no line can be attributed to

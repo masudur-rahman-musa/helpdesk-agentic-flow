@@ -55,16 +55,11 @@ from helpdesk.shared.services.killswitch import (
     InvalidSwitchTargetError,
     key_for,
 )
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -244,7 +239,7 @@ def _append(database_url: str, tenant_id: uuid.UUID, event_type: str) -> None:
 
 
 def test_the_event_type_column_boundary_is_inclusive_at_64(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
 ) -> None:
     """Asserted against the store itself, not against a constant restated in
     the test: a 64-character event type is stored, a 65-character one is
@@ -420,8 +415,8 @@ def _redis_keys(redis_url: str, pattern: str) -> list[str]:
 
 
 def test_an_unregistered_wire_name_touches_no_redis_key(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """The wire name is validated before it can become a Redis
     key. Redis has no length or shape limit, so an unchecked name would write

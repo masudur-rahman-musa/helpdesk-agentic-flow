@@ -39,14 +39,9 @@ from helpdesk.mcp_server.tools.dispatch import dispatch
 from helpdesk.mcp_server.tools.registry import ToolSpec
 from helpdesk.shared.auth import rbac
 from helpdesk.shared.core import redis as redis_module
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -258,7 +253,7 @@ def _bare_request(headers: Mapping[str, str]) -> Any:
 
 
 def test_dispatch_hands_the_handler_the_apps_one_copy(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a dispatch that builds its own `ToolClients(settings)` on every
     call instead of reading the one copy off the request's app: with a sentinel
@@ -285,7 +280,7 @@ def test_dispatch_hands_the_handler_the_apps_one_copy(
 
 
 def test_dispatch_falls_back_when_no_app_carries_a_copy(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a dispatch that assumes an app is always present and crashes (or
     hands `None`) on the stdio/test path where the scope has no `"app"`: with no

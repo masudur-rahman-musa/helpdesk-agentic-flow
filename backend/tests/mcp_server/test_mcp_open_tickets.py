@@ -38,18 +38,13 @@ from pydantic import ValidationError
 from helpdesk.mcp_server.tools import tickets
 from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.mcp_server.tools.self_service import TicketKind
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
     plant_ticket,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -95,7 +90,7 @@ def _listed(env: SeededMcp, arguments: dict[str, Any]) -> list[dict[str, Any]]:
 
 @pytest.mark.db
 def test_the_list_holds_every_open_ticket_of_the_tenant_oldest_first(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a query that drops the open filter (the solved ticket shows),
     one that drops the company guard (the other company's open ticket shows),
@@ -150,7 +145,7 @@ def test_the_list_holds_every_open_ticket_of_the_tenant_oldest_first(
 
 @pytest.mark.db
 def test_equal_times_break_by_number_lower_first(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a sort on time alone (two tickets at one instant come back in
     whatever order the database likes, so a page boundary can repeat or skip a
@@ -181,7 +176,7 @@ def test_equal_times_break_by_number_lower_first(
 
 @pytest.mark.db
 def test_a_row_names_who_opened_it(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a join on the wrong user (the admin's own name on every row, or
     the id or email in place of the name) and a row with no name. The opener is
@@ -204,7 +199,7 @@ def test_a_row_names_who_opened_it(
 
 @pytest.mark.db
 def test_the_limit_keeps_the_oldest_rows(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a limit that is validated but never reaches the query (three
     come back), and a limit applied before the sort or with the sort reversed
@@ -273,7 +268,7 @@ def test_the_input_model_refuses_a_limit_of_0_or_201(limit: int) -> None:
 @pytest.mark.db
 @pytest.mark.parametrize("limit", [LIMIT_MIN - 1, LIMIT_MAX + 1])
 def test_a_limit_of_0_or_201_is_refused_as_validation(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     limit: int,
 ) -> None:
     """Catches a tool that answers a page for an out-of-range limit by clamping
@@ -289,7 +284,7 @@ def test_a_limit_of_0_or_201_is_refused_as_validation(
 
 @pytest.mark.db
 def test_an_employee_is_refused_as_forbidden(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a tool registered without its role check (an employee reads the
     whole company's open tickets). An open ticket is planted, so a missing

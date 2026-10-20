@@ -52,6 +52,10 @@ from helpdesk.shared.models import Base, Tenant
 # so no `sys.path` surgery lives here any more.
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
+# Loaded once as a plugin so the seeded MCP database, Redis and Qdrant gates are
+# built once per run. Test files must not import these fixtures by name.
+pytest_plugins = ["tests.support.mcp"]
+
 _UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
     "Plan 03 tests require the compose stack: run `docker compose up -d` first.\n"

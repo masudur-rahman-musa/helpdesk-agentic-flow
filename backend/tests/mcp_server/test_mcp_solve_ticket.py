@@ -36,18 +36,13 @@ from pydantic import ValidationError
 from helpdesk.mcp_server.tools import tickets
 from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.models.idempotency import KEY_LENGTH
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
     plant_ticket,
-    seeded_mcp_db,
     sql_execute,
     sql_rows,
     token_for,
@@ -158,7 +153,7 @@ def _solve(admin: SeededUser, ticket_id: uuid.UUID, *, key: str | None = None) -
 
 @pytest.mark.db
 def test_an_it_admin_solves_an_open_ticket(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a solve that answers without writing (the row stays `open`), one
     that stamps no time or the wrong time, one that records an id other than
@@ -186,7 +181,7 @@ def test_an_it_admin_solves_an_open_ticket(
 
 @pytest.mark.db
 def test_a_solved_ticket_leaves_the_open_list(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a solve that stamps the solved columns but leaves `status`
     `open` (the board would keep showing the row). The ticket is proven to be
@@ -207,7 +202,7 @@ def test_a_solved_ticket_leaves_the_open_list(
 
 @pytest.mark.db
 def test_the_opener_sees_it_solved_in_my_tickets(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a solve that changes a column `list_my_tickets` does not read,
     so the employee would still read `open`. The opener is a different person
@@ -225,7 +220,7 @@ def test_the_opener_sees_it_solved_in_my_tickets(
 
 @pytest.mark.db
 def test_the_solve_writes_one_ticket_solved_event(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a tool registered with the generic `tool.succeeded` event, one
     that writes no event, and one that writes two. The admin is a fresh user,
@@ -240,7 +235,7 @@ def test_the_solve_writes_one_ticket_solved_event(
 
 @pytest.mark.db
 def test_the_same_key_twice_solves_once(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a tool registered as a READ or outside the key guard: the second
     call would run again and write a second `ticket.solved` instead of a
@@ -259,7 +254,7 @@ def test_the_same_key_twice_solves_once(
 
 @pytest.mark.db
 def test_a_solved_ticket_keeps_its_first_stamp(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a writer that re-stamps on every call (the solved time drifts
     forward and the solver becomes the second admin) and one that answers an
@@ -283,7 +278,7 @@ def test_a_solved_ticket_keeps_its_first_stamp(
 
 @pytest.mark.db
 def test_another_tenants_ticket_is_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a read by id alone, with no company guard: an admin of one
     company could close another's ticket. The id is a REAL open row in
@@ -304,7 +299,7 @@ def test_another_tenants_ticket_is_not_found(
 
 @pytest.mark.db
 def test_an_unknown_ticket_id_is_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a solve of a missing row that answers success or crashes with
     an untyped error instead of the typed `NOT_FOUND`."""
@@ -318,7 +313,7 @@ def test_an_unknown_ticket_id_is_not_found(
 @pytest.mark.db
 @pytest.mark.parametrize("principal", ["employee", "manager", "system_owner", "hr", "auditor"])
 def test_an_employee_is_refused_as_forbidden(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """Catches a tool registered without its role check (a person closes a
@@ -340,7 +335,7 @@ def test_an_employee_is_refused_as_forbidden(
 
 @pytest.mark.db
 def test_a_user_id_argument_is_refused_as_validation(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an input model that tolerates extra fields: the solver could
     then be named by the caller, not read from the token. The ticket is real
@@ -379,7 +374,7 @@ def test_a_ticket_id_that_is_not_a_uuid_is_refused_as_validation(bad_id: str) ->
 
 @pytest.mark.db
 def test_a_ticket_number_as_the_id_is_refused_as_validation_over_the_wire(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a registry entry whose wire schema lets `TCK-0042` through
     where the model alone would refuse it: the typed code must be VALIDATION,
@@ -400,7 +395,7 @@ def test_a_ticket_number_as_the_id_is_refused_as_validation_over_the_wire(
     ],
 )
 def test_the_idempotency_key_boundary_is_inclusive_at_key_length(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     length: int,
     accepted: bool,
 ) -> None:

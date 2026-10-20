@@ -49,17 +49,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -318,7 +313,7 @@ def _premise_no_grants(database_url: str, user_id: uuid.UUID, role_id: uuid.UUID
 
 
 def test_a_manager_revokes_in_their_own_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The allow direction every refusal below depends on, and the revoke-all rule end
        to end: catches a handler that revokes only the grant it was NAMED,
@@ -370,7 +365,7 @@ def test_a_manager_revokes_in_their_own_department(
 
 
 def test_a_manager_may_not_revoke_outside_their_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The scope half: the caller is a `manager`, whom the
     RBAC matrix ADMITS on this row, so the matrix cannot produce this refusal
@@ -402,7 +397,7 @@ def test_a_manager_may_not_revoke_outside_their_department(
 
 
 def test_the_managers_department_comes_from_the_directory_not_the_token(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the scope check reading the token's `department_id` claim
     instead of the caller's current directory row.
@@ -446,7 +441,7 @@ def test_the_managers_department_comes_from_the_directory_not_the_token(
 
 
 def test_a_system_owner_revokes_only_on_systems_they_own(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The matrix's `own_systems` cell, both directions.
 
@@ -481,7 +476,7 @@ def test_a_system_owner_revokes_only_on_systems_they_own(
 
 
 def test_a_denied_call_writes_tool_denied_and_revokes_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The caller holds `employee`, which the matrix's revoke row gives NO cell at
     all, so the pipeline's matrix stage refuses them.
@@ -518,7 +513,7 @@ def test_a_denied_call_writes_tool_denied_and_revokes_nothing(
 
 
 def test_another_tenants_grant_and_a_missing_one_answer_the_same_way(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a lookup that escapes the tenant guard, and one that
     distinguishes the two absences: if another tenant's id answered
@@ -547,7 +542,7 @@ def test_another_tenants_grant_and_a_missing_one_answer_the_same_way(
 
 
 def test_an_already_revoked_grant_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Both halves.
 
@@ -608,7 +603,7 @@ def test_an_already_revoked_grant_is_refused_policy_blocked(
     ],
 )
 def test_the_reason_boundary_is_inclusive_at_1_and_2000(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     index: int,
     length: int,
     accepted: bool,
@@ -650,7 +645,7 @@ def test_the_reason_boundary_is_inclusive_at_1_and_2000(
 
 
 def test_an_unknown_field_is_rejected(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an input model that ignores extras instead of forbidding them
     (the read tools' contract, wrong for a mutation): a `user_id` in the
@@ -682,7 +677,7 @@ def test_an_unknown_field_is_rejected(
 
 
 def test_a_replay_returns_the_stored_response_and_writes_only_tool_replayed(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a retry that re-runs the body.
 
@@ -714,7 +709,7 @@ def test_a_replay_returns_the_stored_response_and_writes_only_tool_replayed(
 
 
 def test_two_callers_racing_the_same_revocation_write_one_event_per_row(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The lock. Two different callers send two different
     idempotency keys, so the idempotency guard cannot serialise them at all;

@@ -43,7 +43,7 @@ from helpdesk.shared.access.snapshot import build_request_snapshot
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
-from helpdesk.shared.models import AccessRequest, Base, RequestStatus, SodRule, System, User
+from helpdesk.shared.models import AccessRequest, RequestStatus, SodRule, System, User
 from helpdesk.shared.policy.types import (
     PolicyRefs,
     Privilege,
@@ -53,7 +53,7 @@ from helpdesk.shared.policy.types import (
     TargetStatus,
 )
 from scripts.seed import CUAN, NORDLICHT, generate_tenant
-from tests.conftest import TempDatabaseFactory
+from tests.support.mcp import SeededMcp, TempDatabaseFactory
 
 # One fixed, aware clock for every build: a snapshot whose expected tenure or
 # grant visibility depends on when the suite runs is a flaky test.
@@ -86,25 +86,15 @@ NON_APPROVED_ROLE = ROWS.role_ids[("crm", "editor")]
 
 
 @pytest.fixture(scope="session")
-def access_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
-    """One database, created, migrated (metadata) and seeded exactly once."""
-    url = pg.create()
+def access_db_url(mcp_pg: TempDatabaseFactory, seeded_mcp_db: SeededMcp) -> Iterator[str]:
+    """A copy of the one seeded database for this file.
 
-    async def prepare() -> None:
-        engine = create_engine(url)
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-        finally:
-            await engine.dispose()
-
-    asyncio.run(prepare())
-
-    from scripts.seed import seed_all
-
-    asyncio.run(seed_all(url))
+    A copy, not the shared database itself: these tests plant requests, users
+    and systems, which other files' tests could trip over.
+    """
+    url = mcp_pg.clone(seeded_mcp_db.database_url)
     yield url
-    pg.drop(url)
+    mcp_pg.drop(url)
 
 
 # --- helpers ------------------------------------------------------------------

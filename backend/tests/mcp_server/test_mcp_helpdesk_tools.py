@@ -47,16 +47,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.shared.models.idempotency import KEY_LENGTH
 from helpdesk.shared.services.killswitch import GLOBAL, KillSwitch
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -186,7 +181,7 @@ def _trip_global_switch(redis_url: str, tool: str) -> None:
 
 
 def test_reset_own_password_flags_the_token_user_and_returns_a_fake_placeholder(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an implementation that registers the tool but never writes
     `password_reset_requested_at` on the caller's row, returns a placeholder
@@ -210,7 +205,7 @@ def test_reset_own_password_flags_the_token_user_and_returns_a_fake_placeholder(
 
 
 def test_unlock_own_account_flags_the_token_user(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an implementation that never writes `account_unlocked_at` on
     the caller's own row (or writes it on some other user, whose caller-row
@@ -231,7 +226,7 @@ def test_unlock_own_account_flags_the_token_user(
 
 
 def test_create_ticket_persists_a_row_for_the_token_user(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an implementation that stores the wrong tenant or user on the
     row, a status other than `open`, mangles kind/title/body on the way to
@@ -265,7 +260,7 @@ def test_create_ticket_persists_a_row_for_the_token_user(
 
 @pytest.mark.parametrize("tool", [RESET, UNLOCK, CREATE_TICKET])
 def test_a_user_id_in_the_arguments_is_refused_with_no_effect(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool: str,
 ) -> None:
     """Catches an input model that ignores (or honours) a `user_id` and
@@ -313,7 +308,7 @@ def test_a_user_id_in_the_arguments_is_refused_with_no_effect(
     ],
 )
 def test_the_title_boundary_is_inclusive_at_256(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     length: int,
     accepted: bool,
 ) -> None:
@@ -344,7 +339,7 @@ def test_the_title_boundary_is_inclusive_at_256(
     ],
 )
 def test_the_body_boundary_is_inclusive_at_10000(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     length: int,
     accepted: bool,
 ) -> None:
@@ -368,7 +363,7 @@ def test_the_body_boundary_is_inclusive_at_10000(
 
 
 def test_a_key_at_exactly_128_is_accepted(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a key pre-check that undercuts the column: the boundary is
     inclusive at the guard's own KEY_LENGTH."""
@@ -387,7 +382,7 @@ def test_a_key_at_exactly_128_is_accepted(
 
 
 def test_an_oversized_key_is_refused_before_the_effect_and_stores_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the guard's pre-check running after the effect (a ticket row
     would exist) or the refusal leaving a key row behind: at 129 the answer
@@ -411,7 +406,7 @@ def test_an_oversized_key_is_refused_before_the_effect_and_stores_nothing(
     ids=["unknown", "trailing-newline", "trailing-crlf", "trailing-space", "empty"],
 )
 def test_a_kind_outside_the_enum_is_refused_with_no_row(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     kind: str,
 ) -> None:
     """Catches kind checked by anything weaker than exact enum membership: a
@@ -431,7 +426,7 @@ def test_a_kind_outside_the_enum_is_refused_with_no_row(
 
 
 def test_a_replayed_create_ticket_is_byte_identical_and_files_one_ticket(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the pipeline ignoring the `mutating` flag (the effect runs
     twice, two rows), a replay response rebuilt rather than replayed (bytes
@@ -459,7 +454,7 @@ def test_a_replayed_create_ticket_is_byte_identical_and_files_one_ticket(
 
 
 def test_a_replayed_reset_writes_the_flag_once(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a replay that re-runs the flag write (the timestamp moves) or
     logs the declared event again instead of `tool.replayed`."""
@@ -482,7 +477,7 @@ def test_a_replayed_reset_writes_the_flag_once(
 
 
 def test_the_same_key_with_different_arguments_is_a_conflict(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a fingerprint built from the key alone (a changed request
     would replay the wrong response) or a conflict that still runs the
@@ -506,7 +501,7 @@ def test_the_same_key_with_different_arguments_is_a_conflict(
 
 @pytest.mark.parametrize("tool", [RESET, UNLOCK, CREATE_TICKET])
 def test_a_missing_idempotency_key_is_refused(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool: str,
 ) -> None:
     """Catches `idempotency_key` made optional or defaulted in any mutating
@@ -524,8 +519,8 @@ def test_a_missing_idempotency_key_is_refused(
 
 
 def test_a_disabled_mutating_call_burns_no_idempotency_key(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """Catches the idempotency branch placed ahead of the kill switch: a
     stopped call must store nothing, or the caller's retry after the switch

@@ -37,21 +37,14 @@ from helpdesk.mcp_server.core import rag_clients
 from helpdesk.mcp_server.services.rag.vectors import collection_name, create_client
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     RecordingEmbedder,
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_policy_collections,
-    mcp_qdrant,
-    mcp_redis_base_url,
-    mcp_redis_url,
     plant_policy_document,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -106,8 +99,8 @@ def _search(user: SeededUser) -> dict[str, Any]:
 
 
 def test_tenant_bs_marker_is_returned_to_tenant_b_and_never_to_tenant_a(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_policy_collections: tuple[str, str],  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_policy_collections: tuple[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a handler that names the searched collection from anything but

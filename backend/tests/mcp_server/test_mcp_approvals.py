@@ -63,17 +63,12 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, RequestStatus
 from helpdesk.shared.policy.types import ApproverSlot
 from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -376,7 +371,7 @@ def _queue_ids(payload: dict[str, Any]) -> list[str]:
 
 
 def test_a_manager_sees_a_pending_row_in_their_department_that_names_them(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The allow direction, which every refusal case below depends on: a
     queue returning nothing at all would pass them and fail here.
@@ -411,7 +406,7 @@ def test_a_manager_sees_a_pending_row_in_their_department_that_names_them(
 
 
 def test_the_scope_filter_alone_hides_a_row_whose_seat_names_the_caller(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The open seat NAMES the caller, so the eligibility
     filter admits this row and only the `own_department` scope refuses it:
@@ -437,7 +432,7 @@ def test_the_scope_filter_alone_hides_a_row_whose_seat_names_the_caller(
 
 
 def test_the_seat_filter_alone_hides_a_row_in_the_callers_own_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The other half: the target IS in the caller's
     department, so the scope filter admits the row and only the eligibility
@@ -466,7 +461,7 @@ def test_the_seat_filter_alone_hides_a_row_in_the_callers_own_department(
 
 
 def test_the_managers_department_comes_from_the_directory_not_the_token(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the `own_department` filter reading the token's
     `department_id` claim instead of the caller's current directory row
@@ -512,7 +507,7 @@ def test_the_managers_department_comes_from_the_directory_not_the_token(
 
 
 def test_a_manager_and_system_owner_caller_sees_the_union_of_both_queues(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the handler reading `Authorization.scope` instead of
     `.scopes` — the narrowing to the caller's scope list.
@@ -551,7 +546,7 @@ def test_a_manager_and_system_owner_caller_sees_the_union_of_both_queues(
 
 
 def test_the_queue_is_oldest_first_and_stops_at_the_limit(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a `limit` accepted and ignored — the unbounded
     response over the wire — and an unordered queue, which starves the oldest
@@ -591,7 +586,7 @@ def test_the_queue_is_oldest_first_and_stops_at_the_limit(
     ],
 )
 def test_the_limit_boundary_is_inclusive_at_1_and_200(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     limit: int,
     accepted: bool,
 ) -> None:
@@ -619,7 +614,7 @@ def test_the_default_limit_is_exactly_fifty() -> None:
 
 
 def test_the_queue_ignores_an_unknown_argument(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The read tools' contract (`extra="ignore"`), asserted so a later edit
     cannot quietly give a read the mutating models' `extra="forbid"` and
@@ -636,7 +631,7 @@ def test_the_queue_ignores_an_unknown_argument(
 
 @pytest.mark.parametrize("tool_name", [LIST, APPROVE, REJECT])
 def test_an_hr_officer_reaches_all_three_approval_tools(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool_name: str,
 ) -> None:
     """Rewritten from the FORBIDDEN
@@ -675,7 +670,7 @@ def test_an_hr_officer_reaches_all_three_approval_tools(
 
 
 def test_an_hr_caller_fills_the_hr_seat_of_a_critical_hris_chain_and_it_completes(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The half of the `hr` change that the matrix cell alone does not prove: the
     HR seat is now actually fillable, end to end.
@@ -721,7 +716,7 @@ def test_an_hr_caller_fills_the_hr_seat_of_a_critical_hris_chain_and_it_complete
 
 
 def test_an_it_admin_may_not_fill_the_hr_seat_a_critical_hris_chain_names(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The seat rule, which the matrix cell above cannot reach: catches a
     group seat matched against "any group principal", which would let an
@@ -763,7 +758,7 @@ def test_an_it_admin_may_not_fill_the_hr_seat_a_critical_hris_chain_names(
 
 
 def test_approving_one_of_two_open_slots_leaves_the_row_pending_and_grants_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a handler that executes on the FIRST approval —
     a two-seat chain reduced to one approver is the control halved — and one
@@ -814,7 +809,7 @@ def test_approving_one_of_two_open_slots_leaves_the_row_pending_and_grants_nothi
 
 
 def test_approving_the_last_open_slot_grants_once_with_the_fresh_expiry(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an approval that completes the chain and never
     executes (the request would sit `approved` with no access), one that
@@ -879,7 +874,7 @@ def test_approving_the_last_open_slot_grants_once_with_the_fresh_expiry(
 
 
 def test_a_conflict_planted_while_the_request_waits_fails_the_row_without_a_grant(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The SoD re-check at execution.
 
@@ -931,7 +926,7 @@ def test_a_conflict_planted_while_the_request_waits_fails_the_row_without_a_gran
 
 
 def test_a_replay_of_a_failed_approval_returns_the_stored_response(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """A known trap, pinned so it cannot later read as a bug.
 
@@ -967,7 +962,7 @@ def test_a_replay_of_a_failed_approval_returns_the_stored_response(
 
 
 def test_a_caller_matching_no_open_slot_is_refused_and_writes_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The refusal. Catches a handler that records whoever calls
     against the first open seat: the caller's matrix cell allows the tool
@@ -1007,7 +1002,7 @@ def test_a_caller_matching_no_open_slot_is_refused_and_writes_nothing(
 
 @pytest.mark.parametrize("party", ["requester", "target"])
 def test_a_party_to_the_request_is_refused_even_holding_the_seats_principal(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     party: str,
 ) -> None:
     """The owed marker, end to end: the
@@ -1052,7 +1047,7 @@ def test_a_party_to_the_request_is_refused_even_holding_the_seats_principal(
 
 
 def test_a_non_party_it_admin_does_fill_the_group_seat(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The allow direction the two party cases need: catches a party rule so
     broad that nobody can ever fill a group seat, which would make every
@@ -1086,7 +1081,7 @@ def test_a_non_party_it_admin_does_fill_the_group_seat(
 
 @pytest.mark.parametrize("tool_name", [APPROVE, REJECT])
 def test_another_tenants_request_and_a_missing_one_answer_the_same_way(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool_name: str,
 ) -> None:
     """Catches a lookup that escapes the tenant guard, and one
@@ -1120,7 +1115,7 @@ def test_another_tenants_request_and_a_missing_one_answer_the_same_way(
 
 @pytest.mark.parametrize("tool_name", [APPROVE, REJECT])
 def test_a_row_that_is_not_pending_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool_name: str,
 ) -> None:
     """Catches `FORBIDDEN` (which would tell an
@@ -1150,7 +1145,7 @@ def test_a_row_that_is_not_pending_is_refused_policy_blocked(
 
 
 def test_two_approvers_racing_the_last_slot_produce_exactly_one_grant(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The double-approval race, named explicitly.
 
@@ -1200,7 +1195,7 @@ def test_two_approvers_racing_the_last_slot_produce_exactly_one_grant(
 
 
 def test_rejecting_stores_the_reason_on_the_slot_and_grants_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a rejection that executes anyway (any grant here
     is the LLM-free mutation guarantee broken), one that loses the reason —
@@ -1247,7 +1242,7 @@ def test_rejecting_stores_the_reason_on_the_slot_and_grants_nothing(
 
 
 def test_one_rejection_ends_the_chain_for_a_later_approver(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The second half. Catches a chain-complete predicate reading
     "no open seats" without looking at the decisions: the `it_admin` seat is
@@ -1302,7 +1297,7 @@ def test_one_rejection_ends_the_chain_for_a_later_approver(
     ],
 )
 def test_the_comment_boundary_is_inclusive_at_2000(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     length: int,
     accepted: bool,
 ) -> None:
@@ -1351,7 +1346,7 @@ def test_the_comment_boundary_is_inclusive_at_2000(
     ],
 )
 def test_the_reason_boundary_is_inclusive_at_1_and_2000(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     length: int,
     accepted: bool,
 ) -> None:
@@ -1389,7 +1384,7 @@ def test_the_reason_boundary_is_inclusive_at_1_and_2000(
 
 @pytest.mark.parametrize("tool_name", [APPROVE, REJECT])
 def test_an_extra_argument_on_a_deciding_tool_is_refused_with_nothing_written(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool_name: str,
 ) -> None:
     """Catches an input model that ignores extras instead of forbidding them
@@ -1440,7 +1435,7 @@ def _audit_records(database_url: str, tenant_id: uuid.UUID, event_type: str) -> 
 
 
 def test_one_person_cannot_fill_two_seats_of_the_same_chain(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the four-eyes control collapsing onto one person.
 
@@ -1490,7 +1485,7 @@ def test_one_person_cannot_fill_two_seats_of_the_same_chain(
 
 
 def test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The seat and the matrix scope are two checks, not one.
 
@@ -1541,7 +1536,7 @@ def test_a_transferred_manager_may_not_decide_a_row_outside_their_new_department
 
 
 def test_the_decision_event_names_the_request_and_the_seat(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The reason the handler writes its own domain event. Catches the domain event being dropped in
     favour of the pipeline's declared one, whose payload is `{"tool",
@@ -1742,7 +1737,7 @@ def _pending_row(payload: dict[str, Any], request_id: uuid.UUID) -> dict[str, An
 
 
 def test_the_widened_queue_row_carries_exactly_the_twenty_one_planned_fields(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a widening that drops one of the eight new fields AND one that
     carries a spare (a `system_id`, the raw `approver_user_ids`, a
@@ -1769,7 +1764,7 @@ def test_the_widened_queue_row_carries_exactly_the_twenty_one_planned_fields(
 
 
 def test_the_queue_names_come_from_the_directory_rows_the_ids_point_at(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the five name fields being filled from anything
     but the rows their ids point at.
@@ -1821,7 +1816,7 @@ def test_the_queue_names_come_from_the_directory_rows_the_ids_point_at(
 
 
 def test_the_queue_row_carries_the_stored_decision_trace(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The full decision trace on the row. Catches
     `decision_reasons` and `citations` rendered as empty lists — the shape an
@@ -1854,7 +1849,7 @@ def test_the_queue_row_carries_the_stored_decision_trace(
 
 
 def test_several_pending_seats_come_back_once_each_despite_the_joins(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """A join risk: one statement with four joins that multiplies rows.
 

@@ -50,17 +50,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -345,7 +340,7 @@ def _plant_move(database_url: str) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_the_three_permitted_principals_each_transfer_somebody(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The allow direction every refusal below depends on, one row of the permission matrix
@@ -384,7 +379,7 @@ def test_the_three_permitted_principals_each_transfer_somebody(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_other_four_principals_are_denied_and_move_nobody(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The permission matrix row is the ONLY gate on this tool.
@@ -422,7 +417,7 @@ def test_the_other_four_principals_are_denied_and_move_nobody(
 
 
 def test_the_audit_sequence_is_revoked_then_executed_then_transferred_then_succeeded(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """An exact ordered list, which is also the only place
        decisions B and C are observable together.
@@ -482,7 +477,7 @@ def test_the_audit_sequence_is_revoked_then_executed_then_transferred_then_succe
 
 
 def test_a_missing_and_another_tenants_user_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a user lookup that escapes the tenant guard, and one that
     distinguishes the two absences.
@@ -515,7 +510,7 @@ def test_a_missing_and_another_tenants_user_answer_the_same_not_found(
 
 
 def test_a_missing_and_another_tenants_department_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The same oracle argument for the destination, over a REAL foreign row.
 
@@ -548,7 +543,7 @@ def test_a_missing_and_another_tenants_department_answer_the_same_not_found(
 
 
 def test_a_move_into_the_same_department_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """At the boundary: catches the "succeed with an empty diff"
     alternative, which is invisible in the tables.
@@ -578,7 +573,7 @@ def test_a_move_into_the_same_department_is_refused_policy_blocked(
 
 
 def test_a_leaver_is_refused_policy_blocked_with_their_access_intact(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Through the wire: catches the alternative that lets a leaver
     through and reports every arriving role in `skipped`.
@@ -627,7 +622,7 @@ def test_a_leaver_is_refused_policy_blocked_with_their_access_intact(
     ],
 )
 def test_the_input_types_are_refused_before_any_effect(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     user_id: str | None,
     department: str | None,
     effective_date: str,
@@ -673,7 +668,7 @@ def test_the_input_types_are_refused_before_any_effect(
 
 
 def test_an_unknown_field_is_refused_with_no_department_change(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """`MutatingToolInput` forbids extras, and this is the argument that proves
     why: a `tenant_id` in the arguments is a caller who believes they are
@@ -706,7 +701,7 @@ def test_an_unknown_field_is_refused_with_no_department_change(
 
 
 def test_a_replay_returns_the_stored_response_and_moves_nobody_twice(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a retry that re-runs the body.
 
@@ -742,7 +737,7 @@ def test_a_replay_returns_the_stored_response_and_moves_nobody_twice(
 
 
 def test_two_callers_racing_the_same_transfer_leave_one_move(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The `lock_user` row lock. Two different callers send two
     different idempotency keys, so the guard cannot serialise them at all;

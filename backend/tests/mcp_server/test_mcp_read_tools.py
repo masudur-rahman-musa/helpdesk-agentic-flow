@@ -36,16 +36,11 @@ from typing import Any
 
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.crud.grants import list_active_grants_for_user
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
     token_with_claims,
 )
@@ -70,7 +65,7 @@ def _grant_ids(payload: dict[str, Any]) -> set[uuid.UUID]:
 
 
 def test_get_me_returns_the_token_users_own_record(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     user = mcp_env.tenant_a
 
@@ -86,7 +81,7 @@ def test_get_me_returns_the_token_users_own_record(
 
 
 def test_get_me_ignores_user_id_and_tenant_id_in_its_arguments(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """With the tenant guard taken out of the picture.
 
@@ -118,7 +113,7 @@ def test_get_me_ignores_user_id_and_tenant_id_in_its_arguments(
 
 
 def test_a_tenant_b_token_cannot_read_a_tenant_a_user(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The token verifies, but its tenant does not own the subject: bound to
     tenant B, the row simply is not there."""
@@ -130,7 +125,7 @@ def test_a_tenant_b_token_cannot_read_a_tenant_a_user(
 
 
 def test_each_tenants_token_reads_only_its_own_tenants_row(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     for user in (mcp_env.tenant_a, mcp_env.tenant_b):
         payload = _structured(call_tool(bearer(token_for(user)), "get_me", {}))
@@ -142,7 +137,7 @@ def test_each_tenants_token_reads_only_its_own_tenants_row(
 
 
 def test_list_my_access_returns_exactly_the_active_grants(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     payload = _structured(call_tool(bearer(token_for(mcp_env.probe)), "list_my_access", {}))
 
@@ -158,7 +153,7 @@ def test_list_my_access_returns_exactly_the_active_grants(
 
 
 def test_list_my_access_omits_revoked_expired_and_non_active_grants(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """One hidden row per conjunct of "active": a past `expires_at`, a set
     `revoked_at`, and a status that is not `active`."""
@@ -171,7 +166,7 @@ def test_list_my_access_omits_revoked_expired_and_non_active_grants(
 
 
 def test_list_my_access_ignores_a_user_id_argument(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """With the tenant guard taken out of the picture.
 
@@ -197,7 +192,7 @@ def test_list_my_access_ignores_a_user_id_argument(
 
 
 def test_a_tenant_b_token_sees_none_of_tenant_as_grants(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     payload = _structured(call_tool(bearer(token_for(mcp_env.tenant_b)), "list_my_access", {}))
 
@@ -225,7 +220,7 @@ def _active_grant_ids(
 
 
 def test_the_expiry_boundary_is_exclusive_at_expires_at(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
 ) -> None:
     """`expires_at` names the first instant the grant is gone.
 
@@ -246,7 +241,7 @@ def test_the_expiry_boundary_is_exclusive_at_expires_at(
 
 
 def test_active_grants_come_back_in_system_then_role_order(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
 ) -> None:
     """The order the helper's docstring claims, asserted as a sequence.
 
@@ -280,7 +275,7 @@ def test_active_grants_come_back_in_system_then_role_order(
 
 
 def test_the_repository_helper_agrees_with_the_tool(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
 ) -> None:
     """Read through the helper directly, before any transport is involved:
     the same three rows, so a later disagreement names which side moved."""

@@ -20,14 +20,11 @@ Seam (mirrors how ``agent_api.readiness`` works): the route obtains
 fixture below can redirect the app to a freshly seeded temp database through
 environment variables alone.
 
-Fixtures live in this module (not a conftest) because a second ``conftest``
-module would collide with ``packages/helpdesk/tests/conftest.py`` under the
-repo-wide ``mypy`` run. One throwaway database is created on the compose
-Postgres, schema built from ``Base.metadata``, and the real ``backend/scripts/seed.py``
-run into it once per session (argon2 makes seeding expensive). One seeded
-non-demo user is then flipped to ``status='leaver'`` with a known password,
-because the seed itself only creates active users. If Postgres is unreachable
-the ``pg`` fixture FAILS loudly; there is no silent skip.
+The fixture lives in this module. It copies the one seeded database the whole
+run shares (``seeded_mcp_db``, built once) and flips one non-demo user to
+``status='leaver'`` with a known password, because the seed itself only creates
+active users. If Postgres is unreachable the shared gate FAILS loudly; there is
+no silent skip.
 """
 
 import asyncio
@@ -41,19 +38,15 @@ from pathlib import Path
 
 import httpx
 import pytest
-from pydantic import ValidationError
 from sqlalchemy import select, text, update
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.agent_api.api.router import app
 from helpdesk.agent_api.services import auth as auth_routes
 from helpdesk.shared.auth.jwt import TokenClaims, verify_token
 from helpdesk.shared.auth.passwords import hash_password
-from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine
-from helpdesk.shared.models import Base, Tenant, User
-from scripts.seed import seed_all
+from helpdesk.shared.models import Tenant, User
+from tests.support.mcp import SeededMcp, TempDatabaseFactory
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEMO_ACCOUNTS_DOC = _REPO_ROOT / "docs" / "demo-accounts.md"
@@ -66,12 +59,6 @@ EIGHT_HOURS = 8 * 60 * 60
 
 # Words that would leak WHY a login failed; the typed FORBIDDEN body carries none.
 _LEAKY_WORDS = ("password", "email", "user", "tenant", "leaver", "exist", "found", "unknown")
-
-_UNREACHABLE_MSG = (
-    "Postgres is unreachable at the configured DATABASE_URL.\n"
-    "Plan 05 login tests require the compose stack: run `docker compose up -d` first.\n"
-    "Original error: {error!r}"
-)
 
 # --- demo-accounts.md parsing -------------------------------------------------
 
@@ -119,48 +106,7 @@ def _demo_account(tenant_slug: str, principal: str) -> DemoAccount:
     raise AssertionError(f"no {principal!r} demo account for tenant {tenant_slug!r} in the doc")
 
 
-# --- fixtures: temp database, seeded once, plus a leaver ----------------------
-
-
-async def _admin_execute(admin_url: str, sql: str) -> None:
-    engine = create_async_engine(admin_url, isolation_level="AUTOCOMMIT", pool_pre_ping=True)
-    try:
-        async with engine.connect() as conn:
-            await conn.execute(text(sql))
-    finally:
-        await engine.dispose()
-
-
-class TempDatabaseFactory:
-    def __init__(self, admin_url: str) -> None:
-        self._admin_url = admin_url
-
-    def create(self) -> str:
-        name = f"helpdesk_login_test_{uuid.uuid4().hex[:12]}"
-        asyncio.run(_admin_execute(self._admin_url, f'CREATE DATABASE "{name}"'))
-        return make_url(self._admin_url).set(database=name).render_as_string(hide_password=False)
-
-    def drop(self, url: str) -> None:
-        name = make_url(url).database
-        assert name is not None and name.startswith("helpdesk_login_test_")
-        asyncio.run(_admin_execute(self._admin_url, f'DROP DATABASE "{name}" WITH (FORCE)'))
-
-
-@pytest.fixture(scope="session")
-def pg() -> TempDatabaseFactory:
-    """Connectivity gate: fails loudly (never skips) when Postgres is down."""
-    try:
-        settings = load_settings()
-    except ValidationError as exc:
-        pytest.fail(
-            f"DATABASE_URL is not configured (env or .env). Copy .env.example to .env.\n{exc}",
-            pytrace=False,
-        )
-    try:
-        asyncio.run(_admin_execute(settings.database_url, "SELECT 1"))
-    except Exception as exc:
-        pytest.fail(_UNREACHABLE_MSG.format(error=exc), pytrace=False)
-    return TempDatabaseFactory(settings.database_url)
+# --- fixtures: a copy of the shared seeded database, plus a leaver -------------
 
 
 @dataclass(frozen=True)
@@ -174,20 +120,20 @@ class SeededLogin:
 
 
 @pytest.fixture(scope="session")
-def seeded_login_db(pg: TempDatabaseFactory) -> Iterator[SeededLogin]:
-    """One freshly seeded database for the whole session, plus a leaver user."""
+def seeded_login_db(mcp_pg: TempDatabaseFactory, seeded_mcp_db: SeededMcp) -> Iterator[SeededLogin]:
+    """A copy of the one seeded database for this file, plus a leaver user.
+
+    A copy, not the shared database itself: the leaver flip rewrites a user row,
+    which another file's tests could trip over.
+    """
     demo_emails = {account.email for account in parse_demo_accounts()}
     assert demo_emails, f"no demo accounts parsed from {DEMO_ACCOUNTS_DOC}"
 
-    url = pg.create()
+    url = mcp_pg.clone(seeded_mcp_db.database_url)
 
     async def prepare() -> SeededLogin:
         engine = create_engine(url)
         try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            await seed_all(url)
-
             async with engine.begin() as conn:
                 row = (
                     await conn.execute(
@@ -215,7 +161,7 @@ def seeded_login_db(pg: TempDatabaseFactory) -> Iterator[SeededLogin]:
     try:
         yield asyncio.run(prepare())
     finally:
-        pg.drop(url)
+        mcp_pg.drop(url)
 
 
 @pytest.fixture

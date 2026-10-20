@@ -35,18 +35,13 @@ from helpdesk.mcp_server.tools import dispatch as pipeline
 from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     TEST_JWT_SIGNING_PHRASE,
     WRONG_JWT_SIGNING_PHRASE,
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
     token_with_claims,
 )
@@ -121,7 +116,7 @@ def test_identity_refused_carries_exactly_forbidden() -> None:
 
 @pytest.mark.parametrize(("label", "build"), REFUSAL_CASES, ids=REFUSAL_IDS)
 def test_identity_from_header_refuses(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
     label: str,
     build: HeaderBuilder,
 ) -> None:
@@ -132,7 +127,7 @@ def test_identity_from_header_refuses(
 
 
 def test_identity_from_header_accepts_a_valid_bearer_token(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
 ) -> None:
     user = seeded_mcp_db.tenant_a
     token = token_for(user, now=NOW)
@@ -149,7 +144,7 @@ def test_identity_from_header_accepts_a_valid_bearer_token(
 
 @pytest.mark.parametrize("scheme", ["Bearer", "bearer", "BEARER", "BeArEr"])
 def test_the_bearer_scheme_is_case_insensitive(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
     scheme: str,
 ) -> None:
     """RFC 7235 makes the scheme case-insensitive; a client sending `bearer`
@@ -162,7 +157,7 @@ def test_the_bearer_scheme_is_case_insensitive(
 
 
 def test_a_token_expiring_exactly_now_is_refused(
-    seeded_mcp_db: SeededMcp,  # noqa: F811
+    seeded_mcp_db: SeededMcp,
 ) -> None:
     """`exp` names the first instant the token is dead, inclusive boundary."""
     issued_at = NOW - timedelta(hours=8)
@@ -199,7 +194,7 @@ def _session_factory_spy(monkeypatch: pytest.MonkeyPatch) -> list[object]:
 @pytest.mark.parametrize(("label", "build"), REFUSAL_CASES, ids=REFUSAL_IDS)
 @pytest.mark.parametrize("tool_name", sorted(REGISTRY))
 def test_transport_refuses_with_forbidden_and_opens_no_session(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
     label: str,
     build: HeaderBuilder,
@@ -216,7 +211,7 @@ def test_transport_refuses_with_forbidden_and_opens_no_session(
 
 
 def test_a_valid_token_is_not_refused_by_the_identity_seam(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The refusal table is only meaningful if the happy header gets through."""
     result = call_tool(bearer(token_for(mcp_env.tenant_a)), "get_me", {})

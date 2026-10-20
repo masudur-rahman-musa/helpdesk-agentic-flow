@@ -57,16 +57,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.mcp_server.tools.registry import REGISTRY
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -216,7 +211,7 @@ def _global_key(tool_name: str) -> str:
 
 
 def test_the_board_answers_the_envelope_and_an_exact_six_key_row(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The literal the page parses and renders.
 
@@ -241,7 +236,7 @@ def test_the_board_answers_the_envelope_and_an_exact_six_key_row(
 
 
 def test_the_listed_names_are_exactly_the_registry_in_its_own_order(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Where the tool list comes from.
 
@@ -268,7 +263,7 @@ def test_the_listed_names_are_exactly_the_registry_in_its_own_order(
 
 
 def test_the_tool_takes_no_arguments_at_all(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The input model carries NO fields.
 
@@ -298,7 +293,7 @@ def test_the_tool_takes_no_arguments_at_all(
 
 
 def test_protected_is_true_for_the_one_tool_no_switch_may_stop(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The flag that disables the page's toggle.
 
@@ -342,8 +337,8 @@ def test_protected_is_true_for_the_one_tool_no_switch_may_stop(
     ],
 )
 def test_a_stopped_tool_reads_stopped_on_the_layer_it_was_stopped_on(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
     plant_global: bool,
     plant_tenant: bool,
 ) -> None:
@@ -406,8 +401,8 @@ def test_a_stopped_tool_reads_stopped_on_the_layer_it_was_stopped_on(
 
 
 def test_another_tenants_switch_is_invisible_to_this_caller(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """`tenant_state` reads the token's tenant and no other.
 
@@ -440,8 +435,8 @@ def test_another_tenants_switch_is_invisible_to_this_caller(
 
 
 def test_an_unreadable_value_marks_its_row_and_the_board_still_answers(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """One bad key may not blank the board.
 
@@ -483,7 +478,7 @@ def test_an_unreadable_value_marks_its_row_and_the_board_still_answers(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_six_denied_principals_read_no_board(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The six empty matrix cells on this row, and the record they leave.
@@ -520,7 +515,7 @@ def test_the_six_denied_principals_read_no_board(
 
 
 def test_a_denied_caller_is_refused_before_any_switch_is_read(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The second half: the matrix decides with no Redis read.
@@ -561,8 +556,8 @@ def test_a_denied_caller_is_refused_before_any_switch_is_read(
 
 
 def test_a_switch_on_the_board_itself_answers_tool_disabled(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """The board is not protected, and it is not special.
 
@@ -613,7 +608,7 @@ def test_a_switch_on_the_board_itself_answers_tool_disabled(
 
 
 def test_one_call_writes_exactly_one_event_naming_the_tool_and_the_caller(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """What the audit log actually carries for a board read.
 

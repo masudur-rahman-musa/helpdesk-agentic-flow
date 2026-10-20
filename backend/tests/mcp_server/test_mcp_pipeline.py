@@ -74,16 +74,11 @@ from helpdesk.shared.core.redis import REDIS_TIMEOUT_SECONDS, get_redis
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Ticket
 from helpdesk.shared.services.killswitch import GLOBAL, KillSwitch
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
     token_with_claims,
 )
@@ -257,8 +252,8 @@ def _ticket_count(database_url: str, title: str) -> int:
 
 
 def test_a_tripped_switch_beats_an_rbac_denial(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """Kill switch runs BEFORE RBAC: the stop is unconditional.
 
@@ -275,8 +270,8 @@ def test_a_tripped_switch_beats_an_rbac_denial(
 
 
 def test_a_tripped_switch_beats_an_rbac_denial_through_the_transport(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     _trip_global_switch(mcp_redis_url, "get_me")
     token = token_for(mcp_env.tenant_a, principals=NO_REAL_PRINCIPALS)
@@ -287,7 +282,7 @@ def test_a_tripped_switch_beats_an_rbac_denial_through_the_transport(
 
 
 def test_an_rbac_denial_beats_invalid_arguments(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """RBAC runs BEFORE input validation: a caller who may not call the tool
     learns nothing about the tool's argument shape."""
@@ -299,7 +294,7 @@ def test_an_rbac_denial_beats_invalid_arguments(
 
 
 def test_a_permitted_caller_sending_invalid_arguments_gets_validation(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The other half of the pair: VALIDATION is reachable, so the test above
     pins an order rather than a code that could never appear."""
@@ -311,7 +306,7 @@ def test_a_permitted_caller_sending_invalid_arguments_gets_validation(
 
 
 def test_extra_arguments_are_ignored_not_rejected(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """`GetMeInput` has no fields and ignores extras: identity
     arrives on the token, so an argument naming a user is data to drop, not a
@@ -372,7 +367,7 @@ ESCAPE_CASES: tuple[tuple[str, BaseException], ...] = (
 
 @pytest.mark.parametrize(("code", "error_type"), TOOL_ERROR_CASES, ids=[c.value for c in ErrorCode])
 def test_every_tool_error_passes_its_own_code_through(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     code: ErrorCode,
     error_type: type[ToolError],
 ) -> None:
@@ -385,7 +380,7 @@ def test_every_tool_error_passes_its_own_code_through(
 
 @pytest.mark.parametrize(("label", "exc"), ESCAPE_CASES, ids=[label for label, _ in ESCAPE_CASES])
 def test_a_non_tool_error_escape_maps_to_internal(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     label: str,
     exc: BaseException,
 ) -> None:
@@ -405,7 +400,7 @@ def test_a_non_tool_error_escape_maps_to_internal(
     ids=[label for label, _ in ESCAPE_CASES] + [code.value for code in ErrorCode],
 )
 def test_no_response_ever_carries_text_from_the_raised_exception(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     label: str,
     exc: BaseException,
 ) -> None:
@@ -421,7 +416,7 @@ def test_no_response_ever_carries_text_from_the_raised_exception(
 
 
 def test_cancelled_error_is_re_raised_never_converted(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """A cancelled call did not fail; converting it fabricates a tool failure
     and writes an audit event for something that never finished."""
@@ -432,7 +427,7 @@ def test_cancelled_error_is_re_raised_never_converted(
 
 
 def test_a_call_with_no_http_request_is_refused(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Under stdio the transport attaches no request, so there is no header
     and therefore no identity. The stdio entrypoint lists tools; it cannot
@@ -448,7 +443,7 @@ def test_a_call_with_no_http_request_is_refused(
 
 
 def test_a_failed_audit_write_is_logged_and_changes_no_answer(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The second half: if the failure event cannot be written
@@ -476,7 +471,7 @@ def test_a_failed_audit_write_is_logged_and_changes_no_answer(
 
 
 def test_a_successful_call_writes_exactly_one_success_event(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     tenant = mcp_env.tenant_a.tenant_id
     before = _audit_event_types(mcp_env.database_url, tenant)
@@ -489,7 +484,7 @@ def test_a_successful_call_writes_exactly_one_success_event(
 
 
 def test_an_rbac_denial_writes_exactly_one_denied_event(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     tenant = mcp_env.tenant_a.tenant_id
     before = _audit_event_types(mcp_env.database_url, tenant)
@@ -504,8 +499,8 @@ def test_an_rbac_denial_writes_exactly_one_denied_event(
 
 
 def test_a_tripped_switch_writes_exactly_one_disabled_event(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     tenant = mcp_env.tenant_a.tenant_id
     _trip_global_switch(mcp_redis_url, "get_me")
@@ -520,7 +515,7 @@ def test_a_tripped_switch_writes_exactly_one_disabled_event(
 
 
 def test_a_raising_tool_writes_exactly_one_failed_event(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     tenant = mcp_env.tenant_a.tenant_id
     before = _audit_event_types(mcp_env.database_url, tenant)
@@ -535,7 +530,7 @@ def test_a_raising_tool_writes_exactly_one_failed_event(
 
 
 def test_the_failure_event_survives_the_rolled_back_transaction(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """An event that rolls back with the failure it records is not
     a record. The tool writes a row and then raises; the row must be gone and
@@ -565,7 +560,7 @@ def test_the_failure_event_survives_the_rolled_back_transaction(
 
 
 def test_the_success_event_records_the_authorized_scope(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The scope the matrix allowed is recorded now and
     enforced later. A decision no test holds is not a decision."""
@@ -581,7 +576,7 @@ def test_the_success_event_records_the_authorized_scope(
 
 
 def test_a_misconfigured_process_answers_internal_not_the_sdks_own_words(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A real misconfiguration, not a faked seam: a JWT secret under the
@@ -596,7 +591,7 @@ def test_a_misconfigured_process_answers_internal_not_the_sdks_own_words(
 
 
 def test_the_redis_client_carries_the_pinned_timeouts(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """A blackholed Redis must fail the call, not hang it forever.
 
@@ -621,7 +616,7 @@ def test_the_redis_client_carries_the_pinned_timeouts(
 
 
 def test_an_unverifiable_token_writes_no_audit_row_anywhere(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """An unverifiable token names no tenant, so there is no chain
     to append to. The cost (a token flood leaves no trace) is a decision, not
@@ -635,7 +630,7 @@ def test_an_unverifiable_token_writes_no_audit_row_anywhere(
 
 
 def test_a_token_whose_tenant_claim_is_not_a_uuid_writes_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Same reasoning one step further in: the signature verified but the
     tenant did not parse, so there is still no chain to append to."""

@@ -57,11 +57,6 @@ from helpdesk.agent_api.services.mcp_client import (
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from tests.support.mcp import (
     SeededMcp,
-    mcp_env,  # noqa: F401 - fixtures are resolved by name
-    mcp_pg,  # noqa: F401
-    mcp_redis_base_url,  # noqa: F401
-    mcp_redis_url,  # noqa: F401
-    seeded_mcp_db,  # noqa: F401
     token_for,
     token_with_claims,
 )
@@ -247,7 +242,7 @@ def test_the_eight_named_subclasses_are_exactly_the_mapped_ones() -> None:
 
 
 def test_the_forwarded_token_reaches_the_server_and_the_call_succeeds(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """End to end. Catches a client that opens the session without
     the `Authorization` header — the server would answer `FORBIDDEN` for a call
@@ -273,7 +268,7 @@ def test_the_forwarded_token_reaches_the_server_and_the_call_succeeds(
 
 
 def test_the_session_is_closed_after_a_successful_call(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """One session PER TURN means it ends with the
     turn. Catches an `__aexit__` that closes the MCP session and leaves the
@@ -295,7 +290,7 @@ def test_the_session_is_closed_after_a_successful_call(
 
 
 def test_the_session_is_closed_when_the_call_raises(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an `__aexit__` that returns early on an
     exception, or a close written after the call rather than in the context
@@ -316,7 +311,7 @@ def test_the_session_is_closed_when_the_call_raises(
 
 
 def test_an_errored_result_maps_back_to_the_subclass_its_code_names(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The happy half. Catches a client that reads only the content
     text and ignores `is_error`, which would return the string `"NOT_FOUND"` to
@@ -406,7 +401,7 @@ def test_a_non_2xx_answer_is_the_same_typed_internal() -> None:
 
 
 def test_a_tool_name_the_server_does_not_serve_is_a_typed_error(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the last escape hatch in `call_tool`: a name the registry cannot
     resolve. Whatever the SDK raises for it, the client owes the turn a

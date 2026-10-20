@@ -39,17 +39,12 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.core import health
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     http_get,
     list_tools,
-    mcp_env,
-    mcp_pg,
     mcp_post,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
     transport_security_of_a_fresh_app,
 )
@@ -167,7 +162,7 @@ def test_registry_registers_exactly_the_expected_tools() -> None:
 
 
 def test_tools_list_over_the_transport_returns_exactly_the_registry_names(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Driven through a real MCP client session, not by asserting on a route."""
     result = list_tools(bearer(token_for(mcp_env.tenant_a)))
@@ -177,7 +172,7 @@ def test_tools_list_over_the_transport_returns_exactly_the_registry_names(
 
 
 def test_each_advertised_schema_is_its_registry_models_schema(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """A schema drifting from the model it validates is a lie to every client."""
     result = list_tools(bearer(token_for(mcp_env.tenant_a)))
@@ -191,7 +186,7 @@ def test_each_advertised_schema_is_its_registry_models_schema(
 
 
 def test_stdio_entrypoint_starts_and_lists_the_same_tools(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The error contract local-debugging entrypoint, driven as a real subprocess."""
     environment = dict(os.environ)
@@ -276,7 +271,7 @@ def test_readyz_returns_503_naming_the_failing_dependency(
 
 
 def test_readyz_against_the_live_compose_stack_is_ready(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The real check bodies, not the faked seam: a suite that only ever fakes
     readiness proves the route and nothing about the checks."""
@@ -311,7 +306,7 @@ port, exactly as `MCP_URL`'s deployed value produces it."""
 
 
 def test_the_compose_service_name_reaches_the_transport(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the original defect itself: a `create_app()` that lets the SDK
     INFER its transport security from `host="127.0.0.1"`, which builds an
@@ -337,7 +332,7 @@ def test_the_compose_service_name_reaches_the_transport(
 
 
 def test_a_loopback_host_still_reaches_the_transport(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a fix that REPLACES the loopback names with the deployed one
     instead of shipping both in the default.
@@ -356,7 +351,7 @@ def test_a_loopback_host_still_reaches_the_transport(
 
 
 def test_an_unlisted_host_is_refused_with_421(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a fix that DISABLES the protection rather than configuring it:
     `enable_dns_rebinding_protection=False`, an `allowed_hosts` of `["*"]`, or
@@ -377,7 +372,7 @@ def test_an_unlisted_host_is_refused_with_421(
 
 
 def test_a_request_with_no_host_header_is_refused_with_421(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an allow-list check that treats a MISSING header as nothing to
     validate - `if host and host not in allowed: refuse`, which is the shape a
@@ -397,7 +392,7 @@ def test_a_request_with_no_host_header_is_refused_with_421(
 
 
 def test_a_configured_list_replaces_the_default_set(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a helper that UNIONS the configured value with its default -
@@ -427,7 +422,7 @@ def test_a_configured_list_replaces_the_default_set(
 
 
 def test_the_transport_receives_explicit_security_settings(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches the transport guard being satisfied by the SDK's INFERENCE rather than by

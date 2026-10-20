@@ -31,17 +31,12 @@ from helpdesk.shared.models import AccessRequest
 from helpdesk.shared.models.numbers import NumberKind, format_number
 from helpdesk.shared.policy.types import ApproverSlot
 from scripts.seed import NORDLICHT, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
     probe_session_factory,
-    seeded_mcp_db,
     sql_rows,
     token_for,
 )
@@ -150,7 +145,7 @@ def _plant_request(
 
 
 def test_create_ticket_answers_with_its_ticket_number(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a tool that answers without `ticket_number`, shows a number
     other than the one stored on the row (a second draw from the counter), or
@@ -186,7 +181,7 @@ def test_create_ticket_answers_with_its_ticket_number(
 
 
 def test_create_access_request_answers_with_its_request_number(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a tool that files the request without drawing a number, answers
     without `request_number`, or draws twice (the shown number differs from the
@@ -217,7 +212,7 @@ def test_create_access_request_answers_with_its_request_number(
 
 
 def test_my_requests_and_pending_approvals_carry_the_number(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a summary or queue row that leaves `request_number` out, or
     fills it from anything but the row's own stored number (a position in the
@@ -279,7 +274,7 @@ def test_my_requests_and_pending_approvals_carry_the_number(
 
 @pytest.mark.parametrize("tool", [APPROVE, REJECT])
 def test_approve_and_reject_answer_with_the_request_number(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool: str,
 ) -> None:
     """Catches a deciding tool whose answer names the request only by its

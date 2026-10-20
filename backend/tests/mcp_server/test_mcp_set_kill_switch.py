@@ -68,16 +68,11 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -230,8 +225,8 @@ def _admin_token(env: SeededMcp) -> dict[str, str]:
 
 
 def test_a_tripped_tool_answers_tool_disabled_with_the_admins_reason(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """To end: the trip, the key, and the stop it produces.
 
@@ -288,8 +283,8 @@ def test_a_tripped_tool_answers_tool_disabled_with_the_admins_reason(
 
 
 def test_the_global_scope_stops_the_tool_in_the_other_tenant_too(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """The `"global"` scope, planted and read across
     both seeded tenants.
@@ -328,8 +323,8 @@ def test_the_global_scope_stops_the_tool_in_the_other_tenant_too(
 
 
 def test_clearing_a_switch_that_was_never_set_succeeds_and_still_writes_the_event(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """The second half: an admin's action is recorded whether or not
     it changed anything.
@@ -375,8 +370,8 @@ def test_clearing_a_switch_that_was_never_set_succeeds_and_still_writes_the_even
 
 
 def test_the_event_names_the_target_tool_as_its_subject(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """Writing an event is not writing a record.
 
@@ -438,8 +433,8 @@ def test_the_event_names_the_target_tool_as_its_subject(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_six_denied_principals_change_no_switch(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
     principal: str,
 ) -> None:
     """The permission matrix six empty cells on this row, and the record they leave.
@@ -482,8 +477,8 @@ def test_the_six_denied_principals_change_no_switch(
 
 
 def test_another_tenants_scope_is_forbidden(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """A UUID scope that is not the token's tenant.
 
@@ -519,8 +514,8 @@ def test_another_tenants_scope_is_forbidden(
 
 
 def test_setting_the_kill_switch_on_set_kill_switch_is_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """The stopper cannot stop itself.
 
@@ -556,8 +551,8 @@ def test_setting_the_kill_switch_on_set_kill_switch_is_policy_blocked(
 
 
 def test_an_unregistered_tool_name_is_refused_before_any_key_is_written(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """The first half: a name no `check` will ever ask about.
 
@@ -606,8 +601,8 @@ def test_an_unregistered_tool_name_is_refused_before_any_key_is_written(
     ],
 )
 def test_the_reason_boundary_is_inclusive_at_1_and_500(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
     length: int,
     accepted: bool,
 ) -> None:
@@ -670,8 +665,8 @@ def test_the_reason_boundary_is_inclusive_at_1_and_500(
 
 
 def test_the_tool_name_length_boundary_is_inclusive_at_64(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """The second half, and the honest limit of it.
 
@@ -723,8 +718,8 @@ def test_the_tool_name_length_boundary_is_inclusive_at_64(
 
 
 def test_an_unreachable_redis_reads_internal_and_writes_no_change_event(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The switch state is unknown, so nothing is claimed.
@@ -771,8 +766,8 @@ REPLAYED_EVENT = "tool.replayed"
 
 
 def test_a_replayed_set_kill_switch_returns_the_stored_response(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """Catches a `set_kill_switch` still registered as non-mutating, so
     dispatch never reaches `run_once`: the second call with the same key would
@@ -801,8 +796,8 @@ def test_a_replayed_set_kill_switch_returns_the_stored_response(
 
 
 def test_set_kill_switch_with_no_idempotency_key_is_validation_with_no_write(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
 ) -> None:
     """Catches an `idempotency_key` that is optional or defaulted on
     `SetKillSwitchInput`: a keyless call would still trip the switch, so a

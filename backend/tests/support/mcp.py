@@ -1,9 +1,12 @@
 """Shared backing-service fixtures for the mcp-server suite.
 
-A plain support module (``tests/support/mcp.py``), imported by its package path
-``tests.support.mcp`` the way ``tests.support.policy`` and ``tests.support.seed``
-are. Deliberately NOT a ``conftest.py``: these fixtures are opt-in, pulled in by
-name only by the modules that want them, not made autouse for the whole suite.
+A plain support module (``tests/support/mcp.py``). ``tests/conftest.py`` loads
+it ONCE as a pytest plugin (``pytest_plugins``), so each session fixture below is
+built once per run. Test files import its plain helpers by package path
+(``tests.support.mcp``) but never its fixtures: pytest builds a session fixture
+imported into a test module once per module, which made the seeded database
+up to 38 times. Pinned by ``tests/support/test_fixture_builds.py``. The fixtures
+are not autouse; a test asks for one by parameter name.
 
 The expensive things are built exactly once for the whole
 session — one throwaway Postgres database, created and seeded through the real
@@ -212,6 +215,28 @@ class TempDatabaseFactory:
         asyncio.run(_admin_execute(self._admin_url, f'CREATE DATABASE "{name}"'))
         return make_url(self._admin_url).set(database=name).render_as_string(hide_password=False)
 
+    def clone(self, template_url: str) -> str:
+        """A copy of an already-seeded database, made by Postgres in milliseconds.
+
+        For a test file that WRITES to the seeded rows and so cannot share the
+        one database: it copies the finished seed instead of paying for argon2
+        again. The template must have no open connection when this runs.
+        """
+        template = make_url(template_url).database
+        assert template is not None and template.startswith("helpdesk_mcp_test_")
+        name = f"helpdesk_mcp_test_{uuid.uuid4().hex[:12]}"
+        asyncio.run(
+            _admin_execute(
+                self._admin_url,
+                f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                f"WHERE datname = '{template}' AND pid <> pg_backend_pid()",
+            )
+        )
+        asyncio.run(
+            _admin_execute(self._admin_url, f'CREATE DATABASE "{name}" TEMPLATE "{template}"')
+        )
+        return make_url(self._admin_url).set(database=name).render_as_string(hide_password=False)
+
     def drop(self, url: str) -> None:
         name = make_url(url).database
         assert name is not None and name.startswith("helpdesk_mcp_test_")
@@ -251,9 +276,15 @@ def _user_from_row(row: Any) -> SeededUser:
     )
 
 
+# How many times `seeded_mcp_db` has been built in this process. Must stay 1.
+SEEDED_DB_BUILDS = 0
+
+
 @pytest.fixture(scope="session")
 def seeded_mcp_db(mcp_pg: TempDatabaseFactory) -> Iterator[SeededMcp]:
     """One database, created and seeded once, plus the grants probe user."""
+    global SEEDED_DB_BUILDS
+    SEEDED_DB_BUILDS += 1
     url = mcp_pg.create()
 
     async def prepare() -> SeededMcp:

@@ -64,17 +64,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.shared.models import RequestStatus
 from scripts.seed import CUAN, NORDLICHT, TenantRows, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -481,7 +476,7 @@ def _untouched(database_url: str, planted: Planted, *, status: RequestStatus) ->
 
 
 def test_an_it_admin_rolls_back_an_executed_request(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """End to end.
 
@@ -562,7 +557,7 @@ def test_an_it_admin_rolls_back_an_executed_request(
 
 
 def test_a_platform_admin_also_reaches_the_tool(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The matrix's second cell on this row.
 
@@ -592,7 +587,7 @@ def test_a_platform_admin_also_reaches_the_tool(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_five_denied_principals_roll_nothing_back(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The matrix's five empty cells on this row, and the record they leave.
@@ -630,7 +625,7 @@ def test_the_five_denied_principals_roll_nothing_back(
 
 
 def test_a_missing_and_another_tenants_request_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Both absences compared as whole strings.
 
@@ -665,7 +660,7 @@ def test_a_missing_and_another_tenants_request_answer_the_same_not_found(
     "status", NON_EXECUTED_STATUSES, ids=[s.value for s in NON_EXECUTED_STATUSES]
 )
 def test_a_request_in_any_status_but_executed_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     status: RequestStatus,
 ) -> None:
     """Every row of the status column.
@@ -704,7 +699,7 @@ def test_a_request_in_any_status_but_executed_is_refused_policy_blocked(
 
 
 def test_a_request_granted_twenty_five_hours_ago_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The refusal half, at the transport.
 
@@ -738,7 +733,7 @@ def test_a_request_granted_twenty_five_hours_ago_is_refused_policy_blocked(
 
 
 def test_the_window_is_measured_from_the_earliest_grant_of_the_request(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The multi-row half.
 
@@ -767,7 +762,7 @@ def test_the_window_is_measured_from_the_earliest_grant_of_the_request(
 
 
 def test_a_request_whose_grants_are_already_revoked_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The already-revoked case at the transport.
 
@@ -815,7 +810,7 @@ def test_a_request_whose_grants_are_already_revoked_is_refused_policy_blocked(
     ],
 )
 def test_the_reason_boundary_is_inclusive_at_1_and_2000(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     length: int,
     accepted: bool,
 ) -> None:
@@ -868,7 +863,7 @@ def test_the_reason_boundary_is_inclusive_at_1_and_2000(
 
 
 def test_a_replay_returns_the_stored_response_and_revokes_nothing_further(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """A retry replays the stored answer.
 
@@ -905,7 +900,7 @@ def test_a_replay_returns_the_stored_response_and_revokes_nothing_further(
 
 
 def test_two_callers_racing_the_same_rollback_undo_it_once(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The race, at the outcome. Two different callers send two different
     idempotency keys, so the guard cannot serialise them at all; the locks in

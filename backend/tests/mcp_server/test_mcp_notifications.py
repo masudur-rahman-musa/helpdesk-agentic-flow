@@ -60,17 +60,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 import helpdesk.mcp_server.tools.notifications as notifications
 from helpdesk.shared.models.idempotency import KEY_LENGTH
 from helpdesk.shared.models.notification import NotificationKind
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -296,7 +291,7 @@ def _token(recipient: SeededUser, principal: str = "employee") -> dict[str, str]
 
 @pytest.mark.parametrize("principal", PRINCIPALS)
 def test_each_principal_reads_its_own_bell_as_the_eight_key_row_and_two_key_envelope(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """Per principal (`/notifications` belongs to
@@ -332,7 +327,7 @@ def test_each_principal_reads_its_own_bell_as_the_eight_key_row_and_two_key_enve
 
 
 def test_the_list_input_declares_no_user_field_at_all(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The first half, as a literal key set.
 
@@ -345,7 +340,7 @@ def test_the_list_input_declares_no_user_field_at_all(
 
 
 def test_a_user_id_in_the_arguments_is_ignored_and_the_token_decides_whose_bell(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """With the tenant guard taken out of the picture: the caller
     and the person named in the arguments are in the SAME tenant,
@@ -374,7 +369,7 @@ def test_a_user_id_in_the_arguments_is_ignored_and_the_token_decides_whose_bell(
 
 
 def test_a_colleagues_notifications_are_absent_even_with_no_argument(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Through the transport, without the argument the case above
     sends: the handler's own read must be filtered by the token's user.
@@ -397,7 +392,7 @@ def test_a_colleagues_notifications_are_absent_even_with_no_argument(
 
 @pytest.mark.parametrize("principal", PRINCIPALS)
 def test_another_tenants_notifications_are_invisible_to_every_principal(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The isolation row for this table, on all seven cells: every one
@@ -425,7 +420,7 @@ def test_another_tenants_notifications_are_invisible_to_every_principal(
 
 
 def test_an_empty_bell_answers_an_empty_page_and_zero_rather_than_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The exact envelope `{"notifications": [], "unread_count": 0}`.
 
@@ -471,7 +466,7 @@ def test_the_limit_bounds_are_exactly_one_fifty_and_two_hundred() -> None:
     ],
 )
 def test_the_limit_boundary_is_inclusive_at_1_and_200(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     limit: int,
     accepted: bool,
 ) -> None:
@@ -500,7 +495,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
 
 
 def test_unread_only_defaults_to_false_and_answers_read_and_unread_alike(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The default arm, over a mixed set of two unread rows and one
     already read, with `unread_only` ABSENT from the arguments.
@@ -524,7 +519,7 @@ def test_unread_only_defaults_to_false_and_answers_read_and_unread_alike(
 
 
 def test_unread_only_true_narrows_the_rows_without_changing_the_unread_count(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The other arm, over the SAME mixed set, asserting both
     answers in one case so the two counts can be compared.
@@ -553,7 +548,7 @@ def test_unread_only_true_narrows_the_rows_without_changing_the_unread_count(
 
 
 def test_the_unread_count_counts_every_unread_row_and_not_only_the_page(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """`limit=1` over three unread rows answers ONE row and
     `unread_count == 3`.
@@ -594,7 +589,7 @@ def test_the_stamp_input_declares_only_the_key_and_the_notification_id() -> None
 
 @pytest.mark.parametrize("principal", PRINCIPALS)
 def test_each_principal_stamps_its_own_notification_with_the_four_key_output(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """Per principal: every one of the seven may clear their
@@ -630,7 +625,7 @@ def test_each_principal_stamps_its_own_notification_with_the_four_key_output(
 
 
 def test_the_same_idempotency_key_replays_the_stored_response(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Through the GUARD: one key, two calls.
 
@@ -659,7 +654,7 @@ def test_the_same_idempotency_key_replays_the_stored_response(
 
 
 def test_two_different_keys_on_an_already_read_row_answer_the_same_read_at(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Through the ALREADY-READ BRANCH: two calls, two keys, so
     the idempotency guard never recognises the second one.
@@ -694,7 +689,7 @@ def test_two_different_keys_on_an_already_read_row_answer_the_same_read_at(
 
 
 def test_a_colleagues_notification_id_is_refused_not_found_and_stamps_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """With the tenant guard taken out of the
     picture: the row belongs to a colleague in the SAME tenant,
@@ -720,7 +715,7 @@ def test_a_colleagues_notification_id_is_refused_not_found_and_stamps_nothing(
 
 
 def test_another_tenants_notification_id_is_refused_not_found_and_stamps_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The cross-tenant half. The id names a REAL unread row in the
     other seeded tenant, so the refusal has to come from a filter rather than
@@ -745,7 +740,7 @@ def test_another_tenants_notification_id_is_refused_not_found_and_stamps_nothing
 
 
 def test_an_unknown_notification_id_is_refused_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The third arrangement: an id that resolves nowhere reads
     exactly like a colleague's and like another tenant's.
@@ -775,7 +770,7 @@ def test_an_unknown_notification_id_is_refused_not_found(
     ],
 )
 def test_the_idempotency_key_boundary_is_inclusive_at_key_length(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     length: int,
     accepted: bool,
 ) -> None:
@@ -810,7 +805,7 @@ def test_the_idempotency_key_boundary_is_inclusive_at_key_length(
 
 
 def test_one_audit_event_per_list_call_names_the_tool_and_the_caller(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The read, asserting the event's SUBJECT and PAYLOAD
     KEYS rather than merely that an event exists.
@@ -841,7 +836,7 @@ def test_one_audit_event_per_list_call_names_the_tool_and_the_caller(
 
 
 def test_one_audit_event_per_stamp_call_names_the_tool_and_the_caller(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The mutation, same shape.
 

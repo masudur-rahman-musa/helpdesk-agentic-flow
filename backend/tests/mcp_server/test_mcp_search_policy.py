@@ -69,7 +69,7 @@ from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.naming import MAX_QUERY_CHARS, MAX_TOP_K
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     PlantedDocument,
     RecordingEmbedder,
     RecordingQdrant,
@@ -80,12 +80,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     call_tool,
     error_code,
     list_tools,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
     plant_policy_document,
-    seeded_mcp_db,
     stub_point,
     token_with_claims,
 )
@@ -216,7 +211,7 @@ def test_the_registry_row_is_the_matrix_tool_and_is_not_mutating() -> None:
 
 
 def test_search_policy_is_advertised_with_a_default_page_of_six(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an input model whose `top_k` default is any other number, read
     off the schema a CLIENT sees: an agent that omits `top_k` gets whatever
@@ -233,7 +228,7 @@ def test_search_policy_is_advertised_with_a_default_page_of_six(
 
 @pytest.mark.parametrize("principal", PRINCIPALS)
 def test_every_principal_may_search_policy(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
     principal: str,
 ) -> None:
@@ -257,7 +252,7 @@ def test_every_principal_may_search_policy(
 
 
 def test_a_page_carries_exactly_the_seven_citation_fields_in_fused_order(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches three wrong implementations at once.
@@ -322,7 +317,7 @@ def test_a_page_carries_exactly_the_seven_citation_fields_in_fused_order(
     ],
 )
 def test_the_page_is_never_longer_than_top_k(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
     arguments: dict[str, Any],
     expected: int,
@@ -359,7 +354,7 @@ def test_the_page_is_never_longer_than_top_k(
 
 
 def test_the_collection_searched_is_the_tokens_and_an_extra_tenant_id_is_dropped(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a handler that names the collection from an ARGUMENT.
@@ -416,7 +411,7 @@ def test_the_search_bounds_are_exactly_their_planned_values() -> None:
     ],
 )
 def test_the_inclusive_boundary_arguments_are_accepted(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
     arguments: dict[str, Any],
 ) -> None:
@@ -446,7 +441,7 @@ def test_the_inclusive_boundary_arguments_are_accepted(
     ],
 )
 def test_a_refused_argument_reaches_neither_the_embedder_nor_the_store(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
     arguments: dict[str, Any],
 ) -> None:
@@ -484,7 +479,7 @@ def test_a_refused_argument_reaches_neither_the_embedder_nor_the_store(
     ],
 )
 def test_the_refusal_decision_table_at_the_tool_boundary(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
     best_cosine: float,
     refused: bool,
@@ -520,7 +515,7 @@ def test_the_refusal_decision_table_at_the_tool_boundary(
 
 
 def test_a_refused_page_never_pays_the_title_query(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a handler that resolves citations FIRST and blanks them after.
@@ -567,7 +562,7 @@ def test_a_refused_page_never_pays_the_title_query(
 
 
 def test_an_unreachable_store_is_one_typed_internal(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a handler that swallows a store outage into an empty, refused
@@ -600,7 +595,7 @@ def test_an_unreachable_store_is_one_typed_internal(
 
 
 def test_a_successful_search_writes_exactly_one_audit_event(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a handler that appends a domain event of its own beside the
@@ -626,7 +621,7 @@ def test_a_successful_search_writes_exactly_one_audit_event(
 
 
 def test_a_refused_argument_writes_exactly_one_failure_event(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a failure recorded as a success, as a permission decision
@@ -662,7 +657,7 @@ class _CountingFactory:
 
 
 def test_the_qdrant_client_is_one_per_loop_and_the_embedder_one_per_process(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches the two lifetimes swapped, which is the risk the design names.

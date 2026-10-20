@@ -57,17 +57,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from helpdesk.mcp_server.tools import reviews
 from helpdesk.shared.models import PERIOD_LENGTH, ReviewFlag
 from scripts.seed import CUAN, NORDLICHT, TenantRows, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -483,7 +478,7 @@ def test_the_default_limit_is_read_off_the_input_model() -> None:
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_each_permitted_principal_opens_a_review_in_their_scope(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The allow direction every refusal below depends on, one cell of the
@@ -527,7 +522,7 @@ def test_each_permitted_principal_opens_a_review_in_their_scope(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_two_denied_principals_open_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The matrix's two empty cells on this row, and the record they leave.
@@ -564,7 +559,7 @@ def test_the_two_denied_principals_open_nothing(
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_each_permitted_principal_lists_the_items_of_a_review_in_their_scope(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The same allow direction for the read half, which has its own the matrix
@@ -600,7 +595,7 @@ def test_each_permitted_principal_lists_the_items_of_a_review_in_their_scope(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_two_denied_principals_cannot_list_items(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The read's own denial direction: catches `list_review_items` registered
@@ -629,7 +624,7 @@ def test_the_two_denied_principals_cannot_list_items(
 
 
 def test_a_manager_may_not_open_a_review_for_another_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The matrix's `own_department` scope is the ONLY gate this
     case can fail on.
@@ -666,7 +661,7 @@ def test_a_manager_may_not_open_a_review_for_another_department(
 
 
 def test_a_system_owner_may_not_open_a_review_for_a_system_they_do_not_own(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The `own_systems` half of the same gate, which the department case
     cannot reach.
@@ -698,7 +693,7 @@ def test_a_system_owner_may_not_open_a_review_for_a_system_they_do_not_own(
 
 
 def test_a_manager_may_not_list_the_items_of_another_departments_review(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The read's own scope gate, which the open path cannot pin.
 
@@ -745,7 +740,7 @@ def test_a_manager_may_not_list_the_items_of_another_departments_review(
 
 @pytest.mark.parametrize("principal", ANY_SCOPE_PRINCIPALS)
 def test_an_any_scope_principal_reaches_a_scope_they_have_no_relation_to(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The other direction of the scope gate: `Scope.ANY` really is anything
@@ -776,7 +771,7 @@ def test_an_any_scope_principal_reaches_a_scope_they_have_no_relation_to(
 
 
 def test_the_managers_department_comes_from_the_directory_not_the_token(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The department comparison itself.
 
@@ -816,7 +811,7 @@ def test_the_managers_department_comes_from_the_directory_not_the_token(
 
 
 def test_a_missing_and_another_tenants_scope_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a scope lookup that escapes the tenant guard, and one that
     distinguishes the two absences.
@@ -834,6 +829,13 @@ def test_a_missing_and_another_tenants_scope_answer_the_same_not_found(
     foreign_department = _tenant_rows(other_tenant.tenant_slug).department_ids["Engineering"]
     foreign_system = _tenant_rows(other_tenant.tenant_slug).system_ids["vpn"]
 
+    # Counted before and after, not against zero: the database is shared by the
+    # whole run, so another file may have opened a review in this tenant.
+    reviews_before = _rows(
+        mcp_env.database_url,
+        "SELECT count(*) FROM access_reviews WHERE tenant_id = :tenant",
+        {"tenant": other_tenant.tenant_id},
+    )[0][0]
     missing_department = call_tool(
         bearer(token_for(caller, principals=("platform_admin",))),
         OPEN,
@@ -865,12 +867,12 @@ def test_a_missing_and_another_tenants_scope_answer_the_same_not_found(
             "SELECT count(*) FROM access_reviews WHERE tenant_id = :tenant",
             {"tenant": other_tenant.tenant_id},
         )[0][0]
-        == 0
+        == reviews_before
     ), "nothing may be written into the other tenant"
 
 
 def test_a_missing_and_another_tenants_review_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The same two absences for `list_review_items`.
 
@@ -908,7 +910,7 @@ def test_a_missing_and_another_tenants_review_answer_the_same_not_found(
 
 
 def test_a_second_review_of_the_same_scope_and_period_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """At the boundary, with two DIFFERENT idempotency keys so the
     guard cannot be what refuses the second call.
@@ -948,7 +950,7 @@ def test_a_second_review_of_the_same_scope_and_period_is_refused_policy_blocked(
 
 
 def test_neither_scope_id_and_both_scope_ids_are_refused_before_any_write(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Both halves.
 
@@ -998,7 +1000,7 @@ PERIOD_CASES: list[tuple[str, str, bool]] = [
     ids=[case[0] for case in PERIOD_CASES],
 )
 def test_the_period_bounds_are_inclusive_and_reject_before_any_write(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     period_value: str,
     accepted: bool,
 ) -> None:
@@ -1057,7 +1059,7 @@ LIMIT_CASES: list[tuple[str, int, bool]] = [
     ids=[case[0] for case in LIMIT_CASES],
 )
 def test_the_limit_boundary_is_inclusive_at_1_and_200(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     limit: int,
     accepted: bool,
 ) -> None:
@@ -1096,7 +1098,7 @@ def test_the_limit_boundary_is_inclusive_at_1_and_200(
 
 
 def test_a_replayed_key_returns_the_same_response_and_opens_no_second_review(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a retry that re-runs the body.
 
@@ -1129,7 +1131,7 @@ def test_a_replayed_key_returns_the_same_response_and_opens_no_second_review(
 
 
 def test_the_audit_sequence_is_review_opened_then_tool_succeeded(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The audit order as an exact ordered list, which is the only place the order
     of the two events is observable at all.
@@ -1338,7 +1340,7 @@ def _open_with_item(
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_each_permitted_principal_decides_an_item_in_their_scope(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The allow direction every refusal below depends on, one cell of the
@@ -1378,7 +1380,7 @@ def test_each_permitted_principal_decides_an_item_in_their_scope(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_two_denied_principals_decide_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The matrix's two empty cells on this row, and the record they leave.
@@ -1416,7 +1418,7 @@ def test_the_two_denied_principals_decide_nothing(
 
 
 def test_a_manager_may_not_decide_an_item_of_another_departments_review(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The matrix's `own_department` scope is the ONLY gate
     this case can fail on.
@@ -1453,7 +1455,7 @@ def test_a_manager_may_not_decide_an_item_of_another_departments_review(
 
 
 def test_a_system_owner_may_not_decide_an_item_of_a_system_they_do_not_own(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The `own_systems` half of the same gate, which the department case
     cannot reach.
@@ -1487,7 +1489,7 @@ def test_a_system_owner_may_not_decide_an_item_of_a_system_they_do_not_own(
 
 
 def test_the_deciders_department_comes_from_the_directory_not_the_token(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The department comparison of the deciding tool itself.
 
@@ -1533,7 +1535,7 @@ def test_the_deciders_department_comes_from_the_directory_not_the_token(
 
 
 def test_a_missing_and_another_tenants_item_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an item lookup that escapes the tenant guard, and one that
     distinguishes the two absences.
@@ -1581,7 +1583,7 @@ def test_a_missing_and_another_tenants_item_answer_the_same_not_found(
 
 
 def test_an_out_of_scope_item_is_refused_before_its_existence_is_tested(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The reason this tool joins `SCOPE_BEFORE_EXISTENCE_TOOLS`
     rather than the rbac sweep's two older buckets.
@@ -1633,7 +1635,7 @@ DECISION_CASES: list[tuple[str, str, bool]] = [
     ids=[case[0] for case in DECISION_CASES],
 )
 def test_the_decision_word_is_an_exact_enum_member_or_refused_before_any_write(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     decision: str,
     accepted: bool,
 ) -> None:
@@ -1670,7 +1672,7 @@ def test_the_decision_word_is_an_exact_enum_member_or_refused_before_any_write(
 
 
 def test_an_extra_argument_is_refused_with_nothing_written(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """`extra="forbid"` on the mutating input, and the reason it is not
     `ignore`: an unexpected `user_id` or `tenant_id` in the arguments is a
@@ -1697,7 +1699,7 @@ def test_an_extra_argument_is_refused_with_nothing_written(
 
 
 def test_a_revoke_decision_ends_the_grant_and_completes_the_review(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The whole path in one call: the only route from a review flag to a
     change in access.
@@ -1735,7 +1737,7 @@ def test_a_revoke_decision_ends_the_grant_and_completes_the_review(
 
 
 def test_a_second_decision_on_the_same_item_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """At the boundary, with two DIFFERENT idempotency keys so the
     guard cannot be what refuses the second call.
@@ -1776,7 +1778,7 @@ def test_a_second_decision_on_the_same_item_is_refused_policy_blocked(
 
 
 def test_a_replayed_key_returns_the_same_response_and_revokes_nothing_twice(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a retry that re-runs the body.
 
@@ -1812,7 +1814,7 @@ def test_a_replayed_key_returns_the_same_response_and_revokes_nothing_twice(
 
 
 def test_the_audit_sequence_is_review_item_decided_then_tool_succeeded(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The audit order as an exact ordered list, which is the only place the order
     of the two events is observable at all.
@@ -2116,7 +2118,7 @@ def test_the_queue_reads_the_same_three_limit_constants_as_the_item_list() -> No
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_each_permitted_principal_reads_the_queue_of_their_own_scope(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The allow direction of `list_reviews`' own matrix row, one cell at a
@@ -2170,7 +2172,7 @@ def test_each_permitted_principal_reads_the_queue_of_their_own_scope(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_two_denied_principals_read_no_queue(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The queue's denial direction: catches `list_reviews` registered without a
@@ -2198,7 +2200,7 @@ def test_the_two_denied_principals_read_no_queue(
 
 
 def test_a_manager_reads_no_review_of_another_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The matrix's `own_department` scope is the ONLY gate that
     can hide the other department's review here.
@@ -2235,7 +2237,7 @@ def test_a_manager_reads_no_review_of_another_department(
 
 
 def test_a_system_owner_reads_no_review_of_a_system_they_do_not_own(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The `own_systems` half of the same gate, which the department case cannot
     reach: a handler that implemented `own_department` and left `own_systems`
@@ -2269,7 +2271,7 @@ def test_a_system_owner_reads_no_review_of_a_system_they_do_not_own(
 
 
 def test_a_scope_that_reaches_nothing_answers_an_empty_queue_and_never_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a handler that treats "no rows" as an absence and
     raises `NOT_FOUND`, which is what the other three review tools do for an id
@@ -2291,7 +2293,7 @@ def test_a_scope_that_reaches_nothing_answers_an_empty_queue_and_never_not_found
 
 
 def test_another_tenants_review_is_invisible_to_an_any_scope_caller(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The cross-tenant half, which the matrix sweep cannot reach:
     `list_reviews` takes no id, so it is not on the cross-tenant axis at all.
@@ -2348,7 +2350,7 @@ QUEUE_LIMIT_CASES: list[tuple[str, int, bool]] = [
     ids=[case[0] for case in QUEUE_LIMIT_CASES],
 )
 def test_the_queue_limit_boundary_is_inclusive_at_1_and_200(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     limit: int,
     accepted: bool,
 ) -> None:
@@ -2401,7 +2403,7 @@ STATUS_WORD_CASES: list[tuple[str, str, bool]] = [
     ids=[case[0] for case in STATUS_WORD_CASES],
 )
 def test_the_status_filter_is_an_exact_enum_member_or_refused_before_any_read(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     status: str,
     accepted: bool,
 ) -> None:
@@ -2437,7 +2439,7 @@ def test_the_status_filter_is_an_exact_enum_member_or_refused_before_any_read(
 
 
 def test_each_status_answers_only_its_own_rows_and_an_absent_status_answers_both(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The filtering half, which the word table above cannot pin: a
     handler that ACCEPTS the member and then ignores it passes every row there.
@@ -2481,7 +2483,7 @@ def test_each_status_answers_only_its_own_rows_and_an_absent_status_answers_both
 
 
 def test_the_queue_writes_exactly_one_audit_event_of_type_tool_succeeded(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """An exact delta. Catches a read that appends an event of
     its own beside the pipeline's — a `review.opened` or a `review.listed` for a
@@ -2514,7 +2516,7 @@ def test_the_queue_writes_exactly_one_audit_event_of_type_tool_succeeded(
 
 
 def test_list_review_items_answers_eleven_keys_naming_the_grant_behind_the_item(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the item list left at its five original keys, and a widening
     that echoes the item's own columns under context names.

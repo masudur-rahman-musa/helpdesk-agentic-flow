@@ -57,17 +57,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from scripts.seed import NORDLICHT, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -321,7 +316,7 @@ def _slots(approvals: Any) -> list[tuple[str, uuid.UUID | None]]:
 
 
 def test_an_in_template_low_role_is_executed_with_three_events_and_one_grant(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a handler that files the request but never executes the grant
     (zero grants and a row left `pending`), executes it but leaves the row's
@@ -380,7 +375,7 @@ def test_an_in_template_low_role_is_executed_with_three_events_and_one_grant(
 
 
 def test_a_critical_role_is_queued_with_the_engines_resolved_approvers(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a handler that executes a grant on the `approval` branch (any
     grant at all here is the LLM-free mutation guarantee broken), that fills
@@ -440,7 +435,7 @@ def test_a_critical_role_is_queued_with_the_engines_resolved_approvers(
 
 
 def test_an_sod_conflict_is_rejected_citing_the_seeded_rule_and_grants_nothing(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a blocked branch that still executes the grant (requirement #8),
     that stores the row as anything but `rejected`, or that loses the SoD
@@ -494,7 +489,7 @@ def test_an_sod_conflict_is_rejected_citing_the_seeded_rule_and_grants_nothing(
 
 
 def test_a_manager_may_name_a_report_in_their_own_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an on-behalf seam that refuses every target but the token's own
     user (the `own_department` row would then be dead), or one that
@@ -531,7 +526,7 @@ def test_a_manager_may_name_a_report_in_their_own_department(
 
 
 def test_a_manager_naming_a_target_in_another_department_is_denied(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an on-behalf seam that stops at `rbac.authorize(...ON_BEHALF)`
     without enforcing the `own_department` scope it returns.
@@ -567,7 +562,7 @@ def test_a_manager_naming_a_target_in_another_department_is_denied(
 
 
 def test_an_employee_may_not_name_a_colleague_even_in_their_own_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the `rbac.authorize(...CREATE_ACCESS_REQUEST_ON_BEHALF)` call
     being deleted while the department comparison stays.
@@ -602,7 +597,7 @@ def test_an_employee_may_not_name_a_colleague_even_in_their_own_department(
 
 
 def test_an_hr_officer_may_name_a_target_in_any_department(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the `scope is Scope.ANY` branch being deleted, which would drop
     `hr`, `it_admin` and `platform_admin` into the `own_department`
@@ -630,7 +625,7 @@ def test_an_hr_officer_may_name_a_target_in_any_department(
 
 
 def test_the_callers_department_is_read_from_the_directory_not_the_token(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the `own_department` comparison reading the token's
     `department_id` claim instead of the caller's current directory row.
@@ -672,7 +667,7 @@ def test_the_callers_department_is_read_from_the_directory_not_the_token(
 
 
 def test_a_replayed_call_is_byte_identical_and_files_one_row_and_one_grant(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the spec registered non-mutating (the body would run twice: two
     request rows and two grants for one key), a replay response rebuilt rather
@@ -706,7 +701,7 @@ def test_a_replayed_call_is_byte_identical_and_files_one_row_and_one_grant(
 
 
 def test_the_same_key_with_a_different_request_is_a_conflict(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a fingerprint built from the key alone, which would answer a
     genuinely different request with the first one's response — here, access
@@ -748,7 +743,7 @@ def test_the_same_key_with_a_different_request_is_a_conflict(
     ],
 )
 def test_the_justification_boundary_is_inclusive_at_2000(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     length: int,
     accepted: bool,
 ) -> None:
@@ -787,7 +782,7 @@ def test_the_justification_boundary_is_inclusive_at_2000(
     ],
 )
 def test_the_citations_boundary_is_inclusive_at_20(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     count: int,
     accepted: bool,
 ) -> None:
@@ -831,7 +826,7 @@ def test_the_citations_boundary_is_inclusive_at_20(
     ],
 )
 def test_the_requested_expiry_boundary_is_inclusive_at_3650(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     days: int,
     accepted: bool,
 ) -> None:
@@ -878,7 +873,7 @@ CITATION_FIELDS = ("document_slug", "title", "version", "heading_path", "chunk_i
     ],
 )
 def test_the_citation_field_boundary_is_inclusive_at_512(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     field: str,
     length: int,
     accepted: bool,
@@ -921,7 +916,7 @@ def test_the_citation_field_boundary_is_inclusive_at_512(
 
 
 def test_an_extra_argument_is_refused_with_no_row_and_no_grant(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an input model that ignores extras instead of forbidding them
     (the read tools' contract, which is wrong for a mutation): a `user_id` in

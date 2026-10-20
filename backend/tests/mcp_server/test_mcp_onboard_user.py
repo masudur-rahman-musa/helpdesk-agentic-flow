@@ -48,18 +48,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from scripts.seed import CUAN, NORDLICHT, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     TEST_JWT_SIGNING_PHRASE,
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -273,7 +268,7 @@ def _onboarded_events(database_url: str, tenant_id: uuid.UUID) -> list[Any]:
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_the_three_permitted_principals_each_onboard_a_joiner(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The allow direction every refusal below depends on, one row of the matrix's
@@ -323,7 +318,7 @@ def test_the_three_permitted_principals_each_onboard_a_joiner(
 
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 def test_the_other_four_principals_are_denied_and_write_no_user(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """The matrix row is the ONLY gate on this tool.
@@ -358,7 +353,7 @@ def test_the_other_four_principals_are_denied_and_write_no_user(
 
 
 def test_the_audit_sequence_is_onboarded_then_the_grants_then_tool_succeeded(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The audit events, as an exact ordered list.
 
@@ -413,7 +408,7 @@ def test_the_audit_sequence_is_onboarded_then_the_grants_then_tool_succeeded(
 
 
 def test_a_missing_and_another_tenants_department_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a department lookup that escapes the tenant guard, and one that
     distinguishes the two absences.
@@ -447,7 +442,7 @@ def test_a_missing_and_another_tenants_department_answer_the_same_not_found(
 
 
 def test_a_missing_and_another_tenants_manager_answer_the_same_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """The other half, and the same oracle argument for the manager.
 
@@ -481,7 +476,7 @@ def test_a_missing_and_another_tenants_manager_answer_the_same_not_found(
 
 
 def test_an_address_already_in_this_tenant_is_refused_policy_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """At the boundary: catches the unique index being left to
     raise, which the pipeline maps to `INTERNAL`.
@@ -549,7 +544,7 @@ def _address_of_length(length: int) -> str:
     ],
 )
 def test_the_input_bounds_are_inclusive_and_reject_before_any_effect(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     email: str | int | None,
     display_name: str,
     start_date: str,
@@ -610,7 +605,7 @@ def test_the_input_bounds_are_inclusive_and_reject_before_any_effect(
 
 
 def test_an_unknown_field_is_refused_with_no_user(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """`MutatingToolInput` forbids extras, and this is the argument that proves
     why: a `tenant_id` in the arguments is a caller who believes they are
@@ -646,7 +641,7 @@ def test_an_unknown_field_is_refused_with_no_user(
 
 
 def test_a_replay_returns_the_stored_response_and_creates_no_second_user(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a retry that re-runs the body.
 
@@ -700,7 +695,7 @@ def _post_login(tenant_slug: str, email: str, password: str) -> httpx.Response:
 
 
 def test_login_refuses_an_onboarded_user_exactly_like_an_unknown_one(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a joiner created with a USABLE
     credential.
@@ -739,7 +734,7 @@ def test_login_refuses_an_onboarded_user_exactly_like_an_unknown_one(
 
 
 def test_the_start_date_reaches_the_row_as_given(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches `start_date` being ignored and defaulted to "today".
 

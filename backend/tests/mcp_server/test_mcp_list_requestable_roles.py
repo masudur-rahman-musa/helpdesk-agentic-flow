@@ -25,17 +25,12 @@ import pytest
 
 from helpdesk.shared.auth.rbac import Principal
 from scripts.seed import CUAN, NORDLICHT, TenantSpec, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
     list_tools,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -77,7 +72,7 @@ def _audit_count(env: SeededMcp) -> int:
     return len(result.structured_content["events"])
 
 
-def test_lists_only_the_callers_tenant(mcp_env: SeededMcp) -> None:  # noqa: F811
+def test_lists_only_the_callers_tenant(mcp_env: SeededMcp) -> None:
     """Catches a query that forgets the tenant filter: the other tenant's
     system and role pairs would join the answer, so a caller would be offered
     (and told the names of) roles that exist only in another company."""
@@ -94,7 +89,7 @@ def test_lists_only_the_callers_tenant(mcp_env: SeededMcp) -> None:  # noqa: F81
     assert seen.isdisjoint(foreign_only)
 
 
-def test_every_row_carries_the_catalogue_values(mcp_env: SeededMcp) -> None:  # noqa: F811
+def test_every_row_carries_the_catalogue_values(mcp_env: SeededMcp) -> None:
     """Catches a row that reports a wrong or swapped column (the role's name
     for the system's, privilege for sensitivity, a made-up expiry): each field
     is compared with the seeded catalogue value, not with another output field."""
@@ -126,7 +121,7 @@ def test_every_row_carries_the_catalogue_values(mcp_env: SeededMcp) -> None:  # 
         assert row["default_expiry_days"] == _EXPIRY_DAYS[role.privilege]
 
 
-def test_marks_template_roles_and_held_roles(mcp_env: SeededMcp) -> None:  # noqa: F811
+def test_marks_template_roles_and_held_roles(mcp_env: SeededMcp) -> None:
     """Catches a flag computed from the wrong source. `in_my_template` must
     come from the caller's own department template and `already_held` from
     live grants only: the probe holds exactly three live grants and three
@@ -156,7 +151,7 @@ def test_marks_template_roles_and_held_roles(mcp_env: SeededMcp) -> None:  # noq
     assert sum(1 for row in roles if row["already_held"]) == 3
 
 
-def test_filters_by_system(mcp_env: SeededMcp) -> None:  # noqa: F811
+def test_filters_by_system(mcp_env: SeededMcp) -> None:
     """Catches a `system` argument that is accepted and then ignored: the
     answer would still list every system's roles."""
     caller = mcp_env.tenant_a
@@ -171,7 +166,7 @@ def test_filters_by_system(mcp_env: SeededMcp) -> None:  # noqa: F811
 
 
 def test_a_system_of_64_characters_is_accepted_and_65_refused(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a missing or wrong cap on `system`: 65 characters would reach
     the query (and the slug column is 64), and a cap of 63 would refuse a
@@ -190,7 +185,7 @@ def test_a_system_of_64_characters_is_accepted_and_65_refused(
     ("limit", "accepted"),
     [(0, False), (1, True), (200, True), (201, False)],
 )
-def test_limit_bounds(mcp_env: SeededMcp, limit: int, accepted: bool) -> None:  # noqa: F811
+def test_limit_bounds(mcp_env: SeededMcp, limit: int, accepted: bool) -> None:
     """Catches a `limit` range that is off by one at either end, or that is
     accepted and then not applied: 1 must return exactly one row."""
     result = call_tool(bearer(token_for(mcp_env.tenant_a)), TOOL, {"limit": limit})
@@ -202,7 +197,7 @@ def test_limit_bounds(mcp_env: SeededMcp, limit: int, accepted: bool) -> None:  
 
 
 def test_the_advertised_schema_pins_the_bounds_and_the_default(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a bound or default that behaves right today but is not the one
     clients are told (50 default, 1 to 200, slug at most 64): the schema is
@@ -224,7 +219,7 @@ def test_the_advertised_schema_pins_the_bounds_and_the_default(
 
 @pytest.mark.parametrize("principal", [p.value for p in Principal])
 def test_every_principal_may_call_it_and_it_is_audited(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     principal: str,
 ) -> None:
     """Catches a tool that is read-only in name but unaudited, or one wired to

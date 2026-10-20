@@ -27,16 +27,11 @@ from typing import Any
 
 import pytest
 
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     sql_rows,
     token_for,
 )
@@ -85,7 +80,7 @@ def _event_types(database_url: str, tenant_id: uuid.UUID) -> list[str]:
 
 
 @pytest.fixture
-def clean_settings(mcp_env: SeededMcp) -> SeededMcp:  # noqa: F811
+def clean_settings(mcp_env: SeededMcp) -> SeededMcp:
     """Both tenants start with empty settings, so no case inherits another's flag."""
     _set_settings(mcp_env.database_url, mcp_env.tenant_a.tenant_id, {})
     _set_settings(mcp_env.database_url, mcp_env.tenant_b.tenant_id, {})

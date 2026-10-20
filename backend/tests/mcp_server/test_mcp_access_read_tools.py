@@ -44,17 +44,12 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus
 from scripts.seed import CUAN, NORDLICHT, TenantSpec, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -228,7 +223,7 @@ def _role_in_callers_tenant(caller: SeededUser) -> uuid.UUID:
 
 
 def test_classify_in_template_low_role_is_auto_with_one_event_and_no_row(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a handler that persists an `access_requests` row (classify is
     read-only), writes any event other than exactly one `request.classified`,
@@ -258,7 +253,7 @@ def test_classify_in_template_low_role_is_auto_with_one_event_and_no_row(
 
 
 def test_classify_sod_conflict_is_blocked_citing_the_seeded_rule(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a classify path that loses the SoD evidence on the way out:
     a conflict without the seeded rule's id, without its `policy_ref`, or
@@ -296,7 +291,7 @@ def test_classify_sod_conflict_is_blocked_citing_the_seeded_rule(
 
 
 def test_classify_a_leaver_target_is_blocked(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a snapshot that reads the target's status as a constant
     `active` (or off the caller's row instead of the target's): the target
@@ -335,7 +330,7 @@ def test_classify_a_leaver_target_is_blocked(
     ],
 )
 def test_the_requested_expiry_boundary_is_inclusive_at_3650(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     days: int,
     accepted: bool,
 ) -> None:
@@ -360,7 +355,7 @@ def test_the_requested_expiry_boundary_is_inclusive_at_3650(
 
 
 def test_a_non_uuid_role_id_is_refused_validation(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a role_id typed as a bare string: a non-UUID must be VALIDATION
     at the input model, never a database cast error."""
@@ -376,7 +371,7 @@ def test_a_non_uuid_role_id_is_refused_validation(
 
 
 def test_an_unknown_role_is_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a snapshot builder that surfaces a missing role as INTERNAL
     (or a half-built snapshot) instead of the typed NOT_FOUND."""
@@ -390,7 +385,7 @@ def test_an_unknown_role_is_not_found(
 
 
 def test_a_real_target_in_another_tenant_is_not_found(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a target lookup that escapes the tenant guard: the target id
     names a REAL seeded user of the other tenant, so an unguarded read would
@@ -410,7 +405,7 @@ def test_a_real_target_in_another_tenant_is_not_found(
 
 
 def test_list_my_requests_returns_only_the_token_users_rows(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an implementation that filters by an argument instead of the
     token, or not at all (every tenant row would come back).
@@ -477,7 +472,7 @@ def test_list_my_requests_returns_only_the_token_users_rows(
 
 @pytest.mark.parametrize("status", list(RequestStatus), ids=[s.value for s in RequestStatus])
 def test_the_status_filter_returns_exactly_that_status(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     status: RequestStatus,
 ) -> None:
     """Catches a status filter that is ignored (the decoy row with another
@@ -523,7 +518,7 @@ def test_the_status_filter_returns_exactly_that_status(
     ids=["trailing-space", "trailing-newline", "unknown"],
 )
 def test_a_status_outside_the_enum_is_refused_validation(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     status: str,
 ) -> None:
     """Catches a status check weaker than exact enum membership: a stripped
@@ -535,7 +530,7 @@ def test_a_status_outside_the_enum_is_refused_validation(
 
 
 def test_a_user_with_no_requests_gets_an_empty_list(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an empty result reported as an error or a missing key: no rows
     is a valid answer and must serialise as an empty list."""
@@ -732,7 +727,7 @@ def _row_for(payload: dict[str, Any], justification: str) -> dict[str, Any]:
 
 
 def test_the_widened_row_carries_exactly_the_twenty_planned_fields(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a widening that drops one of the ten new fields AND one that
     carries a spare (a `requester_user_id`, the raw `approver_user_ids`, a
@@ -763,7 +758,7 @@ def test_the_widened_row_carries_exactly_the_twenty_planned_fields(
 
 
 def test_the_names_come_from_the_directory_and_not_from_the_request_row(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches the four name fields and `target_display_name` being filled
     from anything but the rows their ids point at.
@@ -821,7 +816,7 @@ def test_the_names_come_from_the_directory_and_not_from_the_request_row(
 
 
 def test_the_grant_join_is_null_when_pending_and_carries_the_grant_when_executed(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches `grant_id`/`expires_at` that are always null (no join at all),
     and catches `expires_at` computed from `requested_expiry_days` instead of
@@ -881,7 +876,7 @@ def test_the_grant_join_is_null_when_pending_and_carries_the_grant_when_executed
 
 
 def test_several_requests_come_back_once_each_despite_the_grant_join(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a join that multiplies rows: three requests
     are planted for one caller, one of them granted, and the answer must carry
@@ -964,7 +959,7 @@ REQUEST_LIMIT_CASES: tuple[tuple[str, int, bool], ...] = (
     ids=[case[0] for case in REQUEST_LIMIT_CASES],
 )
 def test_the_request_limit_boundary_is_inclusive_at_1_and_200(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     limit: int,
     accepted: bool,
 ) -> None:

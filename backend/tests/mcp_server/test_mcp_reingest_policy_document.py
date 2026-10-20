@@ -73,19 +73,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from helpdesk.mcp_server.core import rag_clients
 from helpdesk.mcp_server.services.rag.redaction_client import RedactedDocument
 from helpdesk.mcp_server.tools.registry import REGISTRY
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     RecordingEmbedder,
     SeededMcp,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_policy_collections,
-    mcp_qdrant,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -171,7 +164,7 @@ def _stub_gateway_and_model(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def corpus_root(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
@@ -314,7 +307,7 @@ def _response_text(result: Any) -> str:
 
 
 def test_the_input_declares_exactly_slug_version_and_idempotency_key(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     corpus_root: Path,
 ) -> None:
     """The input as an EXACT field set and then at the wire.
@@ -356,8 +349,8 @@ def test_the_input_declares_exactly_slug_version_and_idempotency_key(
 
 @pytest.mark.parametrize("principal", ALLOWED_PRINCIPALS)
 def test_the_two_permitted_principals_re_ingest_and_the_other_five_are_refused(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_policy_collections: tuple[str, str],  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_policy_collections: tuple[str, str],
     corpus_root: Path,
     principal: str,
 ) -> None:
@@ -389,7 +382,7 @@ def test_the_two_permitted_principals_re_ingest_and_the_other_five_are_refused(
 @pytest.mark.parametrize("principal", DENIED_PRINCIPALS)
 @pytest.mark.parametrize("planted", [True, False], ids=["file-present", "file-absent"])
 def test_the_five_denied_principals_re_ingest_nothing_whatever_is_on_disk(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     corpus_root: Path,
     principal: str,
     planted: bool,
@@ -436,8 +429,8 @@ def test_the_five_denied_principals_re_ingest_nothing_whatever_is_on_disk(
 
 
 def test_a_replayed_call_is_byte_identical_and_ingests_once(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_policy_collections: tuple[str, str],  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_policy_collections: tuple[str, str],
     corpus_root: Path,
 ) -> None:
     """The first half.
@@ -476,8 +469,8 @@ def test_a_replayed_call_is_byte_identical_and_ingests_once(
 
 
 def test_the_same_key_with_a_different_slug_is_an_idempotency_conflict(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_policy_collections: tuple[str, str],  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_policy_collections: tuple[str, str],
     corpus_root: Path,
 ) -> None:
     """The second half.
@@ -513,8 +506,8 @@ def test_the_same_key_with_a_different_slug_is_an_idempotency_conflict(
 
 
 def test_the_tool_is_stopped_by_its_own_kill_switch(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_redis_url: str,  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_redis_url: str,
     corpus_root: Path,
 ) -> None:
     """This mutation is not special, and it is not protected.
@@ -574,8 +567,8 @@ def test_the_tool_is_stopped_by_its_own_kill_switch(
 
 
 def test_the_audit_event_type_is_policy_reingested(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_policy_collections: tuple[str, str],  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_policy_collections: tuple[str, str],
     corpus_root: Path,
 ) -> None:
     """The event type, its subject and its
@@ -614,8 +607,8 @@ def test_the_audit_event_type_is_policy_reingested(
 
 
 def test_the_output_carries_all_seven_fields_and_a_summary(
-    mcp_env: SeededMcp,  # noqa: F811
-    mcp_policy_collections: tuple[str, str],  # noqa: F811
+    mcp_env: SeededMcp,
+    mcp_policy_collections: tuple[str, str],
     corpus_root: Path,
 ) -> None:
     """Check the output on the MODEL and on the wire.

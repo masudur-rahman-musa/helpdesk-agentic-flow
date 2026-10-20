@@ -39,17 +39,12 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest
 from helpdesk.shared.models.numbers import NumberKind, format_number
 from scripts.seed import CUAN, NORDLICHT, TenantRows, UserRow, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
     probe_session_factory,
-    seeded_mcp_db,
     sql_execute,
     sql_rows,
     token_for,
@@ -199,7 +194,7 @@ def _count_selects_on(table: str) -> Iterator[list[str]]:
 
 
 def test_a_request_event_carries_its_request_number(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an implementation that leaves `subject_number` null for a request
     event, formats a different number than the one stored on the row (a
@@ -225,7 +220,7 @@ def test_a_request_event_carries_its_request_number(
 
 
 def test_events_that_are_not_requests_have_no_number(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches an implementation that numbers any row whose `subject_id` happens
     to be a request's id, without checking `subject_type`. Every row below
@@ -265,7 +260,7 @@ def test_events_that_are_not_requests_have_no_number(
 
 
 def test_a_request_from_another_company_gets_no_number(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a lookup that is not filtered by the caller's company: the
     caller is in one company and the audit row names a REAL request that
@@ -298,7 +293,7 @@ def test_a_request_from_another_company_gets_no_number(
 
 
 def test_a_subject_id_that_is_not_a_uuid_gets_no_number(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a lookup that parses `subject_id` as a uuid without a guard: the
     free-text column holds `not-a-uuid`, and the page must still load with null
@@ -322,7 +317,7 @@ def test_a_subject_id_that_is_not_a_uuid_gets_no_number(
 
 
 def test_one_page_of_requests_is_numbered_in_one_read(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a lookup that reads one request per row (a read inside the loop):
     three request events on one page must all be numbered, each with its own

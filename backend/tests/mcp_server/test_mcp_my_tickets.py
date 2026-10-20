@@ -33,17 +33,12 @@ from pydantic import ValidationError
 from helpdesk.mcp_server.tools import self_service
 from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.models import TicketStatus
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     SeededMcp,
     SeededUser,
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -96,7 +91,7 @@ def _listed(caller: SeededUser, arguments: dict[str, Any]) -> list[dict[str, Any
 
 @pytest.mark.db
 def test_the_list_holds_only_the_callers_tickets_newest_first(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a query that drops the user filter (a colleague's ticket shows),
     one that drops the company guard (the other company's ticket shows), one
@@ -125,7 +120,7 @@ def test_the_list_holds_only_the_callers_tickets_newest_first(
 
 @pytest.mark.db
 def test_the_limit_keeps_the_newest_rows(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a limit that is validated but never reaches the query (more than
     two come back), and a limit applied before the sort (the two oldest come
@@ -184,7 +179,7 @@ def test_the_input_model_refuses_a_limit_of_0_or_201(limit: int) -> None:
 @pytest.mark.db
 @pytest.mark.parametrize("limit", [LIMIT_MIN - 1, LIMIT_MAX + 1])
 def test_a_limit_of_0_or_201_is_refused_as_validation(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     limit: int,
 ) -> None:
     """Catches a tool that answers a page for an out-of-range limit by clamping
@@ -219,7 +214,7 @@ def test_ticket_status_values_are_exactly_open_and_solved() -> None:
 
 @pytest.mark.db
 def test_a_new_ticket_is_written_open_from_the_enum(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
 ) -> None:
     """Catches a `create_ticket` that stores any word but the enum's `open`
     (the answer and the stored row, read back through the list, must both say

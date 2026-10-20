@@ -62,7 +62,7 @@ from helpdesk.shared.models import (
     User,
 )
 from scripts.seed import CUAN, NORDLICHT, TenantRows, TenantSpec, generate_tenant
-from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
+from tests.support.mcp import (
     RecordingEmbedder,
     RecordingQdrant,
     SeededMcp,
@@ -70,12 +70,7 @@ from tests.support.mcp import (  # noqa: F401 - fixtures are resolved by name
     bearer,
     call_tool,
     error_code,
-    mcp_env,
-    mcp_pg,
-    mcp_redis_base_url,
-    mcp_redis_url,
     plant_ticket,
-    seeded_mcp_db,
     token_for,
 )
 
@@ -961,7 +956,7 @@ def test_every_registered_tool_has_a_matrix_row() -> None:
 
 @pytest.mark.parametrize(("tool_name", "principal"), CASES, ids=[f"{t}-{p}" for t, p in CASES])
 def test_matrix_expectation_holds_through_the_transport(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool_name: str,
     principal: str,
 ) -> None:
@@ -998,7 +993,7 @@ def test_matrix_expectation_holds_through_the_transport(
 )
 @pytest.mark.parametrize("tool_name", sorted(REGISTRY))
 def test_a_token_with_no_recognised_principal_is_refused(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool_name: str,
     label: str,
     principals: tuple[str, ...],
@@ -1337,7 +1332,7 @@ CROSS_TENANT_CASES = [
     ids=[f"{t}-{p}" for t, p in CROSS_TENANT_CASES],
 )
 def test_cross_tenant_arguments_are_refused_for_every_tool_and_principal(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool_name: str,
     principal: str,
 ) -> None:
@@ -1369,7 +1364,7 @@ def test_cross_tenant_arguments_are_refused_for_every_tool_and_principal(
 
 @pytest.mark.parametrize("tool_name", IDENTITY_ONLY_TOOLS)
 def test_an_identity_only_tool_answers_about_the_callers_own_tenant(
-    mcp_env: SeededMcp,  # noqa: F811
+    mcp_env: SeededMcp,
     tool_name: str,
 ) -> None:
     """The other half: the five tools whose only input is the token.
