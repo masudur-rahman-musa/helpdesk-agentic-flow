@@ -264,6 +264,43 @@ describe("ChatPanel with the chat list", () => {
     expect(newest.compareDocumentPosition(oldest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("reopens the open chat after leaving the page and coming back", async () => {
+    // Catches a return to the chat page that starts an empty new chat, which
+    // dropped the conversation the person was in the middle of.
+    chats = [NEW, OLD];
+    histories = { [OLD.id]: [{ role: "assistant", content: "old answer" }] };
+    const first = renderPanel();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: OLD.title }));
+    await within(screen.getByRole("log", { name: "Conversation" })).findByText("old answer");
+
+    first.unmount();
+    renderPanel();
+
+    const log = screen.getByRole("log", { name: "Conversation" });
+    expect(await within(log).findByText("old answer")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: OLD.title })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+  });
+
+  it("starts empty after New chat, even after leaving and coming back", async () => {
+    // Catches a New chat that still reopens the old one on return.
+    chats = [OLD];
+    histories = { [OLD.id]: [{ role: "assistant", content: "old answer" }] };
+    const first = renderPanel();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: OLD.title }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
+
+    first.unmount();
+    renderPanel();
+
+    await screen.findByRole("button", { name: OLD.title });
+    expect(screen.queryByText("old answer")).toBeNull();
+  });
+
   it("opens the clicked chat: asks for its history by id and shows it", async () => {
     // Catches a click that loads the wrong chat or none, and a history read
     // that leaves `chat_id` off the request (the server would answer for no

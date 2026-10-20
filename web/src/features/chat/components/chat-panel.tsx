@@ -67,6 +67,16 @@ export function ChatPanel() {
 
   const messages = [...(openedId === null ? [] : (history.data ?? [])), ...turn];
 
+  // Coming back from another page reopens the chat that was open, unless a
+  // renewal link brought a new question to ask.
+  useEffect(() => {
+    const kept = readOpenChat();
+    if (kept !== null && prefill === "") {
+      setChatId(kept);
+      setOpenedId(kept);
+    }
+  }, [prefill]);
+
   function resetTurn(): void {
     setTurn([]);
     setLive("");
@@ -84,6 +94,7 @@ export function ChatPanel() {
     resetTurn();
     setChatId(id);
     setOpenedId(id);
+    keepOpenChat(id);
   }
 
   function newChat(): void {
@@ -93,6 +104,7 @@ export function ChatPanel() {
     resetTurn();
     setChatId(null);
     setOpenedId(null);
+    keepOpenChat(null);
   }
 
   // Keep the end of the turn in view as it grows. Nothing is sent yet means the
@@ -155,6 +167,7 @@ export function ChatPanel() {
           setTurn((previous) => [...previous, { role: "assistant", content: reply.reply }]);
           if (reply.chatId !== null) {
             setChatId(reply.chatId);
+            keepOpenChat(reply.chatId);
           }
           refreshChatList();
           // A request or ticket made in this turn shows beside the chat at once.
@@ -218,4 +231,27 @@ export function ChatPanel() {
       ) : null}
     </div>
   );
+}
+
+const OPEN_CHAT_KEY = "helpdesk.open-chat";
+
+/** The chat open in this browser tab, or null. Storage can be blocked, so it never throws. */
+function readOpenChat(): string | null {
+  try {
+    return window.sessionStorage.getItem(OPEN_CHAT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function keepOpenChat(id: string | null): void {
+  try {
+    if (id === null) {
+      window.sessionStorage.removeItem(OPEN_CHAT_KEY);
+    } else {
+      window.sessionStorage.setItem(OPEN_CHAT_KEY, id);
+    }
+  } catch {
+    // Blocked storage only means the chat is not reopened on return.
+  }
 }
