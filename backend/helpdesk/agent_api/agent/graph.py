@@ -24,6 +24,7 @@ from helpdesk.agent_api.agent.nodes.endings import (
     ask_disambiguation,
     fail_turn,
     refuse_and_ticket,
+    stop_asking,
 )
 from helpdesk.agent_api.agent.nodes.execute_tools import execute_tools
 from helpdesk.agent_api.agent.nodes.extract_intent import (
@@ -88,6 +89,7 @@ ASK_CLARIFYING = "ask_clarifying"
 ASK_DISAMBIGUATION = "ask_disambiguation"
 ASK_CONFIRMATION = "ask_confirmation"
 FAIL_TURN = "fail_turn"
+STOP_ASKING = "stop_asking"
 
 _CachedGraph = CompiledStateGraph[TurnState, None, TurnState, TurnState]
 
@@ -177,6 +179,10 @@ async def _ask_confirmation(state: TurnState, config: RunnableConfig) -> dict[st
     return (await ask_confirmation(state, _deps(config))).model_dump()
 
 
+async def _stop_asking(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
+    return (await stop_asking(state, _deps(config))).model_dump()
+
+
 async def _fail_turn(state: TurnState, config: RunnableConfig) -> dict[str, Any]:
     return (await fail_turn(state, _deps(config))).model_dump()
 
@@ -257,6 +263,8 @@ def _after_intent(state: TurnState) -> str:
         return FAIL_TURN
     if state.outcome is TurnOutcome.CLARIFY:
         return ASK_CLARIFYING
+    if state.outcome is TurnOutcome.STOP:
+        return STOP_ASKING
     if state.outcome is TurnOutcome.ANSWER:
         return COMPOSE_REPLY
     return RESOLVE_ENTITIES
@@ -268,6 +276,8 @@ def _after_entities(state: TurnState) -> str:
         return ASK_CLARIFYING
     if state.outcome is TurnOutcome.DISAMBIGUATE:
         return ASK_DISAMBIGUATION
+    if state.outcome is TurnOutcome.STOP:
+        return STOP_ASKING
     if state.outcome is TurnOutcome.ANSWER:
         return COMPOSE_REPLY
     return RETRIEVE_POLICY
@@ -341,6 +351,7 @@ def _compile_graph(
     graph.add_node(ASK_DISAMBIGUATION, _traced(ASK_DISAMBIGUATION, _ask_disambiguation))  # type: ignore[call-overload]
     graph.add_node(ASK_CONFIRMATION, _traced(ASK_CONFIRMATION, _ask_confirmation))  # type: ignore[call-overload]
     graph.add_node(FAIL_TURN, _traced(FAIL_TURN, _fail_turn))  # type: ignore[call-overload]
+    graph.add_node(STOP_ASKING, _traced(STOP_ASKING, _stop_asking))  # type: ignore[call-overload]
 
     graph.add_edge(START, LOAD_SESSION)
     graph.add_conditional_edges(
@@ -358,6 +369,7 @@ def _compile_graph(
         {
             RESOLVE_ENTITIES: RESOLVE_ENTITIES,
             ASK_CLARIFYING: ASK_CLARIFYING,
+            STOP_ASKING: STOP_ASKING,
             COMPOSE_REPLY: COMPOSE_REPLY,
             FAIL_TURN: FAIL_TURN,
         },
@@ -368,6 +380,7 @@ def _compile_graph(
         {
             ASK_CLARIFYING: ASK_CLARIFYING,
             ASK_DISAMBIGUATION: ASK_DISAMBIGUATION,
+            STOP_ASKING: STOP_ASKING,
             COMPOSE_REPLY: COMPOSE_REPLY,
             RETRIEVE_POLICY: RETRIEVE_POLICY,
         },
@@ -417,6 +430,7 @@ def _compile_graph(
     graph.add_edge(ASK_DISAMBIGUATION, END)
     graph.add_edge(ASK_CONFIRMATION, END)
     graph.add_edge(FAIL_TURN, END)
+    graph.add_edge(STOP_ASKING, END)
     return graph.compile(checkpointer=checkpointer)
 
 

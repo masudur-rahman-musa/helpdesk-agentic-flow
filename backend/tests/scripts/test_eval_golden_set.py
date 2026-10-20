@@ -99,7 +99,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "access_approval": 20,
     "access_blocked_sod": 10,
     "access_critical": 10,
-    "helpdesk": 38,
+    "helpdesk": 39,
     "policy_qa": 19,
     "refusal_out_of_corpus": 10,
     "clarify_ambiguous": 10,
@@ -109,7 +109,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "review": 3,
 }
 
-TOTAL_CASES = 153
+TOTAL_CASES = 154
 TOTAL_LABELS = 40
 LABELS_PER_SCORE = 8
 SCORES: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
@@ -1098,3 +1098,21 @@ def test_every_filing_case_answers_the_details_question(
     for case in filing:
         assert len(case.messages) >= 2, case.id
         assert case.messages[1].content == DETAILS_ANSWER, case.id
+
+
+# --- the reason is asked twice, then the case stops ------------------
+
+
+def test_the_no_reason_case_files_nothing(golden_cases: tuple[GoldenCase, ...]) -> None:
+    """Catches a golden set without the no-reason flow of an earlier change: help-039 must
+    hold three user messages (the request, then two non-answers), expect the
+    `request_access` intent, call no tool, and score a reply that says it cannot
+    file without a reason and offers a ticket."""
+    case = _case_by_id(golden_cases, "help-039")
+
+    assert len(case.messages) == 3
+    assert all(message.role == "user" for message in case.messages)
+    assert case.expected.intent == "request_access"
+    assert case.expected.tool_calls in (None, [])
+    assert "reason" in case.judge_rubric.lower()
+    assert "ticket" in case.judge_rubric.lower()

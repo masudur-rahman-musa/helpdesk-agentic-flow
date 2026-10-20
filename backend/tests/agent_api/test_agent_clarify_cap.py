@@ -153,10 +153,12 @@ def test_a_second_unclear_message_gets_an_answer_and_the_correct_me_line(env: En
 
 
 def test_a_second_message_missing_the_system_calls_no_tool(env: Env) -> None:
-    """Catches a cap that, with a required entity missing, still goes on to search
-    or plan tools on a guess: the outcome must be ANSWER, so the fake tools see no
-    call and the gateway gets only the extraction and the composition (a third
-    request is not staged and fails the run)."""
+    """Catches a cap that, after an unclear-intent question, still answers a clear
+    request with no system by going on (or by answering on a guess) instead of
+    asking for the system by the rule: the system has not been asked
+    yet, so the reply is the normal question, the fake tools see no call, and the
+    gateway gets only the extraction (a second request is not staged and fails the
+    run)."""
     session_id = uuid.uuid4()
     _first_question(env, session_id, FakeTools())
     tools = FakeTools()
@@ -165,14 +167,13 @@ def test_a_second_message_missing_the_system_calls_no_tool(env: Env) -> None:
         env,
         session_id=session_id,
         message=UNCLEAR,
-        answers=(_unclear("request_access", confidence=0.9, role="wiki-viewer"), COMPOSED),
+        answers=(_unclear("request_access", confidence=0.9, role="wiki-viewer"),),
         tools=tools,
     )
 
     assert tools.calls == []
-    assert state.outcome is not TurnOutcome.CLARIFY
-    assert state.reply == f"{COMPOSED}\n\n{CORRECT_ME_LINE}"
-    assert _stored_time(env, session_id) is None
+    assert state.outcome is TurnOutcome.CLARIFY
+    assert state.reply == "Before I check this, tell me which system you need."
 
 
 def test_a_composed_question_on_a_best_reading_is_retried_then_replaced(env: Env) -> None:

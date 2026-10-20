@@ -150,7 +150,7 @@ from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.core.naming import check_slug
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.messages import HISTORY_LIMIT, append_message
-from helpdesk.shared.crud.sessions import get_or_create_session
+from helpdesk.shared.crud.sessions import get_asked_kind, get_or_create_session
 from helpdesk.shared.models import (
     Base,
     Department,
@@ -163,7 +163,17 @@ from helpdesk.shared.models import (
     User,
 )
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS, MessageRole, MessageTooLongError
-from tests.agent_api.test_agent_confirm import _classify_payload, _create_payload
+from tests.agent_api.conftest import AgentDb
+from tests.agent_api.test_agent_confirm import (
+    Env as ConfirmEnv,
+)
+from tests.agent_api.test_agent_confirm import (
+    FakeTools,
+    _classify_payload,
+    _create_payload,
+)
+from tests.agent_api.test_agent_confirm import _seed as _seed_confirm_tenant
+from tests.agent_api.test_agent_confirm import _turn as _confirm_turn
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)
 
@@ -2597,3 +2607,154 @@ def test_the_doc_conversation_names_the_role_in_plain_words(turn_env: TurnEnv) -
     for line in said:
         assert "payroll-read" not in line
         assert "Fake Payroll Read" not in line
+
+
+# --- required fields: two asks, then stop ------------------------------
+
+REASON_REQUIRED_LINE = (
+    "The business reason is required. Approvers need it to decide. "
+    "Please give a short reason, even one line."
+)
+REASON_STOP_LINE = (
+    "I can't file this without a reason. "
+    "You can start again when you have one, or I can open a ticket for someone to help."
+)
+DEPARTMENT_REQUIRED_LINE = (
+    "The department is required. I need it to pick the right access. "
+    "Please give the department's name."
+)
+DEPARTMENT_STOP_LINE = (
+    "I can't file this without a department. "
+    "You can start again when you have one, or I can open a ticket for someone to help."
+)
+
+
+@pytest.fixture
+def confirm_env(agent_db: AgentDb) -> ConfirmEnv:
+    """A new tenant with one system and two roles, for one case only. The shared
+    `agent_db` database, so only the JSONB round trip of the chat row is real."""
+    return asyncio.run(_seed_confirm_tenant(agent_db))
+
+
+def _stored_asks(env: ConfirmEnv, session_id: uuid.UUID) -> object:
+    """The raw kind stored on the chat row, read through a new session."""
+
+    async def read() -> object:
+        async with tenant_session(env.db.factory, env.tenant_id) as db:
+            return await get_asked_kind(db, session_id=session_id)
+
+    return asyncio.run(read())
+
+
+def _say(
+    env: ConfirmEnv,
+    session_id: uuid.UUID,
+    tools: FakeTools,
+    message: str,
+    intent: str,
+    entities: dict[str, object],
+) -> TurnState:
+    """One whole turn whose only model answer is the extraction (every ask in
+    these cases ends the turn before any other model call)."""
+    return _confirm_turn(
+        env,
+        session_id=session_id,
+        message=message,
+        answers=(_extraction_json(intent=intent, confidence=0.95, entities=entities),),
+        tools=tools,
+    )
+
+
+@pytest.mark.db
+def test_no_reason_is_asked_twice_then_stopped(confirm_env: ConfirmEnv) -> None:
+    """Catches a chat that repeats the details question word for word, asks a third
+    time, files with "no reason" as the reason, or keeps the counts after the stop
+    (so the next message is stopped at once): three turns on one chat give the
+    details question, the "is required" line, then the stop line, with no
+    `create_access_request` call, three different replies, and the counts read
+    back from the chat row as one, then two, then nothing."""
+    env = confirm_env
+    session_id = uuid.uuid4()
+    tools = FakeTools()
+    entities: dict[str, object] = {
+        "system": "internal-wiki",
+        "role": "wiki-viewer",
+        "expiry_days": 10,
+    }
+
+    first = _say(
+        env, session_id, tools, "I need wiki viewer access for 10 days", "request_access", entities
+    )
+    stored_after_first = _stored_asks(env, session_id)
+    second = _say(
+        env,
+        session_id,
+        tools,
+        "no reason",
+        "request_access",
+        {**entities, "justification": "no reason"},
+    )
+    stored_after_second = _stored_asks(env, session_id)
+    third = _say(
+        env,
+        session_id,
+        tools,
+        "I don't know",
+        "request_access",
+        {**entities, "justification": "I don't know"},
+    )
+
+    assert first.outcome is TurnOutcome.CLARIFY
+    assert first.reply is not None
+    assert first.reply.endswith("Before I check this, tell me the business reason.")
+    assert second.outcome is TurnOutcome.CLARIFY
+    assert second.reply == REASON_REQUIRED_LINE
+    assert third.outcome is TurnOutcome.STOP
+    assert third.reply == REASON_STOP_LINE
+    assert len({first.reply, second.reply, third.reply}) == 3
+    assert "create_access_request" not in tools.names
+    assert tools.calls == []
+    assert isinstance(stored_after_first, dict)
+    assert stored_after_first["asks"] == {"justification": 1}
+    assert isinstance(stored_after_second, dict)
+    assert stored_after_second["asks"] == {"justification": 2}
+    assert _stored_asks(env, session_id) is None, "the stop leaves nothing stored"
+
+    again = _say(
+        env, session_id, tools, "I need wiki viewer access for 10 days", "request_access", entities
+    )
+
+    assert again.outcome is TurnOutcome.CLARIFY
+    assert again.reply == first.reply, "the next message starts with no asks"
+
+
+@pytest.mark.db
+def test_onboarding_with_no_department_is_asked_by_the_rule(confirm_env: ConfirmEnv) -> None:
+    """Catches a person or department that is asked once in the model's words and
+    then goes on to the writer with the field missing, or that has its
+    own wording: a clear onboard naming a person and no department gets the first
+    ask, then the department's "is required" line, then the stop line naming "a
+    department", and no tool is called."""
+    env = confirm_env
+    session_id = uuid.uuid4()
+    tools = FakeTools()
+    entities: dict[str, object] = {"target_user": "fake.person@example.test"}
+
+    first = _say(env, session_id, tools, "Onboard fake.person@example.test", "onboard", entities)
+    second = _say(
+        env,
+        session_id,
+        tools,
+        "I don't know",
+        "onboard",
+        {**entities, "department": "I don't know"},
+    )
+    third = _say(env, session_id, tools, "dunno", "onboard", {**entities, "department": "dunno"})
+
+    assert first.outcome is TurnOutcome.CLARIFY
+    assert first.reply == "Before I check this, tell me which department."
+    assert second.outcome is TurnOutcome.CLARIFY
+    assert second.reply == DEPARTMENT_REQUIRED_LINE
+    assert third.outcome is TurnOutcome.STOP
+    assert third.reply == DEPARTMENT_STOP_LINE
+    assert tools.calls == []

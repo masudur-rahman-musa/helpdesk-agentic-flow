@@ -63,7 +63,8 @@ class TurnOutcome(StrEnum):
     now; `AWAIT_APPROVAL` means paused, read back later from a checkpoint.
     `CONFIRM` shows "I'll file this: ..." before filing; `CONFIRMED` is the yes.
     `ANSWER` skips the tools and composes now: a question was just asked and
-    something required is still missing."""
+    something required is still missing. `STOP` ends in fixed words: a
+    required field was asked twice and is still missing."""
 
     CONTINUE = "continue"
     CLARIFY = "clarify"
@@ -75,6 +76,7 @@ class TurnOutcome(StrEnum):
     CONFIRM = "confirm"
     CONFIRMED = "confirmed"
     ANSWER = "answer"
+    STOP = "stop"
 
 
 class PostCheckOutcome(StrEnum):
@@ -266,6 +268,13 @@ class TurnState(BaseModel):
 
     question_kind: QuestionKind | None = None
     """What the question this turn ends on asks; stored by the ending node."""
+
+    asks: dict[str, int] | None = {}
+    """How often each required field was asked in the questions just before
+    this message. `None` is an older stored row: each counts as asked once."""
+
+    asks_made: dict[str, int] = {}
+    """The asks per field to store with the question this turn ends on."""
 
     best_reading: bool = False
     """The cap let an unclear message go on, so the reply must ask nothing and

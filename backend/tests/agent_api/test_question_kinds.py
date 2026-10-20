@@ -77,7 +77,25 @@ DETAILS_QUESTION = (
     "Before I check this, tell me how long you need it for and the business reason."
 )
 """The details question once the role is found: the plain name goes first."""
-REASON_ONLY_QUESTION = "Before I file this, tell me the business reason for Internal Wiki editor."
+REASON_REQUIRED_LINE = (
+    "The business reason is required. Approvers need it to decide. "
+    "Please give a short reason, even one line."
+)
+"""The second ask for the reason; it replaces the old reason question."""
+REASON_STOP_LINE = (
+    "I can't file this without a reason. "
+    "You can start again when you have one, or I can open a ticket for someone to help."
+)
+SYSTEM_FIRST_ASK = "Before I check this, tell me which system you need."
+SYSTEM_REQUIRED_LINE = (
+    "The system is required. I need it to find the right access. "
+    "Please give the system's name, even roughly."
+)
+SYSTEM_STOP_LINE = (
+    "I can't file this without a system. "
+    "You can start again when you have one, or I can open a ticket for someone to help."
+)
+DEPARTMENT_FIRST_ASK = "Before I check this, tell me which department."
 TURN_NOW = datetime(2026, 6, 2, tzinfo=UTC)
 
 # --- the intent step ------------------------------------------------------------
@@ -116,7 +134,12 @@ class _FakeModel:
         return SimpleNamespace(value=self._extraction, usage=SimpleNamespace(total_tokens=2))
 
 
-def _extract(extraction: IntentExtraction) -> TurnState:
+def _extract(
+    extraction: IntentExtraction,
+    *,
+    asked_before: bool = False,
+    asks: dict[str, int] | None = None,
+) -> TurnState:
     state = TurnState(
         tenant_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
@@ -124,6 +147,8 @@ def _extract(extraction: IntentExtraction) -> TurnState:
         tenant_slug="fake-tenant",
         user_message="i want doc access",
         started_at=TURN_NOW,
+        asked_before=asked_before,
+        asks=asks if asks is not None else {},
     )
     deps = TurnDeps(
         db=cast(AsyncSession, None),
@@ -162,6 +187,103 @@ def test_a_low_confidence_request_still_asks_at_extraction() -> None:
     assert state.outcome is TurnOutcome.CLARIFY
 
 
+def _onboard(
+    *, department: str | None, confidence: float = 0.95, question: str | None = None
+) -> IntentExtraction:
+    return IntentExtraction(
+        intent=Intent.ONBOARD,
+        entities=IntentEntities(
+            system=None,
+            role=None,
+            target_user="fake.person@example.test",
+            department=department,
+            expiry_days=None,
+            justification=None,
+        ),
+        confidence=confidence,
+        clarifying_question=question,
+    )
+
+
+def test_a_clear_onboard_with_no_department_asks_by_the_rule() -> None:
+    """Catches an intent step that still lets the model word the ask for a missing
+    department: a confident onboard with no department must get the
+    code question, and count one ask for the department."""
+    state = _extract(_onboard(department=None, question="Which team is she joining?"))
+
+    assert state.outcome is TurnOutcome.CLARIFY
+    assert state.reply == DEPARTMENT_FIRST_ASK
+    assert state.asks_made == {"department": 1}
+
+
+@pytest.mark.parametrize(
+    ("asks", "outcome", "counted"),
+    [
+        pytest.param({"department": 1}, TurnOutcome.CLARIFY, {"department": 2}, id="second"),
+        pytest.param({"department": 2}, TurnOutcome.STOP, {}, id="stop"),
+    ],
+)
+def test_a_clear_onboard_walks_the_ladder_at_extraction(
+    asks: dict[str, int], outcome: TurnOutcome, counted: dict[str, int]
+) -> None:
+    """Catches an intent step that asks the first-ask words again after a first ask
+    (the loop of an earlier change), or one that asks a third time: the department asked
+    once gets its "is required" sentence, asked twice it stops with its stop line
+    and no count."""
+    state = _extract(_onboard(department="I don't know"), asked_before=True, asks=asks)
+
+    assert state.outcome is outcome
+    assert state.asks_made == counted
+    if outcome is TurnOutcome.STOP:
+        assert state.reply == (
+            "I can't file this without a department. "
+            "You can start again when you have one, or I can open a ticket for someone to help."
+        )
+    else:
+        assert state.reply == (
+            "The department is required. I need it to pick the right access. "
+            "Please give the department's name."
+        )
+
+
+@pytest.mark.parametrize(
+    ("asks", "outcome", "reply"),
+    [
+        pytest.param({}, TurnOutcome.CLARIFY, SYSTEM_FIRST_ASK, id="after-an-unclear-question"),
+        pytest.param({"system": 1}, TurnOutcome.CLARIFY, SYSTEM_REQUIRED_LINE, id="second"),
+        pytest.param({"system": 2}, TurnOutcome.STOP, SYSTEM_STOP_LINE, id="stop"),
+    ],
+)
+def test_a_clear_request_with_no_system_walks_the_ladder_at_extraction(
+    asks: dict[str, int], outcome: TurnOutcome, reply: str
+) -> None:
+    """Catches an intent step that still answers with no tools after any earlier
+    question (the one-question cap), instead of asking the system by the rule: the
+    first ask after another kind of question is the normal question, the next is
+    the "is required" sentence, then the stop line."""
+    state = _extract(
+        _extraction(system=None, role="editor", justification=REASON, expiry_days=DAYS),
+        asked_before=True,
+        asks=asks,
+    )
+
+    assert state.outcome is outcome
+    assert state.reply == reply
+
+
+def test_an_unclear_intent_keeps_the_models_question_and_the_cap() -> None:
+    """Catches the ladder taking over an unclear intent (an earlier change keeps today's
+    behaviour there): at confidence 0.5 with the department missing, the model's
+    own question is the reply, and no ask is counted."""
+    state = _extract(
+        _onboard(department=None, confidence=0.5, question="Do you mean the new hire?")
+    )
+
+    assert state.outcome is TurnOutcome.CLARIFY
+    assert state.reply == "Do you mean the new hire?"
+    assert state.asks_made == {}
+
+
 # --- the resolving step ---------------------------------------------------------
 
 WIKI = _system("wiki", "Internal Wiki")
@@ -185,9 +307,12 @@ def _resolve(
     asked_kind: QuestionKind | None = None,
     justification: str | None = None,
     expiry_days: int | None = None,
+    asks: dict[str, int] | None = None,
+    old_row: bool = False,
 ) -> TurnState:
     """One resolving step; `asked_before` is true whenever a kind was read, as
-    the loader sets both from the same stored question."""
+    the loader sets both from the same stored question. `asks` is what the stored
+    row held; `old_row` is a row with no counts at all (the loader gives `None`)."""
     state = TurnState(
         tenant_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
@@ -200,6 +325,7 @@ def _resolve(
         started_at=TURN_NOW,
         asked_before=asked_kind is not None,
         asked_kind=asked_kind,
+        asks=None if old_row else (asks if asks is not None else {}),
     )
     deps = TurnDeps(
         db=cast(AsyncSession, _FakeDb([WIKI], [EDITOR])),
@@ -320,19 +446,24 @@ def test_the_details_question_names_the_found_role() -> None:
     assert state.resolved.role_name == "Internal Wiki editor"
 
 
-def test_the_reason_question_names_the_plain_role() -> None:
-    """Catches a reason question that still names the stored display name
-    ("Editor"), or the slug alone: after the details question, with the reason
-    still missing, it must name the role by the plain name, and must not repeat
-    the "That's ..." line that the details question already said."""
+def test_the_second_ask_for_the_reason_does_not_repeat_the_old_question() -> None:
+    """Catches a resolver that still asks "Before I file this, tell me the business
+    reason for <role>." after the details question, or that
+    says the role name again: the second ask is the "is required" sentence, with
+    no role in it and no "That's ..." line."""
     tools = _StubTools()
 
-    state = _resolve(tools, system="wiki", role="editor", asked_kind=QuestionKind.DETAILS)
-
-    assert (
-        state.reply == "Before I file this, tell me the business reason for Internal Wiki editor."
+    state = _resolve(
+        tools,
+        system="wiki",
+        role="editor",
+        asked_kind=QuestionKind.DETAILS,
+        asks={"justification": 1},
     )
+
     assert state.reply is not None
+    assert "Before I file this" not in state.reply
+    assert "Internal Wiki editor" not in state.reply
     assert "That's" not in state.reply
 
 
@@ -340,12 +471,13 @@ def test_the_reason_question_names_the_plain_role() -> None:
     "expiry_days",
     [pytest.param(None, id="no-length"), pytest.param(14, id="length-given")],
 )
-def test_a_reason_still_missing_after_the_details_question_is_asked_by_name(
+def test_a_reason_still_missing_after_the_details_question_gets_the_required_line(
     expiry_days: int | None,
 ) -> None:
     """Catches a resolver that, after the details question, ends on the
     best-reading fallback or repeats the long question: the reason is still
-    missing, so it must be asked for alone, by role name."""
+    missing, so it must be asked for alone with the "is required" sentence, and
+    the length must not be named a second time."""
     tools = _StubTools()
 
     state = _resolve(
@@ -354,11 +486,87 @@ def test_a_reason_still_missing_after_the_details_question_is_asked_by_name(
         role="editor",
         asked_kind=QuestionKind.DETAILS,
         expiry_days=expiry_days,
+        asks={"justification": 1},
     )
 
     assert state.outcome is TurnOutcome.CLARIFY
-    assert state.reply == REASON_ONLY_QUESTION
+    assert state.reply == REASON_REQUIRED_LINE
     assert state.reply != BEST_READING_FALLBACK
+
+
+def test_a_reason_asked_once_gets_the_required_line() -> None:
+    """Catches a resolver that repeats the first question, or says "That's ..." on
+    the second ask: the role is found, the reason was asked once and is still
+    missing, so the reply is the owner's "is required" line alone, the count goes
+    to two, and the question is still kind `details`."""
+    tools = _StubTools()
+
+    state = _resolve(
+        tools,
+        system="wiki",
+        role="editor",
+        asked_kind=QuestionKind.DETAILS,
+        asks={"justification": 1},
+    )
+
+    assert state.outcome is TurnOutcome.CLARIFY
+    assert state.reply == REASON_REQUIRED_LINE
+    assert state.reply is not None
+    assert "That's" not in state.reply
+    assert state.asks_made == {"justification": 2}
+    assert state.question_kind is QuestionKind.DETAILS
+
+
+def test_a_reason_asked_twice_stops_with_no_tool() -> None:
+    """Catches a resolver that asks a third time, goes on to the tools with the
+    reason missing, or stops with other words: the reason was asked twice, so the
+    outcome is STOP, the reply is the owner's stop line, nothing is counted, and
+    the fake tools see no call."""
+    tools = _StubTools(payload=GOOD_SUGGESTION)
+
+    state = _resolve(
+        tools,
+        system="wiki",
+        role="editor",
+        asked_kind=QuestionKind.DETAILS,
+        asks={"justification": 2},
+    )
+
+    assert state.outcome is TurnOutcome.STOP
+    assert state.reply == REASON_STOP_LINE
+    assert state.asks_made == {}
+    assert tools.calls == []
+
+
+def test_an_old_details_kind_counts_as_one_ask() -> None:
+    """Catches a resolver that reads an older stored row (kind `details`, no counts)
+    as "nothing asked" and repeats the first question word for word, or as "asked
+    twice" and stops: it must be the second ask, never the stop."""
+    tools = _StubTools()
+
+    state = _resolve(
+        tools,
+        system="wiki",
+        role="editor",
+        asked_kind=QuestionKind.DETAILS,
+        old_row=True,
+    )
+
+    assert state.outcome is TurnOutcome.CLARIFY
+    assert state.reply == REASON_REQUIRED_LINE
+    assert state.asks_made == {"justification": 2}
+
+
+def test_the_first_ask_counts_one_and_keeps_the_role_line() -> None:
+    """Catches a first ask that stores no count (the second ask could never come)
+    or drops the "That's <role>." line the first ask carries: the details question
+    counts the reason once. The length is asked but never counted."""
+    tools = _StubTools()
+
+    state = _resolve(tools, system="wiki", role="editor")
+
+    assert state.reply == DETAILS_QUESTION
+    assert state.asks_made == {"justification": 1}
 
 
 def test_a_length_still_missing_after_the_details_question_goes_on() -> None:

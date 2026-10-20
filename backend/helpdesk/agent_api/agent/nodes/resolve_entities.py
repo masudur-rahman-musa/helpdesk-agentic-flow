@@ -18,9 +18,10 @@ the "That's <role>." line that opens the details question. System options keep
 `slug (name)`, since two systems can share a name.
 
 A request is checked for its details only once the role is found, so the
-person is asked how long and why about a real role. Right after the details
-question a still missing reason is asked for alone, by role name, and a still
-missing length takes the role's default (`test_question_kinds.py`).
+person is asked how long and why about a real role. A still missing reason
+follows the required-field rule (`required_fields.py`): it is asked, then said
+to be required, then the turn stops; a still missing length takes the role's
+default (`test_question_kinds.py`).
 A found role in the caller's own department template asks nothing: a missing
 reason becomes `TEMPLATE_REASON` on the extraction the planner reads, and a
 missing length stays empty so the role's default applies. A system found with
@@ -32,8 +33,9 @@ import uuid
 from collections.abc import Sequence
 
 from helpdesk.agent_api.agent import gates, matching
-from helpdesk.agent_api.agent.clarify_cap import QuestionKind, details_question, reason_question
+from helpdesk.agent_api.agent.clarify_cap import QuestionKind
 from helpdesk.agent_api.agent.matching import Candidate
+from helpdesk.agent_api.agent.required_fields import AskStep, next_ask
 from helpdesk.agent_api.agent.role_words import grouped_suggestions, plain_role_name, role_word
 from helpdesk.agent_api.agent.state import (
     Intent,
@@ -118,30 +120,36 @@ async def _on_a_miss(state: TurnState, deps: TurnDeps, words: str) -> TurnState:
 
 
 def _ask_details(state: TurnState, resolved: ResolvedEntities) -> TurnState | None:
-    """The details question for a request whose role is found, or `None` when
-    nothing is missing. Right after the details question, only a missing
-    reason is asked again, alone and by name."""
+    """The next ask for a request whose role is found, or `None` when nothing
+    is asked. The first ask names every missing detail after "That's <role>.";
+    then the required-field rule says why, then stops."""
     extraction = state.extraction
     if extraction is None or extraction.intent is not Intent.REQUEST_ACCESS:
         return None
     if resolved.role_id is not None and resolved.role_id in state.template_role_ids:
         return _template_goes_on(state, extraction, resolved)
-    missing = gates.missing_required_entities(extraction) - {"system"}
-    if state.asked_kind is QuestionKind.DETAILS:
-        if not missing:
-            return None
-        reply = reason_question(resolved.role_name or resolved.system_name or "this access")
-    elif missing or gates.length_missing(extraction):
-        question = details_question(missing, length_missing=gates.length_missing(extraction))
-        reply = f"That's {resolved.role_name}. {question}" if resolved.role_name else question
-    else:
+    asked = next_ask(
+        gates.missing_required_entities(extraction) - {"system"},
+        asks=state.asks,
+        details_asked=state.asked_kind is QuestionKind.DETAILS,
+        length_missing=gates.length_missing(extraction),
+    )
+    if asked is None:
         return None
+    if asked.step is AskStep.STOP:
+        return state.model_copy(
+            update={"outcome": TurnOutcome.STOP, "reply": asked.reply, "resolved": resolved}
+        )
+    reply = asked.reply
+    if asked.step is AskStep.FIRST and resolved.role_name:
+        reply = f"That's {resolved.role_name}. {reply}"
     return state.model_copy(
         update={
             "outcome": TurnOutcome.CLARIFY,
             "reply": reply,
             "resolved": resolved,
             "question_kind": QuestionKind.DETAILS,
+            "asks_made": asked.asks,
         }
     )
 

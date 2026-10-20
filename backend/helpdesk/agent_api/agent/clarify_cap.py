@@ -5,9 +5,11 @@ ISO string and checked here on every read, like the open question of
 `confirmation.py`.
 """
 
-from collections.abc import Set
+from collections.abc import Mapping, Set
 from datetime import datetime, timedelta
 from enum import StrEnum
+
+from helpdesk.agent_api.agent.required_fields import first_question, parse_asks
 
 CLARIFY_CAP_LIFE = timedelta(hours=24)
 """A question this old or older counts as none: the person has moved on."""
@@ -49,9 +51,27 @@ def parse_asked_kind(raw: object, *, now: datetime) -> QuestionKind | None:
         return None
 
 
-def stored_kind(kind: QuestionKind, *, now: datetime) -> dict[str, str]:
-    """The kind and its time, in the shape `parse_asked_kind` reads."""
-    return {"kind": kind.value, "at": now.isoformat()}
+def stored_kind(
+    kind: QuestionKind, *, now: datetime, asks: Mapping[str, int] | None = None
+) -> dict[str, object]:
+    """The kind and its time, in the shape `parse_asked_kind` reads, with the
+    asks per field when given."""
+    stored: dict[str, object] = {"kind": kind.value, "at": now.isoformat()}
+    if asks is not None:
+        stored["asks"] = dict(asks)
+    return stored
+
+
+def parse_asked_asks(raw: object, *, now: datetime) -> dict[str, int] | None:
+    """The asks per field stored with the kind. A missing, bad or too old row
+    reads as no asks. An older `details` row with no asks gives `None`: each
+    missing field then counts as asked once."""
+    kind = parse_asked_kind(raw, now=now)
+    if kind is None or not isinstance(raw, dict):
+        return {}
+    if "asks" not in raw:
+        return None if kind is QuestionKind.DETAILS else {}
+    return parse_asks(raw["asks"])
 
 
 def parse_asked_at(raw: object, *, now: datetime) -> bool:
@@ -68,26 +88,8 @@ def parse_asked_at(raw: object, *, now: datetime) -> bool:
     return now - asked_at < CLARIFY_CAP_LIFE
 
 
-DETAIL_WORDS: tuple[tuple[str, str], ...] = (
-    ("system", "which system you need"),
-    ("expiry_days", "how long you need it for"),
-    ("justification", "the business reason"),
-)
-"""Each detail a request asks for, in the order the question names them."""
-
-
 def details_question(missing: Set[str], *, length_missing: bool) -> str:
     """The one question a confident request asks, worded by code so it names
     every missing detail at once. `missing` is
     `gates.missing_required_entities`; the length is asked but never required."""
-    wanted = set(missing) | ({"expiry_days"} if length_missing else set())
-    words = [text for name, text in DETAIL_WORDS if name in wanted]
-    joined = words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
-    return f"Before I check this, tell me {joined}."
-
-
-def reason_question(role_name: str) -> str:
-    """Asked when the reason is still missing after the details question: the
-    reason alone, by role name. The length is not asked again; the role's
-    default applies."""
-    return f"Before I file this, tell me the business reason for {role_name}."
+    return first_question(missing, length_missing=length_missing)

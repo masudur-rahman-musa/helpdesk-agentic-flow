@@ -4,6 +4,7 @@ LangGraph only routes on what these return, so each is testable alone."""
 import uuid
 from collections.abc import Mapping, Sequence
 
+from helpdesk.agent_api.agent.required_fields import is_non_answer
 from helpdesk.agent_api.agent.state import Intent, IntentExtraction, ToolResult, TurnOutcome
 
 CONFIDENCE_THRESHOLD = 0.7
@@ -156,11 +157,12 @@ def capped_options[T](candidates: Sequence[T]) -> tuple[T, ...]:
 
 
 def _is_supplied(value: object) -> bool:
-    """Blank text counts as missing: it would match every candidate."""
+    """Blank text counts as missing: it would match every candidate. So does
+    an answer that gives nothing ("no reason", "I don't know")."""
     if value is None:
         return False
     if isinstance(value, str):
-        return bool(value.strip())
+        return bool(value.strip()) and not is_non_answer(value)
     return True
 
 

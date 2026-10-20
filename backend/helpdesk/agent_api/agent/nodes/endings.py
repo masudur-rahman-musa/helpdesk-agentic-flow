@@ -27,16 +27,25 @@ async def _store_reply(state: TurnState, deps: TurnDeps, reply: str) -> TurnStat
 
 
 async def note_question(state: TurnState, deps: TurnDeps, kind: QuestionKind) -> None:
-    """Note when a question was asked and what it asked, for the next message."""
+    """Note when a question was asked, what it asked and the asks per field,
+    for the next message."""
     now = deps.now()
     await set_asked_clarifying(deps.db, session_id=state.session_id, value=now.isoformat())
-    await set_asked_kind(deps.db, session_id=state.session_id, value=stored_kind(kind, now=now))
+    stored = stored_kind(kind, now=now, asks=state.asks_made or None)
+    await set_asked_kind(deps.db, session_id=state.session_id, value=stored)
 
 
 async def ask_clarifying(state: TurnState, deps: TurnDeps) -> TurnState:
     """End: ask the question and note when, so the next message may not ask
     again. No search and no tool call on this path."""
     await note_question(state, deps, state.question_kind or QuestionKind.OTHER)
+    return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
+
+
+async def stop_asking(state: TurnState, deps: TurnDeps) -> TurnState:
+    """End: a required field was asked twice and is still missing, so say it
+    cannot be filed, in fixed words. No question is noted, so the next
+    message starts clean."""
     return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
 
 

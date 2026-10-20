@@ -8,9 +8,10 @@ message go in as `user` data, never into the system prompt.
 """
 
 from helpdesk.agent_api.agent import gates
-from helpdesk.agent_api.agent.clarify_cap import details_question
+from helpdesk.agent_api.agent.clarify_cap import QuestionKind
 from helpdesk.agent_api.agent.prompts import load_prompt
-from helpdesk.agent_api.agent.state import Intent, IntentExtraction, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.required_fields import Ask, AskStep, next_ask
+from helpdesk.agent_api.agent.state import IntentExtraction, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
 from helpdesk.shared.core.errors import ToolError
@@ -66,6 +67,19 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
     extraction = answer.value
     tokens_used = state.tokens_used + answer.usage.total_tokens
 
+    asked = _ask_by_the_rule(state, extraction)
+    if asked is not None:
+        return state.model_copy(
+            update={
+                "extraction": extraction,
+                "prompt_version": prompt.sha256,
+                "tokens_used": tokens_used,
+                "outcome": TurnOutcome.STOP if asked.step is AskStep.STOP else TurnOutcome.CLARIFY,
+                "reply": asked.reply,
+                "asks_made": asked.asks,
+            }
+        )
+
     outcome = gates.extraction_outcome(extraction, state.asked_before)
     if outcome is TurnOutcome.CLARIFY:
         return state.model_copy(
@@ -89,11 +103,22 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
     )
 
 
+def _ask_by_the_rule(state: TurnState, extraction: IntentExtraction) -> Ask | None:
+    """A clear intent missing something the intent step needs asks by the
+    required-field rule: the normal question, then why it is required, then
+    stop. An unclear intent keeps the model's question and the one-question
+    cap (`test_question_kinds.py`)."""
+    if extraction.confidence < gates.CONFIDENCE_THRESHOLD:
+        return None
+    missing = gates.missing_at_extraction(extraction)
+    if not missing:
+        return None
+    return next_ask(
+        missing, asks=state.asks, details_asked=state.asked_kind is QuestionKind.DETAILS
+    )
+
+
 def _clarifying_reply(extraction: IntentExtraction) -> str:
-    """A confident request with no system asks for the system in code words;
-    the length and reason wait until the role is found. Anything else keeps
-    the model's own question."""
-    confident = extraction.confidence >= gates.CONFIDENCE_THRESHOLD
-    if confident and extraction.intent is Intent.REQUEST_ACCESS:
-        return details_question(gates.missing_at_extraction(extraction), length_missing=False)
+    """The model's own question for an unclear intent; a clear one missing
+    something is asked by the rule before this."""
     return extraction.clarifying_question or DEFAULT_CLARIFYING_QUESTION

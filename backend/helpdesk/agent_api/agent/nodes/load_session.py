@@ -10,8 +10,9 @@ it is answered once at most. A yes routes straight to `execute_tools` with
 exactly the stored calls; a bare no ends with a fixed reply; anything else
 runs the normal flow.
 
-The time of the last clarifying question, and what it asked, are read and
-cleared the same way, so only the very next message may not ask again.
+The time of the last clarifying question, what it asked and how often each
+required field was asked are read and cleared the same way, so only the very
+next message may not ask again.
 
 The caller's principals are read from their own directory row by the token's
 user id, so a message claiming a role changes nothing. No row gives no
@@ -22,7 +23,11 @@ none (`test_template_asks_nothing.py`).
 
 import uuid
 
-from helpdesk.agent_api.agent.clarify_cap import parse_asked_at, parse_asked_kind
+from helpdesk.agent_api.agent.clarify_cap import (
+    parse_asked_asks,
+    parse_asked_at,
+    parse_asked_kind,
+)
 from helpdesk.agent_api.agent.confirmation import (
     NOTHING_FILED_REPLY,
     Answer,
@@ -69,6 +74,7 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
         await set_asked_clarifying(db, session_id=state.session_id, value=None)
     raw_kind = await get_asked_kind(db, session_id=state.session_id)
     asked_kind = parse_asked_kind(raw_kind, now=deps.now())
+    asks = parse_asked_asks(raw_kind, now=deps.now())
     if raw_kind is not None:
         await set_asked_kind(db, session_id=state.session_id, value=None)
     history = await list_recent_messages(db, state.session_id)
@@ -87,6 +93,7 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
             "history": tuple(render_message(message) for message in history),
             "asked_before": asked_before,
             "asked_kind": asked_kind,
+            "asks": asks,
             "principals": () if user is None else tuple(user.principals),
             "template_role_ids": template,
         }
