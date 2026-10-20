@@ -91,6 +91,27 @@ async def fetch_approved_role_ids_for_target(
     return frozenset(request.role_id for request in result.scalars())
 
 
+async def fetch_open_request(
+    session: AsyncSession, target_user_id: uuid.UUID, role_id: uuid.UUID
+) -> AccessRequest | None:
+    """The oldest pending or approved request for this user and role, if any.
+
+    Executed, rejected and failed ones are over, so asking again is a new
+    request (`test_open_request_lookup.py`).
+    """
+    result = await session.execute(
+        select(AccessRequest)
+        .where(
+            AccessRequest.target_user_id == target_user_id,
+            AccessRequest.role_id == role_id,
+            AccessRequest.status.in_((RequestStatus.PENDING.value, RequestStatus.APPROVED.value)),
+        )
+        .order_by(AccessRequest.created_at, AccessRequest.id)
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
 async def lock_open_requests_for_target(
     session: AsyncSession, target_user_id: uuid.UUID
 ) -> list[AccessRequest]:

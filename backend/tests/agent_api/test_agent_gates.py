@@ -716,3 +716,24 @@ def test_a_ticket_question_may_read_tickets_but_never_solve_one() -> None:
     for intent in Intent:
         assert "solve_ticket" not in allowed_tools(intent), intent
         assert "list_open_tickets" not in allowed_tools(intent), intent
+
+
+def test_hold_drops_create_already_requested() -> None:
+    """Catches a hold that still asks "say yes to file" for a request the person
+    already has open: the create must be dropped with `DONE` so no question is
+    asked and nothing is filed. `confirmed=False` is the case that would
+    otherwise give `CONFIRM`, so only the repeat flag can flip it."""
+    assert (
+        gates_module.held_round_outcome(holds_create=True, confirmed=False, already_requested=True)
+        is TurnOutcome.DONE
+    )
+
+
+def test_hold_still_confirms_a_new_request() -> None:
+    """Catches a hold that drops every create once the new keyword exists (a
+    default of `True`, or a flag read as "any create"): a request nobody has
+    open yet must still ask for the yes with `CONFIRM`."""
+    assert (
+        gates_module.held_round_outcome(holds_create=True, confirmed=False, already_requested=False)
+        is TurnOutcome.CONFIRM
+    )

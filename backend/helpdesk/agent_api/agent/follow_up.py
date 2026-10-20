@@ -21,6 +21,13 @@ CANNOT_PLACE_REPLY = (
 )
 """Said when a message cannot be placed. It uses no decision word and asks nothing."""
 
+OUT_OF_SCOPE_REPLY = (
+    "Sorry, I can't help with that here. I can help with access requests, "
+    "tickets, passwords and account unlocks."
+)
+"""Said on an `other` turn that has nothing better to say: a plain no, never
+text that reads like a fault (`test_out_of_scope_reply_on_other_intent`)."""
+
 INTENT_NAMES: Mapping[Intent, str] = {
     Intent.RESET_PASSWORD: "a password reset",
     Intent.UNLOCK_ACCOUNT: "an unlocked account",

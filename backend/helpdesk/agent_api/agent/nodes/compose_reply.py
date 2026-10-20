@@ -40,10 +40,11 @@ accepted answer's `used_passages` picks `reply_citations`, the passages the
 Sources box shows (`sources.py`). A fixed sentence is written by code from
 tool results and uses no policy text, so on a fallback the box shows none.
 
-A fallback on a turn that ran no tool is `CANNOT_PLACE_REPLY`, never the
-generic "something went wrong" text. A follow-up turn hands the writer the last
-stored assistant reply as data, and the post-check allows the decision words
-that reply used (`follow_up.py`). Code adds the second-request line last.
+A fallback on a turn that ran no tool is `CANNOT_PLACE_REPLY`, or
+`OUT_OF_SCOPE_REPLY` on an `other` turn, never the generic fallback text. A
+follow-up turn hands the writer the last stored assistant reply as data, and
+the post-check allows the decision words that reply used (`follow_up.py`).
+Code adds the second-request line last.
 
 A question asked on a request or revoke turn that filed nothing is recorded
 like a clarifying question, so the next message gets the best reading, not a
@@ -62,6 +63,7 @@ from helpdesk.agent_api.agent.clarify_cap import (
 from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
 from helpdesk.agent_api.agent.follow_up import (
     CANNOT_PLACE_REPLY,
+    OUT_OF_SCOPE_REPLY,
     last_assistant_reply,
     with_second_line,
 )
@@ -325,6 +327,8 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         reply = BEST_READING_FALLBACK
     elif state.tool_results or state.outcome is TurnOutcome.AWAIT_APPROVAL:
         reply = outcome_reply(state)
+    elif state.extraction is not None and state.extraction.intent is Intent.OTHER:
+        reply = OUT_OF_SCOPE_REPLY
     else:
         reply = CANNOT_PLACE_REPLY
     postcheck = PostCheckOutcome.FALLBACK

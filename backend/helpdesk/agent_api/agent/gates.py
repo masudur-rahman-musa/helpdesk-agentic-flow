@@ -258,14 +258,29 @@ CREATE_ACCESS_REQUEST = "create_access_request"
 nothing."""
 
 
-def held_round_outcome(*, holds_create: bool, confirmed: bool) -> TurnOutcome | None:
+def held_round_outcome(
+    *, holds_create: bool, confirmed: bool, already_requested: bool = False
+) -> TurnOutcome | None:
     """`CONFIRM` when an accepted round would file a request nobody said yes
     to. A confirmed turn already ran the calls the person agreed to, so a new
-    create there is dropped with `DONE`: it was never asked about. `None`
-    leaves the round as it was."""
+    create there is dropped with `DONE`: it was never asked about. A create
+    for a request this turn already found open is dropped with `DONE` too, so
+    nobody is asked to file it twice (`test_hold_drops_create_already_requested`).
+    `None` leaves the round as it was."""
     if not holds_create:
         return None
+    if already_requested:
+        return TurnOutcome.DONE
     return TurnOutcome.DONE if confirmed else TurnOutcome.CONFIRM
+
+
+ALREADY_REQUESTED = "already_requested"
+"""Set on a classify or create result when the same request is already open."""
+
+
+def found_open_request(results: Sequence[ToolResult]) -> bool:
+    """Whether a successful result this turn found the request already open."""
+    return any(result.ok and result.payload.get(ALREADY_REQUESTED) is True for result in results)
 
 
 APPROVAL_DECISION = "approval"
@@ -277,6 +292,9 @@ def _approval_payload(results: Sequence[ToolResult]) -> Mapping[str, object] | N
     for result in reversed(tuple(results)):
         if result.tool != CREATE_ACCESS_REQUEST or not result.ok:
             continue
+        if result.payload.get(ALREADY_REQUESTED) is True:
+            # Nothing was filed, so there is no new request to wait on.
+            return None
         if str(result.payload.get("decision", "")) != APPROVAL_DECISION:
             return None
         return result.payload

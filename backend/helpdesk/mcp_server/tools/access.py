@@ -18,6 +18,7 @@ from helpdesk.shared.access.directory import DirectoryProvider
 from helpdesk.shared.access.execute import execute_grant
 from helpdesk.shared.access.requests import (
     approval_slots,
+    open_request_for_target_role,
     resolved_approver_ids,
 )
 from helpdesk.shared.access.requests import (
@@ -70,6 +71,14 @@ class ClassifyAccessRequestOutput(BaseModel):
     effective_expiry_days: int
     sod_conflicts: list[SodConflict]
     policy_refs: list[str]
+    already_requested: bool = False
+    """True when a pending or approved request for this target and role is open."""
+
+    request_number: str | None = None
+    """That open request's number; `None` when nothing is open."""
+
+    status: RequestStatus | None = None
+    """That open request's status; `None` when nothing is open."""
 
 
 REQUESTS_LIMIT_MIN = 1
@@ -135,6 +144,9 @@ async def classify_access_request(
         now=ctx.now,
     )
     classification = classify(snapshot)
+    open_request = await open_request_for_target_role(
+        ctx.session, args.target_user_id, args.role_id
+    )
     return ClassifyAccessRequestOutput(
         risk_class=classification.risk_class,
         decision=classification.decision,
@@ -143,6 +155,11 @@ async def classify_access_request(
         effective_expiry_days=classification.effective_expiry_days,
         sod_conflicts=list(classification.sod_conflicts),
         policy_refs=list(classification.policy_refs),
+        already_requested=open_request is not None,
+        request_number=None
+        if open_request is None
+        else format_number(NumberKind.ACCESS_REQUEST, open_request.number),
+        status=None if open_request is None else RequestStatus(open_request.status),
     )
 
 
@@ -217,6 +234,9 @@ class CreateAccessRequestOutput(BaseModel):
     policy_refs: list[str]
     grant_id: uuid.UUID | None
     expires_at: datetime | None
+    already_requested: bool = False
+    """True when nothing was filed because this request was already open; the
+    id, number and status are then that open request's."""
 
 
 async def _authorize_target(
@@ -298,6 +318,22 @@ async def create_access_request(
         now=now,
     )
     classification = classify(snapshot)
+
+    # Checked in the tool, not only the agent, so no planner can file twice
+    # (a design note, `test_create_returns_open_request_instead_of_filing`).
+    open_request = await open_request_for_target_role(
+        ctx.session, args.target_user_id, args.role_id
+    )
+    if open_request is not None:
+        repeat = _output(
+            classification,
+            open_request.id,
+            open_request.number,
+            RequestStatus(open_request.status),
+            None,
+        )
+        return repeat.model_copy(update={"already_requested": True})
+
     status = _STATUS_FOR_DECISION[classification.decision]
 
     request = await persist_access_request(

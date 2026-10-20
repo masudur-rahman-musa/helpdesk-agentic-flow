@@ -948,3 +948,145 @@ def test_an_extra_argument_is_refused_with_no_row_and_no_grant(
     assert error_code(result) == "VALIDATION"
     assert _request_rows(mcp_env.database_url, justification) == []
     assert _grant_count(mcp_env.database_url, caller.tenant_id) == grants_before
+
+
+# --- an earlier change: a request already open is returned, not filed again -------------
+
+# Engineering has 46 seeded users and no other test names index 30 or 31, so
+# no earlier test has left an open request for them in the shared database.
+REPEAT_USER = ROWS.users_by_department["Engineering"][30]
+CLASSIFY_REPEAT_USER = ROWS.users_by_department["Engineering"][31]
+CLASSIFY = "classify_access_request"
+
+
+def test_create_returns_open_request_instead_of_filing(mcp_env: SeededMcp) -> None:
+    """Catches a create that files a second row for the same target and role
+    (the check only in the agent), writes a new audit event, or reports the
+    open request with a new number. The first call is the premise: it must
+    file a pending row and not claim a repeat itself, so the second call's
+    flag cannot come from a default."""
+    caller = _seeded(REPEAT_USER)
+    first = _structured(
+        call_tool(
+            bearer(token_for(caller)),
+            CREATE,
+            _args(
+                caller.user_id,
+                APPROVAL_ROLE,
+                justification=_justification(),
+                key=_key(),
+            ),
+        )
+    )
+    assert first["status"] == "pending"
+    assert first["already_requested"] is False
+    rows_before = _request_row_count(mcp_env.database_url, caller.tenant_id)
+    grants_before = _grant_count(mcp_env.database_url, caller.tenant_id)
+    events_before = _audit_event_types(mcp_env.database_url, caller.tenant_id)
+    second_justification = _justification()
+
+    second = _structured(
+        call_tool(
+            bearer(token_for(caller)),
+            CREATE,
+            _args(
+                caller.user_id,
+                APPROVAL_ROLE,
+                justification=second_justification,
+                key=_key(),
+            ),
+        )
+    )
+
+    assert second["already_requested"] is True
+    assert second["request_number"] == first["request_number"]
+    assert second["request_id"] == first["request_id"]
+    assert second["status"] == "pending"
+    assert _request_row_count(mcp_env.database_url, caller.tenant_id) == rows_before
+    assert _request_rows(mcp_env.database_url, second_justification) == []
+    assert _grant_count(mcp_env.database_url, caller.tenant_id) == grants_before
+    assert _audit_event_types(mcp_env.database_url, caller.tenant_id) == events_before
+
+
+def test_create_after_rejected_files_new(mcp_env: SeededMcp) -> None:
+    """Catches an open-request check that counts any earlier request, rejected
+    ones included: a blocked request is closed, so asking again must file a new
+    row. The same SoD-conflict request is made twice, so the first call is
+    rejected and the second must still be filed (and be rejected again)."""
+    caller = _seeded(CONFLICT_USER)
+    first = _structured(
+        call_tool(
+            bearer(token_for(caller)),
+            CREATE,
+            _args(
+                caller.user_id,
+                CONFLICT_REQUEST_ROLE,
+                justification=_justification(),
+                key=_key(),
+            ),
+        )
+    )
+    assert first["status"] == "rejected"
+    rows_before = _request_row_count(mcp_env.database_url, caller.tenant_id)
+    justification = _justification()
+
+    second = _structured(
+        call_tool(
+            bearer(token_for(caller)),
+            CREATE,
+            _args(
+                caller.user_id,
+                CONFLICT_REQUEST_ROLE,
+                justification=justification,
+                key=_key(),
+            ),
+        )
+    )
+
+    assert second["already_requested"] is False
+    assert second["request_number"] != first["request_number"]
+    assert _request_row_count(mcp_env.database_url, caller.tenant_id) == rows_before + 1
+    assert len(_request_rows(mcp_env.database_url, justification)) == 1
+
+
+def test_classify_reports_open_request(mcp_env: SeededMcp) -> None:
+    """Catches a classify that ignores the open request, so a planner that
+    classifies first never learns the person already asked, or one that names
+    another request's number. A role with no open request is the contrast: the
+    flag must be false and the number absent, so the flag is not a constant."""
+    caller = _seeded(CLASSIFY_REPEAT_USER)
+    filed = _structured(
+        call_tool(
+            bearer(token_for(caller)),
+            CREATE,
+            _args(
+                caller.user_id,
+                APPROVAL_ROLE,
+                justification=_justification(),
+                key=_key(),
+            ),
+        )
+    )
+    assert filed["status"] == "pending"
+
+    open_one = _structured(
+        call_tool(
+            bearer(token_for(caller)),
+            CLASSIFY,
+            {"target_user_id": str(caller.user_id), "role_id": str(APPROVAL_ROLE)},
+        )
+    )
+    other = _structured(
+        call_tool(
+            bearer(token_for(caller)),
+            CLASSIFY,
+            {"target_user_id": str(caller.user_id), "role_id": str(LOW_ROLE)},
+        )
+    )
+
+    assert open_one["already_requested"] is True
+    assert open_one["request_number"] == filed["request_number"]
+    assert open_one["status"] == "pending"
+    assert other["already_requested"] is False
+    assert other["request_number"] is None
+    assert other["status"] is None

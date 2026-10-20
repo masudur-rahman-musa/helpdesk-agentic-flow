@@ -163,6 +163,19 @@ beforeEach(() => {
   fetchStub.mockReset();
   fetchStub.mockImplementation(async (input) => {
     const url = urlOf(input);
+    // The "My requests" panel beside the chat reads these two; empty lists.
+    if (url.includes("/api/me/requests")) {
+      return new Response(JSON.stringify({ requests: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/api/me/tickets")) {
+      return new Response(JSON.stringify({ tickets: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url.includes("/api/me")) {
       // Steps show only when the tenant turned them on, and these cases read them.
       return new Response(
@@ -894,6 +907,19 @@ describe("ChatPanel — the history read through the shared wire reader", () => 
     const stub = vi.fn<typeof fetch>();
     stub.mockImplementation(async (input) => {
       const url = urlOf(input);
+      // The "My requests" panel beside the chat reads these two; empty lists.
+      if (url.includes("/api/me/requests")) {
+        return new Response(JSON.stringify({ requests: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("/api/me/tickets")) {
+        return new Response(JSON.stringify({ tickets: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       if (url.includes("/api/chat/chats")) {
         return new Response(JSON.stringify({ chats: [PAST_CHAT] }), {
           status: 200,

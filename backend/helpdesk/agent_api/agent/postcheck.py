@@ -11,7 +11,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from helpdesk.agent_api.agent.follow_up import last_assistant_reply
+from helpdesk.agent_api.agent.follow_up import OUT_OF_SCOPE_REPLY, last_assistant_reply
+from helpdesk.agent_api.agent.gates import ALREADY_REQUESTED
 from helpdesk.agent_api.agent.state import Intent, ToolResult, TurnOutcome, TurnState
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.policy.types import Decision
@@ -40,13 +41,16 @@ _STATUS_PERMITS: Mapping[str, frozenset[str]] = {
 the grant may not have run yet. Statuses with no row allow nothing."""
 
 POSTCHECK_FALLBACK_REPLY = (
-    "Something went wrong while putting this answer into words, so I would "
-    "rather say nothing about the outcome than describe it wrongly. Please "
-    "open the requests page to see where this stands, or ask the service desk "
-    "to look at it with you."
+    "Sorry, I couldn't answer that one properly. Try asking it another way, "
+    "or open My requests to see where things stand."
 )
-"""What a reply that contradicted twice ends on when the turn returned no
-outcome. It claims none and uses none of the decision words."""
+"""What a reply that contradicted twice ends on when the turn returned nothing
+code can word. It claims nothing, uses no decision word, and never reads like a
+fault in the app (`test_fallback_text_is_plain`)."""
+
+LIST_KEY = "requests"
+"""Where `list_my_requests` puts its rows, each with its own `status`."""
+
 
 SEAT_NAMES: Mapping[str, str] = {
     "department_manager": "Department manager",
@@ -88,8 +92,22 @@ def permitted_words(state: TurnState) -> frozenset[str]:
             permitted |= _STATUS_PERMITS.get(status, frozenset())
         if result.payload.get("grant_id") is not None:
             permitted |= {"granted"}
+        # A listing carries each status inside its rows
+        # (`test_list_statuses_permit_their_words`).
+        for row in _rows(result.payload):
+            row_status = row.get("status")
+            if isinstance(row_status, str):
+                permitted |= _STATUS_PERMITS.get(row_status, frozenset())
 
     return frozenset(permitted)
+
+
+def _rows(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The rows of a listing result; empty when the payload is not one."""
+    rows = payload.get(LIST_KEY)
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, Mapping)]
 
 
 def contradicts(reply: str, state: TurnState) -> bool:
@@ -110,9 +128,13 @@ _FILED_STATUSES = frozenset(
 def _filed(result: ToolResult) -> bool:
     """Whether one result filed or granted a request. A bare `decision` is a
     classification and files nothing."""
-    return result.ok and (
-        result.payload.get("status") in _FILED_STATUSES
-        or result.payload.get("grant_id") is not None
+    return (
+        result.ok
+        and result.payload.get(ALREADY_REQUESTED) is not True
+        and (
+            result.payload.get("status") in _FILED_STATUSES
+            or result.payload.get("grant_id") is not None
+        )
     )
 
 
@@ -197,6 +219,62 @@ def _classified_reply(payload: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _repeat_reply(payload: Mapping[str, Any]) -> str | None:
+    """The sentence for a request that was already open, so nothing was filed."""
+    if payload.get(ALREADY_REQUESTED) is not True:
+        return None
+    number = payload.get("request_number")
+    named = f" ({number})" if isinstance(number, str) and number else ""
+    if payload.get("status") == RequestStatus.APPROVED.value:
+        return f"You already asked for this{named}. It is approved and waits to be granted."
+    return (
+        f"You already asked for this{named} and it is waiting for approval, "
+        "so I have not filed it again."
+    )
+
+
+_LISTED_PHRASES: tuple[tuple[str, str, str], ...] = (
+    (RequestStatus.PENDING.value, "request waiting for approval", "requests waiting for approval"),
+    (
+        RequestStatus.APPROVED.value,
+        "request approved and being set up",
+        "requests approved and being set up",
+    ),
+    (RequestStatus.EXECUTED.value, "request granted", "requests granted"),
+    (RequestStatus.REJECTED.value, "request turned down", "requests turned down"),
+    (
+        RequestStatus.FAILED.value,
+        "request that could not be completed",
+        "requests that could not be completed",
+    ),
+)
+"""How a listing reply names each status, one and many. Each phrase uses only
+the decision words that status permits."""
+
+
+def _listing_reply(payload: Mapping[str, Any]) -> str | None:
+    """A count by status for a listing, with the waiting ones by number."""
+    rows = payload.get(LIST_KEY)
+    if not isinstance(rows, list):
+        return None
+    if not rows:
+        return "You have no access requests."
+    parts: list[str] = []
+    for status, one, many in _LISTED_PHRASES:
+        numbers = [
+            str(row.get("request_number")) for row in _rows(payload) if row.get("status") == status
+        ]
+        if not numbers:
+            continue
+        part = f"{len(numbers)} {one if len(numbers) == 1 else many}"
+        if status == RequestStatus.PENDING.value:
+            part += f" ({', '.join(numbers)})"
+        parts.append(part)
+    if not parts:
+        return None
+    return f"You have {'; '.join(parts)}."
+
+
 def outcome_reply(state: TurnState) -> str:
     """The last-resort reply, said from the turn's own results with no model call.
 
@@ -207,6 +285,9 @@ def outcome_reply(state: TurnState) -> str:
     """
     ok = [result for result in reversed(state.tool_results) if result.ok]
     for result in ok:
+        if (reply := _repeat_reply(result.payload)) is not None:
+            return reply
+    for result in ok:
         if _filed(result) and (reply := _filed_reply(result.payload)) is not None:
             return reply
     if state.outcome is TurnOutcome.AWAIT_APPROVAL:
@@ -214,4 +295,9 @@ def outcome_reply(state: TurnState) -> str:
     for result in ok:
         if (reply := _classified_reply(result.payload)) is not None:
             return reply
+    for result in ok:
+        if (reply := _listing_reply(result.payload)) is not None:
+            return reply
+    if state.extraction is not None and state.extraction.intent is Intent.OTHER:
+        return OUT_OF_SCOPE_REPLY
     return POSTCHECK_FALLBACK_REPLY

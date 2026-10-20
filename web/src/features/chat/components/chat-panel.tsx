@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useMe } from "@/features/auth/api";
 import {
@@ -14,6 +15,7 @@ import { Citations } from "@/features/chat/components/citations";
 import { Composer } from "@/features/chat/components/composer";
 import { Conversation } from "@/features/chat/components/conversation";
 import { DecisionCard } from "@/features/chat/components/decision-card";
+import { MyRequestsPanel } from "@/features/chat/components/my-requests-panel";
 import { ToolSteps } from "@/features/chat/components/tool-steps";
 import {
   type ChatMessage,
@@ -26,6 +28,7 @@ import { readAsk } from "@/features/chat/prefill";
 import { chatMessageSchema } from "@/features/chat/schema";
 import { readTurnStream, refusalCode } from "@/features/chat/turn-stream";
 import { Alert } from "@/components/ui/alert";
+import { queryKeys } from "@/lib/query-keys";
 
 /**
  * The chat page. It fills the shell's width, so the chat list in the left
@@ -41,6 +44,7 @@ import { Alert } from "@/components/ui/alert";
  */
 export function ChatPanel() {
   const refreshChatList = useRefreshChatList();
+  const queryClient = useQueryClient();
   const [chatId, setChatId] = useState<string | null>(null);
   const [openedId, setOpenedId] = useState<string | null>(null);
   const history = useChatHistory(openedId);
@@ -154,6 +158,9 @@ export function ChatPanel() {
             setChatId(reply.chatId);
           }
           refreshChatList();
+          // A request or ticket made in this turn shows beside the chat at once.
+          void queryClient.invalidateQueries({ queryKey: queryKeys.myRequests });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.myTickets });
         },
         onError: (code) => {
           setDecision(null);
@@ -200,6 +207,10 @@ export function ChatPanel() {
             initialValue={prefill}
           />
         </div>
+      </div>
+
+      <div className="w-full lg:w-72 lg:shrink-0">
+        <MyRequestsPanel />
       </div>
 
       {showSteps ? (

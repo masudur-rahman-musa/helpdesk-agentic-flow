@@ -78,6 +78,7 @@ async def validate_tool_calls(state: TurnState, deps: TurnDeps) -> TurnState:
     held = gates.held_round_outcome(
         holds_create=any(call.tool == gates.CREATE_ACCESS_REQUEST for call in validated),
         confirmed=state.confirmed,
+        already_requested=gates.found_open_request(state.tool_results),
     )
     if held is TurnOutcome.DONE:
         return state.model_copy(update={"outcome": held, "validated": ()})

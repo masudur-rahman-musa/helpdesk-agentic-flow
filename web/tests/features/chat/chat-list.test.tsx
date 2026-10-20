@@ -86,6 +86,19 @@ beforeEach(() => {
   fetchStub.mockReset();
   fetchStub.mockImplementation(async (input) => {
     const url = urlOf(input);
+    // The "My requests" panel beside the chat reads these two; empty lists.
+    if (url.includes("/api/me/requests")) {
+      return new Response(JSON.stringify({ requests: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/api/me/tickets")) {
+      return new Response(JSON.stringify({ tickets: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url.includes("/api/me")) {
       return json({
         display_name: "Fake Person One",

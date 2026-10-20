@@ -221,6 +221,10 @@ async def _call_tool(
         return result
 
 
+NOTHING_DONE_FIELD = "already_requested"
+"""A mutating output with this field true changed nothing, so it writes no event."""
+
+
 async def _run_mutating_tool(
     spec: ToolSpec[Any, Any],
     ctx: ToolContext,
@@ -251,6 +255,10 @@ async def _run_mutating_tool(
     )
     output = spec.output_model.model_validate(guarded.response)
     result = _success_result(output)
+    if guarded.response.get(NOTHING_DONE_FIELD) is True and not guarded.replayed:
+        # The tool found the thing already done and changed nothing, so its
+        # own event would be a false record (`test_create_returns_open_request_instead_of_filing`).
+        return result
     event_type = REPLAYED_EVENT_TYPE if guarded.replayed else spec.event_type
     await _append(ctx.session, ctx.identity, spec, event_type, scope, None, None, ctx.now)
     return result

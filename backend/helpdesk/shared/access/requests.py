@@ -13,6 +13,7 @@ from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.access_requests import (
     fetch_approved_role_ids_for_target,
+    fetch_open_request,
     fetch_requests_for_requester,
 )
 from helpdesk.shared.crud.access_requests import (
@@ -127,6 +128,17 @@ async def list_approved_role_ids_for_target(
 ) -> frozenset[uuid.UUID]:
     """Role ids approved for this user but not yet executed."""
     return await fetch_approved_role_ids_for_target(session, target_user_id)
+
+
+async def open_request_for_target_role(
+    session: AsyncSession, target_user_id: uuid.UUID, role_id: uuid.UUID
+) -> AccessRequest | None:
+    """A pending or approved request for this user and role, if one is open.
+
+    By target, not requester: a manager asking again for someone who already
+    has one waiting is the same request.
+    """
+    return await fetch_open_request(session, target_user_id, role_id)
 
 
 async def lock_open_requests_for_target(
