@@ -74,6 +74,7 @@ from helpdesk.agent_api.agent.requestable import (
     mixes_groups,
     ordered_requestable,
 )
+from helpdesk.agent_api.agent.role_words import with_plain_role_names
 from helpdesk.agent_api.agent.sources import pick_used
 from helpdesk.agent_api.agent.state import (
     Citation,
@@ -172,7 +173,7 @@ def _requestable_data(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
     """The roles this person may still ask for, in the order to say them."""
     if not rows:
         return []
-    groups = [asdict(group) for group in ordered_requestable(rows)]
+    groups = with_plain_role_names([asdict(group) for group in ordered_requestable(rows)])
     return [_as_data("roles this person may ask for, template group first, in this order", groups)]
 
 
@@ -289,7 +290,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
                 for number, citation in enumerate(state.citations, start=1)
             ],
         ),
-        _as_data("tool results", strip_id_keys(_tool_data(state))),
+        _as_data("tool results", with_plain_role_names(strip_id_keys(_tool_data(state)))),
         *_requestable_data(rows),
         _as_data("what did not work, in plain words", _failure_sentences(state.tool_results)),
         *_capability_data(state),

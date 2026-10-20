@@ -99,7 +99,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "access_approval": 20,
     "access_blocked_sod": 10,
     "access_critical": 10,
-    "helpdesk": 39,
+    "helpdesk": 40,
     "policy_qa": 19,
     "refusal_out_of_corpus": 10,
     "clarify_ambiguous": 10,
@@ -109,7 +109,7 @@ CATEGORY_MINIMUMS: dict[str, int] = {
     "review": 3,
 }
 
-TOTAL_CASES = 154
+TOTAL_CASES = 155
 TOTAL_LABELS = 40
 LABELS_PER_SCORE = 8
 SCORES: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
@@ -1116,3 +1116,18 @@ def test_the_no_reason_case_files_nothing(golden_cases: tuple[GoldenCase, ...]) 
     assert case.expected.tool_calls in (None, [])
     assert "reason" in case.judge_rubric.lower()
     assert "ticket" in case.judge_rubric.lower()
+
+
+def test_the_plain_role_name_case_forbids_stored_names(
+    golden_cases: tuple[GoldenCase, ...],
+) -> None:
+    """Catches a golden set that never checks the chat for stored role names:
+    help-040 must ask which roles can be requested (one `list_requestable_roles`
+    call) and forbid the stored code values in the reply."""
+    case = _case_by_id(golden_cases, "help-040")
+
+    assert case.expected.intent == "ask_capabilities"
+    assert case.expected.tool_calls is not None
+    assert [c.name for c in case.expected.tool_calls] == ["list_requestable_roles"]
+    assert case.expected.forbidden_phrases is not None
+    assert {"wiki.editor", "wiki.viewer"} <= set(case.expected.forbidden_phrases)
