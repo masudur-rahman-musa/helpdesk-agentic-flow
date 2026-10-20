@@ -28,6 +28,7 @@ class Tool(StrEnum):
     CREATE_ACCESS_REQUEST_SELF = "create_access_request_self"
     CREATE_ACCESS_REQUEST_ON_BEHALF = "create_access_request_on_behalf"
     SEARCH_POLICY = "search_policy"
+    SUGGEST_ROLES = "suggest_roles"
     CREATE_TICKET = "create_ticket"
     LIST_MY_TICKETS = "list_my_tickets"
     LIST_OPEN_TICKETS = "list_open_tickets"
@@ -135,6 +136,7 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.LIST_NOTIFICATIONS: _all(Scope.SELF_ONLY),
         Tool.MARK_NOTIFICATION_READ: _all(Scope.SELF_ONLY),
         Tool.SEARCH_POLICY: _all(Scope.ANY),
+        Tool.SUGGEST_ROLES: _all(Scope.ANY),
         Tool.CREATE_TICKET: _all(Scope.ANY),
         Tool.CLASSIFY_ACCESS_REQUEST: _all(Scope.ANY),
         Tool.CREATE_ACCESS_REQUEST_ON_BEHALF: {

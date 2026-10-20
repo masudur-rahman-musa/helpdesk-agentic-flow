@@ -26,6 +26,7 @@ from helpdesk.mcp_server.tools import (
     policy_search,
     read,
     reviews,
+    role_suggest,
     rollback,
     rules,
     self_service,
@@ -425,6 +426,19 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         event_type=SUCCESS_EVENT_TYPE,
         mutating=False,
         handler=policy_search.search_policy,
+    ),
+    ToolSpec(
+        name=rbac.Tool.SUGGEST_ROLES.value,
+        tool=rbac.Tool.SUGGEST_ROLES,
+        description=(
+            "Suggest up to three of this tenant's roles closest in meaning to the words "
+            "a person typed, best first. Offers a name only; nothing is filed."
+        ),
+        input_model=role_suggest.SuggestRolesInput,
+        output_model=role_suggest.SuggestRolesOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=role_suggest.suggest_roles,
     ),
     ToolSpec(
         name=rbac.Tool.LIST_NOTIFICATIONS.value,

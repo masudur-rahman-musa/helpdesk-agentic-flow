@@ -26,6 +26,10 @@ never sees it."""
 SEARCH_POLICY = "search_policy"
 """The tool name as the server spells it."""
 
+SUGGEST_ROLES = "suggest_roles"
+"""The role-suggestion tool. Called by the entity step, never proposed by the
+planner, so it is not in `TOOL_INPUTS`."""
+
 SEARCH_POLICY_TOP_K = 6
 """How many policy passages one search asks for. A copy of the server's
 default, so agent-api need not import the search code and its vector store."""
@@ -221,6 +225,29 @@ class SearchPolicyResult(BaseModel):
     refused: bool
 
 
+class SuggestRolesArgs(_ToolArgs):
+    """The words the person typed. The tenant is not an argument."""
+
+    query: str = Field(description="The system and role as the person typed them.")
+
+
+class SuggestedRole(BaseModel):
+    """One offered role, as the server returns it. Extra fields are ignored, so
+    a new server field does not break a turn."""
+
+    system_slug: str
+    system_name: str
+    role_slug: str
+    role_name: str
+    score: float
+
+
+class SuggestRolesResult(BaseModel):
+    """Up to three roles, best first; empty when none is close."""
+
+    roles: list[SuggestedRole]
+
+
 TOOL_INPUTS: Mapping[str, type[BaseModel]] = MappingProxyType(
     {
         "get_me": GetMeArgs,
@@ -280,9 +307,13 @@ __all__ = [
     "IDEMPOTENCY_KEY",
     "SEARCH_POLICY",
     "SEARCH_POLICY_TOP_K",
+    "SUGGEST_ROLES",
     "TOOL_INPUTS",
     "SearchPolicyArgs",
     "SearchPolicyResult",
+    "SuggestRolesArgs",
+    "SuggestRolesResult",
+    "SuggestedRole",
     "needs_idempotency_key",
     "planner_schema",
 ]

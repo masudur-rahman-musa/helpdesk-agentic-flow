@@ -2163,3 +2163,49 @@ def test_a_planner_answer_with_non_object_arguments_is_retried_once() -> None:
     assert result.outcome is TurnOutcome.CONTINUE
     assert [call.tool for call in result.proposed] == ["classify_access_request"]
     assert result.proposed[0].arguments == arguments
+
+
+def test_a_picked_suggestion_reaches_the_policy_engine(turn_env: TurnEnv) -> None:
+    """Catches a turn that treats the person's pick after "Did you mean one of
+    these?" as a choice already made: it must be matched like any typed name,
+    go on to `classify_access_request`, and when the rules answer `blocked`,
+    end on the blocked reply with `create_access_request` never called.
+
+    The history holds the offer; the message names the offered role exactly.
+    The classify answer carries `blocked`, so a turn that skipped the
+    classification (or filed the request straight away) leaves the tool names
+    without it, or with the create call on them."""
+    session_id = uuid.uuid4()
+    offer = "Did you mean one of these? payroll.payroll-read (Fake Payroll / Fake Payroll Read)"
+    blocked_reply = "That fake role is blocked by a fake separation rule, so nothing was filed."
+    gateway = StagedGateway(
+        [_payroll_answer(), _plan_json(CLASSIFY_PROPOSAL), EMPTY_PLAN, blocked_reply]
+    )
+    blocked_answer = {
+        **_page(_citation("fake-access-policy", score=0.8)),
+        "decision": "blocked",
+        "reason": "Obviously fake reason.",
+        "rule_ids": ["fake-rule"],
+        "required_approvers": [],
+    }
+    tools = StubToolCaller(payload=blocked_answer)
+
+    state = _run_turn(
+        turn_env,
+        turn_env.tenant_a,
+        session_id=session_id,
+        message="payroll.payroll-read",
+        gateway=gateway,
+        tools=tools,
+        plant=[
+            (MessageRole.USER, "I need docs access"),
+            (MessageRole.ASSISTANT, offer),
+        ],
+    )
+
+    assert state.resolved is not None
+    assert state.resolved.role_slug == "payroll-read"
+    assert tools.names == [SEARCH_POLICY, "classify_access_request"]
+    assert "create_access_request" not in tools.names
+    assert state.outcome is TurnOutcome.DONE
+    assert state.reply == blocked_reply

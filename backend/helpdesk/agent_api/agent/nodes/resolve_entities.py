@@ -2,8 +2,9 @@
 
 Candidates are read through the tenant-scoped repository, so only the
 caller's own tenant's systems and roles can match. A system or role is never
-guessed: one match resolves, several ask, none asks a clarifying question,
-or, right after one, answers with no tools.
+guessed: one match resolves, several ask, and none offers the closest roles
+by meaning (`suggest_roles`) or, when none is close or the search fails, asks
+for the exact name; right after a question it answers with no tools.
 System and role are resolved on their own and the stricter answer wins. Roles
 are matched across the tenant when no system is named, and only inside the
 system when one system was named: "wiki editor" must not offer every editor.
@@ -18,7 +19,14 @@ from collections.abc import Sequence
 from helpdesk.agent_api.agent import gates, matching
 from helpdesk.agent_api.agent.matching import Candidate
 from helpdesk.agent_api.agent.state import ResolvedEntities, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.tool_args import (
+    SUGGEST_ROLES,
+    SuggestedRole,
+    SuggestRolesArgs,
+    SuggestRolesResult,
+)
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Role, System
 
@@ -32,6 +40,35 @@ NOTHING_MATCHED_QUESTION = (
 logger = logging.getLogger(__name__)
 
 DISAMBIGUATION_PREFIX = "Which one do you mean?"
+SUGGESTION_PREFIX = "Did you mean one of these?"
+
+
+def suggestion_label(role: SuggestedRole) -> str:
+    """One suggested role: the full `system.role` slug first, then its names."""
+    return f"{role.system_slug}.{role.role_slug} ({role.system_name} / {role.role_name})"
+
+
+async def _suggest_or_ask(state: TurnState, deps: TurnDeps, words: str) -> TurnState:
+    """Nothing matched the typed words: offer the closest roles by meaning, or
+    ask for the exact name when none is close or the search fails. A failed
+    search is never a failed turn: the person can still type the name."""
+    try:
+        payload = await deps.tools.call_tool(SUGGEST_ROLES, SuggestRolesArgs(query=words))
+        roles = SuggestRolesResult.model_validate(dict(payload)).roles
+    except ToolError:
+        roles = []
+    if not roles:
+        return state.model_copy(
+            update={"outcome": TurnOutcome.CLARIFY, "reply": NOTHING_MATCHED_QUESTION}
+        )
+    options = tuple(suggestion_label(role) for role in gates.capped_options(roles))
+    return state.model_copy(
+        update={
+            "outcome": TurnOutcome.DISAMBIGUATE,
+            "options": options,
+            "reply": f"{SUGGESTION_PREFIX} {'; '.join(options)}",
+        }
+    )
 
 
 def option_label(candidate: Candidate) -> str:
@@ -80,6 +117,11 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
         len(system_matches),
         len(role_matches),
     )
+    unmatched = " ".join(
+        term
+        for term, matches in ((system_term, system_matches), (role_term, role_matches))
+        if term and not matches
+    )
     for term, matches in ((system_term, system_matches), (role_term, role_matches)):
         if not term:
             continue
@@ -87,7 +129,7 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
         if outcome is TurnOutcome.CLARIFY and state.asked_before:
             return state.model_copy(update={"outcome": TurnOutcome.ANSWER, "best_reading": True})
         if outcome is TurnOutcome.CLARIFY:
-            return state.model_copy(update={"outcome": outcome, "reply": NOTHING_MATCHED_QUESTION})
+            return await _suggest_or_ask(state, deps, unmatched)
         if outcome is TurnOutcome.DISAMBIGUATE:
             options = tuple(option_label(candidate) for candidate in gates.capped_options(matches))
             return state.model_copy(
