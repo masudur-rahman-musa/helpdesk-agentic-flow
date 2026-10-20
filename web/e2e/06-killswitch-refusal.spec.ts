@@ -106,7 +106,7 @@ test("a stopped create_access_request refuses the turn and writes no request row
 
   await page.goto("/chat");
   await sendTurn(page, `Please give me ${WIKI_VIEWER} access to the internal wiki.`);
-  // The assistant first asks "Do you mean ...?"; only the yes files it.
+  // The assistant first shows "I'll file this: ..."; only the yes files it.
   await sendTurn(page, "Yes, that is right.");
 
   await expect(page.getByRole("alert")).toHaveText(TOOL_DISABLED_MESSAGE);

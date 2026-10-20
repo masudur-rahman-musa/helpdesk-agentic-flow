@@ -105,7 +105,7 @@ def _projected(
 
 def decision_card(state: TurnState) -> DecisionCard | None:
     """This turn's card, or `None`. A filed request wins over a classification.
-    A turn still asking "Do you mean ...?" has filed nothing, so it has no card."""
+    A turn still asking "I'll file this: ..." has filed nothing, so it has no card."""
     if state.outcome is TurnOutcome.CONFIRM:
         return None
     created = _projected(state.tool_results, CREATE_ACCESS_REQUEST, _Created)

@@ -2330,11 +2330,11 @@ def test_the_screenshot_conversation_files_a_non_template_role(turn_env: TurnEnv
         _extraction_json(intent="request_access", confidence=0.95, entities={"system": "doc"}),
     )
     assert first.outcome is TurnOutcome.DISAMBIGUATE
-    assert first.options[0].startswith("payroll.payroll-read")
+    assert first.options[0] == "Fake Payroll payroll read"
     assert tools.names == [SUGGEST_ROLES]
 
     second = say(
-        "payroll.payroll-read",
+        "Fake Payroll payroll read",
         _extraction_json(
             intent="request_access",
             confidence=0.95,
@@ -2342,9 +2342,9 @@ def test_the_screenshot_conversation_files_a_non_template_role(turn_env: TurnEnv
         ),
     )
     assert second.outcome is TurnOutcome.CLARIFY
-    assert (
-        second.reply
-        == "Before I check this, tell me how long you need it for and the business reason."
+    assert second.reply == (
+        "That's Fake Payroll payroll read. "
+        "Before I check this, tell me how long you need it for and the business reason."
     )
     assert tools.names == [SUGGEST_ROLES]
 
@@ -2364,6 +2364,10 @@ def test_the_screenshot_conversation_files_a_non_template_role(turn_env: TurnEnv
         create,
     )
     assert third.outcome is TurnOutcome.CONFIRM
+    assert third.reply is not None
+    assert third.reply.startswith(
+        'I\'ll file this: Fake Payroll payroll read, 30 days, reason "to run the month-end report".'
+    )
     assert "create_access_request" not in tools.names
 
     fourth = say("yes", EMPTY_PLAN, COMPOSED_REPLY)
@@ -2440,7 +2444,7 @@ def test_the_screenshot_conversation_files_a_template_role(turn_env: TurnEnv) ->
         _extraction_json(intent="request_access", confidence=0.95, entities={"system": "doc"}),
     )
     assert first.outcome is TurnOutcome.DISAMBIGUATE
-    assert first.options[0].startswith("wiki.wiki-read")
+    assert first.options[0].startswith("Fake Wiki wiki read")
     assert tools.names == [SUGGEST_ROLES]
 
     second = say(
@@ -2467,3 +2471,129 @@ def test_the_screenshot_conversation_files_a_template_role(turn_env: TurnEnv) ->
     assert creates[0]["requested_expiry_days"] is None
     replies = [first.reply, second.reply, third.reply]
     assert all(reply is not None and BEST_READING_FALLBACK not in reply for reply in replies)
+
+
+def test_the_doc_conversation_names_the_role_in_plain_words(turn_env: TurnEnv) -> None:
+    """Catches a chat that shows the stored role value at any step, or skips a
+    step of the plain-words flow: the offer grouped by system, the role-found
+    line on the details question, the summary with the classified days and the
+    reason, and a filing only after the yes. No assistant message may hold the
+    slug "payroll-read" or the stored name "Fake Payroll Read".
+
+    Four turns on one chat: offer, details question, summary, filing."""
+    tenant = turn_env.tenant_a
+    session_id = uuid.uuid4()
+    role_id = str(tenant.role_ids["payroll-read"])
+    reason = "writing guides"
+    classified = {**_classify_payload(), "effective_expiry_days": 10}
+    tools = _ScriptedTools(
+        {
+            SUGGEST_ROLES: {
+                "roles": [
+                    {
+                        "system_slug": "payroll",
+                        "system_name": "Fake Payroll",
+                        "role_slug": "payroll-read",
+                        "role_name": "Fake Payroll Read",
+                        "score": 0.8,
+                    },
+                    {
+                        "system_slug": "mail",
+                        "system_name": "Fake Mail",
+                        "role_slug": "mail-user",
+                        "role_name": "Fake Mail User",
+                        "score": 0.7,
+                    },
+                ]
+            },
+            SEARCH_POLICY: _page(_citation("fake-access-policy", score=0.8)),
+            "classify_access_request": classified,
+            "create_access_request": _create_payload(),
+        }
+    )
+    classify = _plan_json(
+        _proposal(
+            "classify_access_request",
+            target_user_id=str(tenant.user_id),
+            role_id=role_id,
+            requested_expiry_days=10,
+        )
+    )
+    create = _plan_json(
+        _proposal(
+            "create_access_request",
+            target_user_id=str(tenant.user_id),
+            role_id=role_id,
+            justification=reason,
+            requested_expiry_days=10,
+            citations=[],
+        )
+    )
+
+    def say(message: str, *answers: str) -> TurnState:
+        return _run_turn(
+            turn_env,
+            tenant,
+            session_id=session_id,
+            message=message,
+            gateway=StagedGateway(list(answers)),
+            tools=tools,
+        )
+
+    first = say(
+        "i want doc access",
+        _extraction_json(intent="request_access", confidence=0.95, entities={"system": "doc"}),
+    )
+    assert first.reply == (
+        "Did you mean one of these? Fake Payroll: payroll read; Fake Mail: mail user"
+    )
+
+    second = say(
+        "payroll read",
+        _extraction_json(
+            intent="request_access",
+            confidence=0.95,
+            entities={"system": "payroll", "role": "payroll-read"},
+        ),
+    )
+    assert second.reply == (
+        "That's Fake Payroll payroll read. "
+        "Before I check this, tell me how long you need it for and the business reason."
+    )
+
+    third = say(
+        "10 days, writing guides",
+        _extraction_json(
+            intent="request_access",
+            confidence=0.95,
+            entities={
+                "system": "payroll",
+                "role": "payroll-read",
+                "expiry_days": 10,
+                "justification": reason,
+            },
+        ),
+        classify,
+        create,
+    )
+    assert third.outcome is TurnOutcome.CONFIRM
+    assert third.reply is not None
+    assert third.reply.startswith(
+        "I'll file this: Fake Payroll payroll read, 10 days, "
+        'reason "writing guides". Say yes to file, or tell me what to change.'
+    )
+    assert "create_access_request" not in tools.names
+
+    fourth = say("yes", EMPTY_PLAN, COMPOSED_REPLY)
+    assert fourth.outcome is TurnOutcome.DONE
+    assert [name for name, _args in tools.calls].count("create_access_request") == 1
+
+    said = [
+        row.content
+        for row in _stored_messages(turn_env, tenant, session_id)
+        if row.role == MessageRole.ASSISTANT.value
+    ]
+    assert len(said) == 4
+    for line in said:
+        assert "payroll-read" not in line
+        assert "Fake Payroll Read" not in line

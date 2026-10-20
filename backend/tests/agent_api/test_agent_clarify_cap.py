@@ -56,7 +56,10 @@ FIRST_QUESTION = "Are you asking about the wiki or the portal?"
 UNCLEAR = "Can I get that thing from before?"
 REASON = "Obviously fake reason for the wiki."
 DAYS = 30
-DETAILS_QUESTION = "Before I check this, tell me how long you need it for and the business reason."
+DETAILS_QUESTION = (
+    "That's Internal Wiki wiki viewer. "
+    "Before I check this, tell me how long you need it for and the business reason."
+)
 
 
 @pytest.fixture
@@ -210,7 +213,7 @@ def test_a_question_then_a_clean_retry_is_kept(env: Env) -> None:
 def test_a_best_reading_request_still_asks_do_you_mean(env: Env) -> None:
     """Catches a cap that lets a guessed request through to filing: a second
     unclear message read as an access request for a named system must still end on
-    the "Do you mean ...?" check, file nothing, and carry no correct-me line."""
+    the summary check, file nothing, and carry no correct-me line."""
     session_id = uuid.uuid4()
     _first_question(env, session_id, FakeTools())
     tools = FakeTools()

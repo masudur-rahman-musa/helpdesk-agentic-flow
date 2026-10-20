@@ -17,8 +17,10 @@ Expected implementation surface (names fixed by this test file):
         ``other`` group (not held). A group with no rows is left out. Inside a
         group the rows sort by system slug, then role slug.
     ``def held_sentence(rows: Sequence[Mapping[str, Any]]) -> str | None``
-        one sentence naming each held role by its ``role_name`` (and its
-        ``system_name``), or ``None`` when no row is held.
+        one sentence naming each held role in plain words: the
+        ``system_name`` then the ``role_slug`` with ``-`` and ``_`` read as
+        spaces, or ``None`` when no row is held. ``groups_reply`` names roles
+        the same way.
 
 Nothing here needs a database, a socket or a graph. The rows are obviously fake.
 """
@@ -37,6 +39,7 @@ from helpdesk.agent_api.agent.requestable import (
     mixes_groups,
     ordered_requestable,
 )
+from helpdesk.agent_api.agent.role_words import plain_role_name
 
 
 def _row(
@@ -99,7 +102,7 @@ def test_rows_inside_a_group_sort_by_system_then_role() -> None:
 def test_held_roles_are_only_in_the_held_sentence() -> None:
     """Catches a held role that also shows as requestable, the contradiction in
     the live chat (a role in both the held and the requestable list): a held
-    template role is named in the sentence by its role name and is in no group."""
+    template role is named in the sentence by its plain name and is in no group."""
     rows = [
         _row("one", "held", template=True, held=True),
         _row("two", "free", template=True),
@@ -113,8 +116,9 @@ def test_held_roles_are_only_in_the_held_sentence() -> None:
     assert "fake-held" not in listed
     assert listed == {"fake-free"}
     assert sentence is not None
-    assert "Fake Held Role" in sentence
-    assert "Fake Free Role" not in sentence
+    assert "Fake One fake held" in sentence
+    assert "Fake Held Role" not in sentence
+    assert "fake free" not in sentence
 
 
 def test_critical_rows_are_marked() -> None:
@@ -253,8 +257,9 @@ def test_only_template_roles_need_no_manager_words() -> None:
 
 def test_groups_reply_lists_template_first_and_says_manager_approval() -> None:
     """Catches a fallback text that lists the groups in one run, in the wrong
-    order, without the manager line, or with the critical mark on the wrong
-    row: it pins both headings, the order, and the mark on its own row."""
+    order, without the manager line, with the critical mark on the wrong row, or
+    that still prints the stored role name ("Fake Mine-A Role") instead of the
+    plain name: it pins both headings, the order, the names and the mark."""
     rows = [
         _row("zeta", "other-low"),
         _row("crm", "other-crit", sensitivity="critical"),
@@ -267,16 +272,16 @@ def test_groups_reply_lists_template_first_and_says_manager_approval() -> None:
 
     assert "Roles that fit your job:" in text
     assert "Other roles you can ask for, which need your manager's approval:" in text
-    template_end = max(text.index("Fake Mine-A Role"), text.index("Fake Mine-B Role"))
+    template_end = max(text.index("Fake Wiki fake mine a"), text.index("Fake Wiki fake mine b"))
     assert template_end < text.index("Other roles you can ask for")
-    assert text.index("Other roles you can ask for") < text.index("Fake Other-Crit Role")
+    assert text.index("Other roles you can ask for") < text.index("Fake Crm fake other crit")
     for group in groups:
         for row in group.rows:
-            assert row.system_name in text
-            assert row.role_name in text
+            assert plain_role_name(row.system_name, row.role_slug) in text
+            assert row.role_name not in text
     assert text.count(CRITICAL_MARK) == 1
-    crit_at = text.index("Fake Other-Crit Role")
-    assert crit_at < text.index(CRITICAL_MARK) < text.index("Fake Other-Low Role")
+    crit_at = text.index("Fake Crm fake other crit")
+    assert crit_at < text.index(CRITICAL_MARK) < text.index("Fake Zeta fake other low")
 
 
 def test_groups_reply_passes_its_own_check() -> None:
@@ -298,6 +303,67 @@ def test_groups_reply_with_only_other_roles() -> None:
 
     assert "\n" not in text
     assert MANAGER_LINE in text
-    assert "Fake Crm" in text
-    assert "Fake Editor Role" in text
+    assert "Fake Crm fake editor" in text
+    assert "Fake Editor Role" not in text
     assert "Roles that fit your job" not in text
+
+
+def test_held_roles_use_plain_names() -> None:
+    """Catches a held sentence built from the stored role name ("wiki.editor")
+    or the slug alone: a held `wiki.editor` on "Internal Wiki" must read as the
+    plain name, and two held roles keep the slug order, comma separated."""
+    one = {
+        **_row("wiki", "editor", held=True),
+        "system_name": "Internal Wiki",
+        "role_slug": "editor",
+        "role_name": "wiki.editor",
+    }
+    two = {
+        **_row("wiki", "viewer", held=True),
+        "system_name": "Internal Wiki",
+        "role_slug": "payroll-viewer",
+        "role_name": "wiki.viewer",
+    }
+
+    assert held_sentence([one]) == "You already hold: Internal Wiki editor."
+    assert held_sentence([two, one]) == (
+        "You already hold: Internal Wiki editor, Internal Wiki payroll viewer."
+    )
+
+
+def test_a_plain_name_in_a_reply_counts_as_named() -> None:
+    """Catches a role check that still looks for the stored role name: the
+    stored names here ("mail.user", "wiki.viewer") never appear in the reply, so
+    only the plain names ("Mail and Files user", "Internal Wiki viewer") can
+    show that the other-group role comes before the template role. The manager
+    words are in the reply, so only the order rule can flag it."""
+    mail = {
+        **_row("mail", "user"),
+        "system_name": "Mail and Files",
+        "role_slug": "user",
+        "role_name": "mail.user",
+    }
+    wiki = {
+        **_row("wiki", "viewer", template=True),
+        "system_name": "Internal Wiki",
+        "role_slug": "viewer",
+        "role_name": "wiki.viewer",
+    }
+    groups = ordered_requestable([wiki, mail])
+    mixed = "Mail and Files user needs your manager's approval. Internal Wiki viewer fits your job."
+    apart = "Internal Wiki viewer fits your job. Mail and Files user needs your manager's approval."
+
+    assert mixes_groups(mixed, groups)
+    assert not mixes_groups(apart, groups)
+
+
+def test_the_old_role_and_system_words_still_count_as_named() -> None:
+    """Catches a check that swaps the old rule for the plain name: a reply
+    that says the stored role name and the system name ("Fake Wiki Fake Reader
+    Role") must still be placed, so the other-group role named first is flagged."""
+    reply = (
+        "Fake Crm Fake Editor Role needs your manager's approval. "
+        "Fake Wiki Fake Reader Role fits your job."
+    )
+
+    assert mixes_groups(reply, _groups())

@@ -6,7 +6,8 @@ values, so the file runs in milliseconds and shares no state.
 
 Surface the implementer must provide (names fixed by the plan):
 `Answer` (YES, NO, OTHER), `read_answer`, `OPEN_QUESTION_LIFE`, `OpenQuestion`,
-`parse_open_question`, `question_reply`, `next_step`, `NOTHING_FILED_REPLY`, and
+`parse_open_question`, `summary_reply` (an earlier change: it replaces `question_reply`;
+`summary_reply(resolved, results, held_calls)`), `next_step`, `NOTHING_FILED_REPLY`, and
 `ResolvedEntities.system_name` / `role_name` in `state.py`.
 """
 
@@ -23,8 +24,8 @@ from helpdesk.agent_api.agent.confirmation import (
     OpenQuestion,
     next_step,
     parse_open_question,
-    question_reply,
     read_answer,
+    summary_reply,
 )
 from helpdesk.agent_api.agent.state import (
     Intent,
@@ -134,12 +135,12 @@ def _resolved() -> ResolvedEntities:
         system_slug="internal-wiki",
         system_name="Internal Wiki",
         role_id=ROLE_ID,
-        role_slug="wiki-viewer",
-        role_name="Viewer",
+        role_slug="editor",
+        role_name="Internal Wiki editor",
     )
 
 
-def _classified(decision: str, *slots: str, ok: bool = True) -> ToolResult:
+def _classified(decision: str, *slots: str, ok: bool = True, days: int = 30) -> ToolResult:
     if not ok:
         return ToolResult(tool=CLASSIFY, ok=False)
     return ToolResult(
@@ -150,29 +151,141 @@ def _classified(decision: str, *slots: str, ok: bool = True) -> ToolResult:
             "risk_class": "low",
             "reasons": [],
             "required_approvers": [{"slot": slot, "user_id": None} for slot in slots],
-            "effective_expiry_days": 30,
+            "effective_expiry_days": days,
         },
     )
 
 
-def test_the_question_names_role_and_system() -> None:
-    """Catches a question worded with the slugs or ids ("wiki-viewer") instead of
-    the names the person knows, or with the role and system swapped."""
-    reply = question_reply(_resolved(), ())
+def _held(
+    reason: str = "Obviously fake reason.", days: int | None = None
+) -> tuple[ValidatedCall, ...]:
+    """The held round: a classify call and the create call a yes would file."""
+    return (
+        ValidatedCall(
+            tool=CLASSIFY,
+            arguments={"role_id": str(ROLE_ID), "requested_expiry_days": 99},
+        ),
+        ValidatedCall(
+            tool=CREATE,
+            arguments={
+                "target_user_id": str(USER_ID),
+                "role_id": str(ROLE_ID),
+                "justification": reason,
+                "requested_expiry_days": days,
+                "citations": [],
+                "idempotency_key": "fake-key-1",
+            },
+        ),
+    )
 
-    assert reply.startswith("Do you mean Viewer access in Internal Wiki?")
+
+FILE_LINE = "Say yes to file, or tell me what to change."
+
+
+def test_the_question_names_role_and_system() -> None:
+    """Catches a summary that is still the old "Do you mean ...?" question, or
+    one worded with the slug or the stored name instead of the plain name: the
+    reply must open with "I'll file this:" and the plain role name."""
+    reply = summary_reply(_resolved(), (_classified("auto", days=10),), _held())
+
+    assert reply.startswith("I'll file this: Internal Wiki editor, ")
+    assert "Do you mean" not in reply
 
 
 def test_the_question_ends_with_the_next_step() -> None:
-    """Catches a question that stops after "Do you mean ...?": the plan says the
-    reply also tells the person what happens next, read from the classify result."""
+    """Catches a summary that stops after the owner's line: the sentence about
+    what happens after yes, read from the classify result, must follow it,
+    last, once."""
     results = (_classified("approval", "department_manager", "system_owner"),)
 
-    reply = question_reply(_resolved(), results)
+    reply = summary_reply(_resolved(), results, _held())
 
-    assert reply.startswith("Do you mean Viewer access in Internal Wiki?")
-    assert reply.removeprefix("Do you mean Viewer access in Internal Wiki?").strip() != ""
-    assert next_step(results) in reply
+    assert reply.endswith(f"{FILE_LINE} {next_step(results)}")
+    assert reply.count(next_step(results)) == 1
+
+
+def test_the_summary_names_role_days_and_reason() -> None:
+    """Catches a summary that leaves out the days or the reason, or words them
+    differently: classify days 10 and the held reason must give the exact
+    sentence the owner wrote, the reason between straight quotes."""
+    reply = summary_reply(
+        _resolved(),
+        (_classified("auto", days=10),),
+        _held("Writing the onboarding guide"),
+    )
+
+    assert reply.startswith(
+        "I'll file this: Internal Wiki editor, 10 days, "
+        'reason "Writing the onboarding guide". '
+        "Say yes to file, or tell me what to change."
+    )
+
+
+def test_the_summary_ends_with_what_happens_after_yes() -> None:
+    """Catches a summary built without the next step: an auto classification
+    must end the reply with the grant-right-away sentence."""
+    reply = summary_reply(_resolved(), (_classified("auto", days=10),), _held())
+
+    assert reply.endswith("If you say yes, it is granted right away.")
+
+
+def test_a_template_role_shows_its_default_length_and_reason() -> None:
+    """Catches a summary that hides the length or reason of a template role
+    because the person gave none: the classify days (the role's default, 365)
+    and the template reason filled in on the held call must both show."""
+    template_reason = "Part of my department's starting access."
+
+    reply = summary_reply(
+        _resolved(), (_classified("auto", days=365),), _held(template_reason, days=None)
+    )
+
+    assert "365 days" in reply
+    assert f'reason "{template_reason}"' in reply
+
+
+def test_one_day_reads_as_a_day() -> None:
+    """Catches a summary that always pluralises: one day reads "1 day," and
+    never "1 days"."""
+    reply = summary_reply(_resolved(), (_classified("auto", days=1),), _held())
+
+    assert "1 day," in reply
+    assert "1 days" not in reply
+
+
+def test_two_days_still_read_as_days() -> None:
+    """Catches a singular rule that fires for every small number or for any
+    number that ends in 1: 2 days and 11 days both stay plural."""
+    two = summary_reply(_resolved(), (_classified("auto", days=2),), _held())
+    eleven = summary_reply(_resolved(), (_classified("auto", days=11),), _held())
+
+    assert "2 days," in two
+    assert "11 days," in eleven
+
+
+def test_the_classified_days_win_over_the_asked_days() -> None:
+    """Catches a summary that quotes the days the person asked for when the
+    policy shortened them: asked 30, classified 7, so the reply says 7 days,
+    which is what a yes would actually grant."""
+    reply = summary_reply(_resolved(), (_classified("auto", days=7),), _held(days=30))
+
+    assert "7 days," in reply
+    assert "30 days" not in reply
+
+
+def test_no_classification_falls_back_to_the_asked_days_then_the_usual_length() -> None:
+    """Catches a summary that invents a number with no classify result, reads
+    the days from the held classify call (99 here) instead of the create call,
+    or leaves a hole: with no classification the asked 30 days show, and with
+    none asked the words are "its usual length"."""
+    asked = summary_reply(_resolved(), (), _held(days=30))
+    unasked = summary_reply(_resolved(), (), _held(days=None))
+    failed = summary_reply(_resolved(), (_classified("auto", ok=False),), _held(days=None))
+
+    assert "I'll file this: Internal Wiki editor, 30 days, reason " in asked
+    assert "99" not in asked
+    assert "I'll file this: Internal Wiki editor, its usual length, reason " in unasked
+    assert "99" not in unasked
+    assert "its usual length" in failed
 
 
 def test_the_next_step_names_the_seats_for_approval() -> None:

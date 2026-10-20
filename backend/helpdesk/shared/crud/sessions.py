@@ -108,7 +108,7 @@ async def get_or_create_session(
 
 
 OPEN_QUESTION_KEY = "open_question"
-"""Where the "Do you mean ...?" question waits for the next message."""
+"""Where the "I'll file this: ..." question waits for the next message."""
 
 
 async def get_open_question(session: AsyncSession, *, session_id: uuid.UUID) -> object | None:

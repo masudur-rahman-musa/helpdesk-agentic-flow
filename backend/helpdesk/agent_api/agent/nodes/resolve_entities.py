@@ -12,6 +12,10 @@ are matched across the tenant when no system is named, and only inside the
 system when one system was named: "wiki editor" must not offer every editor.
 The resolved role's siblings on its system are read from the same rows, so
 the reply step can offer another role without a second read.
+Every role this node writes into the chat is in plain words (`role_words.py`):
+the suggestions grouped by system, the role options, the resolved role and
+the "That's <role>." line that opens the details question. System options keep
+`slug (name)`, since two systems can share a name.
 
 A request is checked for its details only once the role is found, so the
 person is asked how long and why about a real role. Right after the details
@@ -30,6 +34,7 @@ from collections.abc import Sequence
 from helpdesk.agent_api.agent import gates, matching
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind, details_question, reason_question
 from helpdesk.agent_api.agent.matching import Candidate
+from helpdesk.agent_api.agent.role_words import grouped_suggestions, plain_role_name, role_word
 from helpdesk.agent_api.agent.state import (
     Intent,
     IntentExtraction,
@@ -65,8 +70,8 @@ SUGGESTION_PREFIX = "Did you mean one of these?"
 
 
 def suggestion_label(role: SuggestedRole) -> str:
-    """One suggested role: the full `system.role` slug first, then its names."""
-    return f"{role.system_slug}.{role.role_slug} ({role.system_name} / {role.role_name})"
+    """One suggested role in plain words: "Internal Wiki editor"."""
+    return plain_role_name(role.system_name, role.role_slug)
 
 
 async def _suggest_or_ask(state: TurnState, deps: TurnDeps, words: str) -> TurnState:
@@ -80,12 +85,13 @@ async def _suggest_or_ask(state: TurnState, deps: TurnDeps, words: str) -> TurnS
         roles = []
     if not roles:
         return _ask_exact_name(state)
-    options = tuple(suggestion_label(role) for role in gates.capped_options(roles))
+    offered = gates.capped_options(roles)
+    grouped = grouped_suggestions([(role.system_name, role.role_slug) for role in offered])
     return state.model_copy(
         update={
             "outcome": TurnOutcome.DISAMBIGUATE,
-            "options": options,
-            "reply": f"{SUGGESTION_PREFIX} {'; '.join(options)}",
+            "options": tuple(suggestion_label(role) for role in offered),
+            "reply": f"{SUGGESTION_PREFIX} {grouped}",
             "question_kind": QuestionKind.SUGGEST,
         }
     )
@@ -126,7 +132,8 @@ def _ask_details(state: TurnState, resolved: ResolvedEntities) -> TurnState | No
             return None
         reply = reason_question(resolved.role_name or resolved.system_name or "this access")
     elif missing or gates.length_missing(extraction):
-        reply = details_question(missing, length_missing=gates.length_missing(extraction))
+        question = details_question(missing, length_missing=gates.length_missing(extraction))
+        reply = f"That's {resolved.role_name}. {question}" if resolved.role_name else question
     else:
         return None
     return state.model_copy(
@@ -155,9 +162,15 @@ def _template_goes_on(
 
 
 def option_label(candidate: Candidate) -> str:
-    """One offered option, slug first: two rows can share a display name, and
-    identical options are no question at all."""
+    """One offered system, slug first: two systems can share a display name,
+    and identical options are no question at all."""
     return f"{candidate.slug} ({candidate.name})"
+
+
+def _system_names(systems: Sequence[Candidate], roles: Sequence[Role]) -> dict[uuid.UUID, str]:
+    """Each role's system name by role id, for the plain role name."""
+    names = {system.id: system.name for system in systems}
+    return {role.id: names.get(role.system_id, "") for role in roles}
 
 
 async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
@@ -168,6 +181,10 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
 
     systems = _candidates(await Repository(deps.db, System).list())
     all_roles = await Repository(deps.db, Role).list()
+    system_of = _system_names(systems, all_roles)
+
+    def plain(role: Candidate) -> str:
+        return plain_role_name(system_of[role.id], role.slug)
 
     system_term = (extraction.entities.system or "").strip()
     role_term = (extraction.entities.role or "").strip()
@@ -205,14 +222,17 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
         for term, matches in ((system_term, system_matches), (role_term, role_matches))
         if term and not matches
     )
-    for term, matches in ((system_term, system_matches), (role_term, role_matches)):
+    for term, matches, label in (
+        (system_term, system_matches, option_label),
+        (role_term, role_matches, plain),
+    ):
         if not term:
             continue
         outcome = gates.candidate_outcome(len(matches))
         if outcome is TurnOutcome.CLARIFY:
             return await _on_a_miss(state, deps, unmatched)
         if outcome is TurnOutcome.DISAMBIGUATE:
-            options = tuple(option_label(candidate) for candidate in gates.capped_options(matches))
+            options = tuple(label(candidate) for candidate in gates.capped_options(matches))
             return state.model_copy(
                 update={
                     "outcome": outcome,
@@ -233,7 +253,7 @@ async def resolve_entities(state: TurnState, deps: TurnDeps) -> TurnState:
         system_name=resolved_system.name if resolved_system else None,
         role_id=resolved_role.id if resolved_role else None,
         role_slug=resolved_role.slug if resolved_role else None,
-        role_name=resolved_role.name if resolved_role else None,
+        role_name=plain(resolved_role) if resolved_role else None,
         other_role_names=other_role_names(all_roles, resolved_role),
     )
     asked = _ask_details(state, resolved)
@@ -252,13 +272,13 @@ def roles_in_system(roles: Sequence[Role], system_matches: Sequence[Candidate]) 
 
 
 def other_role_names(roles: Sequence[Role], resolved: Candidate | None) -> tuple[str, ...]:
-    """The names of the other roles on the resolved role's system, sorted by
-    slug; empty when no role was resolved."""
+    """The plain words of the other roles on the resolved role's system, sorted
+    by slug; empty when no role was resolved."""
     if resolved is None:
         return ()
     owner_id = next(role.system_id for role in roles if role.id == resolved.id)
     siblings = [role for role in roles if role.system_id == owner_id and role.id != resolved.id]
-    return tuple(role.name for role in sorted(siblings, key=lambda role: role.slug))
+    return tuple(role_word(role.slug) for role in sorted(siblings, key=lambda role: role.slug))
 
 
 def _names_exactly(term: str, candidate: Candidate) -> bool:

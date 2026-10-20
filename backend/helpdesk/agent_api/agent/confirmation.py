@@ -2,7 +2,9 @@
 
 Pure, so the yes that files a request is read by fixed word lists, never by the
 model: a misread yes would file. The open question is stored on the
-chat row as plain JSON and checked here on every read.
+chat row as plain JSON and checked here on every read. The question is a
+summary of what a yes files: the role in plain words, the days and the reason
+(a design note, `test_confirm_answer.py`).
 """
 
 import re
@@ -22,6 +24,11 @@ from helpdesk.agent_api.agent.state import (
 from helpdesk.shared.policy.types import ApproverSlot, Decision
 
 CLASSIFY_ACCESS_REQUEST = "classify_access_request"
+CREATE_ACCESS_REQUEST = "create_access_request"
+
+FILE_LINE = "Say yes to file, or tell me what to change."
+USUAL_LENGTH = "its usual length"
+"""Said for the days when neither the policy nor the person gave a number."""
 
 YES_WORDS = frozenset({"yes", "yep", "yeah", "correct", "right", "sure", "ok", "okay", "confirm"})
 NO_WORDS = frozenset({"no", "nope", "wrong"})
@@ -106,6 +113,7 @@ class _Verdict(BaseModel):
 
     decision: Decision
     required_approvers: list[dict[str, object]] = []
+    effective_expiry_days: int | None = None
 
 
 def _verdict(results: Sequence[ToolResult]) -> _Verdict | None:
@@ -146,16 +154,35 @@ def next_step(results: Sequence[ToolResult]) -> str:
     return f"If you say yes, I will file it and it needs approval from {who}."
 
 
-def question_reply(resolved: ResolvedEntities | None, results: Sequence[ToolResult]) -> str:
-    """ "Do you mean <role> access in <system>?" and what happens next."""
-    role = resolved.role_name if resolved else None
-    system = resolved.system_name if resolved else None
-    if role and system:
-        question = f"Do you mean {role} access in {system}?"
-    elif system:
-        question = f"Do you mean access in {system}?"
-    elif role:
-        question = f"Do you mean {role} access?"
-    else:
-        question = "Do you mean to file this access request?"
-    return f"{question} {next_step(results)}"
+def _held_create(calls: Sequence[ValidatedCall]) -> dict[str, object]:
+    """The arguments of the held create call, or none when there is none."""
+    for call in calls:
+        if call.tool == CREATE_ACCESS_REQUEST:
+            return call.arguments
+    return {}
+
+
+def _days(days: object) -> str | None:
+    if not isinstance(days, int) or isinstance(days, bool) or days <= 0:
+        return None
+    return "1 day" if days == 1 else f"{days} days"
+
+
+def summary_reply(
+    resolved: ResolvedEntities | None,
+    results: Sequence[ToolResult],
+    held_calls: Sequence[ValidatedCall],
+) -> str:
+    """ "I'll file this: <role>, <N> days, reason "<reason>"." then the file
+    line and what happens next. The days are this turn's classified length,
+    else the days the held create call asks for, else `USUAL_LENGTH`."""
+    create = _held_create(held_calls)
+    verdict = _verdict(results)
+    length = (
+        _days(verdict.effective_expiry_days if verdict else None)
+        or _days(create.get("requested_expiry_days"))
+        or USUAL_LENGTH
+    )
+    role = (resolved.role_name if resolved else None) or "this access"
+    reason = str(create.get("justification") or "").strip()
+    return f'I\'ll file this: {role}, {length}, reason "{reason}". {FILE_LINE} {next_step(results)}'

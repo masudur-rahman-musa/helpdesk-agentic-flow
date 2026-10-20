@@ -84,7 +84,7 @@ test("an admin ask needs two approvals and is granted for exactly 30 days", asyn
   await loginAs(page, employee);
   await page.goto("/chat");
   await sendTurn(page, `I need ${GITLAB_MAINTAINER} admin rights on GitLab for a migration.`);
-  // The assistant first asks "Do you mean ...?"; only the yes files it.
+  // The assistant first shows "I'll file this: ..."; only the yes files it.
   await sendTurn(page, "Yes, that is right.");
 
   // `DECISION_LABELS.approval`, `RISK_LABELS.privileged` and

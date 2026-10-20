@@ -610,9 +610,9 @@ def test_a_resumed_turn_leaves_exactly_one_pending_message(
     assistant_at_pause = [
         content for role, content in stored_at_pause if role == MessageRole.ASSISTANT.value
     ]
-    # The request turn first asks "Do you mean ...?"; the yes pauses.
+    # The request turn first asks with the summary ("I'll file this: ..."); the yes pauses.
     assert len(assistant_at_pause) == 2
-    assert assistant_at_pause[0].startswith("Do you mean")
+    assert assistant_at_pause[0].startswith("I'll file this:")
     assert assistant_at_pause[1:] == [pending_reply_text], (
         "the pause itself must store exactly one assistant message"
     )

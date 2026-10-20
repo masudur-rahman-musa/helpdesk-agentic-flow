@@ -4,13 +4,16 @@ Pure: no I/O. The model gets the rows already grouped, template roles first,
 and the roles the person holds are said by `held_sentence`, never by the
 model, so two replies cannot disagree about what is held. `mixes_groups`
 checks the model kept the two groups apart, and `groups_reply` is the list
-code writes when it did not, twice.
+code writes when it did not, twice. Code-written lines name each role in
+plain words (`role_words.py`), never by its stored name.
 """
 
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from helpdesk.agent_api.agent.role_words import plain_role_name
 
 TEMPLATE_GROUP = "template"
 OTHER_GROUP = "other"
@@ -28,6 +31,10 @@ class MarkedRow:
     role_slug: str
     role_name: str
     critical: bool
+
+    @property
+    def plain_name(self) -> str:
+        return plain_role_name(self.system_name, self.role_slug)
 
 
 @dataclass(frozen=True)
@@ -67,7 +74,7 @@ def held_sentence(rows: Sequence[Mapping[str, Any]]) -> str | None:
     if not held:
         return None
     held.sort(key=lambda row: (row.system_slug, row.role_slug))
-    names = ", ".join(f"{row.system_name} {row.role_name}" for row in held)
+    names = ", ".join(row.plain_name for row in held)
     return f"You already hold: {names}."
 
 
@@ -85,12 +92,19 @@ def _said(name: str, sentence: str) -> bool:
 
 def _positions(reply: str, rows: Sequence[MarkedRow]) -> list[int]:
     """The numbers of the sentences naming one of `rows`. A role counts as
-    named only where its role name and its system name share the sentence."""
+    named where its plain name is in the sentence, or its role name and its
+    system name share it."""
     return [
         number
         for number, sentence in enumerate(_SENTENCES.split(reply.lower()))
-        if any(_said(row.role_name, sentence) and _said(row.system_name, sentence) for row in rows)
+        if any(_named(row, sentence) for row in rows)
     ]
+
+
+def _named(row: MarkedRow, sentence: str) -> bool:
+    return _said(row.plain_name, sentence) or (
+        _said(row.role_name, sentence) and _said(row.system_name, sentence)
+    )
 
 
 def mixes_groups(reply: str, groups: Sequence[Group]) -> bool:
@@ -112,10 +126,7 @@ def mixes_groups(reply: str, groups: Sequence[Group]) -> bool:
 
 
 def _listed(rows: Sequence[MarkedRow]) -> str:
-    return ", ".join(
-        f"{row.system_name} {row.role_name}" + (f" {CRITICAL_MARK}" if row.critical else "")
-        for row in rows
-    )
+    return ", ".join(row.plain_name + (f" {CRITICAL_MARK}" if row.critical else "") for row in rows)
 
 
 _HEADINGS = {

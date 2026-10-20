@@ -66,8 +66,8 @@ REQUEST_ID = uuid.UUID("77777777-7777-5777-8777-777777777777")
 """What the fake `create_access_request` answers, obviously fake."""
 
 YES = "Yes, that is right."
-ASK_PREFIX = "Do you mean Viewer access in Internal Wiki?"
-ASK_PREFIX_EDITOR = "Do you mean Editor access in Internal Wiki?"
+ASK_PREFIX = "I'll file this: Internal Wiki wiki viewer,"
+ASK_PREFIX_EDITOR = "I'll file this: Internal Wiki wiki editor,"
 COMPOSED = "Your request was filed."
 
 
@@ -677,7 +677,10 @@ def test_a_bad_stored_question_counts_as_none(env: Env) -> None:
 
 # --- one question, then the preview, then yes -----------------------------------
 
-DETAILS_QUESTION = "Before I check this, tell me how long you need it for and the business reason."
+DETAILS_QUESTION = (
+    "That's Internal Wiki wiki viewer. "
+    "Before I check this, tell me how long you need it for and the business reason."
+)
 
 
 def _create_round_with_details(env: Env) -> str:

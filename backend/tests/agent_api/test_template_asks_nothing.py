@@ -34,7 +34,6 @@ from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.models import Department, Role, RoleTemplate, System, Tenant, User
 from tests.agent_api.conftest import AgentDb
-from tests.agent_api.test_agent_clarify_cap import DETAILS_QUESTION
 from tests.agent_api.test_question_kinds import EDITOR, TURN_NOW, WIKI, _extraction
 from tests.agent_api.test_resolve_entities_suggestions import _FakeDb
 
@@ -121,7 +120,10 @@ def test_a_role_outside_the_template_still_asks() -> None:
     state = _resolve_with_template(template=frozenset({uuid.uuid4()}), system="wiki", role="editor")
 
     assert state.outcome is TurnOutcome.CLARIFY
-    assert state.reply == DETAILS_QUESTION
+    assert state.reply == (
+        "That's Internal Wiki editor. "
+        "Before I check this, tell me how long you need it for and the business reason."
+    )
     assert state.question_kind is QuestionKind.DETAILS
     assert state.extraction is not None
     assert state.extraction.entities.justification is None

@@ -315,7 +315,8 @@ def test_the_held_sentence_is_written_by_code(env: Env) -> None:
     """Catches a reply left to the model: the staged model text says something
     that contradicts the rows ("you hold four roles"), and the stored reply must
     still start with the sentence code wrote from the tool rows, and name the held
-    role, so two replies in a row can never disagree."""
+    role in plain words (system name, then the role slug as words), never by its
+    stored name, so two replies in a row can never disagree."""
     tools = HeldRoleTools()
     sentence = held_sentence(tools.rows)
     assert sentence is not None, "fixture premise: one row is held"
@@ -332,7 +333,8 @@ def test_the_held_sentence_is_written_by_code(env: Env) -> None:
     assert state.reply is not None
     assert state.reply.startswith(sentence)
     assert model_text in state.reply
-    assert "Fake Held Role" in sentence
+    assert "Fake Held System fake held role slug" in sentence
+    assert "Fake Held Role" not in sentence
 
 
 def test_a_can_i_question_on_kyc_searches_policy_and_files_nothing(env: Env) -> None:
@@ -419,7 +421,8 @@ def test_a_mixed_list_is_retried_with_the_groups_note(env: Env) -> None:
 def test_a_mixed_list_twice_ends_on_the_code_written_groups(env: Env) -> None:
     """Catches a second mixed text that is stored anyway, or a fallback put
     before the held sentence or built from the wrong rows: the reply must be the
-    held sentence, then the text code wrote, and the postcheck `fallback`."""
+    held sentence, then the text code wrote with plain role names, and the
+    postcheck `fallback`."""
     tools = TwoGroupTools()
     held = held_sentence(tools.rows)
     assert held is not None, "fixture premise: one row is held"
@@ -435,6 +438,8 @@ def test_a_mixed_list_twice_ends_on_the_code_written_groups(env: Env) -> None:
     assert state.outcome is TurnOutcome.DONE
     assert state.postcheck is PostCheckOutcome.FALLBACK
     assert state.reply == f"{held}\n\n{fallback}"
+    assert "Fake Other System fake other role slug" in fallback
+    assert "Fake Other Role" not in fallback
     assert MIXED not in state.reply
 
 

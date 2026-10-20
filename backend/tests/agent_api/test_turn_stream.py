@@ -1092,7 +1092,7 @@ def test_a_paused_turn_stores_exactly_one_assistant_row(stream_env: StreamEnv) -
         MessageRole.ASSISTANT.value,
     ]
     assert stored[0][1] == MESSAGE
-    assert stored[1][1].startswith("Do you mean")
+    assert stored[1][1].startswith("I'll file this:")
     assert stored[2][1] == YES
     assert stored[3][1] == _streamed_text(frames)
 

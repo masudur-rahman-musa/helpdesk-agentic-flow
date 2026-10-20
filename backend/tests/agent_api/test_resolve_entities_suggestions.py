@@ -10,9 +10,10 @@ the last question was not a suggestion or the exact-name question
 terms joined by one space>))`` and validates the payload as
 ``SuggestRolesResult(roles=[...])``.
 
-* Roles came back: outcome ``DISAMBIGUATE``; ``options`` is one label per role,
-  in the tool's order, ``"<system_slug>.<role_slug> (<system_name> / <role_name>)"``;
-  ``reply`` is ``"Did you mean one of these? "`` and the options joined by ``"; "``.
+* Roles came back: outcome ``DISAMBIGUATE``; ``options`` is one plain name per
+  role, in the tool's order, ``"<system_name> <role_slug words>"``;
+  ``reply`` is ``"Did you mean one of these? "`` and the roles grouped by system
+  (``"Internal Wiki: editor or viewer; Mail and Files: user"``).
 * No roles, or the tool raised a ``ToolError``: today's ``CLARIFY`` with
   ``NOTHING_MATCHED_QUESTION``. Never ``FAILED``.
 * After a ``suggest`` question: the tool is not called; the exact-name question is
@@ -180,9 +181,10 @@ def _resolve(
 def test_a_miss_offers_the_suggestions() -> None:
     """Catches a resolver that still asks for the exact name when roles were
     found, one that reorders the tool's list (slug order here is the reverse of
-    the tool's), one that drops the system name from a label, and one that
-    sends the wrong words: the call must be the wire name with the unmatched
-    terms joined by one space."""
+    the tool's), one that shows `slug (name)` labels or the stored role name
+    instead of the plain name, one that does not group the reply by system, and
+    one that sends the wrong words: the call must be the wire name with the
+    unmatched terms joined by one space."""
     payload = {
         "roles": [
             _suggested("wiki", "Internal Wiki", "editor", "wiki.editor"),
@@ -195,13 +197,15 @@ def test_a_miss_offers_the_suggestions() -> None:
     state = _resolve(tools, system="docs", role="scribe")
 
     expected = (
-        "wiki.editor (Internal Wiki / wiki.editor)",
-        "crm.contributor (Fake Customer Tool / crm.contributor)",
-        "crm.author (Fake Customer Tool / crm.author)",
+        "Internal Wiki editor",
+        "Fake Customer Tool contributor",
+        "Fake Customer Tool author",
     )
     assert state.outcome is TurnOutcome.DISAMBIGUATE
     assert state.options == expected
-    assert state.reply == f"{OFFER_PREFIX}{'; '.join(expected)}"
+    assert state.reply == (
+        f"{OFFER_PREFIX}Internal Wiki: editor; Fake Customer Tool: contributor or author"
+    )
     assert tools.calls == [(SUGGEST, {"query": "docs scribe"})]
 
 
@@ -293,7 +297,9 @@ def test_a_found_name_never_calls_the_tool() -> None:
 def test_two_matches_still_ask_which_one_without_the_tool() -> None:
     """Catches a resolver that suggests for any non-resolving outcome: two
     systems sharing a name are an ambiguity (a different question), not a
-    miss, and must keep the "Which one do you mean?" question."""
+    miss, and must keep the "Which one do you mean?" question. System options
+    keep their `slug (name)` form, because two systems can share a name and a
+    plain name would make the two options identical."""
     twins = [_system("billing-eu", "Fake Billing"), _system("billing-us", "Fake Billing")]
     tools = _StubTools(payload={"roles": [_suggested("wiki", "Internal Wiki", "e", "wiki.e")]})
 
@@ -303,6 +309,7 @@ def test_two_matches_still_ask_which_one_without_the_tool() -> None:
     assert state.outcome is TurnOutcome.DISAMBIGUATE
     assert state.reply is not None
     assert state.reply.startswith(DISAMBIGUATION_PREFIX)
+    assert state.options == ("billing-eu (Fake Billing)", "billing-us (Fake Billing)")
 
 
 def test_the_planner_cannot_propose_suggest_roles() -> None:
@@ -311,3 +318,70 @@ def test_the_planner_cannot_propose_suggest_roles() -> None:
     step may call it."""
     assert not [intent for intent, tools in gates.INTENT_TOOLS.items() if SUGGEST in tools]
     assert SUGGEST not in TOOL_INPUTS
+
+
+STORED_NAMES = ("wiki.editor", "wiki.viewer")
+
+
+def test_the_offer_never_shows_a_stored_name() -> None:
+    """Catches an offer that still prints the stored role names or the old
+    `slug (name)` labels: the tool answers with `wiki.editor` and `wiki.viewer`
+    as role names and `wiki` as the system slug, so any of those forms, or a
+    bracket, in the reply or in an option shows the stored value leaking."""
+    payload = {
+        "roles": [
+            _suggested("wiki", "Internal Wiki", "editor", "wiki.editor"),
+            _suggested("wiki", "Internal Wiki", "viewer", "wiki.viewer"),
+        ]
+    }
+    tools = _StubTools(payload=payload)
+
+    state = _resolve(tools, system="docs", role="scribe")
+
+    assert state.outcome is TurnOutcome.DISAMBIGUATE
+    assert state.reply == f"{OFFER_PREFIX}Internal Wiki: editor or viewer"
+    assert state.options == ("Internal Wiki editor", "Internal Wiki viewer")
+    shown = [state.reply, *state.options]
+    for text in shown:
+        for stored in STORED_NAMES:
+            assert stored not in text
+        assert "(" not in text
+        assert "." not in text.removeprefix(OFFER_PREFIX)
+
+
+@pytest.mark.parametrize(
+    ("system", "role"),
+    [
+        pytest.param("wiki editor", None, id="short-phrase-in-system-field"),
+        pytest.param("Internal Wiki editor", None, id="plain-name-in-system-field"),
+        pytest.param(None, "wiki editor", id="short-phrase-in-role-field"),
+        pytest.param(None, "Internal Wiki editor", id="plain-name-in-role-field"),
+    ],
+)
+def test_typing_back_a_plain_name_finds_the_role(system: str | None, role: str | None) -> None:
+    """Catches a matcher that only knows the stored name or the bare slug: a
+    second system also has an `editor` role, so "editor" alone is two roles,
+    and only the plain name (or the system words with the role word) picks the
+    wiki one. The reason and length are given so the details question is not
+    asked, and the suggest tool must stay uncalled."""
+    crm = _system("crm", "Fake Customer Tool")
+    roles = [_role(WIKI, "editor", "wiki.editor"), _role(crm, "editor", "crm.editor")]
+    tools = _StubTools(payload={"roles": [_suggested("wiki", "Internal Wiki", "e", "wiki.e")]})
+
+    state = _resolve(
+        tools,
+        system=system,
+        role=role,
+        asked_kind=QuestionKind.SUGGEST,
+        justification="fake reason",
+        expiry_days=14,
+        systems=[WIKI, crm],
+        roles=roles,
+    )
+
+    assert tools.calls == []
+    assert state.outcome is TurnOutcome.CONTINUE
+    assert state.resolved is not None
+    assert state.resolved.role_id == roles[0].id
+    assert state.resolved.role_slug == "editor"
+    assert state.resolved.role_name == "Internal Wiki editor"

@@ -51,7 +51,6 @@ from helpdesk.shared.models import Role
 from tests.agent_api.conftest import AgentDb
 from tests.agent_api.test_agent_clarify_cap import (
     DAYS,
-    DETAILS_QUESTION,
     REASON,
     UNCLEAR,
     _add_second_viewer,
@@ -73,7 +72,12 @@ from tests.agent_api.test_resolve_entities_suggestions import (
     _system,
 )
 
-REASON_ONLY_QUESTION = "Before I file this, tell me the business reason for Editor."
+DETAILS_QUESTION = (
+    "That's Internal Wiki editor. "
+    "Before I check this, tell me how long you need it for and the business reason."
+)
+"""The details question once the role is found: the plain name goes first."""
+REASON_ONLY_QUESTION = "Before I file this, tell me the business reason for Internal Wiki editor."
 TURN_NOW = datetime(2026, 6, 2, tzinfo=UTC)
 
 # --- the intent step ------------------------------------------------------------
@@ -295,6 +299,41 @@ def test_a_found_role_with_no_reason_asks_the_details_question(kind: QuestionKin
     assert state.outcome is TurnOutcome.CLARIFY
     assert state.reply == DETAILS_QUESTION
     assert state.question_kind is QuestionKind.DETAILS
+
+
+def test_the_details_question_names_the_found_role() -> None:
+    """Catches a resolver that asks for the missing details without saying which
+    role it found: a non-template wiki editor with no reason and no length must
+    get "That's Internal Wiki editor." in front of today's question, said once,
+    and the same plain name must ride on the resolved role."""
+    tools = _StubTools(payload=GOOD_SUGGESTION)
+
+    state = _resolve(tools, system="wiki", role="editor")
+
+    assert state.reply == (
+        "That's Internal Wiki editor. "
+        "Before I check this, tell me how long you need it for and the business reason."
+    )
+    assert state.reply is not None
+    assert state.reply.count("That's") == 1
+    assert state.resolved is not None
+    assert state.resolved.role_name == "Internal Wiki editor"
+
+
+def test_the_reason_question_names_the_plain_role() -> None:
+    """Catches a reason question that still names the stored display name
+    ("Editor"), or the slug alone: after the details question, with the reason
+    still missing, it must name the role by the plain name, and must not repeat
+    the "That's ..." line that the details question already said."""
+    tools = _StubTools()
+
+    state = _resolve(tools, system="wiki", role="editor", asked_kind=QuestionKind.DETAILS)
+
+    assert (
+        state.reply == "Before I file this, tell me the business reason for Internal Wiki editor."
+    )
+    assert state.reply is not None
+    assert "That's" not in state.reply
 
 
 @pytest.mark.parametrize(

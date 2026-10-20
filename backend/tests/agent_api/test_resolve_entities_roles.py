@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.agent_api.agent.matching import Candidate, match_candidates
+from helpdesk.agent_api.agent.matching import Candidate
 from helpdesk.agent_api.agent.nodes.resolve_entities import resolve_entities, roles_in_system
 from helpdesk.agent_api.agent.state import (
     Intent,
@@ -35,24 +35,25 @@ def _role(system_id: uuid.UUID, slug: str, name: str) -> Role:
     )
 
 
-def _as_candidates(roles: Sequence[Role]) -> tuple[Candidate, ...]:
-    return tuple(Candidate(id=r.id, slug=r.slug, name=r.name) for r in roles)
-
-
 def test_named_system_leaves_one_editor() -> None:
     """Catches roles matched tenant-wide: the term "editor" hits all three
-    editor roles even though the user named the wiki, so the chat loops."""
-    ledger, crm, wiki = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    editor roles even though the user named the wiki, so the chat loops. The
+    resolved role must also carry the plain name, not the stored `wiki.editor`."""
+    ledger, crm, wiki = (
+        _system("ledger", "Fake Ledger"),
+        _system("crm", "Fake Customer Tool"),
+        _system("wiki", "Internal Wiki"),
+    )
     roles = [
-        _role(ledger, "editor", "ledger.editor"),
-        _role(crm, "editor", "crm.editor"),
-        _role(wiki, "editor", "wiki.editor"),
+        _role(ledger.id, "editor", "ledger.editor"),
+        _role(crm.id, "editor", "crm.editor"),
+        _role(wiki.id, "editor", "wiki.editor"),
     ]
-    named = (Candidate(id=wiki, slug="wiki", name="Internal Wiki"),)
 
-    matches = match_candidates("editor", _as_candidates(roles_in_system(roles, named)))
+    resolved = _resolve([ledger, crm, wiki], roles, system="wiki", role="editor")
 
-    assert [m.name for m in matches] == ["wiki.editor"]
+    assert resolved.role_id == roles[2].id
+    assert resolved.role_name == "Internal Wiki editor"
 
 
 def test_no_single_system_keeps_every_role() -> None:
@@ -129,8 +130,9 @@ def _resolve(
 
 def test_other_role_names_leave_out_the_asked_role() -> None:
     """Catches an implementation that includes the asked role in the list,
-    includes roles of other systems, or sorts by display name instead of slug.
-    The names are chosen so slug order and name order differ."""
+    includes roles of other systems, sorts by display name instead of slug, or
+    still returns the stored display names ("Zulu Analyst") instead of the plain
+    role words. The names are chosen so slug order and name order differ."""
     kyc, vpn = _system("kyc", "KYC"), _system("vpn", "VPN")
     roles = [
         _role(kyc.id, "kyc-viewer", "Alpha Viewer"),
@@ -142,7 +144,7 @@ def test_other_role_names_leave_out_the_asked_role() -> None:
     resolved = _resolve([kyc, vpn], roles, system="kyc", role="kyc-admin")
 
     assert resolved.role_slug == "kyc-admin"
-    assert resolved.other_role_names == ("Zulu Analyst", "Alpha Viewer")
+    assert resolved.other_role_names == ("kyc analyst", "kyc viewer")
 
 
 def test_a_one_role_system_has_no_other_role_names() -> None:
@@ -186,4 +188,4 @@ def test_extra_words_around_a_role_in_a_named_system_match_it() -> None:
     resolved = _resolve([kyc], roles, system="kyc", role="please give me approver rights")
 
     assert resolved.role_slug == "approver"
-    assert resolved.role_name == "kyc.approver"
+    assert resolved.role_name == "KYC approver"

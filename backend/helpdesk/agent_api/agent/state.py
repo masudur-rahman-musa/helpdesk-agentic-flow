@@ -61,7 +61,7 @@ class IntentExtraction(BaseModel):
 class TurnOutcome(StrEnum):
     """Where the turn stands; graph edges read only this. `DONE` means reply
     now; `AWAIT_APPROVAL` means paused, read back later from a checkpoint.
-    `CONFIRM` asks "Do you mean ...?" before filing; `CONFIRMED` is the yes.
+    `CONFIRM` shows "I'll file this: ..." before filing; `CONFIRMED` is the yes.
     `ANSWER` skips the tools and composes now: a question was just asked and
     something required is still missing."""
 
@@ -87,10 +87,12 @@ class PostCheckOutcome(StrEnum):
 
 
 class ResolvedEntities(BaseModel):
-    """The caller's own directory rows: ids for tools, slugs for people, names
-    for the "Do you mean ...?" question. `other_role_names` are the resolved
-    role's siblings on its system, sorted by slug, so a reply offers another
-    role only when one exists (`next_steps.py`)."""
+    """The caller's own directory rows: ids for tools, slugs for people.
+    `role_name` is the plain name ("Internal Wiki editor", `role_words.py`)
+    the summary before filing shows, never the stored `wiki.editor`.
+    `other_role_names` are the plain words of the resolved role's siblings on
+    its system, sorted by slug, so a reply offers another role only when one
+    exists (`next_steps.py`)."""
 
     model_config = ConfigDict(frozen=True)
 

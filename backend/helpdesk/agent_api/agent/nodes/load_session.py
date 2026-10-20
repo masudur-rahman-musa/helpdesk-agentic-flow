@@ -5,7 +5,7 @@ message. History is read first so it holds only earlier messages. The message
 is stored even if the model later fails, so the record stays complete.
 Identity comes from the verified token, never from the message.
 
-An open "Do you mean ...?" question is read and cleared on every message, so
+An open "I'll file this: ..." question is read and cleared on every message, so
 it is answered once at most. A yes routes straight to `execute_tools` with
 exactly the stored calls; a bare no ends with a fixed reply; anything else
 runs the normal flow.

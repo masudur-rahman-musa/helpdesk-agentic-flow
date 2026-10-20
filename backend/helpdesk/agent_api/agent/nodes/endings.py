@@ -6,7 +6,7 @@ not read ends with one fixed reply, not a clarifying question nobody asked.
 """
 
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind, stored_kind
-from helpdesk.agent_api.agent.confirmation import OpenQuestion, question_reply
+from helpdesk.agent_api.agent.confirmation import OpenQuestion, summary_reply
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.state import ResolvedEntities, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
@@ -48,8 +48,8 @@ async def ask_disambiguation(state: TurnState, deps: TurnDeps) -> TurnState:
 
 
 async def ask_confirmation(state: TurnState, deps: TurnDeps) -> TurnState:
-    """End: ask "Do you mean ...?" and store the held round for the next
-    message. Nothing is filed; `validated` is cleared once stored, so the
+    """End: show the summary of what a yes files and store the held round
+    for the next message. Nothing is filed; `validated` is cleared once stored, so the
     calls live only on the chat row until a yes."""
     extraction = state.extraction
     if extraction is None:  # pragma: no cover - the graph never routes here
@@ -65,7 +65,8 @@ async def ask_confirmation(state: TurnState, deps: TurnDeps) -> TurnState:
     await set_open_question(
         deps.db, session_id=state.session_id, value=question.model_dump(mode="json")
     )
-    stored = await _store_reply(state, deps, question_reply(state.resolved, state.tool_results))
+    reply = summary_reply(state.resolved, state.tool_results, state.validated)
+    stored = await _store_reply(state, deps, reply)
     return stored.model_copy(update={"validated": ()})
 
 
