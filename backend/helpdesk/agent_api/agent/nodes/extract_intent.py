@@ -66,7 +66,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
     extraction = answer.value
     tokens_used = state.tokens_used + answer.usage.total_tokens
 
-    outcome = gates.clarify_outcome(extraction, state.asked_before)
+    outcome = gates.extraction_outcome(extraction, state.asked_before)
     if outcome is TurnOutcome.CLARIFY:
         return state.model_copy(
             update={
@@ -84,18 +84,16 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             "prompt_version": prompt.sha256,
             "tokens_used": tokens_used,
             "outcome": outcome,
-            "best_reading": gates.needs_clarification(extraction),
+            "best_reading": gates.needs_clarification_at_extraction(extraction),
         }
     )
 
 
 def _clarifying_reply(extraction: IntentExtraction) -> str:
-    """A confident request asks the code-worded details question; anything
-    else keeps the model's own question."""
+    """A confident request with no system asks for the system in code words;
+    the length and reason wait until the role is found. Anything else keeps
+    the model's own question."""
     confident = extraction.confidence >= gates.CONFIDENCE_THRESHOLD
     if confident and extraction.intent is Intent.REQUEST_ACCESS:
-        return details_question(
-            gates.missing_required_entities(extraction),
-            length_missing=gates.length_missing(extraction),
-        )
+        return details_question(gates.missing_at_extraction(extraction), length_missing=False)
     return extraction.clarifying_question or DEFAULT_CLARIFYING_QUESTION

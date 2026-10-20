@@ -71,6 +71,43 @@ def needs_clarification(extraction: IntentExtraction) -> bool:
     )
 
 
+EXTRACTION_ENTITIES: Mapping[Intent, frozenset[str]] = {
+    **REQUIRED_ENTITIES,
+    Intent.REQUEST_ACCESS: frozenset({"system"}),
+}
+"""What the intent step asks for. A request needs only its system there: the
+role is found first, then `resolve_entities` asks for the reason and length."""
+
+
+def missing_at_extraction(extraction: IntentExtraction) -> frozenset[str]:
+    """Like `missing_required_entities`, but only what the intent step asks for."""
+    return frozenset(
+        name
+        for name in EXTRACTION_ENTITIES[extraction.intent]
+        if not _is_supplied(getattr(extraction.entities, name))
+    )
+
+
+def needs_clarification_at_extraction(extraction: IntentExtraction) -> bool:
+    """Unsure of the intent, or missing something the intent step asks for."""
+    return extraction.confidence < CONFIDENCE_THRESHOLD or bool(missing_at_extraction(extraction))
+
+
+def extraction_outcome(extraction: IntentExtraction, asked_before: bool) -> TurnOutcome:
+    """`clarify_outcome` for the intent step. A request asks here only for a
+    missing system or an unsure intent, so "i want doc access" reaches the
+    name lookup on the first message. Other intents behave as before."""
+    if extraction.intent is not Intent.REQUEST_ACCESS:
+        return clarify_outcome(extraction, asked_before)
+    if not needs_clarification_at_extraction(extraction):
+        return TurnOutcome.CONTINUE
+    if not asked_before:
+        return TurnOutcome.CLARIFY
+    if missing_at_extraction(extraction):
+        return TurnOutcome.ANSWER
+    return TurnOutcome.CONTINUE
+
+
 def length_missing(extraction: IntentExtraction) -> bool:
     """A request that names no length. It is asked in the one question but
     never blocks: the role's default applies after it."""

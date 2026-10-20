@@ -4,7 +4,8 @@ Surface under test (written before it exists; the implementer must provide
 exactly this):
 
 When the typed system or role matches nothing (today's CLARIFY outcome) and
-``state.asked_before`` is false, ``resolve_entities`` calls
+the last question was not a suggestion or the exact-name question
+(``state.asked_kind``), ``resolve_entities`` calls
 ``deps.tools.call_tool("suggest_roles", SuggestRolesArgs(query=<the unmatched
 terms joined by one space>))`` and validates the payload as
 ``SuggestRolesResult(roles=[...])``.
@@ -14,8 +15,8 @@ terms joined by one space>))`` and validates the payload as
   ``reply`` is ``"Did you mean one of these? "`` and the options joined by ``"; "``.
 * No roles, or the tool raised a ``ToolError``: today's ``CLARIFY`` with
   ``NOTHING_MATCHED_QUESTION``. Never ``FAILED``.
-* ``asked_before`` true: the tool is not called; the outcome stays ``ANSWER``
-  with ``best_reading`` true.
+* After a ``suggest`` question: the tool is not called; the exact-name question is
+  asked (``CLARIFY``). After a ``name`` question the outcome is ``ANSWER``.
 * A name that matches never calls the tool.
 * ``suggest_roles`` is in no ``INTENT_TOOLS`` row and not in ``TOOL_INPUTS``.
 
@@ -34,6 +35,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.agent import gates
+from helpdesk.agent_api.agent.clarify_cap import QuestionKind
 from helpdesk.agent_api.agent.nodes.resolve_entities import (
     DISAMBIGUATION_PREFIX,
     NOTHING_MATCHED_QUESTION,
@@ -137,7 +139,9 @@ def _resolve(
     *,
     system: str | None,
     role: str | None,
-    asked_before: bool = False,
+    asked_kind: QuestionKind | None = None,
+    justification: str | None = None,
+    expiry_days: int | None = None,
     systems: Sequence[System] = DIRECTORY_SYSTEMS,
     roles: Sequence[Role] = DIRECTORY_ROLES,
 ) -> TurnState:
@@ -154,14 +158,15 @@ def _resolve(
                 role=role,
                 target_user=None,
                 department=None,
-                expiry_days=None,
-                justification=None,
+                expiry_days=expiry_days,
+                justification=justification,
             ),
             confidence=0.9,
             clarifying_question=None,
         ),
         started_at=datetime(2026, 6, 2, tzinfo=UTC),
-        asked_before=asked_before,
+        asked_before=asked_kind is not None,
+        asked_kind=asked_kind,
     )
     deps = TurnDeps(
         db=cast(AsyncSession, _FakeDb(systems, roles)),
@@ -255,24 +260,28 @@ def test_a_tool_failure_keeps_todays_question(error: ToolError) -> None:
 
 
 def test_a_second_miss_does_not_suggest() -> None:
-    """Catches a resolver that suggests on every miss: after one question the
-    turn must answer from its best reading with NO tools, so the one-question
-    cap still holds. The payload is a good one, so only the flag can stop it."""
+    """Catches a resolver that suggests again right after a suggestion: the cap
+    is now per kind, so after a `suggest` question the turn must call no tool
+    and ask for the exact name. The payload is a good one, so only the stored
+    kind can stop it."""
     tools = _StubTools(payload={"roles": [_suggested("wiki", "Internal Wiki", "e", "wiki.e")]})
 
-    state = _resolve(tools, system="docs", role="scribe", asked_before=True)
+    state = _resolve(tools, system="docs", role="scribe", asked_kind=QuestionKind.SUGGEST)
 
     assert tools.calls == []
-    assert state.outcome is TurnOutcome.ANSWER
-    assert state.best_reading is True
+    assert state.outcome is TurnOutcome.CLARIFY
+    assert state.reply == NOTHING_MATCHED_QUESTION
 
 
 def test_a_found_name_never_calls_the_tool() -> None:
     """Catches a resolver that asks for suggestions on every turn, not only on
-    a miss: "wiki" / "editor" is in the directory and must resolve unchanged."""
+    a miss: "wiki" / "editor" is in the directory and must resolve unchanged.
+    The reason and length are given, so the details question is not asked."""
     tools = _StubTools(payload={"roles": [_suggested("wiki", "Internal Wiki", "e", "wiki.e")]})
 
-    state = _resolve(tools, system="wiki", role="editor")
+    state = _resolve(
+        tools, system="wiki", role="editor", justification="fake reason", expiry_days=14
+    )
 
     assert tools.calls == []
     assert state.outcome is TurnOutcome.CONTINUE

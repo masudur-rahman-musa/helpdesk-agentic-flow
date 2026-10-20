@@ -7,6 +7,7 @@ ISO string and checked here on every read, like the open question of
 
 from collections.abc import Set
 from datetime import datetime, timedelta
+from enum import StrEnum
 
 CLARIFY_CAP_LIFE = timedelta(hours=24)
 """A question this old or older counts as none: the person has moved on."""
@@ -19,6 +20,38 @@ BEST_READING_FALLBACK = (
     "in a few words and I will take it from there."
 )
 """What a best-reading reply ends on when the model asked a question twice."""
+
+
+class QuestionKind(StrEnum):
+    """What the last question asked, so the cap stops the same kind twice in a
+    row, not any two questions: a suggestion, then a pick, then the details
+    question is allowed."""
+
+    SUGGEST = "suggest"
+    NAME = "name"
+    DETAILS = "details"
+    OTHER = "other"
+
+
+def parse_asked_kind(raw: object, *, now: datetime) -> QuestionKind | None:
+    """The kind of the last question, stored as `{"kind": ..., "at": ...}`.
+    A missing, badly shaped, unknown or too old value counts as none."""
+    if not isinstance(raw, dict):
+        return None
+    if not parse_asked_at(raw.get("at"), now=now):
+        return None
+    kind = raw.get("kind")
+    if not isinstance(kind, str):
+        return None
+    try:
+        return QuestionKind(kind)
+    except ValueError:
+        return None
+
+
+def stored_kind(kind: QuestionKind, *, now: datetime) -> dict[str, str]:
+    """The kind and its time, in the shape `parse_asked_kind` reads."""
+    return {"kind": kind.value, "at": now.isoformat()}
 
 
 def parse_asked_at(raw: object, *, now: datetime) -> bool:
@@ -51,3 +84,10 @@ def details_question(missing: Set[str], *, length_missing: bool) -> str:
     words = [text for name, text in DETAIL_WORDS if name in wanted]
     joined = words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
     return f"Before I check this, tell me {joined}."
+
+
+def reason_question(role_name: str) -> str:
+    """Asked when the reason is still missing after the details question: the
+    reason alone, by role name. The length is not asked again; the role's
+    default applies."""
+    return f"Before I file this, tell me the business reason for {role_name}."

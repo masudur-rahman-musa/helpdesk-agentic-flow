@@ -49,10 +49,15 @@ import json
 from dataclasses import asdict
 from typing import Any
 
-from helpdesk.agent_api.agent.clarify_cap import BEST_READING_FALLBACK, CORRECT_ME_LINE
+from helpdesk.agent_api.agent.clarify_cap import (
+    BEST_READING_FALLBACK,
+    CORRECT_ME_LINE,
+    QuestionKind,
+)
 from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
 from helpdesk.agent_api.agent.gates import REQUIRED_ENTITIES
 from helpdesk.agent_api.agent.next_steps import next_step_lines
+from helpdesk.agent_api.agent.nodes.endings import note_question
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY, SYSTEM_PROMPT
 from helpdesk.agent_api.agent.postcheck import (
     asks_after_filing,
@@ -84,7 +89,6 @@ from helpdesk.agent_api.services.model_gateway.client import ModelAlias
 from helpdesk.shared.auth.capabilities import capability_lines
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud.messages import append_message
-from helpdesk.shared.crud.sessions import set_asked_clarifying
 from helpdesk.shared.models.conversation import MessageRole, check_message_content
 
 COMPOSITION_PROMPT = "reply_composition"
@@ -348,9 +352,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
         reply = _with_correct_me(reply, state)
     reply = check_message_content(_with_held(reply, rows))
     if _asks_before_filing(asks_question, state):
-        await set_asked_clarifying(
-            deps.db, session_id=state.session_id, value=deps.now().isoformat()
-        )
+        await note_question(state, deps, QuestionKind.OTHER)
 
     await append_message(
         deps.db,

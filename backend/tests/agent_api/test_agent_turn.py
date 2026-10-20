@@ -114,6 +114,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from helpdesk.agent_api.agent import graph as build_module
+from helpdesk.agent_api.agent.clarify_cap import BEST_READING_FALLBACK
 from helpdesk.agent_api.agent.gates import (
     MAX_CALLS_PER_ROUND,
     MAX_DISAMBIGUATION_OPTIONS,
@@ -139,7 +140,7 @@ from helpdesk.agent_api.agent.state import (
     TurnOutcome,
     TurnState,
 )
-from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY, SUGGEST_ROLES
 from helpdesk.agent_api.services.mcp_client import RemoteInternalError, ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
 from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schema_problems
@@ -152,6 +153,7 @@ from helpdesk.shared.crud.messages import HISTORY_LIMIT, append_message
 from helpdesk.shared.crud.sessions import get_or_create_session
 from helpdesk.shared.models import Base, Department, Message, Role, Session, System, Tenant, User
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS, MessageRole, MessageTooLongError
+from tests.agent_api.test_agent_confirm import _classify_payload, _create_payload
 
 NOW = datetime(2026, 6, 2, 10, 15, tzinfo=UTC)
 
@@ -2209,3 +2211,130 @@ def test_a_picked_suggestion_reaches_the_policy_engine(turn_env: TurnEnv) -> Non
     assert "create_access_request" not in tools.names
     assert state.outcome is TurnOutcome.DONE
     assert state.reply == blocked_reply
+
+
+class _ScriptedTools(StubToolCaller):
+    """A stub caller that answers each tool by name, so one conversation can
+    search, suggest, classify and file."""
+
+    def __init__(self, answers: Mapping[str, Mapping[str, Any]]) -> None:
+        super().__init__()
+        self._by_name = answers
+
+    async def call_tool(self, name: str, arguments: BaseModel) -> Mapping[str, Any]:
+        self.calls.append((name, arguments.model_dump(mode="json")))
+        if name not in self._by_name:
+            raise AssertionError(f"the turn called an unscripted tool: {name}")
+        return self._by_name[name]
+
+
+def test_the_screenshot_conversation_files_a_non_template_role(turn_env: TurnEnv) -> None:
+    """Catches the flow from the owner's screenshot breaking at any step: the
+    details question asked before the name lookup (so "i want doc access" never
+    reaches the suggestions), a pick after the suggestions that is answered with
+    "could not pin down" instead of one details question, a preview that is not
+    reached, a filing before the yes, or a filing that loses the length or the
+    reason.
+
+    Four turns on one chat: the first two end on a question each, the third on
+    the preview, and only the fourth files."""
+    tenant = turn_env.tenant_a
+    session_id = uuid.uuid4()
+    role_id = str(tenant.role_ids["payroll-read"])
+    reason = "to run the month-end report"
+    tools = _ScriptedTools(
+        {
+            SUGGEST_ROLES: {
+                "roles": [
+                    {
+                        "system_slug": "payroll",
+                        "system_name": "Fake Payroll",
+                        "role_slug": "payroll-read",
+                        "role_name": "Fake Payroll Read",
+                        "score": 0.8,
+                    }
+                ]
+            },
+            SEARCH_POLICY: _page(_citation("fake-access-policy", score=0.8)),
+            "classify_access_request": _classify_payload(),
+            "create_access_request": _create_payload(),
+        }
+    )
+    classify = _plan_json(
+        _proposal(
+            "classify_access_request",
+            target_user_id=str(tenant.user_id),
+            role_id=role_id,
+            requested_expiry_days=15,
+        )
+    )
+    create = _plan_json(
+        _proposal(
+            "create_access_request",
+            target_user_id=str(tenant.user_id),
+            role_id=role_id,
+            justification=reason,
+            requested_expiry_days=15,
+            citations=[],
+        )
+    )
+
+    def say(message: str, *answers: str) -> TurnState:
+        return _run_turn(
+            turn_env,
+            tenant,
+            session_id=session_id,
+            message=message,
+            gateway=StagedGateway(list(answers)),
+            tools=tools,
+        )
+
+    first = say(
+        "i want doc access",
+        _extraction_json(intent="request_access", confidence=0.95, entities={"system": "doc"}),
+    )
+    assert first.outcome is TurnOutcome.DISAMBIGUATE
+    assert first.options[0].startswith("payroll.payroll-read")
+    assert tools.names == [SUGGEST_ROLES]
+
+    second = say(
+        "payroll.payroll-read",
+        _extraction_json(
+            intent="request_access",
+            confidence=0.95,
+            entities={"system": "payroll", "role": "payroll-read"},
+        ),
+    )
+    assert second.outcome is TurnOutcome.CLARIFY
+    assert (
+        second.reply
+        == "Before I check this, tell me how long you need it for and the business reason."
+    )
+    assert tools.names == [SUGGEST_ROLES]
+
+    third = say(
+        "15 days, to run the month-end report",
+        _extraction_json(
+            intent="request_access",
+            confidence=0.95,
+            entities={
+                "system": "payroll",
+                "role": "payroll-read",
+                "expiry_days": 15,
+                "justification": reason,
+            },
+        ),
+        classify,
+        create,
+    )
+    assert third.outcome is TurnOutcome.CONFIRM
+    assert "create_access_request" not in tools.names
+
+    fourth = say("yes", EMPTY_PLAN, COMPOSED_REPLY)
+    assert fourth.outcome is TurnOutcome.DONE
+    creates = [args for name, args in tools.calls if name == "create_access_request"]
+    assert len(creates) == 1
+    assert creates[0]["requested_expiry_days"] == 15
+    assert creates[0]["justification"] == reason
+    replies = [first.reply, second.reply, third.reply, fourth.reply]
+    assert all(reply is not None and BEST_READING_FALLBACK not in reply for reply in replies)

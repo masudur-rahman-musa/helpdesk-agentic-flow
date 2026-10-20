@@ -9,6 +9,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, WithJsonSchema
 
+from helpdesk.agent_api.agent.clarify_cap import QuestionKind
 from helpdesk.shared.core.errors import ErrorCode
 
 
@@ -252,6 +253,12 @@ class TurnState(BaseModel):
 
     asked_before: bool = False
     """The turn before asked a clarifying question, so this one may not ask again."""
+
+    asked_kind: QuestionKind | None = None
+    """What the question this message answers asked; `None` when there was none."""
+
+    question_kind: QuestionKind | None = None
+    """What the question this turn ends on asks; stored by the ending node."""
 
     best_reading: bool = False
     """The cap let an unclear message go on, so the reply must ask nothing and

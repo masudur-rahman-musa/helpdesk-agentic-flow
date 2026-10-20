@@ -162,3 +162,32 @@ async def set_asked_clarifying(
         metadata[ASKED_CLARIFYING_KEY] = value
     row.session_metadata = metadata
     await session.flush()
+
+
+ASKED_KIND_KEY = "asked_kind"
+"""What the last question asked, with its time, so the next message knows
+which question it answers."""
+
+
+async def get_asked_kind(session: AsyncSession, *, session_id: uuid.UUID) -> object | None:
+    """The stored kind as raw JSON, unchecked; `None` when there is none."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return None
+    return (row.session_metadata or {}).get(ASKED_KIND_KEY)
+
+
+async def set_asked_kind(
+    session: AsyncSession, *, session_id: uuid.UUID, value: object | None
+) -> None:
+    """Store the kind, or drop it with `None`."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return
+    metadata = dict(row.session_metadata or {})
+    if value is None:
+        metadata.pop(ASKED_KIND_KEY, None)
+    else:
+        metadata[ASKED_KIND_KEY] = value
+    row.session_metadata = metadata
+    await session.flush()

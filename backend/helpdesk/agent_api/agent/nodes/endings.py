@@ -5,12 +5,13 @@ the decision was made earlier. `fail_turn` exists so a turn the model could
 not read ends with one fixed reply, not a clarifying question nobody asked.
 """
 
+from helpdesk.agent_api.agent.clarify_cap import QuestionKind, stored_kind
 from helpdesk.agent_api.agent.confirmation import OpenQuestion, question_reply
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.state import ResolvedEntities, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.shared.crud.messages import append_message
-from helpdesk.shared.crud.sessions import set_asked_clarifying, set_open_question
+from helpdesk.shared.crud.sessions import set_asked_clarifying, set_asked_kind, set_open_question
 from helpdesk.shared.models.conversation import MessageRole
 
 
@@ -25,17 +26,24 @@ async def _store_reply(state: TurnState, deps: TurnDeps, reply: str) -> TurnStat
     return state.model_copy(update={"reply": reply})
 
 
+async def note_question(state: TurnState, deps: TurnDeps, kind: QuestionKind) -> None:
+    """Note when a question was asked and what it asked, for the next message."""
+    now = deps.now()
+    await set_asked_clarifying(deps.db, session_id=state.session_id, value=now.isoformat())
+    await set_asked_kind(deps.db, session_id=state.session_id, value=stored_kind(kind, now=now))
+
+
 async def ask_clarifying(state: TurnState, deps: TurnDeps) -> TurnState:
     """End: ask the question and note when, so the next message may not ask
     again. No search and no tool call on this path."""
-    await set_asked_clarifying(deps.db, session_id=state.session_id, value=deps.now().isoformat())
+    await note_question(state, deps, state.question_kind or QuestionKind.OTHER)
     return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
 
 
 async def ask_disambiguation(state: TurnState, deps: TurnDeps) -> TurnState:
     """End: offer the options, already capped and ranked, and ask which. It is
     a question too, so it is noted like one."""
-    await set_asked_clarifying(deps.db, session_id=state.session_id, value=deps.now().isoformat())
+    await note_question(state, deps, state.question_kind or QuestionKind.OTHER)
     return await _store_reply(state, deps, state.reply or FAILURE_REPLY)
 
 

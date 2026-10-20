@@ -22,10 +22,14 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from helpdesk.agent_api.agent.clarify_cap import BEST_READING_FALLBACK, CORRECT_ME_LINE
-from helpdesk.agent_api.agent.nodes.resolve_entities import DISAMBIGUATION_PREFIX
+from helpdesk.agent_api.agent.clarify_cap import (
+    BEST_READING_FALLBACK,
+    CORRECT_ME_LINE,
+    QuestionKind,
+)
+from helpdesk.agent_api.agent.nodes.resolve_entities import DISAMBIGUATION_PREFIX, SUGGESTION_PREFIX
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
-from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
+from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY, SUGGEST_ROLES
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.crud.sessions import get_asked_clarifying
 from helpdesk.shared.models import Role, System
@@ -46,6 +50,7 @@ from tests.agent_api.test_agent_confirm import (
     _turn,
     _yes_answers,
 )
+from tests.agent_api.test_resolve_entities_suggestions import _suggested
 
 FIRST_QUESTION = "Are you asking about the wiki or the portal?"
 UNCLEAR = "Can I get that thing from before?"
@@ -415,14 +420,16 @@ def test_a_disambiguation_is_recorded(env: Env) -> None:
 
 
 def test_the_next_message_gets_the_best_reading(env: Env) -> None:
-    """Catches the loop from the live chat: after a recorded compose question, a
-    role that matches nothing must be answered with the correct-me line (the
-    best reading), not met with a second "could not find" question. Only one
-    reply is staged for it, so a second question would also leave the reply
-    wrong."""
+    """Catches the loop from the live chat, as an earlier change reads it: after a
+    recorded compose question, a role that matches nothing is offered the
+    closest roles (any other question before does not stop a suggestion), not
+    met with a second "could not find" question, and nothing is filed."""
     session_id = uuid.uuid4()
     _request_without_role(env, session_id, FakeTools())
     tools = FakeTools()
+    tools._answers[SUGGEST_ROLES] = {
+        "roles": [_suggested("internal-wiki", "Internal Wiki", "wiki-viewer", "Viewer")]
+    }
 
     state = _turn(
         env,
@@ -438,13 +445,13 @@ def test_the_next_message_gets_the_best_reading(env: Env) -> None:
                 justification=REASON,
                 expiry_days=DAYS,
             ),
-            COMPOSED,
         ),
         tools=tools,
     )
 
-    assert state.outcome is not TurnOutcome.CLARIFY
-    assert state.reply == f"{COMPOSED}\n\n{CORRECT_ME_LINE}"
+    assert state.outcome is TurnOutcome.DISAMBIGUATE
+    assert state.reply is not None
+    assert state.reply.startswith(SUGGESTION_PREFIX)
     assert CREATE not in tools.names
 
 
@@ -539,7 +546,9 @@ def test_an_unmarked_question_mark_is_not_recorded(env: Env) -> None:
 def test_a_confident_request_without_details_asks_the_code_question(env: Env) -> None:
     """Catches a confident request that lets the model word the question (it wrote
     "How long do you need it?", one detail only) or that goes on to tools with no
-    reason; also one that forgets to store the asked time."""
+    reason; also one that forgets to store the asked time. Since an earlier change the
+    question comes after the role is found, so the turn must carry the resolved
+    role and mark the question `details`."""
     session_id = uuid.uuid4()
     tools = FakeTools()
 
@@ -561,6 +570,9 @@ def test_a_confident_request_without_details_asks_the_code_question(env: Env) ->
 
     assert state.outcome is TurnOutcome.CLARIFY
     assert state.reply == DETAILS_QUESTION
+    assert state.resolved is not None
+    assert state.resolved.role_slug == "wiki-viewer"
+    assert state.question_kind is QuestionKind.DETAILS
     assert tools.calls == []
     assert _stored_time(env, session_id) == NOW.isoformat()
 

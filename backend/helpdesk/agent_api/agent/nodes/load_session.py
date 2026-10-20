@@ -10,15 +10,15 @@ it is answered once at most. A yes routes straight to `execute_tools` with
 exactly the stored calls; a bare no ends with a fixed reply; anything else
 runs the normal flow.
 
-The time of the last clarifying question is read and cleared the same way, so
-only the very next message may not ask again.
+The time of the last clarifying question, and what it asked, are read and
+cleared the same way, so only the very next message may not ask again.
 
 The caller's principals are read from their own directory row by the token's
 user id, so a message claiming a role changes nothing. No row gives no
 principals.
 """
 
-from helpdesk.agent_api.agent.clarify_cap import parse_asked_at
+from helpdesk.agent_api.agent.clarify_cap import parse_asked_at, parse_asked_kind
 from helpdesk.agent_api.agent.confirmation import (
     NOTHING_FILED_REPLY,
     Answer,
@@ -30,9 +30,11 @@ from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.shared.crud.messages import append_message, list_recent_messages
 from helpdesk.shared.crud.sessions import (
     get_asked_clarifying,
+    get_asked_kind,
     get_open_question,
     get_or_create_session,
     set_asked_clarifying,
+    set_asked_kind,
     set_open_question,
 )
 from helpdesk.shared.crud.users import find_user_by_id
@@ -60,6 +62,10 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
     asked_before = parse_asked_at(asked_at, now=deps.now())
     if asked_at is not None:
         await set_asked_clarifying(db, session_id=state.session_id, value=None)
+    raw_kind = await get_asked_kind(db, session_id=state.session_id)
+    asked_kind = parse_asked_kind(raw_kind, now=deps.now())
+    if raw_kind is not None:
+        await set_asked_kind(db, session_id=state.session_id, value=None)
     history = await list_recent_messages(db, state.session_id)
     user = await find_user_by_id(db, state.user_id)
     await append_message(
@@ -72,6 +78,7 @@ async def load_session(state: TurnState, deps: TurnDeps) -> TurnState:
         update={
             "history": tuple(render_message(message) for message in history),
             "asked_before": asked_before,
+            "asked_kind": asked_kind,
             "principals": () if user is None else tuple(user.principals),
         }
     )
