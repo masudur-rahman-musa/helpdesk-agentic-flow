@@ -187,12 +187,6 @@ export function ChatPanel() {
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <h1 className="text-lg font-semibold">Chat</h1>
 
-        <p className="rounded-lg bg-muted px-4 py-3 text-sm text-muted-foreground">
-          Ask here to request or remove access, check what access and requests you have, reset your
-          password or unlock your account, open or check a ticket, or ask about the access policy.
-          For anything else, ask me to open a ticket and a person will pick it up.
-        </p>
-
         <Conversation messages={messages} live={live} working={working} />
 
         {failure !== null ? <Alert tone="destructive">{failureMessage(failure)}</Alert> : null}
