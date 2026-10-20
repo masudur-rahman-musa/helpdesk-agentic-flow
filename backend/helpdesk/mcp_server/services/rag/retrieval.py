@@ -105,13 +105,13 @@ def fuse(
     ]
 
 
-def should_refuse(hits: Sequence[SearchHit]) -> bool:
+def should_refuse(hits: Sequence[SearchHit], *, floor: float = REFUSAL_THRESHOLD) -> bool:
     """True when nothing on this page is a dense match worth answering from.
     An empty page refuses."""
     cosines = [hit.dense_score for hit in hits if hit.dense_score is not None]
     if not cosines:
         return True
-    return max(cosines) < REFUSAL_THRESHOLD
+    return max(cosines) < floor
 
 
 async def search_hits(

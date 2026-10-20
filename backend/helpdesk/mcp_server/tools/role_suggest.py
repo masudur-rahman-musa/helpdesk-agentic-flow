@@ -59,7 +59,9 @@ async def suggest_roles(ctx: ToolContext, args: SuggestRolesInput) -> SuggestRol
         )
         for role, system in catalogue
     ]
-    found = role_suggestions.suggest(ctx.clients.embedder(), _CACHE, query, rows)
+    found = role_suggestions.suggest(
+        ctx.clients.embedder(), _CACHE, query, rows, floor=ctx.settings.role_suggestion_floor
+    )
     return SuggestRolesOutput(
         roles=[
             SuggestedRole(

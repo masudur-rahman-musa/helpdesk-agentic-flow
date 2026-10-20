@@ -67,11 +67,11 @@ def missing_required_entities(extraction: IntentExtraction) -> frozenset[str]:
     )
 
 
-def needs_clarification(extraction: IntentExtraction) -> bool:
+def needs_clarification(
+    extraction: IntentExtraction, *, threshold: float = CONFIDENCE_THRESHOLD
+) -> bool:
     """Unsure of the intent, or missing something it needs."""
-    return extraction.confidence < CONFIDENCE_THRESHOLD or bool(
-        missing_required_entities(extraction)
-    )
+    return extraction.confidence < threshold or bool(missing_required_entities(extraction))
 
 
 EXTRACTION_ENTITIES: Mapping[Intent, frozenset[str]] = {
@@ -91,18 +91,23 @@ def missing_at_extraction(extraction: IntentExtraction) -> frozenset[str]:
     )
 
 
-def needs_clarification_at_extraction(extraction: IntentExtraction) -> bool:
-    """Unsure of the intent, or missing something the intent step asks for."""
-    return extraction.confidence < CONFIDENCE_THRESHOLD or bool(missing_at_extraction(extraction))
+def needs_clarification_at_extraction(
+    extraction: IntentExtraction, *, threshold: float = CONFIDENCE_THRESHOLD
+) -> bool:
+    """Unsure of the intent, or missing something the intent step asks for.
+    `threshold` is the `INTENT_CONFIDENCE_MIN` setting; the constant is its default."""
+    return extraction.confidence < threshold or bool(missing_at_extraction(extraction))
 
 
-def extraction_outcome(extraction: IntentExtraction, asked_before: bool) -> TurnOutcome:
+def extraction_outcome(
+    extraction: IntentExtraction, asked_before: bool, *, threshold: float = CONFIDENCE_THRESHOLD
+) -> TurnOutcome:
     """`clarify_outcome` for the intent step. A request asks here only for a
     missing system or an unsure intent, so "i want doc access" reaches the
     name lookup on the first message. Other intents behave as before."""
     if extraction.intent is not Intent.REQUEST_ACCESS:
-        return clarify_outcome(extraction, asked_before)
-    if not needs_clarification_at_extraction(extraction):
+        return clarify_outcome(extraction, asked_before, threshold=threshold)
+    if not needs_clarification_at_extraction(extraction, threshold=threshold):
         return TurnOutcome.CONTINUE
     if not asked_before:
         return TurnOutcome.CLARIFY
@@ -117,12 +122,14 @@ def length_missing(extraction: IntentExtraction) -> bool:
     return extraction.intent is Intent.REQUEST_ACCESS and extraction.entities.expiry_days is None
 
 
-def clarify_outcome(extraction: IntentExtraction, asked_before: bool) -> TurnOutcome:
+def clarify_outcome(
+    extraction: IntentExtraction, asked_before: bool, *, threshold: float = CONFIDENCE_THRESHOLD
+) -> TurnOutcome:
     """At most one clarifying question in a row. After a question,
     an unclear message goes on with its best reading, or is answered with no
     tools when something required is still missing, so nothing runs on a guess.
     A request with no length asks once, then goes on."""
-    if not needs_clarification(extraction):
+    if not needs_clarification(extraction, threshold=threshold):
         if length_missing(extraction) and not asked_before:
             return TurnOutcome.CLARIFY
         return TurnOutcome.CONTINUE

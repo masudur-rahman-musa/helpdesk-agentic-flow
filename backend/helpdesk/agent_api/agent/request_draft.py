@@ -59,18 +59,24 @@ def _same_system(first: str, second: str) -> bool:
     return first.strip().lower() == second.strip().lower()
 
 
-def _changes_subject(draft: RequestDraft | None, extraction: IntentExtraction) -> bool:
+def _changes_subject(
+    draft: RequestDraft | None, extraction: IntentExtraction, threshold: float
+) -> bool:
     """A clear intent other than the draft's, except the two that keep it."""
     return (
         draft is not None
         and extraction.intent not in _KEEPS_THE_DRAFT
         and extraction.intent is not draft.intent
-        and extraction.confidence >= CONFIDENCE_THRESHOLD
+        and extraction.confidence >= threshold
     )
 
 
 def merge_draft(
-    draft: RequestDraft | None, extraction: IntentExtraction, *, now: datetime
+    draft: RequestDraft | None,
+    extraction: IntentExtraction,
+    *,
+    now: datetime,
+    threshold: float = CONFIDENCE_THRESHOLD,
 ) -> tuple[IntentExtraction, RequestDraft | None]:
     """The message laid over the saved draft: the extraction the turn goes on
     with, and the draft to save (`None` when there is nothing to keep).
@@ -78,7 +84,7 @@ def merge_draft(
     A given field replaces the saved one. A new system drops the saved role. A
     clear change of subject starts empty. The merged extraction keeps the
     message's own intent label, so routing sees a follow-up as one."""
-    start = None if _changes_subject(draft, extraction) else draft
+    start = None if _changes_subject(draft, extraction, threshold) else draft
     base: dict[str, Any] = {name: getattr(start, name, None) for name in _FIELDS}
     message = extraction.entities
     new_system = (

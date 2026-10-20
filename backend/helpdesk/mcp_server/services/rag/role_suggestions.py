@@ -93,11 +93,16 @@ def check_suggest_query(value: str) -> str:
 
 
 def suggest(
-    embedder: Embedder, cache: TextVectorCache, query: str, rows: Sequence[RoleRow]
+    embedder: Embedder,
+    cache: TextVectorCache,
+    query: str,
+    rows: Sequence[RoleRow],
+    *,
+    floor: float = SUGGESTION_FLOOR,
 ) -> list[Suggestion]:
-    """The roles at or above the floor, best first, at most three. A role
-    scores its best text. Equal scores go by role slug, so the order does not
-    depend on how the rows were read."""
+    """The roles at or above `floor` (the `ROLE_SUGGESTION_FLOOR` setting), best
+    first, at most three. A role scores its best text. Equal scores go by role
+    slug, so the order does not depend on how the rows were read."""
     query_vector = embedder.embed_dense([query])[0]
     texts = [role_texts(row) for row in rows]
     vectors = cache.vectors(embedder, [text for row_texts in texts for text in row_texts])
@@ -107,6 +112,6 @@ def suggest(
         own = vectors[start : start + len(row_texts)]
         start += len(row_texts)
         scored.append(Suggestion(row=row, score=max(cosine(query_vector, v) for v in own)))
-    kept = [item for item in scored if item.score >= SUGGESTION_FLOOR]
+    kept = [item for item in scored if item.score >= floor]
     kept.sort(key=lambda item: (-item.score, item.row.role_slug))
     return kept[:MAX_SUGGESTIONS]

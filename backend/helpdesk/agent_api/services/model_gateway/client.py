@@ -69,7 +69,9 @@ class ModelUnavailableError(ToolError):
 
 @dataclass(frozen=True)
 class ModelAnswer:
-    """One completed turn. `alias` is what the caller asked for, not the gateway's echo."""
+    """One completed turn. `alias` is what the caller asked for, not the gateway's echo.
+
+    The provider, region and cost are the gateway's own headers, empty when it sent none."""
 
     text: str
     alias: ModelAlias
@@ -78,6 +80,9 @@ class ModelAnswer:
     total_tokens: int
     gateway_model: str
     gateway_trace_id: str
+    gateway_provider: str = ""
+    gateway_region: str = ""
+    gateway_cost_usd: str = ""
 
 
 M = TypeVar("M", bound=BaseModel)
@@ -267,6 +272,9 @@ class ModelClient:
             total_tokens=counts[2],
             gateway_model=response.headers.get("X-Gateway-Model", ""),
             gateway_trace_id=response.headers.get("X-Gateway-Trace-Id", ""),
+            gateway_provider=response.headers.get("X-Gateway-Provider", ""),
+            gateway_region=response.headers.get("X-Gateway-Region", ""),
+            gateway_cost_usd=response.headers.get("X-Gateway-Cost-USD", ""),
         )
 
 

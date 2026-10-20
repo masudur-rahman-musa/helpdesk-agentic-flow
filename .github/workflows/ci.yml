@@ -78,6 +78,7 @@ jobs:
         working-directory: backend
         env:
           COVERAGE_FILE: .coverage.shard${{ matrix.shard }}
+          EVAL_ROUTES_ENABLED: "true"
         run: |
           uv run pytest -q $(uv run python ../dev/scripts/test_shard.py --shard ${{ matrix.shard }} --of 3) \
             --cov=helpdesk --cov-report= --cov-fail-under=0

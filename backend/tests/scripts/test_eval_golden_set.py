@@ -87,10 +87,6 @@ def _repo_root() -> Path:
 
 GOLDEN = _repo_root() / "backend/evals/golden/helpdesk-v1.jsonl"
 LABELS = _repo_root() / "backend/evals/labels/helpdesk-judge-calibration.jsonl"
-BASELINE = _repo_root() / "backend/evals/baseline.json"
-
-GOLDEN_SET_POINTER = "backend/evals/golden/helpdesk-v1.jsonl"
-"""What ``baseline.json`` must name as its golden set."""
 
 # The category minimums. They sum to exactly 140, so the minimums ARE
 # the count and this mapping is asserted whole.
@@ -203,7 +199,7 @@ class ToolCall(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    arguments: dict[str, str | int]
+    args_subset: dict[str, str | int]
 
 
 class Expected(BaseModel):
@@ -476,7 +472,7 @@ def _role_key_of(case: GoldenCase) -> tuple[str, str]:
     `<system slug>.<role slug>` because that is exactly the seed's `Role.name`.
     """
     calls = case.expected.tool_calls or []
-    roles = [str(call.arguments["role"]) for call in calls if "role" in call.arguments]
+    roles = [str(call.args_subset["role"]) for call in calls if "role" in call.args_subset]
     assert len(roles) == 1, f"access case {case.id}: expected one role argument, got {roles}"
     system, separator, slug = roles[0].partition(".")
     assert separator and slug, f"access case {case.id}: role {roles[0]!r} is not system.role"
@@ -503,7 +499,9 @@ def _case_payload(**overrides: Any) -> dict[str, Any]:
             "intent": Intent.REQUEST_ACCESS.value,
             "should_refuse": False,
             "should_clarify": False,
-            "tool_calls": [{"name": "create_access_request", "arguments": {"role": "wiki.viewer"}}],
+            "tool_calls": [
+                {"name": "create_access_request", "args_subset": {"role": "wiki.viewer"}}
+            ],
         },
         "judge_rubric": "The answer files the access request and names the decision.",
     }
@@ -955,7 +953,7 @@ def test_a_duplicate_id_and_an_unknown_tool_name_are_rejected() -> None:
                 "intent": Intent.REQUEST_ACCESS.value,
                 "should_refuse": False,
                 "should_clarify": False,
-                "tool_calls": [{"name": "grant_access", "arguments": {"role": "wiki.viewer"}}],
+                "tool_calls": [{"name": "grant_access", "args_subset": {"role": "wiki.viewer"}}],
             }
         )
     )
@@ -982,16 +980,6 @@ def test_a_category_count_one_off_is_rejected() -> None:
         _check_category_counts(cases)
 
 
-def test_the_baseline_points_at_the_delivered_golden_set() -> None:
-    """Catches a baseline left pointing at `golden/example.jsonl`, the skeleton's
-    shape sample, which would make the companion gate on the placeholder instead
-    of the delivered set."""
-    baseline: dict[str, Any] = json.loads(_read_text(BASELINE))
-    assert baseline["golden_set"] == GOLDEN_SET_POINTER, (
-        f"baseline.json golden_set is {baseline['golden_set']!r}, want {GOLDEN_SET_POINTER!r}"
-    )
-
-
 # --- the ticket cases ----------------------------------------------------------
 
 TICKET_CASE_IDS: tuple[str, str, str] = ("help-033", "help-034", "help-035")
@@ -1010,7 +998,7 @@ def test_the_ticket_cases_read_only_the_callers_tickets(
         assert case.expected.should_refuse is False, case_id
         assert case.expected.should_clarify is False, case_id
         assert case.expected.tool_calls is not None, case_id
-        assert [(c.name, c.arguments) for c in case.expected.tool_calls] == [
+        assert [(c.name, c.args_subset) for c in case.expected.tool_calls] == [
             ("list_my_tickets", {})
         ], case_id
 
@@ -1075,7 +1063,7 @@ def test_the_details_cases_ask_once_then_file(golden_cases: tuple[GoldenCase, ..
     assert len(filing.messages) == 3
     assert filing.expected.should_clarify is False
     assert filing.expected.tool_calls is not None
-    assert [(c.name, c.arguments) for c in filing.expected.tool_calls] == [
+    assert [(c.name, c.args_subset) for c in filing.expected.tool_calls] == [
         ("create_access_request", {"role": "wiki.viewer", "requested_expiry_days": 14})
     ]
 

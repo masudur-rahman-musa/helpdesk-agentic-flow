@@ -28,6 +28,7 @@ from helpdesk.agent_api.api.routes.admin.tickets import router as tickets_router
 from helpdesk.agent_api.api.routes.approvals import router as approval_router
 from helpdesk.agent_api.api.routes.auth import router as auth_router
 from helpdesk.agent_api.api.routes.chat import router as chat_router
+from helpdesk.agent_api.api.routes.eval import router as eval_router
 from helpdesk.agent_api.api.routes.me import router as me_router
 from helpdesk.agent_api.api.routes.notifications import router as notification_router
 from helpdesk.agent_api.api.routes.reviews import router as review_router
@@ -156,6 +157,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(chat_router)
+app.include_router(eval_router)
 app.include_router(me_router)
 app.include_router(approval_router)
 app.include_router(review_router)

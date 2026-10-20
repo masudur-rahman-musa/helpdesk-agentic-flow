@@ -1,5 +1,6 @@
 """Typed runtime settings. Every value is checked at load, so a bad one fails at startup."""
 
+import math
 import os
 from pathlib import Path
 from typing import Annotated
@@ -100,6 +101,26 @@ class Settings(BaseSettings):
     mcp_allowed_hosts: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: list(DEFAULT_MCP_ALLOWED_HOSTS)
     )
+
+    intent_confidence_min: float = 0.7
+    """Below this confidence the agent asks instead of acting. 0 to 1 inclusive."""
+
+    role_suggestion_floor: float = 0.70
+    """A suggested role must score at least this. 0 to 1 inclusive."""
+
+    policy_refusal_floor: float = 0.35
+    """A policy answer whose best passage scores below this is refused. 0 to 1 inclusive."""
+
+    eval_routes_enabled: bool = False
+    """Turns on `POST /admin/test/reset` and `POST /v1/eval/turn`. Off in production."""
+
+    @field_validator("intent_confidence_min", "role_suggestion_floor", "policy_refusal_floor")
+    @classmethod
+    def _cutoff_is_between_zero_and_one(cls, value: float) -> float:
+        # NaN fails every comparison, so test the range the positive way round.
+        if not (math.isfinite(value) and 0.0 <= value <= 1.0):
+            raise ValueError("a cut-off must be a number from 0 to 1 inclusive")
+        return value
 
     @field_validator("jwt_secret")
     @classmethod

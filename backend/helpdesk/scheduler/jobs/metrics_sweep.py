@@ -1,4 +1,4 @@
-"""The two gauge readings the metrics sweep takes for each tenant.
+"""The gauge readings the metrics sweep takes for each tenant.
 
 `helpdesk_audit_chain_ok` has no tenant label, so this process keeps each
 tenant's last verdict and reports the AND of them. The map lives in memory:
@@ -12,8 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.audit.reader import verify_tenant_chain
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.core.observability.metrics import record_audit_chain_ok, record_grants_active
+from helpdesk.shared.core.observability.metrics import (
+    record_audit_chain_ok,
+    record_chats_waiting,
+    record_grants_active,
+)
 from helpdesk.shared.crud.grants import count_live_grants
+from helpdesk.shared.crud.sessions import count_waiting_chats
 
 
 async def refresh_active_grants_gauge(session: AsyncSession, *, now: datetime) -> None:
@@ -24,6 +29,13 @@ async def refresh_active_grants_gauge(session: AsyncSession, *, now: datetime) -
     """
     count = await count_live_grants(session, now)
     record_grants_active(tenant=str(bound_tenant_id(session)), count=count)
+
+
+async def refresh_waiting_chats_gauge(session: AsyncSession, *, now: datetime) -> None:
+    """Set `helpdesk_chats_waiting` for the bound tenant: chats left on a question
+    for 30 minutes or more. The label comes from the session, as above."""
+    count = await count_waiting_chats(session, now=now)
+    record_chats_waiting(tenant=str(bound_tenant_id(session)), count=count)
 
 
 _CHAIN_VERDICTS: dict[uuid.UUID, bool] = {}
@@ -67,4 +79,9 @@ async def refresh_chain_gauge(session: AsyncSession) -> None:
     record_audit_chain_ok(_every_chain_verified())
 
 
-__all__ = ["refresh_active_grants_gauge", "refresh_chain_gauge", "reset_chain_verdicts"]
+__all__ = [
+    "refresh_active_grants_gauge",
+    "refresh_chain_gauge",
+    "refresh_waiting_chats_gauge",
+    "reset_chain_verdicts",
+]

@@ -93,7 +93,7 @@ async def search_policy(ctx: ToolContext, args: SearchPolicyInput) -> SearchPoli
         embedder=ctx.clients.embedder(),
         top_k=args.top_k,
     )
-    if retrieval.should_refuse(hits):
+    if retrieval.should_refuse(hits, floor=ctx.settings.policy_refusal_floor):
         return SearchPolicyOutput(citations=[], refused=True)
 
     citations = await retrieval.resolve_citations(ctx.session, hits)

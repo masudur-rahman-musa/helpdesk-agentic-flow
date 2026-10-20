@@ -66,6 +66,9 @@ SPEC_METRICS: Mapping[str, str] = {
     # Per-job run and failure counters.
     "helpdesk_job_runs_total": "counter",
     "helpdesk_job_failures_total": "counter",
+    # How each turn ended, and how many turns it took to file a request.
+    "helpdesk_turn_endings_total": "counter",
+    "helpdesk_turns_to_file": "histogram",
 }
 
 # The label sets, as a literal. The field name is how the test reaches
@@ -80,6 +83,8 @@ LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # Per-job run and failure counters.
     ("job_runs_total", "helpdesk_job_runs_total", ("job",)),
     ("job_failures_total", "helpdesk_job_failures_total", ("job",)),
+    ("turn_endings_total", "helpdesk_turn_endings_total", ("tenant", "outcome")),
+    ("turns_to_file", "helpdesk_turns_to_file", ("tenant",)),
 )
 
 # The two remaining gauges, installed by a SEPARATE factory
@@ -88,6 +93,7 @@ LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 SWEEP_METRICS: Mapping[str, str] = {
     "helpdesk_grants_active": "gauge",
     "helpdesk_audit_chain_ok": "gauge",
+    "helpdesk_chats_waiting": "gauge",
 }
 
 CONTENT_TYPE_LITERAL = "text/plain; version=1.0.0; charset=utf-8"
@@ -133,7 +139,7 @@ def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
     yield registry
 
 
-def test_build_metrics_registers_exactly_the_eight_metrics() -> None:
+def test_build_metrics_registers_exactly_the_ten_metrics() -> None:
     """Catches a `build_metrics` that registers fewer or more than eight
     metrics on the caller's registry, or that misspells one of the expected
     names (including the two per-job counters),
@@ -146,7 +152,7 @@ def test_build_metrics_registers_exactly_the_eight_metrics() -> None:
     `build_metrics` would render `0` for ever on agent-api's and mcp-server's
     exposition — indistinguishable from a tampered chain. So this case is now
     also the one that fails if that factory's two gauges are folded back in
-    here; `test_install_sweep_gauges_registers_exactly_the_two_spec_gauges`
+    here; `test_install_sweep_gauges_registers_exactly_the_three_spec_gauges`
     is where they are pinned instead.
 
     Asserted as an equality over the whole exposition, not as membership
@@ -159,7 +165,7 @@ def test_build_metrics_registers_exactly_the_eight_metrics() -> None:
 
     assert _type_lines(generate_latest(registry).decode()) == dict(SPEC_METRICS)
 
-    # Eight distinct objects: a `Metrics` whose fields alias one counter would
+    # Ten distinct objects: a `Metrics` whose fields alias one counter would
     # satisfy the exposition above and then count every refusal as a turn.
     fields = [getattr(built, field) for field, _name, _labels in LABEL_CASES]
     assert len({id(metric) for metric in fields}) == len(LABEL_CASES)
@@ -197,7 +203,7 @@ def test_each_metric_declares_exactly_its_spec_labels(
 
     exact = dict.fromkeys(labels, "fake-value")
     child: Any = metric.labels(**exact)
-    if exposed_name.endswith("_seconds"):
+    if exposed_name.endswith(("_seconds", "_to_file")):
         child.observe(0.5)
         assert registry.get_sample_value(f"{exposed_name}_count", exact) == 1.0
     else:
@@ -252,7 +258,7 @@ def test_a_metric_with_no_observation_still_appears_in_the_exposition(
 # --- the two sweep gauges and their separate factory ----------------
 
 
-def test_install_sweep_gauges_registers_exactly_the_two_spec_gauges() -> None:
+def test_install_sweep_gauges_registers_exactly_the_three_spec_gauges() -> None:
     """Catches a factory that registers something other than the two expected
     remaining names — a third metric smuggled in beside them, a counter where
     the spec says gauge (a counter cannot go DOWN, so a grant count that fell

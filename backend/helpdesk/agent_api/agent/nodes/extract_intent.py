@@ -23,6 +23,7 @@ from helpdesk.agent_api.agent.required_fields import Ask, AskStep, next_ask
 from helpdesk.agent_api.agent.state import Intent, IntentExtraction, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud.sessions import set_request_draft
 
@@ -58,6 +59,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
     """Classify the message and record the outcome. Never raises."""
     prompt = load_prompt(EXTRACTION_PROMPT)
     system = load_prompt(SYSTEM_PROMPT)
+    threshold = load_settings().intent_confidence_min
 
     messages = [
         {"role": "system", "content": system.text},
@@ -84,14 +86,13 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             }
         )
 
-    extraction, draft = merge_draft(state.request_draft, answer.value, now=deps.now())
+    extraction, draft = merge_draft(
+        state.request_draft, answer.value, now=deps.now(), threshold=threshold
+    )
     state = state.model_copy(update={"draft_to_save": draft})
     tokens_used = state.tokens_used + answer.usage.total_tokens
 
-    if (
-        extraction.intent is Intent.FOLLOW_UP
-        and extraction.confidence >= gates.CONFIDENCE_THRESHOLD
-    ):
+    if extraction.intent is Intent.FOLLOW_UP and extraction.confidence >= threshold:
         # Nothing to ask or look up: reshape the last reply, or say what is possible.
         has_reply = last_assistant_reply(state.history) is not None
         return state.model_copy(
@@ -104,7 +105,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             }
         )
 
-    asked = _ask_by_the_rule(state, extraction)
+    asked = _ask_by_the_rule(state, extraction, threshold)
     if asked is not None:
         return state.model_copy(
             update={
@@ -117,7 +118,7 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             }
         )
 
-    outcome = gates.extraction_outcome(extraction, state.asked_before)
+    outcome = gates.extraction_outcome(extraction, state.asked_before, threshold=threshold)
     if outcome is TurnOutcome.CLARIFY:
         return state.model_copy(
             update={
@@ -135,17 +136,21 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             "prompt_version": prompt.sha256,
             "tokens_used": tokens_used,
             "outcome": outcome,
-            "best_reading": gates.needs_clarification_at_extraction(extraction),
+            "best_reading": gates.needs_clarification_at_extraction(
+                extraction, threshold=threshold
+            ),
         }
     )
 
 
-def _ask_by_the_rule(state: TurnState, extraction: IntentExtraction) -> Ask | None:
+def _ask_by_the_rule(
+    state: TurnState, extraction: IntentExtraction, threshold: float
+) -> Ask | None:
     """A clear intent missing something the intent step needs asks by the
     required-field rule: the normal question, then why it is required, then
     stop. An unclear intent keeps the model's question and the one-question
     cap (`test_question_kinds.py`)."""
-    if extraction.confidence < gates.CONFIDENCE_THRESHOLD:
+    if extraction.confidence < threshold:
         return None
     missing = gates.missing_at_extraction(extraction)
     if not missing:

@@ -2,11 +2,11 @@
 
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import DateTime, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -219,3 +219,35 @@ async def set_request_draft(
         metadata[REQUEST_DRAFT_KEY] = value
     row.session_metadata = metadata
     await session.flush()
+
+
+WAITING_MIN = timedelta(minutes=30)
+"""A chat counts as waiting once its question is this old."""
+
+WAITING_MAX = timedelta(hours=24)
+"""After this the stored question is dropped, so the chat no longer waits on it."""
+
+
+async def count_waiting_chats(session: AsyncSession, *, now: datetime) -> int:
+    """Chats of the bound tenant whose open question or clarifying ask was asked
+    from 30 minutes up to (not including) 24 hours ago and is still stored.
+
+    The tenant filter is written out because the guard only covers queries that
+    load whole rows. The stored times are ISO text, cast here to compare.
+    """
+    metadata = Session.session_metadata
+    times = (
+        cast(metadata[OPEN_QUESTION_KEY]["asked_at"].astext, DateTime(timezone=True)),
+        cast(metadata[ASKED_CLARIFYING_KEY].astext, DateTime(timezone=True)),
+    )
+    newest = now - WAITING_MIN
+    oldest = now - WAITING_MAX
+    result = await session.execute(
+        select(func.count())
+        .select_from(Session)
+        .where(
+            Session.tenant_id == bound_tenant_id(session),
+            or_(*((when > oldest) & (when <= newest) for when in times)),
+        )
+    )
+    return int(result.scalar_one())

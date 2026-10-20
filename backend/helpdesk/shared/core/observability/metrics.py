@@ -1,7 +1,7 @@
 """In-process Prometheus metrics and the scrape body.
 
 `build_metrics` declares the counters on every service, so each scrape names
-them from the start. The two gauges are installed only by the scheduler, which
+them from the start. The three gauges are installed only by the scheduler, which
 moves them: a gauge reports 0 from birth, and an audit gauge at 0 elsewhere
 would read as a tampered log. Label values are enums, tool names or tenant
 ids, never client text and never a person, since the scrape is unauthenticated.
@@ -35,6 +35,11 @@ SOD_BLOCKS_TOTAL = "helpdesk_sod_blocks_total"
 EXPIRIES_TOTAL = "helpdesk_expiries_total"
 JOB_RUNS_TOTAL = "helpdesk_job_runs_total"
 JOB_FAILURES_TOTAL = "helpdesk_job_failures_total"
+TURN_ENDINGS_TOTAL = "helpdesk_turn_endings_total"
+TURNS_TO_FILE = "helpdesk_turns_to_file"
+
+TURNS_TO_FILE_BUCKETS = (1, 2, 3, 4, 5, 6, 8, 10, 15)
+"""A chat that needs more than fifteen messages to file lands in `+Inf`."""
 
 UNKNOWN_TENANT = "unknown"
 """Spelled out, so a series with no tenant is not mistaken for a broken id."""
@@ -55,6 +60,8 @@ class Metrics:
     expiries_total: Counter
     job_runs_total: Counter
     job_failures_total: Counter
+    turn_endings_total: Counter
+    turns_to_file: Histogram
 
 
 def build_metrics(registry: CollectorRegistry) -> Metrics:
@@ -106,6 +113,20 @@ def build_metrics(registry: CollectorRegistry) -> Metrics:
             labelnames=("job",),
             registry=registry,
         ),
+        turn_endings_total=Counter(
+            TURN_ENDINGS_TOTAL,
+            "How each chat turn ended, by tenant and outcome (filed, asked, stopped, "
+            "refused, failed, unclear). A plain answer counts none.",
+            labelnames=("tenant", "outcome"),
+            registry=registry,
+        ),
+        turns_to_file=Histogram(
+            TURNS_TO_FILE,
+            "User messages in the chat when a request was filed, by tenant.",
+            labelnames=("tenant",),
+            buckets=TURNS_TO_FILE_BUCKETS,
+            registry=registry,
+        ),
     )
 
 
@@ -133,6 +154,15 @@ def record_turn(*, tenant: str | None, intent: str, decision: str) -> None:
     METRICS.turns_total.labels(
         tenant=tenant or UNKNOWN_TENANT, intent=intent, decision=decision
     ).inc()
+
+
+def record_turn_ending(*, tenant: str, outcome: str) -> None:
+    """`outcome` is one of the six closed names, never client text."""
+    METRICS.turn_endings_total.labels(tenant=tenant, outcome=outcome).inc()
+
+
+def record_turns_to_file(*, tenant: str, user_messages: int) -> None:
+    METRICS.turns_to_file.labels(tenant=tenant).observe(user_messages)
 
 
 def record_refusal(*, tenant: str | None, reason: str) -> None:
@@ -166,21 +196,23 @@ def record_job_failure(*, job: str) -> None:
 
 GRANTS_ACTIVE = "helpdesk_grants_active"
 AUDIT_CHAIN_OK = "helpdesk_audit_chain_ok"
+CHATS_WAITING = "helpdesk_chats_waiting"
 
 
 @dataclass(frozen=True)
 class SweepGauges:
-    """The scheduler's two gauges, held together like `Metrics`."""
+    """The scheduler's three gauges, held together like `Metrics`."""
 
     grants_active: Gauge
     audit_chain_ok: Gauge
+    chats_waiting: Gauge
 
 
 _INSTALLED_SWEEP_GAUGES: MutableMapping[CollectorRegistry, SweepGauges] = WeakKeyDictionary()
 
 
 def install_sweep_gauges(registry: CollectorRegistry) -> SweepGauges:
-    """Register the two gauges on `registry` once; a second call returns the same pair."""
+    """Register the three gauges on `registry` once; a second call returns the same pair."""
     installed = _INSTALLED_SWEEP_GAUGES.get(registry)
     if installed is not None:
         return installed
@@ -194,6 +226,12 @@ def install_sweep_gauges(registry: CollectorRegistry) -> SweepGauges:
         audit_chain_ok=Gauge(
             AUDIT_CHAIN_OK,
             "1 while every tenant this process verified has an intact audit chain.",
+            registry=registry,
+        ),
+        chats_waiting=Gauge(
+            CHATS_WAITING,
+            "Chats left waiting on a question for 30 minutes or more, by tenant.",
+            labelnames=("tenant",),
             registry=registry,
         ),
     )
@@ -219,6 +257,11 @@ def record_grants_active(*, tenant: str, count: int) -> None:
     _sweep_gauges().grants_active.labels(tenant=tenant).set(count)
 
 
+def record_chats_waiting(*, tenant: str, count: int) -> None:
+    """Set, not incremented, like `record_grants_active`."""
+    _sweep_gauges().chats_waiting.labels(tenant=tenant).set(count)
+
+
 def record_audit_chain_ok(ok: bool) -> None:
     """One verdict for the whole process; the caller combines the tenants first."""
     _sweep_gauges().audit_chain_ok.set(1 if ok else 0)
@@ -226,6 +269,7 @@ def record_audit_chain_ok(ok: bool) -> None:
 
 __all__ = [
     "AUDIT_CHAIN_OK",
+    "CHATS_WAITING",
     "EXPIRIES_TOTAL",
     "GRANTS_ACTIVE",
     "JOB_FAILURES_TOTAL",
@@ -238,6 +282,9 @@ __all__ = [
     "TOOL_CALLS_TOTAL",
     "TOOL_LATENCY_SECONDS",
     "TURNS_TOTAL",
+    "TURNS_TO_FILE",
+    "TURNS_TO_FILE_BUCKETS",
+    "TURN_ENDINGS_TOTAL",
     "UNKNOWN_INTENT",
     "UNKNOWN_TENANT",
     "Metrics",
@@ -245,6 +292,7 @@ __all__ = [
     "build_metrics",
     "install_sweep_gauges",
     "record_audit_chain_ok",
+    "record_chats_waiting",
     "record_expiries",
     "record_grants_active",
     "record_job_failure",
@@ -253,5 +301,7 @@ __all__ = [
     "record_sod_block",
     "record_tool_call",
     "record_turn",
+    "record_turn_ending",
+    "record_turns_to_file",
     "render",
 ]

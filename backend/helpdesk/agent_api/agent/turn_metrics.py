@@ -3,13 +3,14 @@ for every driver. Labels are enum values or the tenant id, never free text."""
 
 from typing import Any
 
+from helpdesk.agent_api.agent.postcheck import request_filed
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.core.observability.context import current_context
 from helpdesk.shared.policy.types import RiskClass, severity
 
-__all__ = ["record_turn_code", "record_turn_state", "trace_attributes"]
+__all__ = ["record_turn_code", "record_turn_state", "trace_attributes", "turn_risk_class"]
 
 _REFUSED_OUTCOMES = frozenset({TurnOutcome.REFUSE, TurnOutcome.FAILED})
 """Outcomes also counted as refusals."""
@@ -25,6 +26,37 @@ def record_turn_state(state: TurnState) -> None:
     if state.outcome in _REFUSED_OUTCOMES:
         code = state.error_code or ErrorCode.INTERNAL
         metrics.record_refusal(tenant=tenant, reason=code.value)
+    ending = _ending(state)
+    if ending is not None:
+        metrics.record_turn_ending(tenant=tenant, outcome=ending)
+    if ending == "filed":
+        # The history holds the earlier messages; this turn's own is not in it yet.
+        earlier = sum(1 for line in state.history if line.startswith(_USER_LINE))
+        metrics.record_turns_to_file(tenant=tenant, user_messages=earlier + 1)
+
+
+_USER_LINE = "user:"
+"""How a user message starts in `TurnState.history`."""
+
+_ASKED_OUTCOMES = frozenset({TurnOutcome.CLARIFY, TurnOutcome.DISAMBIGUATE, TurnOutcome.CONFIRM})
+
+
+def _ending(state: TurnState) -> str | None:
+    """How the turn ended: the first match of failed, refused, stopped, unclear,
+    filed, asked. A plain answer is `None`."""
+    if state.outcome is TurnOutcome.FAILED:
+        return "failed"
+    if state.outcome is TurnOutcome.REFUSE:
+        return "refused"
+    if state.outcome is TurnOutcome.STOP:
+        return "stopped"
+    if state.best_reading:
+        return "unclear"
+    if request_filed(state):
+        return "filed"
+    if state.outcome in _ASKED_OUTCOMES:
+        return "asked"
+    return None
 
 
 def record_turn_code(code: ErrorCode) -> None:
@@ -42,7 +74,7 @@ _RISK_CLASS_KEY = "risk_class"
 """Not every tool returns it, so it is read with `.get`."""
 
 
-def _turn_risk_class(state: TurnState) -> str | None:
+def turn_risk_class(state: TurnState) -> str | None:
     """The highest risk class any tool named, or `None`. The highest, so a turn
     that touched a critical system never shows as `low`."""
     highest: RiskClass | None = None
@@ -62,7 +94,7 @@ def trace_attributes(state: TurnState) -> dict[str, Any]:
     return {
         "tenant_id": str(state.tenant_id),
         "session_id": str(state.session_id),
-        "risk_class": _turn_risk_class(state),
+        "risk_class": turn_risk_class(state),
         "decision": state.outcome.value,
         "refused": state.outcome in _REFUSED_OUTCOMES,
         "citations_count": len(state.citations),

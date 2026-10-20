@@ -13,7 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.scheduler.jobs.expiry import expire_grants, warn_expiring_grants
 from helpdesk.scheduler.jobs.leavers import sweep_leavers
-from helpdesk.scheduler.jobs.metrics_sweep import refresh_active_grants_gauge, refresh_chain_gauge
+from helpdesk.scheduler.jobs.metrics_sweep import (
+    refresh_active_grants_gauge,
+    refresh_chain_gauge,
+    refresh_waiting_chats_gauge,
+)
 from helpdesk.scheduler.jobs.review_schedule import generate_reviews, send_review_reminders
 from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.audit.anchor import anchor_tenant_chain
@@ -78,13 +82,14 @@ METRICS_SWEEP_JOB_NAME = "metrics_sweep"
 
 
 async def run_metrics_sweep(session: AsyncSession, now: datetime) -> None:
-    """Refresh both sweep gauges for the bound tenant.
+    """Refresh the sweep gauges for the bound tenant.
 
-    One job for both readings, so the grant count and the chain verdict on a
+    One job for every reading, so the grant count, the waiting chats and the chain verdict on a
     scrape are always the same age. A grant is live while `expires_at > now`,
     the exact opposite of the expiry sweep's `<= now`.
     """
     await refresh_active_grants_gauge(session, now=now)
+    await refresh_waiting_chats_gauge(session, now=now)
     await refresh_chain_gauge(session)
 
 

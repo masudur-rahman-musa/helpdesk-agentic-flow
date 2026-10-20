@@ -6,6 +6,10 @@
 # Absolute so it means the same file to the reset/accounts scripts (run from
 # backend/, where they find backend/.env) and to Playwright (run from web/).
 E2E_ACCOUNTS_FILE ?= $(CURDIR)/.cache/e2e-accounts.json
+# The companion console, whose `ops-eval` runs the golden set and holds the only baseline.
+CONSOLE_DIR ?= ../ai-operations-console
+# The agent-api the eval calls; it must run with EVAL_ROUTES_ENABLED=true.
+AGENT_API_URL ?= http://localhost:8000
 # The tag `make images` builds under. `local` rather than a version: nothing
 # here pushes, and the compose app profile builds its own images by name.
 IMAGE_TAG ?= local
@@ -110,8 +114,19 @@ load-smoke: ## 20 chat sessions for 5 minutes against the REAL gateway (manual, 
 	uv run --project backend locust -f infra/load/load_smoke.py --headless \
 	  --users 20 --spawn-rate 2 --run-time 5m \
 	  --host $${AGENT_API_URL:-http://localhost:8000}
-eval:       ## Project evals: golden set vs backend/evals/baseline.json
-	echo 'golden set is run by the companion console: see backend/evals/README.md'
+eval:       ## Project evals: the golden set run by the console against the real agent (manual, costs money)
+	cd backend && uv run python ../dev/scripts/e2e_reset.py
+	cd backend && uv run python scripts/seed.py
+	rm -rf backend/evals/reports
+	uv run --project backend python dev/scripts/eval_sets.py backend/evals/golden/helpdesk-v1.jsonl backend/evals/reports
+	status=0; for tenant in nordlicht cuan; do \
+	  (cd $(CONSOLE_DIR) && uv run --project backend ops-eval run --target $(AGENT_API_URL) \
+	    --set $(CURDIR)/backend/evals/reports/$$tenant.jsonl --tenant $$tenant \
+	    --out $(CURDIR)/backend/evals/reports/$$tenant) || status=1; \
+	  (cd $(CONSOLE_DIR) && uv run --project backend ops-eval gate \
+	    --report $(CURDIR)/backend/evals/reports/$$tenant/report.json \
+	    --baseline $(CONSOLE_DIR)/backend/evals/baseline.json) || status=1; \
+	done; exit $$status
 infra-check: ## Validate infrastructure as code (no apply)
 	echo 'deployed by the companion console infra'
 images:     ## Build the four service images locally: make images TAG=local
