@@ -15,7 +15,6 @@ import { Citations } from "@/features/chat/components/citations";
 import { Composer } from "@/features/chat/components/composer";
 import { Conversation } from "@/features/chat/components/conversation";
 import { DecisionCard } from "@/features/chat/components/decision-card";
-import { MyRequestsPanel } from "@/features/chat/components/my-requests-panel";
 import { ToolSteps } from "@/features/chat/components/tool-steps";
 import {
   type ChatMessage,
@@ -207,10 +206,6 @@ export function ChatPanel() {
             initialValue={prefill}
           />
         </div>
-      </div>
-
-      <div className="w-full lg:w-72 lg:shrink-0">
-        <MyRequestsPanel />
       </div>
 
       {showSteps ? (

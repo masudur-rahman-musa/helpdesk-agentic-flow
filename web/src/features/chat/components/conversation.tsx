@@ -26,9 +26,14 @@ export function Conversation({
       className="flex flex-col gap-3 py-4"
     >
       {messages.length === 0 && live.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Ask for the access you need, in your own words.
-        </p>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-base font-semibold">Access and IT help</h2>
+          <p className="text-sm text-muted-foreground">
+            Ask here to request or remove access, check what access and requests you have, reset
+            your password or unlock your account, open or check a ticket, or ask about the access
+            policy. For anything else, ask me to open a ticket and a person will pick it up.
+          </p>
+        </div>
       ) : null}
 
       {messages.map((message, index) => (

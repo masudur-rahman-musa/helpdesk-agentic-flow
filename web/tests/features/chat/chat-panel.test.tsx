@@ -21,9 +21,6 @@ import { ChatPanel } from "@/features/chat/components/chat-panel";
 const fetchStub = vi.fn<typeof fetch>();
 let showToolSteps = false;
 let meCalls = 0;
-// Reads of the "My requests" panel beside the chat; counted apart from `/api/me`.
-let requestsCalls = 0;
-let ticketsCalls = 0;
 let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
 let history: { role: string; content: string }[] = [];
 // The past chats the list shows; `history` is what opening any of them returns.
@@ -52,8 +49,6 @@ function urlOf(input: RequestInfo | URL): string {
 
 beforeEach(() => {
   meCalls = 0;
-  requestsCalls = 0;
-  ticketsCalls = 0;
   streamController = undefined;
   history = [];
   pastChats = [];
@@ -65,11 +60,9 @@ beforeEach(() => {
     const url = urlOf(input);
     // Before `/api/me`: these two paths start with it.
     if (url.includes("/api/me/requests")) {
-      requestsCalls += 1;
       return json({ requests: [] });
     }
     if (url.includes("/api/me/tickets")) {
-      ticketsCalls += 1;
       return json({ tickets: [] });
     }
     if (url.includes("/api/me")) {
@@ -402,28 +395,5 @@ describe("ChatPanel — where the sources sit", () => {
     const spacerIndex = children.indexOf(spacers[0] as Element);
     expect(spacerIndex).toBeGreaterThan(children.indexOf(sources));
     expect(spacerIndex).toBeLessThan(children.indexOf(composer as Element));
-  });
-});
-
-describe("ChatPanel — My requests panel", () => {
-  it("refreshes my requests after a reply", async () => {
-    // Catches a panel that reads both lists once and never again, so a request
-    // just filed in the chat is missing beside it. The cache keeps a read
-    // fresh for 30 seconds, so a second read of each list can only come from
-    // the reply invalidating both query keys; one key alone leaves one count
-    // unchanged.
-    await sendOnly();
-    await waitFor(() => expect(streamController).toBeDefined());
-    await waitFor(() => expect(requestsCalls).toBeGreaterThan(0));
-    await waitFor(() => expect(ticketsCalls).toBeGreaterThan(0));
-    const requestsBefore = requestsCalls;
-    const ticketsBefore = ticketsCalls;
-
-    streamController?.enqueue(replyFrame(null));
-    streamController?.close();
-    await screen.findByText("Fake answer.");
-
-    await waitFor(() => expect(requestsCalls).toBeGreaterThan(requestsBefore));
-    await waitFor(() => expect(ticketsCalls).toBeGreaterThan(ticketsBefore));
   });
 });
