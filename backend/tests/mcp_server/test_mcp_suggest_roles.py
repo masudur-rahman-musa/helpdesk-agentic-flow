@@ -290,3 +290,26 @@ def test_a_query_of_exactly_200_characters_is_accepted(
 
     assert result.is_error is False, error_code(result)
     assert any("q" * 200 in call for call in embedder.calls)
+
+
+# --- the phrases of a system --------------------------------------------------
+
+
+@pytest.mark.db
+def test_a_system_phrase_finds_its_roles(mcp_env: SeededMcp, embedder: TextOnlyEmbedder) -> None:
+    """Catches a tool that never reads `systems.about` (the query "team pages"
+    equals a phrase of the wiki and no role name, so only the phrase can score
+    1.0), a read that takes the phrases of another tenant, and one that leaks
+    `about` into the output rows."""
+    spec = _SPECS[mcp_env.tenant_a.tenant_slug]
+    assert "team pages" in [p.strip() for p in spec.system_about["wiki"].split(",")], (
+        "fixture premise: the wiki's phrases hold the query"
+    )
+
+    roles = _roles(_call(mcp_env.tenant_a, {"query": "team pages"}))
+
+    assert roles, "the wiki's phrase equals the query, so something must be offered"
+    assert roles[0]["system_slug"] == "wiki"
+    assert roles[0]["score"] == pytest.approx(1.0)
+    assert all(set(role) == ROLE_FIELDS for role in roles), roles
+    assert all("about" not in role for role in roles)

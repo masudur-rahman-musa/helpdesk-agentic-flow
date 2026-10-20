@@ -1,9 +1,9 @@
 """One tenant's corpus is unreachable from another's.
 
-The only file in this group that loads a model. It reuses `test_rag_embedding
-.py`'s session-scoped `embedder` fixture rather than
-building a second `FastEmbedEmbedder`: both models cost seconds of ONNX setup
-even against a warm cache, and the isolation claim needs REAL vectors — a
+The only file in this group that loads a model. It reuses the session-scoped `embedder` fixture of
+this folder's `conftest.py` rather than building a second `FastEmbedEmbedder`:
+both models cost seconds of ONNX setup even against a warm cache, and the
+isolation claim needs REAL vectors — a
 fake embedder's similarities are chosen by the test, so a dense search that
 found nothing would prove nothing about the store.
 
@@ -47,7 +47,6 @@ from helpdesk.shared.core.db import create_engine, create_session_factory, tenan
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import PolicyChunk
-from tests.mcp_server.services.rag.test_rag_embedding import embedder  # noqa: F401
 from tests.mcp_server.services.rag.test_rag_pipeline import FakeRedactor
 from tests.mcp_server.services.rag.test_rag_vectors import (
     _settings,
@@ -139,7 +138,7 @@ async def _ingest(
 
 def test_tenant_bs_marker_sentence_is_unreachable_from_tenant_a(
     policy_db_url: str,  # noqa: F811
-    embedder: FastEmbedEmbedder,  # noqa: F811
+    embedder: FastEmbedEmbedder,
     isolation_collections: tuple[str, str],
 ) -> None:
     """Catches an ingest that writes every tenant's points into one shared

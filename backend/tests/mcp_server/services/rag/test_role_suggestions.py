@@ -36,6 +36,7 @@ from helpdesk.mcp_server.services.rag.role_suggestions import (
     TextVectorCache,
     check_suggest_query,
     role_text,
+    role_texts,
     suggest,
 )
 from helpdesk.shared.core.errors import ErrorCode
@@ -125,6 +126,101 @@ def test_role_text_is_the_system_name_then_the_role_name() -> None:
     )
 
     assert role_text(row) == "Fake Wiki Fake Editor"
+
+
+# --- the phrases of a system --------------------------------------------------
+
+
+def _row_about(slug: str, about: str) -> RoleRow:
+    return RoleRow(
+        system_slug="fake-wiki",
+        system_name="Fake Wiki",
+        role_slug=slug,
+        role_name=f"Fake {slug.title()}",
+        system_about=about,
+    )
+
+
+@pytest.mark.parametrize(
+    "about",
+    [
+        "docs, team pages",
+        "  docs ,team pages  ",
+        "docs,, team pages,",
+        " , docs ,  , team pages , ",
+    ],
+    ids=["plain", "spaces", "no-spaces-and-trailing-comma", "blanks-everywhere"],
+)
+def test_role_texts_are_the_name_text_then_each_phrase(about: str) -> None:
+    """Catches a split that keeps blank phrases or the spaces around commas
+    (each would be embedded as noise), a list with the name text last or
+    missing, and phrases in another order."""
+    row = _row_about("editor", about)
+
+    assert role_texts(row) == ["Fake Wiki Fake Editor", "docs", "team pages"]
+
+
+@pytest.mark.parametrize("about", ["", "   ", " , ,"], ids=["empty", "spaces", "only-commas"])
+def test_a_role_with_no_about_has_only_its_name_text(about: str) -> None:
+    """Catches an empty phrase "" slipping in as a second text when a system
+    has no phrases (the default of every old row): the list must be exactly
+    the name text."""
+    row = _row_about("editor", about)
+
+    assert role_texts(row) == [role_text(row)]
+
+
+@pytest.mark.parametrize(
+    ("name_score", "phrase_scores"),
+    [(0.2, [0.9]), (0.9, [0.2]), (0.2, [0.3, 0.9]), (0.3, [0.9, 0.2])],
+    ids=["phrase-wins", "name-wins", "last-phrase-wins", "first-phrase-wins"],
+)
+def test_a_role_scores_its_best_text(name_score: float, phrase_scores: list[float]) -> None:
+    """Catches a score that is the name text only, a phrase only, the first
+    phrase only, or an average (0.55 here, under the floor): the role holds one
+    strong text and weak ones, and must be offered at the strong one's score."""
+    phrases = [f"phrase {index}" for index in range(len(phrase_scores))]
+    row = _row_about("editor", ", ".join(phrases))
+    vectors: dict[str, Vector] = {QUERY: QUERY_VECTOR, role_text(row): _at(name_score)}
+    vectors.update({p: _at(score) for p, score in zip(phrases, phrase_scores, strict=True)})
+
+    (only,) = suggest(FakeEmbedder(vectors), TextVectorCache(), QUERY, [row])
+
+    assert only.score == pytest.approx(0.9)
+    assert only.row == row
+
+
+def test_a_phrase_below_the_floor_offers_nothing() -> None:
+    """Catches a floor loosened for phrases (a phrase at 0.6999 must not offer
+    the role) or a best-of that ignores the floor: every text of the role is
+    under 0.70, the best one by a hair."""
+    row = _row_about("editor", "docs, team pages")
+    below: Vector = (6999.0, math.sqrt(1e8 - 6999.0**2))
+    assert 0.6998 < cosine(QUERY_VECTOR, below) < SUGGESTION_FLOOR
+    vectors: dict[str, Vector] = {
+        QUERY: QUERY_VECTOR,
+        role_text(row): _at(0.5),
+        "docs": _at(0.3),
+        "team pages": below,
+    }
+
+    result = suggest(FakeEmbedder(vectors), TextVectorCache(), QUERY, [row])
+
+    assert result == []
+
+
+def test_phrases_shared_by_two_roles_are_embedded_once() -> None:
+    """Catches a ranker that embeds a system's phrases again for every role of
+    that system (the cache is keyed by text, so the batch must not repeat
+    them): two roles, two phrases, each phrase reaches the model once."""
+    rows = [_row_about("editor", "docs, team pages"), _row_about("viewer", "docs, team pages")]
+    embedder = FakeEmbedder({}, default=QUERY_VECTOR)
+
+    suggest(embedder, TextVectorCache(), QUERY, rows)
+
+    assert embedder.embedded("docs") == 1
+    assert embedder.embedded("team pages") == 1
+    assert [embedder.embedded(role_text(row)) for row in rows] == [1, 1]
 
 
 # --- ranking ------------------------------------------------------------------

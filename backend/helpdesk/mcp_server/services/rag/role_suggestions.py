@@ -1,8 +1,9 @@
 """Roles close in meaning to some typed words: the ranking behind `suggest_roles`.
 
 Pure: the caller reads the roles and hands in the embedder. Each role is
-compared as "<system name> <role name>", and only the dense model is used,
-since a missed name is a matter of meaning, not of shared keywords.
+compared as "<system name> <role name>" and as each phrase saying what its
+system is for, and scores its best match. Only the dense model is
+used, since a missed name is a matter of meaning, not of shared keywords.
 """
 
 from collections.abc import Sequence
@@ -35,6 +36,8 @@ class RoleRow:
     system_name: str
     role_slug: str
     role_name: str
+    system_about: str = ""
+    """Comma-separated phrases; compared, never shown."""
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,13 @@ class Suggestion:
 def role_text(row: RoleRow) -> str:
     """The text a role is embedded as."""
     return f"{row.system_name} {row.role_name}"
+
+
+def role_texts(row: RoleRow) -> list[str]:
+    """Every text a role is compared as: its name text, then each phrase of its
+    system, with spaces trimmed and blank phrases dropped."""
+    phrases = [phrase.strip() for phrase in row.system_about.split(",")]
+    return [role_text(row), *(phrase for phrase in phrases if phrase)]
 
 
 class TextVectorCache:
@@ -85,14 +95,18 @@ def check_suggest_query(value: str) -> str:
 def suggest(
     embedder: Embedder, cache: TextVectorCache, query: str, rows: Sequence[RoleRow]
 ) -> list[Suggestion]:
-    """The roles at or above the floor, best first, at most three. Equal scores
-    go by role slug, so the order does not depend on how the rows were read."""
+    """The roles at or above the floor, best first, at most three. A role
+    scores its best text. Equal scores go by role slug, so the order does not
+    depend on how the rows were read."""
     query_vector = embedder.embed_dense([query])[0]
-    vectors = cache.vectors(embedder, [role_text(row) for row in rows])
-    scored = [
-        Suggestion(row=row, score=cosine(query_vector, vector))
-        for row, vector in zip(rows, vectors, strict=True)
-    ]
+    texts = [role_texts(row) for row in rows]
+    vectors = cache.vectors(embedder, [text for row_texts in texts for text in row_texts])
+    scored: list[Suggestion] = []
+    start = 0
+    for row, row_texts in zip(rows, texts, strict=True):
+        own = vectors[start : start + len(row_texts)]
+        start += len(row_texts)
+        scored.append(Suggestion(row=row, score=max(cosine(query_vector, v) for v in own)))
     kept = [item for item in scored if item.score >= SUGGESTION_FLOOR]
     kept.sort(key=lambda item: (-item.score, item.row.role_slug))
     return kept[:MAX_SUGGESTIONS]

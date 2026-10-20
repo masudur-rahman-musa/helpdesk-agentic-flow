@@ -3,8 +3,8 @@
 Static data becomes rows with uuid5 ids from natural keys, Faker names from a
 fixed seed and fixed timestamps, so every run makes the same rows. Rows are
 inserted only when absent, so a re-run changes nothing. One exception:
-`systems.category` is set again on existing rows, since older rows hold the
-migration's `other` default. The database must already be migrated.
+`systems.category` and `systems.about` are set again on existing rows, since
+older rows hold the migrations' defaults. The database must already be migrated.
 
 Planted for the demos: stale grants, roles outside a department template,
 owners holding their system's top role, and users holding both halves of a
@@ -126,6 +126,8 @@ class TenantSpec:
     users_per_department: tuple[int, ...]
     systems: tuple[tuple[str, str, str, str], ...]  # (slug, name, sensitivity, category)
     roles: tuple[RoleSpec, ...]
+    # System slug to comma-separated phrases saying what it is for.
+    system_about: dict[str, str] = field(default_factory=dict)
     templates: dict[str, tuple[tuple[str, str], ...]] = field(default_factory=dict)
     sod_rules: tuple[SodRuleSpec, ...] = ()
     planted_conflicts: tuple[PlantedConflict, ...] = ()
@@ -193,6 +195,23 @@ NORDLICHT = TenantSpec(
         RoleSpec("m365", "user", "write"),
         RoleSpec("badge", "holder", "read"),
     ),
+    system_about={
+        "erp": "orders, purchasing, invoices, stock, enterprise resource planning",
+        "plm": "CAD drawings, product designs, engineering parts, bill of materials",
+        "mes": "shop floor, production orders, machine data, manufacturing",
+        "finance-dash": "finance reports, budgets, revenue figures, financial dashboard",
+        "payments": "pay suppliers, release payments, bank transfers",
+        "vendor-master": "suppliers, vendors, supplier records, vendor data",
+        "crm": "customers, sales leads, customer contacts, sales pipeline",
+        "hris": "employee records, payroll, salaries, human resources",
+        "wiki": "documentation, docs, team pages, how-to guides, knowledge base",
+        "vpn": "remote access, work from home, network connection",
+        "gitlab": "source code, git repositories, merge requests, code review",
+        "prod-k8s": "production servers, deployments, kubernetes, containers",
+        "grafana": "monitoring, metrics, dashboards, charts, alerts",
+        "m365": "email, outlook, file sharing, office documents, calendar",
+        "badge": "building access, door badge, office entry, key card",
+    },
     templates={
         "Engineering": (
             ("plm", "engineer"),
@@ -377,6 +396,22 @@ CUAN = TenantSpec(
         RoleSpec("wiki", "viewer", "read"),
         RoleSpec("wiki", "editor", "write"),
     ),
+    system_about={
+        "core-banking": "bank accounts, customer balances, loans, deposits",
+        "payments-gateway": "card payments, money transfers, payment processing",
+        "kyc": "know your customer, identity checks, customer verification, compliance",
+        "ledger": "general ledger, accounting, bookkeeping, journal entries",
+        "crm": "customers, sales leads, customer contacts, sales pipeline",
+        "support-desk": "support tickets, customer support, help desk, service requests",
+        "data-warehouse": "analytics, reports, data queries, business intelligence, SQL",
+        "hris": "employee records, payroll, salaries, human resources",
+        "vpn": "remote access, work from home, network connection",
+        "github": "source code, git repositories, pull requests, code review",
+        "prod-aws": "production servers, cloud infrastructure, deployments, amazon web services",
+        "datadog": "monitoring, metrics, dashboards, logs, alerts",
+        "m365": "email, outlook, file sharing, office documents, calendar",
+        "wiki": "documentation, docs, team pages, how-to guides, knowledge base",
+    },
     templates={
         "Engineering": (
             ("github", "developer"),
@@ -770,6 +805,7 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
                 "name": name,
                 "sensitivity": sensitivity,
                 "category": category,
+                "about": spec.system_about[slug],
                 "owner_user_id": rows.system_owners[slug].id,
             }
             for slug, name, sensitivity, category in spec.systems
@@ -783,6 +819,10 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
         system = written_systems[rows.system_ids[slug]]
         if system.category != category:
             system.category = category
+        # The same for `about`: the migration defaults it empty.
+        about = spec.system_about[slug]
+        if system.about != about:
+            system.about = about
 
     await roles.upsert_many(
         {
@@ -860,9 +900,13 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
         }
     )
     # The counter starts where the fixed numbers end. A rerun leaves it alone,
-    # so tickets filed since keep their numbers.
-    if reporters:
-        await _SeedRepository(session, ReferenceCounter).upsert_many(
+    # so tickets filed since keep their numbers. A counter the numbers
+    # migration made has a random id, so it is found by kind, not by id
+    # (`test_a_reseed_keeps_a_counter_the_migration_made`).
+    counters = _SeedRepository(session, ReferenceCounter)
+    has_counter = any(c.kind == NumberKind.TICKET.value for c in await counters.list())
+    if reporters and not has_counter:
+        await counters.upsert_many(
             {
                 _uid(f"{spec.key}:counter:{NumberKind.TICKET.value}"): {
                     "kind": NumberKind.TICKET.value,

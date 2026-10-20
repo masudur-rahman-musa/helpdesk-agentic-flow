@@ -53,6 +53,7 @@ from helpdesk.shared.models import (
     Ticket,
     User,
 )
+from helpdesk.shared.models.numbers import ReferenceCounter
 from scripts.seed import SeedError, seed_all
 from tests.conftest import TempDatabaseFactory
 
@@ -561,6 +562,110 @@ def test_a_reseed_backfills_system_categories_and_changes_nothing_else(
             assert after == before, (
                 "the re-seed must restore the real categories and change nothing else"
             )
+
+    asyncio.run(scenario())
+
+
+def _phrases(about: str) -> list[str]:
+    return [phrase.strip() for phrase in about.split(",") if phrase.strip()]
+
+
+def test_every_system_has_phrases() -> None:
+    """Catches a system left out of `system_about` (found by name only), a
+    stray slug that matches no system, a value over the 512-character column,
+    a single phrase (too thin to match on), and a phrase holding "and" (the
+    split is on commas, so "and" would glue two ideas into one text)."""
+    for spec in (seed_module.NORDLICHT, seed_module.CUAN):
+        slugs = {slug for slug, _name, _sensitivity, _category in spec.systems}
+        assert set(spec.system_about) == slugs, spec.slug
+        for slug, about in spec.system_about.items():
+            assert 1 <= len(about) <= 512, (spec.slug, slug, len(about))
+            phrases = _phrases(about)
+            assert len(phrases) >= 2, (spec.slug, slug, about)
+            for phrase in phrases:
+                assert " and " not in f" {phrase} ", (spec.slug, slug, phrase)
+
+
+@pytest.mark.db
+def test_a_reseed_backfills_system_about(fresh_db_url: str) -> None:
+    """Catches a re-seed that leaves `systems.about` empty on existing rows (an
+    old database would then never find systems by meaning), one that writes the
+    wrong tenant's phrases, and one that changes anything else: seed, erase
+    every `about`, re-seed, and the whole database must equal the first seed."""
+
+    async def scenario() -> None:
+        async with _engine(fresh_db_url) as engine:
+            await _create_schema(engine)
+            await seed_all(fresh_db_url)
+            before = await _snapshot(engine)
+
+            async def abouts(conn: AsyncConnection) -> set[tuple[str, str, str]]:
+                rows = await conn.execute(
+                    select(Tenant.name, System.slug, System.about).join(
+                        Tenant, Tenant.id == System.tenant_id
+                    )
+                )
+                return {(str(name), str(slug), str(about)) for name, slug, about in rows}
+
+            expected = {
+                (spec.name, slug, about)
+                for spec in (seed_module.NORDLICHT, seed_module.CUAN)
+                for slug, about in spec.system_about.items()
+            }
+            async with engine.connect() as conn:
+                assert await abouts(conn) == expected, (
+                    "fixture premise: the first seed writes every spec value"
+                )
+
+            async with engine.begin() as conn:
+                await conn.execute(update(System).values(about=""))
+            async with engine.connect() as conn:
+                assert {a for _n, _s, a in await abouts(conn)} == {""}, (
+                    "fixture premise: the reset must actually erase the phrases"
+                )
+
+            await seed_all(fresh_db_url)
+
+            async with engine.connect() as conn:
+                assert await abouts(conn) == expected
+            assert await _snapshot(engine) == before
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.db
+def test_a_reseed_keeps_a_counter_the_migration_made(fresh_db_url: str) -> None:
+    """Catches a re-seed that looks for the ticket counter only by its fixed id:
+    the numbers migration gave older databases counters with random ids, so the
+    seed would add a second row for the same kind and break the unique key."""
+
+    async def scenario() -> None:
+        async with _engine(fresh_db_url) as engine:
+            await _create_schema(engine)
+            await seed_all(fresh_db_url)
+
+            async def counters(conn: AsyncConnection) -> set[tuple[object, ...]]:
+                rows = await conn.execute(
+                    select(ReferenceCounter.tenant_id, ReferenceCounter.kind, ReferenceCounter.last)
+                )
+                return {tuple(row) for row in rows}
+
+            async with engine.connect() as conn:
+                before = await counters(conn)
+            async with engine.begin() as conn:
+                for (tenant_id,) in (
+                    await conn.execute(select(ReferenceCounter.tenant_id).distinct())
+                ).all():
+                    await conn.execute(
+                        update(ReferenceCounter)
+                        .where(ReferenceCounter.tenant_id == tenant_id)
+                        .values(id=uuid.uuid4())
+                    )
+
+            await seed_all(fresh_db_url)
+
+            async with engine.connect() as conn:
+                assert await counters(conn) == before
 
     asyncio.run(scenario())
 

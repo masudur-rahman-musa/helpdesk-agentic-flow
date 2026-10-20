@@ -28,7 +28,6 @@ against the repo root, so fastembed never writes to `~/.cache`.
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from helpdesk.mcp_server.services.rag.embedding import (
     DENSE_DIMENSION,
@@ -47,22 +46,6 @@ BADGE_SENTENCE = "A lost badge is reported to reception and blocked the same day
 BACKUP_SENTENCE = "Database backups are encrypted and retained for ninety days."
 
 KNOWN_STRING = "Access to the finance system is granted by the system owner."
-
-
-@pytest.fixture(scope="session")
-def embedder() -> FastEmbedEmbedder:
-    """Both fastembed models, built once for the whole session."""
-    try:
-        settings = load_settings()
-    except ValidationError as exc:
-        pytest.fail(
-            f"Settings are not configured (env or .env). Copy .env.example to .env.\n{exc}",
-            pytrace=False,
-        )
-    cache_dir = Path(settings.embedding_cache_dir)
-    if not cache_dir.is_absolute():
-        cache_dir = REPO_ROOT / cache_dir
-    return FastEmbedEmbedder(cache_dir)
 
 
 # --- constants ----------------------------------------------------------------

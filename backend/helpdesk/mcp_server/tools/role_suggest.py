@@ -55,6 +55,7 @@ async def suggest_roles(ctx: ToolContext, args: SuggestRolesInput) -> SuggestRol
             system_name=system.name,
             role_slug=role.slug,
             role_name=role.name,
+            system_about=system.about,
         )
         for role, system in catalogue
     ]

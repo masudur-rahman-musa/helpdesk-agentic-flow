@@ -61,6 +61,9 @@ class System(TenantScoped):
     # prod_infra | hris | other. The default lets an old database read `other`
     # until the seed fills in real values.
     category: Mapped[str] = mapped_column(String(16), server_default="other")
+    # Comma-separated phrases saying what the system is for, matched by
+    # `suggest_roles`. Empty until the seed fills it in.
+    about: Mapped[str] = mapped_column(String(512), server_default="")
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
 
 
