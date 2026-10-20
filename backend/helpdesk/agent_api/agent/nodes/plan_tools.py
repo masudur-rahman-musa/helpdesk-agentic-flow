@@ -49,7 +49,7 @@ async def plan_tools(state: TurnState, deps: TurnDeps) -> TurnState:
     if extraction is None:  # pragma: no cover - the graph never routes here
         return state
 
-    allowed = gates.allowed_tools(extraction.intent)
+    allowed = gates.allowed_tools(extraction.intent, extraction.second_request)
     if not allowed:
         return state.model_copy(update={"outcome": TurnOutcome.CONTINUE, "proposed": ()})
 

@@ -316,6 +316,9 @@ def _after_validation(state: TurnState) -> str:
         return COMPOSE_REPLY
     if state.outcome is TurnOutcome.CONFIRM:
         return ASK_CONFIRMATION
+    if state.outcome is TurnOutcome.STOP:
+        # Every held approval named a request nobody listed: a fixed line, no model.
+        return STOP_ASKING
     return EXECUTE_TOOLS
 
 
@@ -415,6 +418,7 @@ def _compile_graph(
             REFUSE_AND_TICKET: REFUSE_AND_TICKET,
             COMPOSE_REPLY: COMPOSE_REPLY,
             ASK_CONFIRMATION: ASK_CONFIRMATION,
+            STOP_ASKING: STOP_ASKING,
             EXECUTE_TOOLS: EXECUTE_TOOLS,
         },
     )

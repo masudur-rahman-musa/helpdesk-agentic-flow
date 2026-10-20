@@ -4,7 +4,9 @@ Pure, so the yes that files a request is read by fixed word lists, never by the
 model: a misread yes would file. The open question is stored on the
 chat row as plain JSON and checked here on every read. The question is a
 summary of what a yes files: the role in plain words, the days and the reason
-(a design note, `test_confirm_answer.py`).
+(a design note, `test_confirm_answer.py`). Every other change gets its own
+code-written line per tool, ending `CHANGE_LINE` (a design note,
+`test_confirm_every_change.py`).
 """
 
 import re
@@ -14,19 +16,30 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from helpdesk.agent_api.agent.role_words import plain_role_name
 from helpdesk.agent_api.agent.state import (
     Citation,
+    IntentEntities,
     IntentExtraction,
     ResolvedEntities,
     ToolResult,
     ValidatedCall,
 )
+from helpdesk.agent_api.agent.tool_args import needs_idempotency_key
 from helpdesk.shared.policy.types import ApproverSlot, Decision
 
 CLASSIFY_ACCESS_REQUEST = "classify_access_request"
 CREATE_ACCESS_REQUEST = "create_access_request"
 
 FILE_LINE = "Say yes to file, or tell me what to change."
+CHANGE_LINE = "Say yes to go ahead, or no to stop."
+"""Ends the summary of every change other than an access request."""
+
+NOT_FOUND_APPROVALS_REPLY = "I couldn't find those requests among the ones waiting for you."
+"""Said when every held approval named a request this turn's listing did not show."""
+
+SELF_WORDS = frozenset({"me", "myself", "i", "self", "mine", "my"})
+"""What the model may put in `target_user` when the request is the speaker's own."""
 USUAL_LENGTH = "its usual length"
 """Said for the days when neither the policy nor the person gave a number."""
 
@@ -154,6 +167,23 @@ def next_step(results: Sequence[ToolResult]) -> str:
     return f"If you say yes, I will file it and it needs approval from {who}."
 
 
+def other_person(entities: IntentEntities) -> str | None:
+    """The person a request is for, when the message names someone other than
+    the speaker; `None` for the speaker's own."""
+    name = (entities.target_user or "").strip()
+    if not name or name.lower() in SELF_WORDS:
+        return None
+    return name
+
+
+def only_for_you_reply(name: str) -> str:
+    """The fixed stop for a request for someone else without the on-behalf scope."""
+    return (
+        f"I can only file access requests for you. {name} needs to ask for it, "
+        "or their manager can ask for them."
+    )
+
+
 def _held_create(calls: Sequence[ValidatedCall]) -> dict[str, object]:
     """The arguments of the held create call, or none when there is none."""
     for call in calls:
@@ -172,10 +202,12 @@ def summary_reply(
     resolved: ResolvedEntities | None,
     results: Sequence[ToolResult],
     held_calls: Sequence[ValidatedCall],
+    person: str | None = None,
 ) -> str:
     """ "I'll file this: <role>, <N> days, reason "<reason>"." then the file
     line and what happens next. The days are this turn's classified length,
-    else the days the held create call asks for, else `USUAL_LENGTH`."""
+    else the days the held create call asks for, else `USUAL_LENGTH`. A
+    request for someone else names them after the role ("for Dana")."""
     create = _held_create(held_calls)
     verdict = _verdict(results)
     length = (
@@ -184,5 +216,96 @@ def summary_reply(
         or USUAL_LENGTH
     )
     role = (resolved.role_name if resolved else None) or "this access"
+    if person:
+        role = f"{role} for {person}"
     reason = str(create.get("justification") or "").strip()
     return f'I\'ll file this: {role}, {length}, reason "{reason}". {FILE_LINE} {next_step(results)}'
+
+
+_FIXED_CHANGES: dict[str, str] = {
+    "reset_own_password": "I'll reset your password.",
+    "unlock_own_account": "I'll unlock your account.",
+}
+
+_DECISION_VERBS: dict[str, str] = {"approve_request": "approve", "reject_request": "reject"}
+
+
+def _listed_names(results: Sequence[ToolResult]) -> dict[str, str]:
+    """ "REQ-0006 Data Warehouse engineer" per request id, from this turn's listings."""
+    names: dict[str, str] = {}
+    for result in results:
+        if result.tool != "list_pending_approvals" or not result.ok:
+            continue
+        rows: object = result.payload.get("approvals")
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            role = plain_role_name(str(row.get("system_name", "")), str(row.get("role_slug", "")))
+            names[str(row.get("request_id"))] = f"{row.get('request_number', '')} {role}".strip()
+    return names
+
+
+def _decision_line(verb: str, ids: Sequence[str], names: dict[str, str]) -> str:
+    """ "I'll approve these 2 requests: REQ-0006 ..., REQ-0019 ..."."""
+    named = ", ".join(names.get(request_id, "a request") for request_id in ids)
+    if len(ids) == 1:
+        return f"I'll {verb} this request: {named}."
+    return f"I'll {verb} these {len(ids)} requests: {named}."
+
+
+def _call_line(call: ValidatedCall, resolved: ResolvedEntities | None) -> str:
+    """One held change other than a request or a decision, in fixed words."""
+    arguments = call.arguments
+    fixed = _FIXED_CHANGES.get(call.tool)
+    if fixed is not None:
+        return fixed
+    if call.tool == "create_ticket":
+        return f"I'll open a ticket: {str(arguments.get('title', '')).strip().rstrip('.')}."
+    if call.tool == "revoke_access":
+        system = resolved.system_name if resolved else None
+        return f"I'll remove your access to {system}." if system else "I'll remove this access."
+    if call.tool == "onboard_user":
+        return (
+            f"I'll set up starting access for {arguments.get('display_name')}, "
+            f"starting {arguments.get('start_date')}."
+        )
+    if call.tool == "transfer_user":
+        return (
+            f"I'll move this person to their new department on {arguments.get('effective_date')}."
+        )
+    if call.tool == "offboard_user":
+        return f"I'll remove a leaver's access, last day {arguments.get('end_date')}."
+    if call.tool == "open_access_review":
+        return f"I'll open an access review for {arguments.get('period')}."
+    if call.tool == "decide_review_item":
+        return f"I'll mark this flagged access as {arguments.get('decision')}."
+    return "I'll make this change."
+
+
+def change_summary(
+    calls: Sequence[ValidatedCall],
+    results: Sequence[ToolResult],
+    resolved: ResolvedEntities | None,
+    person: str | None = None,
+) -> str:
+    """What a yes runs, in code-written words. A held access request keeps its
+    own summary (`summary_reply`); every other change gets one line per tool,
+    approvals and rejections one line each naming the listed requests, then
+    `CHANGE_LINE`."""
+    if any(call.tool == CREATE_ACCESS_REQUEST for call in calls):
+        return summary_reply(resolved, results, calls, person)
+    names = _listed_names(results)
+    lines: list[str] = []
+    for tool, verb in _DECISION_VERBS.items():
+        ids = [str(call.arguments.get("request_id")) for call in calls if call.tool == tool]
+        if ids:
+            lines.append(_decision_line(verb, ids, names))
+    lines.extend(
+        _call_line(call, resolved)
+        for call in calls
+        if call.tool not in _DECISION_VERBS and needs_idempotency_key(call.tool)
+    )
+    lines = list(dict.fromkeys(lines))
+    return f"{' '.join(lines)} {CHANGE_LINE}"

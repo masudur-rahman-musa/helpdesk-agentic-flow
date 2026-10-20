@@ -63,6 +63,10 @@ person's message actually asked for it.
 - `decide_review_item` — keep or revoke one flagged grant.
 - `approve_request` — approve one slot of a request's approval chain.
 - `reject_request` — reject a request, with a reason.
+  On an approvals turn, call `list_pending_approvals` first, in its own round,
+  and approve or reject only requests that listing shows. "Approve all of
+  them" means every request in that listing. An id it does not show is
+  dropped. Every approval is shown to the person and runs only on their yes.
 - `reset_own_password` — reset the calling person's own password.
 - `unlock_own_account` — unlock the calling person's own account.
 - `create_ticket` — file a ticket for a person to pick up. Use this when the

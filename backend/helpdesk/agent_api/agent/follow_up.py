@@ -3,12 +3,14 @@
 Pure. A message about the last reply ("say it shorter", "why?") reshapes that
 stored reply; a message that holds two requests gets one fixed line naming the
 second; a message that cannot be placed gets an honest line saying what the
-assistant helps with. None of the words here comes from the model
+assistant helps with. A message asking to skip approval is told first that
+it cannot be. None of the words here comes from the model
 (`test_follow_up.py`, `test_second_request.py`).
 """
 
 from collections.abc import Mapping, Sequence
 
+from helpdesk.agent_api.agent.pushback import SKIP_LINE, skips_approval
 from helpdesk.agent_api.agent.state import Intent, TurnState
 
 ASSISTANT_PREFIX = "assistant: "
@@ -56,10 +58,14 @@ def second_request_line(intent: Intent) -> str:
     )
 
 
-def with_second_line(reply: str, state: TurnState) -> str:
-    """The reply, with the second-request line added when this turn's message
-    held two requests. The line belongs to that turn only: a yes turn runs on
-    the stored extraction with no second request."""
+def with_fixed_lines(reply: str, state: TurnState) -> str:
+    """The reply with this turn's fixed lines: the skip-approval line first
+    when the message asked to skip approval (`test_skip_line_comes_first`), and
+    the second-request line last when it held two requests. Both belong to that
+    turn only: a yes turn's message is the yes, and it runs on the stored
+    extraction with no second request."""
+    if skips_approval(state.user_message) and not reply.startswith(SKIP_LINE):
+        reply = f"{SKIP_LINE} {reply}"
     extraction = state.extraction
     if extraction is None or extraction.second_request is None:
         return reply

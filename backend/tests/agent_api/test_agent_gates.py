@@ -57,10 +57,14 @@ result. Nothing here imports langgraph, opens a socket or touches Postgres.
 """
 
 import ast
+import asyncio
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.agent import gates as gates_module
 from helpdesk.agent_api.agent.gates import (
@@ -85,8 +89,20 @@ from helpdesk.agent_api.agent.gates import (
     should_retrieve,
     validation_outcome,
 )
-from helpdesk.agent_api.agent.state import Intent, IntentEntities, IntentExtraction, TurnOutcome
+from helpdesk.agent_api.agent.nodes.validate_tool_calls import validate_tool_calls
+from helpdesk.agent_api.agent.state import (
+    Intent,
+    IntentEntities,
+    IntentExtraction,
+    ProposedCall,
+    ToolResult,
+    TurnOutcome,
+    TurnState,
+)
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY, TOOL_INPUTS
+from helpdesk.agent_api.agent.turn_deps import TurnDeps
+from helpdesk.agent_api.services.mcp_client import ToolCaller
+from helpdesk.agent_api.services.model_gateway.client import ModelClient
 
 SPEC_INTENTS: frozenset[str] = frozenset(
     {
@@ -724,7 +740,7 @@ def test_hold_drops_create_already_requested() -> None:
     asked and nothing is filed. `confirmed=False` is the case that would
     otherwise give `CONFIRM`, so only the repeat flag can flip it."""
     assert (
-        gates_module.held_round_outcome(holds_create=True, confirmed=False, already_requested=True)
+        gates_module.held_round_outcome(holds_change=True, confirmed=False, already_requested=True)
         is TurnOutcome.DONE
     )
 
@@ -734,6 +750,133 @@ def test_hold_still_confirms_a_new_request() -> None:
     default of `True`, or a flag read as "any create"): a request nobody has
     open yet must still ask for the yes with `CONFIRM`."""
     assert (
-        gates_module.held_round_outcome(holds_create=True, confirmed=False, already_requested=False)
+        gates_module.held_round_outcome(holds_change=True, confirmed=False, already_requested=False)
         is TurnOutcome.CONFIRM
     )
+
+
+# --- every mutating tool is held -----------------------------
+
+_ID = uuid.UUID("11111111-1111-5111-8111-111111111111")
+
+_MUTATING_ARGUMENTS: dict[str, dict[str, Any]] = {
+    "create_access_request": {
+        "target_user_id": str(_ID),
+        "role_id": str(_ID),
+        "justification": "Obviously fake reason.",
+    },
+    "revoke_access": {"grant_id": str(_ID), "reason": "Obviously fake reason."},
+    "onboard_user": {
+        "email": "fake.joiner@example.test",
+        "display_name": "Fake Joiner",
+        "department_id": str(_ID),
+        "start_date": "2026-11-02",
+        "manager_user_id": str(_ID),
+    },
+    "transfer_user": {
+        "user_id": str(_ID),
+        "new_department_id": str(_ID),
+        "effective_date": "2026-11-02",
+    },
+    "offboard_user": {"user_id": str(_ID), "end_date": "2026-11-02"},
+    "open_access_review": {"period": "2026-Q4"},
+    "decide_review_item": {"item_id": str(_ID), "decision": "keep"},
+    "approve_request": {"request_id": str(_ID)},
+    "reject_request": {"request_id": str(_ID), "reason": "Obviously fake reason."},
+    "reset_own_password": {},
+    "unlock_own_account": {},
+    "create_ticket": {"kind": "general", "title": "Fake", "body": "Obviously fake."},
+}
+_READ_ARGUMENTS: dict[str, dict[str, Any]] = {
+    "get_me": {},
+    "list_my_access": {},
+    "list_my_requests": {},
+    "list_my_tickets": {},
+    "list_pending_approvals": {},
+    "classify_access_request": {"target_user_id": str(_ID), "role_id": str(_ID)},
+}
+
+
+def _held_outcome(tool: str, arguments: dict[str, Any]) -> TurnOutcome:
+    """The outcome of validating a round that holds only this one proposed call,
+    on the first intent whose row allows the tool."""
+    intent = next(intent for intent in Intent if tool in INTENT_TOOLS[intent])
+    state = TurnState(
+        tenant_id=_ID,
+        user_id=_ID,
+        session_id=_ID,
+        tenant_slug="fake-tenant",
+        user_message="a fake message",
+        extraction=IntentExtraction(
+            intent=intent,
+            entities=IntentEntities(
+                system=None,
+                role=None,
+                target_user=None,
+                department=None,
+                expiry_days=None,
+                justification=None,
+            ),
+            confidence=1.0,
+            clarifying_question=None,
+            second_request=None,
+        ),
+        round_number=1,
+        proposed=(ProposedCall(tool=tool, arguments=arguments),),
+        # An approval or rejection must name a request this turn listed.
+        tool_results=(
+            ToolResult(
+                tool="list_pending_approvals",
+                ok=True,
+                payload={"approvals": [{"request_id": str(_ID)}]},
+            ),
+        ),
+    )
+    deps = TurnDeps(
+        db=cast(AsyncSession, None),
+        model=cast(ModelClient, None),
+        tools=cast(ToolCaller, None),
+        now=lambda: datetime(2026, 10, 21, 9, 0, tzinfo=UTC),
+    )
+    return asyncio.run(validate_tool_calls(state, deps)).outcome
+
+
+def test_the_table_lists_exactly_the_mutating_tools() -> None:
+    """Catches a table that has drifted from the tools: the mutating tools are
+    read off the argument models (a model with an idempotency key), so a new
+    mutating tool with no row here fails this test and cannot slip past the next."""
+    mutating = {
+        name for name, model in TOOL_INPUTS.items() if "idempotency_key" in model.model_fields
+    }
+
+    assert set(_MUTATING_ARGUMENTS) == mutating
+    assert not set(_READ_ARGUMENTS) & mutating
+
+
+@pytest.mark.parametrize("tool", sorted(_MUTATING_ARGUMENTS))
+def test_hold_covers_every_mutating_tool(tool: str) -> None:
+    """Catches a hold that covers only `create_access_request` (the old rule): each
+    mutating tool alone in a round, with no yes given, must give `CONFIRM`, so a
+    password reset, an unlock, a ticket or an approval never runs unasked."""
+    assert _held_outcome(tool, _MUTATING_ARGUMENTS[tool]) is TurnOutcome.CONFIRM
+
+
+@pytest.mark.parametrize("tool", sorted(_READ_ARGUMENTS))
+def test_reads_are_not_held(tool: str) -> None:
+    """Catches a hold that stops reads too: a round of one read tool goes on to
+    execution (`CONTINUE`), or a listing would ask a yes before it could show
+    anything."""
+    assert _held_outcome(tool, _READ_ARGUMENTS[tool]) is TurnOutcome.CONTINUE
+
+
+def test_hold_drops_a_new_mutation_on_a_confirmed_turn() -> None:
+    """Catches a confirmed turn that lets a change through that was never asked
+    about: after the yes, a new mutating round is dropped with `DONE`, whatever
+    the tool."""
+    assert gates_module.held_round_outcome(holds_change=True, confirmed=True) is TurnOutcome.DONE
+
+
+def test_no_mutation_in_the_round_is_left_alone() -> None:
+    """Catches a hold that returns an outcome for a round with nothing to hold:
+    `None` leaves a read-only round as it was."""
+    assert gates_module.held_round_outcome(holds_change=False, confirmed=False) is None

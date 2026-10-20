@@ -34,6 +34,7 @@ from collections.abc import Sequence
 
 from helpdesk.agent_api.agent import gates, matching
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind
+from helpdesk.agent_api.agent.confirmation import other_person
 from helpdesk.agent_api.agent.matching import Candidate
 from helpdesk.agent_api.agent.required_fields import AskStep, next_ask
 from helpdesk.agent_api.agent.role_words import grouped_suggestions, plain_role_name, role_word
@@ -142,7 +143,9 @@ def _ask_details(state: TurnState, resolved: ResolvedEntities) -> TurnState | No
         )
     reply = asked.reply
     if asked.step is AskStep.FIRST and resolved.role_name:
-        reply = f"That's {resolved.role_name}. {reply}"
+        person = other_person(extraction.entities)
+        role = f"{resolved.role_name} for {person}" if person else resolved.role_name
+        reply = f"That's {role}. {reply}"
     return state.model_copy(
         update={
             "outcome": TurnOutcome.CLARIFY,

@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from helpdesk.agent_api.agent.required_fields import is_non_answer
 from helpdesk.agent_api.agent.state import Intent, IntentExtraction, ToolResult, TurnOutcome
+from helpdesk.agent_api.agent.tool_args import needs_idempotency_key
 
 CONFIDENCE_THRESHOLD = 0.7
 """Inclusive. Lower lets a guess act; higher asks needless questions."""
@@ -220,9 +221,17 @@ TURN_DEADLINE_SECONDS = 90.0
 """Inclusive. Three MCP read timeouts, so a stalled tool times out first."""
 
 
-def allowed_tools(intent: Intent) -> frozenset[str]:
-    """The tools this intent's planner may propose."""
-    return INTENT_TOOLS[intent]
+CREATE_TICKET = "create_ticket"
+
+
+def allowed_tools(intent: Intent, second_request: Intent | None = None) -> frozenset[str]:
+    """The tools this intent's planner may propose. With a second request in
+    the message, `create_ticket` goes unless the ticket is the first request,
+    so nothing acts on the second (`test_a_ticket_beside_a_second_request_is_refused`)."""
+    tools = INTENT_TOOLS[intent]
+    if second_request is not None and intent is not Intent.OPEN_TICKET:
+        return tools - {CREATE_TICKET}
+    return tools
 
 
 def may_plan_another_round(
@@ -258,16 +267,21 @@ CREATE_ACCESS_REQUEST = "create_access_request"
 nothing."""
 
 
+def is_change(tool: str) -> bool:
+    """Whether a call changes something: its arguments carry an idempotency key."""
+    return needs_idempotency_key(tool)
+
+
 def held_round_outcome(
-    *, holds_create: bool, confirmed: bool, already_requested: bool = False
+    *, holds_change: bool, confirmed: bool, already_requested: bool = False
 ) -> TurnOutcome | None:
-    """`CONFIRM` when an accepted round would file a request nobody said yes
-    to. A confirmed turn already ran the calls the person agreed to, so a new
-    create there is dropped with `DONE`: it was never asked about. A create
-    for a request this turn already found open is dropped with `DONE` too, so
-    nobody is asked to file it twice (`test_hold_drops_create_already_requested`).
-    `None` leaves the round as it was."""
-    if not holds_create:
+    """`CONFIRM` when an accepted round would make a change nobody said yes
+    to, any mutating tool. A confirmed turn already ran the calls the
+    person agreed to, so a new change there is dropped with `DONE`: it was never
+    asked about. A round in a turn that already found the request open is
+    dropped with `DONE` too, so nobody is asked to file it twice
+    (`test_hold_drops_create_already_requested`). `None` leaves the round as it was."""
+    if not holds_change:
         return None
     if already_requested:
         return TurnOutcome.DONE
@@ -343,6 +357,23 @@ run, in another process, when the approver decided."""
 
 REJECT_REQUEST = "reject_request"
 """The same for a rejection."""
+
+LIST_PENDING_APPROVALS = "list_pending_approvals"
+"""The listing an approval in chat must come from."""
+
+
+def listed_request_ids(results: Sequence[ToolResult]) -> frozenset[str]:
+    """The request ids this turn's successful approval listings showed."""
+    ids: set[str] = set()
+    for result in results:
+        if result.tool != LIST_PENDING_APPROVALS or not result.ok:
+            continue
+        rows: object = result.payload.get("approvals")
+        if not isinstance(rows, list):
+            continue
+        ids.update(str(row.get("request_id")) for row in rows if isinstance(row, dict))
+    return frozenset(ids)
+
 
 DECIDED_RESULTS: Mapping[str, tuple[str, bool]] = {
     "approved": (APPROVE_REQUEST, True),

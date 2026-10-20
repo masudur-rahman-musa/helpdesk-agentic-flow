@@ -12,17 +12,27 @@ saved request draft (`request_draft.py`), leaves the result to save
 clear follow-up ("say it shorter") skips resolving, search and tools: it goes
 straight to the reply, or ends on the cannot-place line when there is no
 earlier reply to reshape (`test_follow_up.py`).
+
+Three fixed stops and one fixed blank, by code, never the model. A
+reset or unlock keeps no system or role, so none reaches its reply or draft
+(`test_reset_and_wiki_opens_no_ticket`). A request for access to everything
+ends on the fixed no (`test_everything_stops_with_no`). A request for someone
+else ends on the only-for-you line unless the speaker may ask for others
+(`test_employee_asking_for_a_friend_is_told_no`).
 """
 
 from helpdesk.agent_api.agent import gates
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind
+from helpdesk.agent_api.agent.confirmation import only_for_you_reply, other_person
 from helpdesk.agent_api.agent.follow_up import CANNOT_PLACE_REPLY, last_assistant_reply
 from helpdesk.agent_api.agent.prompts import load_prompt
+from helpdesk.agent_api.agent.pushback import EVERYTHING_REPLY, wants_everything
 from helpdesk.agent_api.agent.request_draft import draft_dump, merge_draft
 from helpdesk.agent_api.agent.required_fields import Ask, AskStep, next_ask
 from helpdesk.agent_api.agent.state import Intent, IntentExtraction, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias
+from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud.sessions import set_request_draft
@@ -36,6 +46,9 @@ DEFAULT_CLARIFYING_QUESTION = (
 )
 """Used when the check fires but the model wrote no question, which happens
 when only an entity is missing."""
+
+_SELF_SERVICE = frozenset({Intent.RESET_PASSWORD, Intent.UNLOCK_ACCOUNT})
+"""Intents about the speaker's own account: no system or role belongs on them."""
 
 FAILURE_REPLY = (
     "Sorry, I could not work out what you need just now. Please try saying it "
@@ -87,10 +100,22 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
         )
 
     extraction, draft = merge_draft(
-        state.request_draft, answer.value, now=deps.now(), threshold=threshold
+        state.request_draft, _without_systems(answer.value), now=deps.now(), threshold=threshold
     )
     state = state.model_copy(update={"draft_to_save": draft})
     tokens_used = state.tokens_used + answer.usage.total_tokens
+
+    stop = _fixed_stop(state, extraction)
+    if stop is not None:
+        return state.model_copy(
+            update={
+                "extraction": extraction,
+                "prompt_version": prompt.sha256,
+                "tokens_used": tokens_used,
+                "outcome": TurnOutcome.STOP,
+                "reply": stop,
+            }
+        )
 
     if extraction.intent is Intent.FOLLOW_UP and extraction.confidence >= threshold:
         # Nothing to ask or look up: reshape the last reply, or say what is possible.
@@ -141,6 +166,28 @@ async def extract_intent(state: TurnState, deps: TurnDeps) -> TurnState:
             ),
         }
     )
+
+
+def _without_systems(extraction: IntentExtraction) -> IntentExtraction:
+    """A reset or unlock with its system and role blanked; anything else as it is."""
+    if extraction.intent not in _SELF_SERVICE:
+        return extraction
+    entities = extraction.entities.model_copy(update={"system": None, "role": None})
+    return extraction.model_copy(update={"entities": entities})
+
+
+def _fixed_stop(state: TurnState, extraction: IntentExtraction) -> str | None:
+    """The fixed reply a request ends on before anything is looked up, or `None`."""
+    if extraction.intent is not Intent.REQUEST_ACCESS:
+        return None
+    if wants_everything(state.user_message):
+        return EVERYTHING_REPLY
+    person = other_person(extraction.entities)
+    if person is not None and rbac.Tool.CREATE_ACCESS_REQUEST_ON_BEHALF not in rbac.tools_for(
+        state.principals
+    ):
+        return only_for_you_reply(person)
+    return None
 
 
 def _ask_by_the_rule(

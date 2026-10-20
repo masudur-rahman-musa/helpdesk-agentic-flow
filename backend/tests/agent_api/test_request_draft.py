@@ -137,7 +137,7 @@ def test_a_new_system_drops_the_saved_role() -> None:
     assert saved is not None
     assert saved.role is None
     assert saved.system == "ledger"
-    assert saved.justification == "to read the runbooks"
+    assert saved.justification is None
 
 
 @pytest.mark.parametrize("same", ["Internal-Wiki", "  internal-wiki  ", "INTERNAL-WIKI"])
@@ -333,3 +333,85 @@ def test_the_next_ask_follows_the_list_order(
 
     assert asked is not None
     assert asked.reply == question
+
+
+# --- a new system or a new role asks the reason again -----
+
+REASONED = _draft(
+    system="internal-wiki",
+    role="editor",
+    target_user="Dana",
+    expiry_days=5,
+    justification="to update docs",
+)
+
+
+def test_a_new_role_drops_the_saved_reason() -> None:
+    """Catches the live failure of "actually make it CRM viewer instead" keeping
+    "to update docs": the message names a new system and role and no reason, so
+    the saved reason must go while the 5 days and the person stay."""
+    merged, saved = merge_draft(REASONED, _message(system="crm", role="viewer"), now=NOW)
+
+    assert merged.entities.role == "viewer"
+    assert merged.entities.justification is None
+    assert merged.entities.expiry_days == 5
+    assert merged.entities.target_user == "Dana"
+    assert saved is not None
+    assert saved.justification is None
+    assert saved.expiry_days == 5
+    assert saved.target_user == "Dana"
+
+
+def test_a_new_role_on_the_same_system_drops_the_saved_reason() -> None:
+    """Catches a rule that fires only on a new system: the person keeps the wiki
+    and changes "editor" to "viewer", which leaves the system unchanged, so only a
+    check on the role itself can drop the reason."""
+    merged, saved = merge_draft(REASONED, _message(role="viewer"), now=NOW)
+
+    assert merged.entities.system == "internal-wiki"
+    assert merged.entities.role == "viewer"
+    assert merged.entities.justification is None
+    assert saved is not None
+    assert saved.justification is None
+    assert saved.expiry_days == 5
+
+
+def test_the_same_role_typed_again_keeps_the_saved_reason() -> None:
+    """Catches a rule that drops the reason on any role the message names: saying
+    "Editor" again for the saved "editor" is not a change, so the reason stays."""
+    merged, saved = merge_draft(REASONED, _message(role="Editor"), now=NOW)
+
+    assert merged.entities.justification == "to update docs"
+    assert saved is not None
+    assert saved.justification == "to update docs"
+
+
+def test_a_new_reason_with_the_new_role_is_kept() -> None:
+    """Catches a rule that empties the reason after merging the message in: when
+    the same message names the CRM viewer role and a reason, that reason stays."""
+    merged, saved = merge_draft(
+        REASONED,
+        _message(system="crm", role="viewer", justification="to check accounts"),
+        now=NOW,
+    )
+
+    assert merged.entities.justification == "to check accounts"
+    assert merged.entities.expiry_days == 5
+    assert saved is not None
+    assert saved.justification == "to check accounts"
+
+
+def test_the_old_reason_repeated_with_a_new_role_is_dropped() -> None:
+    """Catches the live run of 2026-10-21, where the model copied "to update
+    docs" from the history into the CRM viewer message: a reason that only
+    repeats the saved one for the old role is not a new reason, so it is asked
+    again."""
+    merged, saved = merge_draft(
+        REASONED,
+        _message(system="crm", role="viewer", justification="To update docs"),
+        now=NOW,
+    )
+
+    assert merged.entities.justification is None
+    assert saved is not None
+    assert saved.justification is None

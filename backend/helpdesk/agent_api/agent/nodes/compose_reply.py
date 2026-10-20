@@ -65,7 +65,7 @@ from helpdesk.agent_api.agent.follow_up import (
     CANNOT_PLACE_REPLY,
     OUT_OF_SCOPE_REPLY,
     last_assistant_reply,
-    with_second_line,
+    with_fixed_lines,
 )
 from helpdesk.agent_api.agent.gates import REQUIRED_ENTITIES
 from helpdesk.agent_api.agent.next_steps import next_step_lines
@@ -383,7 +383,7 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
             reply = groups_reply(groups)
         reply = _with_correct_me(reply, state)
         reply_citations = ()
-    reply = check_message_content(with_second_line(_with_held(reply, rows), state))
+    reply = check_message_content(with_fixed_lines(_with_held(reply, rows), state))
     if _asks_before_filing(asks_question, state):
         await note_question(state, deps, QuestionKind.OTHER)
 

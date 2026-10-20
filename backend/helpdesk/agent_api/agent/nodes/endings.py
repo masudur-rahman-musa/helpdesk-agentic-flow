@@ -1,14 +1,15 @@
 """The end nodes: every way the turn can stop early.
 
 Each only stores the reply already on the state as the assistant message,
-with the second-request line when the message held two requests; the decision
+with the second-request line when the message held two requests and the
+skip-approval line first when it asked to skip approval; the decision
 was made earlier. `fail_turn` exists so a turn the model could
 not read ends with one fixed reply, not a clarifying question nobody asked.
 """
 
 from helpdesk.agent_api.agent.clarify_cap import QuestionKind, stored_kind
-from helpdesk.agent_api.agent.confirmation import OpenQuestion, summary_reply
-from helpdesk.agent_api.agent.follow_up import with_second_line
+from helpdesk.agent_api.agent.confirmation import OpenQuestion, change_summary, other_person
+from helpdesk.agent_api.agent.follow_up import with_fixed_lines
 from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.state import ResolvedEntities, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
@@ -24,7 +25,7 @@ from helpdesk.shared.models.conversation import MessageRole
 
 async def _store_reply(state: TurnState, deps: TurnDeps, reply: str) -> TurnState:
     """Write the assistant message and carry the reply on the state."""
-    reply = with_second_line(reply, state)
+    reply = with_fixed_lines(reply, state)
     await append_message(
         deps.db,
         session_id=state.session_id,
@@ -66,7 +67,7 @@ async def ask_disambiguation(state: TurnState, deps: TurnDeps) -> TurnState:
 
 
 async def ask_confirmation(state: TurnState, deps: TurnDeps) -> TurnState:
-    """End: show the summary of what a yes files and store the held round
+    """End: show the summary of what a yes runs and store the held round
     for the next message. Nothing is filed; `validated` is cleared once stored, so the
     calls live only on the chat row until a yes."""
     extraction = state.extraction
@@ -83,7 +84,12 @@ async def ask_confirmation(state: TurnState, deps: TurnDeps) -> TurnState:
     await set_open_question(
         deps.db, session_id=state.session_id, value=question.model_dump(mode="json")
     )
-    reply = summary_reply(state.resolved, state.tool_results, state.validated)
+    reply = change_summary(
+        state.validated,
+        state.tool_results,
+        state.resolved,
+        other_person(extraction.entities),
+    )
     stored = await _store_reply(state, deps, reply)
     return stored.model_copy(update={"validated": ()})
 

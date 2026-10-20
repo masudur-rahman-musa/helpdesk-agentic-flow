@@ -55,8 +55,18 @@ def _given(value: object) -> bool:
     return True
 
 
-def _same_system(first: str, second: str) -> bool:
+def _same_name(first: str, second: str) -> bool:
     return first.strip().lower() == second.strip().lower()
+
+
+def _repeats(value: object, old: object) -> bool:
+    """Whether a reason only repeats the saved one
+    (`test_the_old_reason_repeated_with_a_new_role_is_dropped`)."""
+    return (
+        isinstance(value, str)
+        and isinstance(old, str)
+        and value.strip().lower() == old.strip().lower()
+    )
 
 
 def _changes_subject(
@@ -81,7 +91,9 @@ def merge_draft(
     """The message laid over the saved draft: the extraction the turn goes on
     with, and the draft to save (`None` when there is nothing to keep).
 
-    A given field replaces the saved one. A new system drops the saved role. A
+    A given field replaces the saved one. A new system drops the saved role and
+    reason, and a new role drops the saved reason, even when the message
+    repeats it word for word. A
     clear change of subject starts empty. The merged extraction keeps the
     message's own intent label, so routing sees a follow-up as one."""
     start = None if _changes_subject(draft, extraction, threshold) else draft
@@ -90,12 +102,24 @@ def merge_draft(
     new_system = (
         _given(message.system)
         and isinstance(base["system"], str)
-        and not _same_system(base["system"], str(message.system))
+        and not _same_name(base["system"], str(message.system))
     )
+    new_role = (
+        _given(message.role)
+        and isinstance(base["role"], str)
+        and not _same_name(base["role"], str(message.role))
+    )
+    old_reason = base["justification"]
     if new_system:
         base["role"] = None
+    if new_system or new_role:
+        # The reason was given for the old role; ask it again.
+        base["justification"] = None
     for name in _FIELDS:
         value = getattr(message, name)
+        if name == "justification" and base[name] is None and _repeats(value, old_reason):
+            # The model copied the old reason from the history; it is not a new one.
+            continue
         if _given(value) or base[name] is None:
             base[name] = value
     merged = extraction.model_copy(update={"entities": IntentEntities(**base)})

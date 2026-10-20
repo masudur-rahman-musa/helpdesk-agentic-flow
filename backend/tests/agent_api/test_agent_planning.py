@@ -319,7 +319,7 @@ def test_a_valid_round_of_two_yields_two_validated_calls_in_the_proposed_order()
 
     result = _validate(state)
 
-    assert result.outcome is TurnOutcome.CONTINUE
+    assert result.outcome is TurnOutcome.CONFIRM  # a change is held for a yes
     assert [call.tool for call in result.validated] == ["classify_access_request", "create_ticket"]
 
 
@@ -354,7 +354,7 @@ def test_a_validated_mutating_call_carries_the_agents_derived_key() -> None:
 
     result = _validate(state)
 
-    assert result.outcome is TurnOutcome.CONTINUE
+    assert result.outcome is TurnOutcome.CONFIRM  # a change is held for a yes
     assert len(result.validated) == 1
     assert result.validated[0].arguments[IDEMPOTENCY_KEY] == derive_idempotency_key(
         session_id=SESSION_ID,
@@ -375,7 +375,7 @@ def test_two_mutating_calls_in_one_round_get_two_different_keys() -> None:
 
     result = _validate(state)
 
-    assert result.outcome is TurnOutcome.CONTINUE
+    assert result.outcome is TurnOutcome.CONFIRM  # a change is held for a yes
     keys = [call.arguments[IDEMPOTENCY_KEY] for call in result.validated]
     assert len(set(keys)) == 2
 
