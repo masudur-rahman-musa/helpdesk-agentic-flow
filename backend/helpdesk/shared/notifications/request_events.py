@@ -17,10 +17,11 @@ from typing import Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.access.approvals import SlotState
+from helpdesk.shared.access.role_names import plain_role_name, role_word
 from helpdesk.shared.auth.rbac import Principal
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.users import fetch_active_holders, find_user_by_id
-from helpdesk.shared.models import AccessRequest, Grant, Role
+from helpdesk.shared.models import AccessRequest, Grant, Role, System
 from helpdesk.shared.models.notification import NOTIFICATION_BODY_MAX_LENGTH, NotificationKind
 from helpdesk.shared.models.numbers import NumberKind, format_number
 from helpdesk.shared.notifications.notify import notify
@@ -229,8 +230,12 @@ async def send(
 
 
 async def _role_name(session: AsyncSession, role_id: uuid.UUID) -> str:
+    """The role in plain words ("Production Cluster deployer"), never its stored code."""
     role = await Repository(session, Role).get(role_id)
-    return "a role" if role is None else role.name
+    if role is None:
+        return "a role"
+    system = await Repository(session, System).get(role.system_id)
+    return role_word(role.slug) if system is None else plain_role_name(system.name, role.slug)
 
 
 async def _facts(session: AsyncSession, request: AccessRequest) -> RequestFacts:

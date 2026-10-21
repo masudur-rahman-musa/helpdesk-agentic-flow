@@ -301,6 +301,35 @@ def test_filing_for_approval_notifies_each_approver(mcp_env: SeededMcp) -> None:
     assert _notes_for_user(mcp_env, requester.user_id) == []
 
 
+def test_request_notifications_name_the_role_in_plain_words(mcp_env: SeededMcp) -> None:
+    """Catches a notification that names the stored role code (`prod-k8s.deployer`)
+    instead of the plain name a person reads ("Production Cluster deployer").
+
+    The role name is read from the real rows, so a lookup that returns the
+    stored name fails here even when the wording tests pass with a plain name
+    handed in.
+    """
+    requester = _plant_user(mcp_env)
+    payload = _structured(
+        call_tool(
+            bearer(token_for(requester)),
+            CREATE,
+            {
+                "target_user_id": str(requester.user_id),
+                "role_id": str(APPROVAL_ROLE),
+                "justification": f"fake access request {uuid.uuid4().hex}",
+                "idempotency_key": _key(),
+            },
+        )
+    )
+    notes = _notes_about(mcp_env, REQUEST_SUBJECT, uuid.UUID(str(payload["request_id"])))
+    assert notes, "premise: the filing told the approvers"
+    for note in notes:
+        assert "Production Cluster deployer" in note.title, note.title
+        assert "Production Cluster deployer" in note.body, note.body
+        assert "prod-k8s" not in note.title + note.body
+
+
 def test_auto_grant_for_someone_else_tells_the_target(mcp_env: SeededMcp) -> None:
     """Catches an auto grant that tells nobody, one that tells the requester
     about their own action, and one that tells a person who granted

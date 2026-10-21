@@ -1,6 +1,7 @@
 """Roles in plain words, the one rule every code-written chat line uses.
 
-Pure: no I/O. A role reads as its system's name, then the role slug with `-`
+Pure: no I/O. The plain-name rule lives in `shared/access/role_names.py`, so
+notifications use the same one. A role reads as its system's name, then the role slug with `-`
 and `_` read as spaces ("Internal Wiki editor"). The stored role name
 (`wiki.editor`) never reaches the chat; it stays what matching and the tools
 read (`test_role_words.py`).
@@ -9,15 +10,15 @@ read (`test_role_words.py`).
 from collections.abc import Sequence
 from typing import Any
 
+from helpdesk.shared.access.role_names import plain_role_name, role_word
 
-def role_word(role_slug: str) -> str:
-    """The role's own word: its slug with `-` and `_` read as spaces."""
-    return role_slug.replace("-", " ").replace("_", " ")
-
-
-def plain_role_name(system_name: str, role_slug: str) -> str:
-    """ "Internal Wiki editor": the system's name, then the role's own word."""
-    return f"{system_name} {role_word(role_slug)}"
+__all__ = [
+    "grouped_suggestions",
+    "joined_with_or",
+    "plain_role_name",
+    "role_word",
+    "with_plain_role_names",
+]
 
 
 def joined_with_or(words: Sequence[str]) -> str:
