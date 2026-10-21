@@ -646,10 +646,17 @@ def _assign_principals(
     auditor = users_by_department[spec.auditor_department][1]
     auditor.principals.add("auditor")
 
+    # The demo manager runs the demo employee's own department, and the demo
+    # system owner owns the one prod_infra system, the only category that adds
+    # the it_admin seat. So one request from the demo employee for that system
+    # reaches the demo manager, owner and IT admin
+    # (test_one_request_reaches_all_three_demo_approvers).
+    employee = users_by_department[spec.departments[1]][5]
+    prod_infra = next(slug for slug, _n, _s, category in spec.systems if category == "prod_infra")
     demo_accounts = {
-        "employee": users_by_department[spec.departments[1]][5],
-        "manager": users_by_department[spec.departments[0]][0],
-        "system_owner": owners[spec.systems[0][0]],
+        "employee": employee,
+        "manager": users_by_department[employee.department][0],
+        "system_owner": owners[prod_infra],
         "hr": hr_officer,
         "it_admin": it_admins[0],
         "auditor": auditor,
