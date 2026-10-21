@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { ApprovalDetails } from "@/features/approvals/components/approval-details";
 import {
@@ -18,7 +18,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Alert } from "@/components/ui/alert";
-import { TextArea } from "@/components/ui/field";
+import { Label, TextArea } from "@/components/ui/field";
 import { formatIsoDate } from "@/lib/date-format";
 
 /**
@@ -100,8 +100,9 @@ function ApprovalRow({ approval }: { approval: PendingApproval }) {
  * becomes.
  */
 function DecideControls({ approval }: { approval: PendingApproval }) {
-  const [comment, setComment] = useState("");
-  const [reason, setReason] = useState("");
+  // One note: Approve sends it as the optional comment, Reject as the reason.
+  const [note, setNote] = useState("");
+  const noteId = useId();
   const [blankReason, setBlankReason] = useState(false);
 
   const approve = useApproveRequest(approval.request_id);
@@ -113,34 +114,30 @@ function DecideControls({ approval }: { approval: PendingApproval }) {
 
   function onApprove(): void {
     setBlankReason(false);
-    approve.mutate(comment.trim() === "" ? null : comment);
+    approve.mutate(note.trim() === "" ? null : note);
   }
 
   function onReject(): void {
     // Caught here to save a round trip. Trimmed, so three spaces do not pass.
-    if (reason.trim() === "") {
+    if (note.trim() === "") {
       setBlankReason(true);
       return;
     }
     setBlankReason(false);
-    reject.mutate(reason);
+    reject.mutate(note);
   }
 
   return (
     <div className="flex flex-col gap-2">
       {message !== null ? <Alert>{message}</Alert> : null}
 
+      <Label htmlFor={noteId}>Note (needed to reject)</Label>
       <TextArea
-        aria-label={`Comment for ${approval.role_name}`}
+        id={noteId}
+        aria-label={`Note for ${approval.role_name}`}
         rows={2}
-        value={comment}
-        onChange={(event) => setComment(event.target.value)}
-      />
-      <TextArea
-        aria-label={`Reason for ${approval.role_name}`}
-        rows={2}
-        value={reason}
-        onChange={(event) => setReason(event.target.value)}
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
       />
 
       <div className="flex flex-wrap gap-2">

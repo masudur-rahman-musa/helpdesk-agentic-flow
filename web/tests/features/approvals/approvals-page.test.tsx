@@ -34,7 +34,7 @@ import { reasonSentence } from "@/lib/decision-labels";
  *   (`rowsOf`), because `getAllByRole("listitem")` inside a list also returns
  *   every nested list's items.
  * - the per-row controls are named with the role name, the `grant-list.tsx`
- *   shape: textboxes `Comment for <role_name>` and `Reason for <role_name>`,
+ *   shape: one textbox `Note for <role_name>`, sent as the comment or the reason,
  *   buttons `Approve <role_name>` and `Reject <role_name>`.
  * - a refused decision's sentence is a `role="alert"` INSIDE that row; the
  *   failed READ's sentence is the region-level alert, and the two are located
@@ -415,14 +415,14 @@ describe("ApprovalQueue — filing a decision", () => {
   const DECISIONS = [
     {
       verb: "approve",
-      field: "Comment for Fake Payroll Read",
+      field: "Note for Fake Payroll Read",
       button: "Approve Fake Payroll Read",
       key: "comment",
       text: "Obviously fake comment.",
     },
     {
       verb: "reject",
-      field: "Reason for Fake Payroll Read",
+      field: "Note for Fake Payroll Read",
       button: "Reject Fake Payroll Read",
       key: "reason",
       text: "Obviously fake reason.",
@@ -479,7 +479,7 @@ describe("ApprovalQueue — filing a decision", () => {
 
     const rows = await approvalRows();
     const row = at(rows, 0);
-    const field = within(row).getByRole("textbox", { name: "Comment for Fake Payroll Read" });
+    const field = within(row).getByRole("textbox", { name: "Note for Fake Payroll Read" });
     expect(field).not.toHaveAttribute("maxlength");
 
     fireEvent.change(field, { target: { value: comment } });
@@ -516,7 +516,7 @@ describe("ApprovalQueue — filing a decision", () => {
     const target = at(rows, 0);
     if (row.reason !== "") {
       await user.type(
-        within(target).getByRole("textbox", { name: "Reason for Fake Payroll Read" }),
+        within(target).getByRole("textbox", { name: "Note for Fake Payroll Read" }),
         row.reason,
       );
     }
@@ -601,7 +601,7 @@ describe("ApprovalQueue — filing a decision", () => {
     const rows = await approvalRows();
     expect(rows).toHaveLength(2);
     await user.type(
-      within(at(rows, 0)).getByRole("textbox", { name: "Comment for Fake Payroll Read" }),
+      within(at(rows, 0)).getByRole("textbox", { name: "Note for Fake Payroll Read" }),
       "Obviously fake comment.",
     );
     await user.click(
@@ -662,7 +662,7 @@ describe("ApprovalQueue — a refused decision", () => {
       const rows = await approvalRows();
       const row = at(rows, 0);
       await user.type(
-        within(row).getByRole("textbox", { name: "Comment for Fake Payroll Read" }),
+        within(row).getByRole("textbox", { name: "Note for Fake Payroll Read" }),
         "Obviously fake comment.",
       );
       await user.click(within(row).getByRole("button", { name: "Approve Fake Payroll Read" }));
