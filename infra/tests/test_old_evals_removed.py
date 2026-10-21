@@ -118,7 +118,7 @@ def test_the_makefile_has_no_eval_target() -> None:
 def test_no_live_file_names_the_old_eval() -> None:
     """Catches a doc, config, script, duration list or status line that still
     names the old route, files, models or command (the listed test names in
-    `dev/scripts/test_durations.json` and the carry-forward lines in
+    `.github/scripts/test_durations.json` and the carry-forward lines in
     the project notes included).
 
     The scan reads every tracked file outside the tests and the history

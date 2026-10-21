@@ -28,7 +28,7 @@ repos:
     rev: v0.16.5
     hooks:
       # The one ruff config lives in backend/; without --config, files outside
-      # it (infra/tests, dev/scripts) get ruff's defaults. Pinned by
+      # it (infra/tests, .github/scripts) get ruff's defaults. Pinned by
       # infra/tests/test_ruff_config.py.
       - id: ruff-format
         args: [--config, backend/pyproject.toml]
@@ -41,7 +41,7 @@ repos:
       # here as well as by the Claude write hook and the CI lint job.
       - id: check-root
         name: root allowlist
-        entry: python3 dev/scripts/check_root.py
+        entry: python3 .github/scripts/check_root.py
         language: system
         pass_filenames: false
         always_run: true

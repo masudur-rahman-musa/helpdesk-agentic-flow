@@ -1,8 +1,8 @@
 """An earlier change's input-validation criterion: the e2e reset refuses a non-local
 database and an oversize tenant slug BEFORE it drops anything.
 
-Expected implementation surface (`dev/scripts/e2e_reset.py`, importable as
-`dev.scripts.e2e_reset` because `conftest.py` puts the repo root on `sys.path`):
+Expected implementation surface (`backend/scripts/e2e_reset.py`, importable as
+`scripts.e2e_reset` because `backend/` is on the import path):
 
     LOCAL_HOSTS: tuple[str, str]
         Exactly `("localhost", "127.0.0.1")`.
@@ -46,7 +46,9 @@ from collections.abc import Sequence
 import pytest
 from sqlalchemy import String
 
-from dev.scripts.e2e_reset import (
+from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.models.directory import Tenant
+from scripts.e2e_reset import (
     DROP_STATEMENTS,
     LOCAL_HOSTS,
     TENANT_SLUG_CAP,
@@ -55,8 +57,6 @@ from dev.scripts.e2e_reset import (
     check_tenant_slug,
     reset,
 )
-from helpdesk.shared.core.errors import ErrorCode
-from helpdesk.shared.models.directory import Tenant
 
 _LOCALHOST_URL = "postgresql+asyncpg://helpdesk:pw@localhost:5432/helpdesk"
 _LOOPBACK_URL = "postgresql+asyncpg://helpdesk:pw@127.0.0.1:5432/helpdesk"

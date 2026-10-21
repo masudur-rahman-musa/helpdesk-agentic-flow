@@ -3,7 +3,7 @@
 A locustfile, run by `make load-smoke`. It answers one question - what a chat
 turn costs under a load one demo machine can actually produce - and it answers
 it against the REAL gateway under the `agent-default` alias (decision D). A p95
-measured against `dev/scripts/e2e/gateway_stub.py` would measure this repo's own
+measured against `backend/scripts/e2e/gateway_stub.py` would measure this repo's own
 overhead and nothing a reader would care about, so this target and `make e2e`
 deliberately do not share a model.
 
@@ -32,7 +32,7 @@ from typing import Any
 
 from locust import HttpUser, between, events, task
 
-from dev.scripts.e2e_accounts import accounts
+from scripts.e2e_accounts import accounts
 
 CHAT_ENDPOINT = "/chat"
 LOGIN_ENDPOINT = "/auth/login"

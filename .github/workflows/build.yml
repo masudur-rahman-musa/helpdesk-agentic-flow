@@ -2,7 +2,7 @@ name: build
 
 # Publishes the four service images to GHCR. This is the only place an image
 # of this repository is ever pushed to a registry; `make images` and
-# `dev/scripts/build_images.py` stay the local path, and neither can do an
+# `infra/scripts/build_images.py` stay the local path, and neither can do an
 # attestation, which is why this file drives
 # docker/build-push-action directly instead of shelling out to that script.
 #

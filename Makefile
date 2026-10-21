@@ -1,5 +1,5 @@
 .PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify infra-check e2e load-smoke eval-chat images app-up app-down
-# Where `dev/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
+# Where `backend/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
 # something to leave in the working tree.
@@ -53,13 +53,13 @@ test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
 	  tests/shared/test_policy_purity.py \
 	  --cov=helpdesk.shared.policy --cov-branch --cov-report=term-missing --cov-fail-under=100
 lint:       ## Lint
-	# dev/scripts, infra/load and infra/tests sit outside backend/, where the one ruff config
+	# .github/scripts, infra/scripts, infra/load and infra/tests sit outside backend/, where the one ruff config
 	# lives, so --config holds them to the project's rule set, not ruff's default.
-	uv run --project backend ruff check --config backend/pyproject.toml backend dev/scripts infra/load infra/tests
+	uv run --project backend ruff check --config backend/pyproject.toml backend .github/scripts infra/scripts infra/load infra/tests
 typecheck:  ## Static types
 	cd backend && uv run mypy
 format:     ## Auto-format
-	uv run --project backend ruff format --config backend/pyproject.toml backend dev/scripts infra/load infra/tests
+	uv run --project backend ruff format --config backend/pyproject.toml backend .github/scripts infra/scripts infra/load infra/tests
 web-verify: ## The web gate: types, lint, unit tests, production build
 	pnpm -C web install --frozen-lockfile && pnpm -C web typecheck && pnpm -C web lint \
 	  && pnpm -C web test && pnpm -C web build
@@ -105,8 +105,8 @@ verify: format lint typecheck test test-policy web-verify security   ## The full
 e2e:        ## The five SPEC 16 flows in a real browser (manual; needs docker compose up -d)
 	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright pnpm -C web exec playwright install chromium
 	mkdir -p .cache
-	cd backend && uv run python ../dev/scripts/e2e_reset.py
-	cd backend && E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) uv run python ../dev/scripts/e2e_accounts.py
+	cd backend && uv run python scripts/e2e_reset.py
+	cd backend && E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) uv run python scripts/e2e_accounts.py
 	pnpm -C web build
 	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) \
 	  pnpm -C web exec playwright test
@@ -115,14 +115,14 @@ load-smoke: ## 20 chat sessions for 5 minutes against the REAL gateway (manual, 
 	  --users 20 --spawn-rate 2 --run-time 5m \
 	  --host $${AGENT_API_URL:-http://localhost:8000}
 eval-chat:  ## Conversation evals: the 33 cases played here, scored by the console (manual, costs money)
-	cd backend && uv run python ../dev/scripts/e2e_reset.py
+	cd backend && uv run python scripts/e2e_reset.py
 	cd backend && uv run python scripts/seed.py
 	cd $(CONSOLE_DIR) && uv run --project backend ops-eval conversations --target $(AGENT_API_URL) \
 	  --cases $(CURDIR)/backend/evals/conversations/cases.jsonl
 infra-check: ## Validate infrastructure as code (no apply)
 	echo 'deployed by the companion console infra'
 images:     ## Build the four service images locally: make images TAG=local
-	uv run --project backend python dev/scripts/build_images.py --tag $(IMAGE_TAG)
+	uv run --project backend python infra/scripts/build_images.py --tag $(IMAGE_TAG)
 up:         ## Start everything in Docker: backing services and the four app containers (same as app-up)
 	$(MAKE) app-up
 # `make rebuild` or `make rebuild all`: rebuild and restart every app container,

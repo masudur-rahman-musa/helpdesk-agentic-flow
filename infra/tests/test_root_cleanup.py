@@ -54,7 +54,7 @@ COMPOSE = REPO_ROOT / "docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / "backend" / ".env.example"
 CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 MAKEFILE = REPO_ROOT / "Makefile"
-CHECK_ROOT = REPO_ROOT / "dev" / "scripts" / "check_root.py"
+CHECK_ROOT = REPO_ROOT / ".github" / "scripts" / "check_root.py"
 
 APP_SERVICES = ("helpdesk-agent-api", "helpdesk-mcp-server", "helpdesk-scheduler")
 """The three services that read `env_file: [.env]` before this plan."""

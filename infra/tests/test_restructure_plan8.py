@@ -8,12 +8,15 @@ An earlier change (restructure An earlier change) finishes the move: `k8s/` goes
 goes to `infra/load/`; the dev-only scripts (`build_images.py`,
 `select_tests.py`, `test_shard.py`, `test_durations.json`, `e2e_reset.py`,
 `e2e_accounts.py`, `git-pre-push-guard.sh`, and the e2e stub plus its four
-fixtures) go to `dev/scripts/`; the ADRs `docs/adr/*` go to the project notes;
+fixtures) go to `dev/scripts/`. A later move took the public ones on by kind:
+`build_images.py` to `infra/scripts/`, `test_shard.py` and its timings to
+`.github/scripts/`, and the e2e scripts and stub to `backend/scripts/`. The
+ADRs `docs/adr/*` go to the project notes;
 `docs/runbook.md`, `telemetry.md`, `threat-model.md` and `deploy.md` go to
 the project notes; `docs/architecture.md` becomes root `ARCHITECTURE.md`;
 `CUSTOMIZING.md` becomes `docs/customizing.md`; new root `AGENTS.md` and
 `SECURITY.md` are added. Last, the TEMPORARY block of `.claude/root-allowlist`
-is deleted and `dev/scripts/check_root.py` is wired into
+is deleted and the root check (now `.github/scripts/check_root.py`) is wired into
 `.pre-commit-config.yaml` and `.github/workflows/ci.yml`.
 
 The happy paths prove the NEW locations are present; the unhappy paths prove
@@ -44,12 +47,12 @@ def test_infra_tree() -> None:
 
 
 def test_dev_scripts_moved() -> None:
-    """Kills a move that drops a dev script or an e2e stub/fixture from dev/scripts."""
+    """Kills a move that drops a script or an e2e stub/fixture from its home."""
     present = [
-        REPO_ROOT / "dev" / "scripts" / "build_images.py",
-        REPO_ROOT / "dev" / "scripts" / "test_shard.py",
-        REPO_ROOT / "dev" / "scripts" / "e2e" / "gateway_stub.py",
-        REPO_ROOT / "dev" / "scripts" / "e2e" / "fixtures" / "01-wiki-viewer.json",
+        REPO_ROOT / "infra" / "scripts" / "build_images.py",
+        REPO_ROOT / ".github" / "scripts" / "test_shard.py",
+        REPO_ROOT / "backend" / "scripts" / "e2e" / "gateway_stub.py",
+        REPO_ROOT / "backend" / "scripts" / "e2e" / "fixtures" / "01-wiki-viewer.json",
     ]
     for path in present:
         assert path.is_file(), f"expected dev script is missing: {path.relative_to(REPO_ROOT)}"
@@ -103,7 +106,7 @@ def test_temporary_allowlist_removed() -> None:
     text = (REPO_ROOT / ".claude" / "root-allowlist").read_text(encoding="utf-8")
     assert "TEMPORARY" not in text, "root-allowlist still has a TEMPORARY marker"
     # Match whole allowlist ENTRIES, not substrings: the header comment names
-    # `dev/scripts/check_root.py`, which must not read as a stray `scripts/`.
+    # `.github/scripts/check_root.py`, which must not read as a stray `scripts/`.
     entries = [
         line.strip()
         for line in text.splitlines()

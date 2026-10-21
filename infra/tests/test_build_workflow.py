@@ -141,7 +141,7 @@ refs never queue behind one another."""
 
 BUILD_PUSH_ACTION = "docker/build-push-action"
 """The action every build step uses. Only buildx does multi-architecture builds
-and attestations, which is why `dev/scripts/build_images.py` is not the publish
+and attestations, which is why `infra/scripts/build_images.py` is not the publish
 path."""
 
 LOGIN_ACTION = "docker/login-action"

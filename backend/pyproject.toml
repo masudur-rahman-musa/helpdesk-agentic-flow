@@ -98,7 +98,7 @@ files = ["helpdesk", "tests"]
 # One module name per file: tests/a/b/test_x.py is tests.a.b.test_x, read from
 # backend/, whether or not the folders hold an __init__.py.
 explicit_package_bases = true
-# The repo root, so a test can import the scripts under `dev/` (`dev.scripts.*`).
+# The repo root, so a test can import the build script (`infra.scripts.*`).
 mypy_path = [".."]
 
 # Settings(_env_file=None) is valid at runtime; mypy's synthesized pydantic

@@ -1,0 +1,40 @@
+{
+  "match": "wiki.viewer",
+  "answers": {
+    "IntentExtraction": {
+      "intent": "request_access",
+      "entities": {
+        "system": "wiki",
+        "role": "wiki.viewer",
+        "target_user": null,
+        "department": null,
+        "expiry_days": null,
+        "justification": "I need to read the internal wiki."
+      },
+      "confidence": 0.96,
+      "clarifying_question": null
+    },
+    "ToolPlanAnswer": [
+      {
+        "calls": [
+          {
+            "tool": "get_me",
+            "arguments": "{}"
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "create_access_request",
+            "arguments": "{\"target_user_id\": \"{me.user_id}\", \"role_id\": \"{resolved.role_id}\", \"justification\": \"I need to read the internal wiki.\"}"
+          }
+        ]
+      },
+      {
+        "calls": []
+      }
+    ],
+    "text": "That access is part of the standard set for your department, so it is already in place."
+  }
+}

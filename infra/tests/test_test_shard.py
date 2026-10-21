@@ -1,4 +1,4 @@
-"""`dev/scripts/test_shard.py`: the CI slices cover the suite exactly once, balanced.
+"""`.github/scripts/test_shard.py`: the CI slices cover the suite exactly once, balanced.
 
 A file in no slice is a test CI silently stops running, and a file in two is
 run twice and double-counted in the combined coverage; both are invisible on a
@@ -7,15 +7,28 @@ green run, so they are pinned here.
 
 from __future__ import annotations
 
+import importlib.util
 import json
+from pathlib import Path
 
-from dev.scripts.test_shard import DURATIONS, slices, test_files
+# `.github` cannot be a package name, so the script is loaded by its path.
+_SPEC = importlib.util.spec_from_file_location(
+    "test_shard_script",
+    Path(__file__).resolve().parents[2] / ".github" / "scripts" / "test_shard.py",
+)
+assert _SPEC is not None and _SPEC.loader is not None
+_SHARD = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_SHARD)
+DURATIONS = _SHARD.DURATIONS
+slices = _SHARD.slices
+# Not named `test_files` here, or pytest would collect it as a test.
+_test_files = _SHARD.test_files
 
 SLICE_COUNT = 3
 
 
 def test_every_test_file_is_in_exactly_one_slice() -> None:
-    files = test_files()
+    files = _test_files()
     chunks = slices(files, json.loads(DURATIONS.read_text(encoding="utf-8")), SLICE_COUNT)
     flat = [name for chunk in chunks for name in chunk]
     assert sorted(flat) == files
@@ -40,6 +53,6 @@ def test_the_slices_are_balanced_by_measured_time() -> None:
 def test_the_shipped_table_names_only_files_that_exist() -> None:
     """A stale entry for a deleted or renamed file is harmless to the split but
     means the table no longer describes the suite; refresh it when this reddens."""
-    files = set(test_files())
+    files = set(_test_files())
     stale = sorted(set(json.loads(DURATIONS.read_text(encoding="utf-8"))) - files)
     assert stale == []

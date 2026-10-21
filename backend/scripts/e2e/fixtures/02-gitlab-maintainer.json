@@ -1,0 +1,40 @@
+{
+  "match": "gitlab.maintainer",
+  "answers": {
+    "IntentExtraction": {
+      "intent": "request_access",
+      "entities": {
+        "system": "gitlab",
+        "role": "gitlab.maintainer",
+        "target_user": null,
+        "department": null,
+        "expiry_days": null,
+        "justification": "I am running the repository migration and need maintainer rights."
+      },
+      "confidence": 0.94,
+      "clarifying_question": null
+    },
+    "ToolPlanAnswer": [
+      {
+        "calls": [
+          {
+            "tool": "get_me",
+            "arguments": "{}"
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "create_access_request",
+            "arguments": "{\"target_user_id\": \"{me.user_id}\", \"role_id\": \"{resolved.role_id}\", \"justification\": \"I am running the repository migration and need maintainer rights.\"}"
+          }
+        ]
+      },
+      {
+        "calls": []
+      }
+    ],
+    "text": "That one needs approval. I have filed the request and told the approvers."
+  }
+}
