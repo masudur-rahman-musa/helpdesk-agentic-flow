@@ -1,9 +1,8 @@
 """Validator for the eval data.
 
-Guards two repo-data files, both read-only here:
+Guards one repo-data file, read-only here:
 
-    project-evals/golden/helpdesk-v1.jsonl
-    project-evals/labels/helpdesk-judge-calibration.jsonl
+    backend/evals/golden/helpdesk-v1.jsonl
 
 Every named value is cross-referenced against the code that OWNS it rather
 than against a literal this file repeats: tenant slugs come from
@@ -28,9 +27,7 @@ Claims pinned here, each by the test named beside it:
 - the twelve category counts are exactly the category minimums:
   ``test_category_counts_equal_the_spec_minimums_exactly``;
 - each access case agrees with the real policy engine on decision and risk
-  class: ``test_access_cases_agree_with_the_policy_engine``;
-- the labels are 40, eight at each score of 1 to 5:
-  ``test_the_labels_file_holds_forty_labels_eight_at_each_score``.
+  class: ``test_access_cases_agree_with_the_policy_engine``.
 
 Basename check: ``test_eval_golden_set.py`` is unique across
 every test tree in the repo (``packages/helpdesk/tests``,
@@ -86,7 +83,6 @@ def _repo_root() -> Path:
 
 
 GOLDEN = _repo_root() / "backend/evals/golden/helpdesk-v1.jsonl"
-LABELS = _repo_root() / "backend/evals/labels/helpdesk-judge-calibration.jsonl"
 
 # The category minimums. They sum to exactly 140, so the minimums ARE
 # the count and this mapping is asserted whole.
@@ -106,10 +102,6 @@ CATEGORY_MINIMUMS: dict[str, int] = {
 }
 
 TOTAL_CASES = 185
-TOTAL_LABELS = 40
-LABELS_PER_SCORE = 8
-SCORES: tuple[int, int, int, int, int] = (1, 2, 3, 4, 5)
-DISTINCT_CASE_IDS_MIN = 20
 MIN_CONTENT_CHARS = 10
 RUBRIC_MAX_WORDS = 40
 
@@ -262,25 +254,6 @@ class GoldenCase(BaseModel):
         return value
 
 
-class CalibrationLabel(BaseModel):
-    """One judge calibration label. Exactly five keys."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    case_id: str
-    output: str
-    human_score: int = Field(ge=1, le=5)
-    note: str
-
-    @field_validator("id", "case_id")
-    @classmethod
-    def _ids_match_pattern(cls, value: str) -> str:
-        if re.fullmatch(CASE_ID, value) is None:
-            raise ValueError(f"id {value!r} does not match {CASE_ID.pattern}")
-        return value
-
-
 # --- the one parser, shared by the happy and the unhappy cases ---------------
 
 
@@ -309,10 +282,6 @@ def _parse_cases(text: str, source: str = str(GOLDEN)) -> list[GoldenCase]:
     return _parse_lines(text, source, GoldenCase)
 
 
-def _parse_labels(text: str, source: str = str(LABELS)) -> list[CalibrationLabel]:
-    return _parse_lines(text, source, CalibrationLabel)
-
-
 def _check_unique_ids(cases: list[GoldenCase]) -> None:
     counts = Counter(case.id for case in cases)
     repeated = sorted(case_id for case_id, count in counts.items() if count > 1)
@@ -337,11 +306,6 @@ def _check_tool_names(cases: list[GoldenCase]) -> None:
         }
     )
     assert not unknown, f"tool names that are no member of rbac.Tool: {unknown}"
-
-
-def _check_label_case_ids(labels: list[CalibrationLabel], case_ids: set[str]) -> None:
-    unknown = sorted({label.case_id for label in labels if label.case_id not in case_ids})
-    assert not unknown, f"label case_id values naming no golden case: {unknown}"
 
 
 # --- seed resolution ---------------------------------------------------------
@@ -509,18 +473,6 @@ def _case_payload(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
-def _label_payload(**overrides: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "id": "cal-001",
-        "case_id": "aut-001",
-        "output": "Your request for wiki viewer was granted automatically.",
-        "human_score": 3,
-        "note": "Correct decision, cites the policy.",
-    }
-    payload.update(overrides)
-    return payload
-
-
 def _access_case_ids() -> list[str]:
     """Parameter ids for the engine cross-check, read at collection time."""
     try:
@@ -537,12 +489,6 @@ def _access_case_ids() -> list[str]:
 def golden_cases() -> tuple[GoldenCase, ...]:
     """The golden file, read and parsed once for the whole module."""
     return tuple(_parse_cases(_read_text(GOLDEN)))
-
-
-@pytest.fixture(scope="module")
-def labels() -> tuple[CalibrationLabel, ...]:
-    """The calibration file, read and parsed once for the whole module."""
-    return tuple(_parse_labels(_read_text(LABELS)))
 
 
 @pytest.fixture(scope="module")
@@ -869,57 +815,10 @@ def test_help_070_rubric_asks_for_numbered_steps(
     assert case.expected.tool_calls in (None, [])
 
 
-# --- the calibration labels --------------------------------------------------
-
-
-def test_the_labels_file_holds_forty_labels_eight_at_each_score(
-    labels: tuple[CalibrationLabel, ...],
-) -> None:
-    """Catches a calibration set that is the right size but lopsided, for
-    instance thirty 4s and 5s and two 1s, which would let a judge that never
-    scores low look calibrated."""
-    assert len(labels) == TOTAL_LABELS, f"{LABELS} holds {len(labels)} labels, want {TOTAL_LABELS}"
-    counts = dict(Counter(label.human_score for label in labels))
-    want = dict.fromkeys(SCORES, LABELS_PER_SCORE)
-    assert counts == want, f"score distribution {counts}, want {want}"
-
-
-def test_scores_at_the_inclusive_boundary() -> None:
-    """Catches a score bound written exclusive (`gt=1`/`lt=5`) or left off: 1 and
-    5 are valid labels and 0 and 6 are not."""
-    for accepted in (1, 5):
-        label = CalibrationLabel.model_validate(_label_payload(human_score=accepted))
-        assert label.human_score == accepted
-
-    for rejected in (0, 6):
-        with pytest.raises(ValidationError, match="human_score"):
-            CalibrationLabel.model_validate(_label_payload(human_score=rejected))
-
-
-def test_every_label_case_id_resolves_and_twenty_cases_are_covered(
-    labels: tuple[CalibrationLabel, ...], golden_cases: tuple[GoldenCase, ...]
-) -> None:
-    """Catches a label naming a case that does not exist, and a calibration set
-    that spends all forty labels on a handful of rubrics."""
-    case_ids = {case.id for case in golden_cases}
-    _check_label_case_ids(list(labels), case_ids)
-
-    distinct = {label.case_id for label in labels}
-    assert len(distinct) >= DISTINCT_CASE_IDS_MIN, (
-        f"labels cover {len(distinct)} distinct cases, want at least {DISTINCT_CASE_IDS_MIN}"
-    )
-
-    with pytest.raises(AssertionError, match="naming no golden case"):
-        _check_label_case_ids(
-            [CalibrationLabel.model_validate(_label_payload(case_id="zzz-999"))], case_ids
-        )
-
-
 def test_no_email_outside_the_two_fake_domains() -> None:
-    """Catches a real person's or company's address pasted into an authored case
-    or a hand-written judge output."""
+    """Catches a real person's or company's address pasted into an authored case."""
     stray: list[str] = []
-    for path in (GOLDEN, LABELS):
+    for path in (GOLDEN,):
         text = _read_text(path)
         for match in EMAIL_RE.finditer(text):
             address = match.group(0).lower()

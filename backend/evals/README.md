@@ -58,8 +58,7 @@ golden set, and the value that is kept is recorded here with its numbers.
 
 ## The delivered set
 
-`golden/helpdesk-v1.jsonl` holds 159 cases and
-`labels/helpdesk-judge-calibration.jsonl` holds 40 graded replies. Both are
+`golden/helpdesk-v1.jsonl` holds the golden cases. It is
 validated in CI by `backend/tests/scripts/test_eval_golden_set.py`, which
 resolves every named value against the code that owns it: tenant slugs and
 seats against the seed, intents against the agent's intent enum, decisions and
