@@ -4,8 +4,9 @@ Models are named by alias only. Inputs are checked before sending, and no
 gateway text, URL or provider name reaches an error, since it can quote the prompt.
 """
 
+import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, TypeVar
@@ -85,6 +86,24 @@ class ModelAnswer:
     gateway_cost_usd: str = ""
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool call the model asked for, its arguments already read as a JSON object."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolCallAnswer:
+    """One tool-calling turn: the text, the calls, or both, with its usage."""
+
+    text: str | None
+    calls: tuple[ToolCall, ...]
+    usage: ModelAnswer
+
+
 M = TypeVar("M", bound=BaseModel)
 
 
@@ -97,7 +116,7 @@ class StructuredAnswer[T: BaseModel]:
 
 
 class ModelClient:
-    """One httpx client, two call shapes, typed refusals."""
+    """One httpx client, three call shapes, typed refusals."""
 
     def __init__(
         self,
@@ -189,6 +208,35 @@ class ModelClient:
                     ) from None
         raise AssertionError("unreachable: the loop returns or raises on its last attempt")
 
+    async def complete_with_tools(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        tools: Sequence[Mapping[str, Any]],
+        *,
+        alias: ModelAlias,
+        tenant_slug: str,
+        session_id: str | None = None,
+        traceparent: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> ToolCallAnswer:
+        """One turn that may call tools. Messages go as given, assistant
+        `tool_calls` and `tool` turns included. No tools sends neither `tools`
+        nor `tool_choice`, so the model can only answer in text."""
+        headers = self._headers(tenant_slug, session_id, traceparent)
+        body = self._body(messages, alias, max_tokens, temperature)
+        if tools:
+            body["tools"] = [dict(tool) for tool in tools]
+            body["tool_choice"] = "auto"
+        response = await self._post(body, headers)
+        message, usage = self._read(response, alias)
+        text = message.get("content")
+        if text is not None and not isinstance(text, str):
+            raise ModelUnavailableError("the model gateway returned a body this client cannot read")
+        return ToolCallAnswer(
+            text=text, calls=_tool_calls(message.get("tool_calls")), usage=usage(text or "")
+        )
+
     def _headers(
         self, tenant_slug: str, session_id: str | None, traceparent: str | None
     ) -> dict[str, str]:
@@ -212,7 +260,7 @@ class ModelClient:
 
     def _body(
         self,
-        messages: Sequence[Mapping[str, str]],
+        messages: Sequence[Mapping[str, Any]],
         alias: ModelAlias,
         max_tokens: int | None,
         temperature: float | None,
@@ -241,6 +289,16 @@ class ModelClient:
 
     def _parsed(self, response: httpx.Response, alias: ModelAlias) -> ModelAnswer:
         """A `ModelAnswer`, or a typed error: 401/403 is forbidden, 422 bad input, else internal."""
+        message, usage = self._read(response, alias)
+        text = message.get("content")
+        if not isinstance(text, str):
+            raise ModelUnavailableError("the model gateway returned a body this client cannot read")
+        return usage(text)
+
+    def _read(
+        self, response: httpx.Response, alias: ModelAlias
+    ) -> tuple[dict[str, Any], Callable[[str], ModelAnswer]]:
+        """The answer's message and a builder of its `ModelAnswer`, or a typed error."""
         if response.status_code in (401, 403):
             raise ModelForbiddenError("the model gateway refused this tenant's API key")
         if response.status_code == 422:
@@ -250,7 +308,7 @@ class ModelClient:
 
         try:
             body = response.json()
-            text = body["choices"][0]["message"]["content"]
+            message = body["choices"][0]["message"]
             usage = body["usage"]
             counts = (
                 usage["prompt_tokens"],
@@ -261,21 +319,48 @@ class ModelClient:
             raise ModelUnavailableError(
                 "the model gateway returned a body this client cannot read"
             ) from exc
-        if not isinstance(text, str) or not all(isinstance(count, int) for count in counts):
+        if not isinstance(message, dict) or not all(isinstance(count, int) for count in counts):
             raise ModelUnavailableError("the model gateway returned a body this client cannot read")
 
-        return ModelAnswer(
-            text=text,
-            alias=alias,
-            prompt_tokens=counts[0],
-            completion_tokens=counts[1],
-            total_tokens=counts[2],
-            gateway_model=response.headers.get("X-Gateway-Model", ""),
-            gateway_trace_id=response.headers.get("X-Gateway-Trace-Id", ""),
-            gateway_provider=response.headers.get("X-Gateway-Provider", ""),
-            gateway_region=response.headers.get("X-Gateway-Region", ""),
-            gateway_cost_usd=response.headers.get("X-Gateway-Cost-USD", ""),
-        )
+        def answer(text: str) -> ModelAnswer:
+            return ModelAnswer(
+                text=text,
+                alias=alias,
+                prompt_tokens=counts[0],
+                completion_tokens=counts[1],
+                total_tokens=counts[2],
+                gateway_model=response.headers.get("X-Gateway-Model", ""),
+                gateway_trace_id=response.headers.get("X-Gateway-Trace-Id", ""),
+                gateway_provider=response.headers.get("X-Gateway-Provider", ""),
+                gateway_region=response.headers.get("X-Gateway-Region", ""),
+                gateway_cost_usd=response.headers.get("X-Gateway-Cost-USD", ""),
+            )
+
+        return message, answer
+
+
+def _tool_calls(raw: object) -> tuple[ToolCall, ...]:
+    """The answer's tool calls, each with its arguments read as one JSON object.
+    Anything else is unusable model output, so `INTERNAL`."""
+    if raw is None:
+        return ()
+    unreadable = ModelUnavailableError("the model asked for a tool call this client cannot read")
+    if not isinstance(raw, list):
+        raise unreadable
+    calls: list[ToolCall] = []
+    for entry in raw:
+        try:
+            call_id = entry["id"]
+            name = entry["function"]["name"]
+            arguments = json.loads(entry["function"]["arguments"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise unreadable from exc
+        if not isinstance(call_id, str) or not isinstance(name, str):
+            raise unreadable
+        if not isinstance(arguments, dict):
+            raise unreadable
+        calls.append(ToolCall(id=call_id, name=name, arguments=arguments))
+    return tuple(calls)
 
 
 def _checked_schema_name(name: str) -> str:

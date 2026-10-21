@@ -12,6 +12,7 @@ from fastapi import Request
 
 from helpdesk.agent_api.agent.events import ReplyEvent
 from helpdesk.agent_api.agent.graph import run_turn, stream_turn
+from helpdesk.agent_api.agent.loop import run_loop_turn, stream_loop_turn
 from helpdesk.agent_api.agent.sources import shown_citations
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
@@ -43,6 +44,11 @@ def _typed_error(code: ErrorCode) -> ToolError:
     exc = ToolError()
     exc.code = code
     return exc
+
+
+def _uses_loop() -> bool:
+    """Whether `CHAT_ENGINE` picks the agent loop over the intent pipeline."""
+    return load_settings().chat_engine == "loop"
 
 
 ToolsFactory = Callable[[str], ToolCaller]
@@ -144,7 +150,8 @@ async def _stream_frames(
                 yield encode_event(ERROR, {"code": ErrorCode.INTERNAL.value})
                 yield encode_event(DONE, {})
                 return
-            async for event in stream_turn(
+            stream = stream_loop_turn if _uses_loop() else stream_turn
+            async for event in stream(
                 deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
                 tenant_id=identity.tenant_id,
                 user_id=identity.user_id,
@@ -193,7 +200,8 @@ async def chat_turn(
         if tenant is None:
             # A verified token for a tenant that no longer exists.
             raise ToolError(ErrorCode.INTERNAL)
-        state = await run_turn(
+        run = run_loop_turn if _uses_loop() else run_turn
+        state = await run(
             deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
             tenant_id=identity.tenant_id,
             user_id=identity.user_id,

@@ -3,7 +3,7 @@
 import math
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
@@ -113,6 +113,10 @@ class Settings(BaseSettings):
 
     eval_routes_enabled: bool = False
     """Turns on `POST /admin/test/reset` and `POST /v1/eval/conversation`. Off in production."""
+
+    chat_engine: Literal["pipeline", "loop"] = "pipeline"
+    """Which engine answers a chat: the intent pipeline, or the tool-calling
+    loop. Any other value, case and spaces included, fails at start."""
 
     @field_validator("intent_confidence_min", "role_suggestion_floor", "policy_refusal_floor")
     @classmethod

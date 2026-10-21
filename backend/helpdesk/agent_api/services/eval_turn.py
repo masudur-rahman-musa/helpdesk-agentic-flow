@@ -2,11 +2,12 @@
 
 The console sends a seat name, not a login, so the seat is looked up in the
 seeded data and a short-lived token is minted for that user. Every turn then
-runs through `run_turn` exactly as a chat does, so each tool still reads tenant
-and user from the token and never from the body. `run_conversation` answers one
-record per user turn: the reply and that turn's tool calls with their results;
-the prompt versions ride a header (`ConversationOutcome`). It scores nothing;
-the console's eval engine does.
+runs through `run_turn`, or `run_loop_turn` under `CHAT_ENGINE=loop`, exactly
+as a chat does, so each tool still reads tenant and user from the token and
+never from the body. `run_conversation` answers one record per user turn: the
+reply and that turn's tool calls with their results; the engine and prompt
+versions ride headers (`ConversationOutcome`). It scores nothing; the
+console's eval engine does.
 
 Not mounted in production: `EVAL_ROUTES_ENABLED` is off there.
 """
@@ -24,6 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.agent_api.agent.graph import run_turn
+from helpdesk.agent_api.agent.loop import LOOP_PROMPT, run_loop_turn
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
@@ -49,6 +51,7 @@ __all__ = [
     "build_tool_caller",
     "resolve_seat",
     "run_conversation",
+    "run_loop_turn",
     "run_turn",
 ]
 
@@ -129,8 +132,11 @@ def _seed_number(user: User) -> int:
     return (days * _STEP_INVERSE) % START_DATE_SPAN
 
 
-def prompt_versions() -> str:
-    """`intent=<sha256>,plan=...,compose=...,system=...`, the digests the traces record."""
+def prompt_versions(engine: str = "pipeline") -> str:
+    """`intent=<sha256>,plan=...,compose=...,system=...`, the digests the traces
+    record; under the loop, its one prompt as `loop=<sha256>`."""
+    if engine == "loop":
+        return f"loop={load_prompt(LOOP_PROMPT).sha256}"
     return ",".join(f"{step}={load_prompt(name).sha256}" for step, name in PROMPT_STEPS)
 
 
@@ -176,10 +182,11 @@ class _Call:
 
 @dataclass
 class ConversationOutcome:
-    """The per-turn records and the prompt-version header that goes with them."""
+    """The per-turn records, and the engine and prompt versions the headers carry."""
 
     answer: EvalConversationAnswer
     prompt_versions: str
+    engine: str
 
 
 @dataclass
@@ -201,6 +208,8 @@ async def run_conversation(
     """Play the person's turns in one new chat and answer for every turn."""
     chat_id = uuid.uuid4()
     case = _Case()
+    engine = settings.chat_engine
+    turn = run_loop_turn if engine == "loop" else run_turn
     records: list[EvalConversationTurn] = []
     for number, message in enumerate(body.turns, start=1):
         now = datetime.now(UTC)
@@ -209,7 +218,7 @@ async def run_conversation(
             build_tool_caller(settings, _seat_token(seat, chat_id, settings, now)), calls
         )
         async with tenant_session(factory, seat.tenant_id) as db:
-            state = await run_turn(
+            state = await turn(
                 deps=TurnDeps(
                     db=db,
                     model=model,
@@ -242,7 +251,8 @@ async def run_conversation(
         )
     return ConversationOutcome(
         answer=EvalConversationAnswer(case_id=body.case_id, turns=records),
-        prompt_versions=prompt_versions(),
+        prompt_versions=prompt_versions(engine),
+        engine=engine,
     )
 
 

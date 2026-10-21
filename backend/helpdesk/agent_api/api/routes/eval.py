@@ -24,6 +24,9 @@ router = APIRouter()
 PROMPT_VERSIONS_HEADER = "X-Prompt-Versions"
 """Carries each step's prompt digest, since the console's envelope allows no extra field."""
 
+CHAT_ENGINE_HEADER = "X-Chat-Engine"
+"""Names the engine that played the case, so a score is filed under the right one."""
+
 
 def _enabled_settings() -> Settings:
     settings = load_settings()
@@ -61,5 +64,8 @@ async def conversation(request: Request, body: EvalConversationRequest) -> Respo
     )
     return JSONResponse(
         content=outcome.answer.model_dump(mode="json"),
-        headers={PROMPT_VERSIONS_HEADER: outcome.prompt_versions},
+        headers={
+            PROMPT_VERSIONS_HEADER: outcome.prompt_versions,
+            CHAT_ENGINE_HEADER: outcome.engine,
+        },
     )
