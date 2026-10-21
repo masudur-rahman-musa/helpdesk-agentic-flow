@@ -25,6 +25,12 @@ class NotificationKind(StrEnum):
     GRANT_EXPIRING = "grant_expiring"
     REVIEW_OVERDUE = "review_overdue"
     REVIEW_ESCALATED = "review_escalated"
+    APPROVAL_NEEDED = "approval_needed"
+    REQUEST_PROGRESS = "request_progress"
+    REQUEST_GRANTED = "request_granted"
+    REQUEST_REJECTED = "request_rejected"
+    REQUEST_FAILED = "request_failed"
+    ACCESS_REVOKED = "access_revoked"
 
 
 class Notification(TenantScoped):

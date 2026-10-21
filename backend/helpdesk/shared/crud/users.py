@@ -95,13 +95,22 @@ async def fetch_systems_by_sensitivity(
 async def fetch_active_it_admins(session: AsyncSession) -> list[User]:
     """Active IT admins; leavers keep the role on their row, so status is checked."""
     from helpdesk.shared.auth.rbac import Principal
+
+    return await fetch_active_holders(session, Principal.IT_ADMIN.value)
+
+
+async def fetch_active_holders(session: AsyncSession, principal: str) -> list[User]:
+    """Active people holding one principal (`it_admin`, `hr`), in a fixed order.
+
+    Leavers keep their principals on the row, so status is checked.
+    """
     from helpdesk.shared.policy.types import TargetStatus
 
     result = await session.execute(
         select(User)
         .where(
             User.status == TargetStatus.ACTIVE.value,
-            User.principals.contains([Principal.IT_ADMIN.value]),
+            User.principals.contains([principal]),
         )
         .order_by(User.email, User.id)
     )

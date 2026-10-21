@@ -23,6 +23,7 @@ from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.grants import REVOKED_GRANT_STATUS, lock_live_grants_for_role
 from helpdesk.shared.models import Grant
+from helpdesk.shared.notifications.request_events import notify_revoked
 
 GRANT_REVOKED_EVENT_TYPE = "grant.revoked"
 """The audit event for "access was taken away", one per revoked row, so each
@@ -127,7 +128,8 @@ async def revoke_grant_row(
     drop the `stale` grant a review exists to end. User, role and request
     are read off the row, so the event cannot name a different grant.
     `revoked_count` is how many rows the caller's whole action ends, so an
-    auditor reading one event knows whether others went with it.
+    auditor reading one event knows whether others went with it. The person
+    is told here, so every revoke path tells them.
     """
     resolved_actor = resolve_actor_ref(actor_ref, revoked_by_user_id)
     request_id = grant.request_id
@@ -155,6 +157,7 @@ async def revoke_grant_row(
             },
         ),
     )
+    await notify_revoked(session, revoked, reason, actor_id=revoked_by_user_id)
     return revoked
 
 

@@ -109,9 +109,9 @@ def test_the_notifications_table_carries_the_composite_tenant_index() -> None:
     assert composite, "notifications needs a composite index led by tenant_id"
 
 
-def test_the_notification_kind_enum_has_exactly_the_four_planned_members() -> None:
-    """The set is widened by `review_overdue` and `review_escalated`,
-    because `send_review_reminders` writes them.
+def test_the_notification_kind_enum_has_exactly_the_ten_planned_members() -> None:
+    """The set is widened by six request-flow kinds, because the
+    request tools and `revoke_grant_row` write them.
 
     Still pinned as an exact set: catches
     the rest of the lifecycle vocabulary landing early — a member no code path
@@ -128,7 +128,19 @@ def test_the_notification_kind_enum_has_exactly_the_four_planned_members() -> No
         "grant_expiring",
         "review_overdue",
         "review_escalated",
+        "approval_needed",
+        "request_progress",
+        "request_granted",
+        "request_rejected",
+        "request_failed",
+        "access_revoked",
     }
+    assert NotificationKind.APPROVAL_NEEDED.value == "approval_needed"
+    assert NotificationKind.REQUEST_PROGRESS.value == "request_progress"
+    assert NotificationKind.REQUEST_GRANTED.value == "request_granted"
+    assert NotificationKind.REQUEST_REJECTED.value == "request_rejected"
+    assert NotificationKind.REQUEST_FAILED.value == "request_failed"
+    assert NotificationKind.ACCESS_REVOKED.value == "access_revoked"
     assert NotificationKind.GRANT_EXPIRED.value == "grant_expired"
     assert NotificationKind.GRANT_EXPIRING.value == "grant_expiring"
     assert NotificationKind.REVIEW_OVERDUE.value == "review_overdue"

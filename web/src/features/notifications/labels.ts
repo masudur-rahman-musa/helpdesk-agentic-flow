@@ -9,6 +9,12 @@ export const NOTIFICATION_KIND_LABELS: Record<string, string> = {
   grant_expiring: "Access expiring soon",
   review_overdue: "Review overdue",
   review_escalated: "Review escalated",
+  approval_needed: "Approval needed",
+  request_progress: "Request update",
+  request_granted: "Access granted",
+  request_rejected: "Request rejected",
+  request_failed: "Request failed",
+  access_revoked: "Access removed",
 };
 
 /** The label for a known kind, or the wire value itself for anything else. */

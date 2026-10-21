@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.mcp_server.core.identity import Identity
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
-from helpdesk.shared.access.approvals import request_in_scope
+from helpdesk.shared.access.approvals import parse_slots, request_in_scope
 from helpdesk.shared.access.directory import DirectoryProvider
 from helpdesk.shared.access.execute import execute_grant
 from helpdesk.shared.access.requests import (
@@ -34,6 +34,10 @@ from helpdesk.shared.crud.access_requests import list_requests_with_context_for_
 from helpdesk.shared.crud.grants import is_live_grant
 from helpdesk.shared.models import Grant, RequestStatus, Role, System
 from helpdesk.shared.models.numbers import NumberKind, format_number
+from helpdesk.shared.notifications.request_events import (
+    notify_approval_needed,
+    notify_granted,
+)
 from helpdesk.shared.policy.engine import classify
 from helpdesk.shared.policy.types import (
     Classification,
@@ -351,6 +355,13 @@ async def create_access_request(
     )
 
     grant = await _run_branch(ctx, args, classification, request.id, now)
+    actor_id = ctx.identity.user_id
+    if classification.decision is Decision.APPROVAL:
+        await notify_approval_needed(
+            ctx.session, request, parse_slots(request.approvals), actor_id=actor_id
+        )
+    elif grant is not None:
+        await notify_granted(ctx.session, request, actor_id=actor_id)
     return _output(classification, request.id, request.number, status, grant)
 
 

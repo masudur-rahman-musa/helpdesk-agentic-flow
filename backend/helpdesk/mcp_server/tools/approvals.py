@@ -46,6 +46,12 @@ from helpdesk.shared.core.errors import ErrorCode, NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
 from helpdesk.shared.models.numbers import NumberKind, format_number
+from helpdesk.shared.notifications.request_events import (
+    notify_failed,
+    notify_granted,
+    notify_progress,
+    notify_rejected,
+)
 from helpdesk.shared.policy.types import ApproverSlot
 
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
@@ -300,6 +306,7 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
         await set_request_status(
             ctx.session, request.id, status=RequestStatus.PENDING, approvals=dump_slots(decided)
         )
+        await notify_progress(ctx.session, request, decided, actor_id=ctx.identity.user_id)
         return _approved(request, RequestStatus.PENDING, slots[index], False, None, None)
 
     try:
@@ -310,11 +317,13 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
         await set_request_status(
             ctx.session, request.id, status=RequestStatus.FAILED, approvals=dump_slots(decided)
         )
+        await notify_failed(ctx.session, request, actor_id=ctx.identity.user_id)
         return _approved(request, RequestStatus.FAILED, slots[index], True, None, exc.code)
 
     await set_request_status(
         ctx.session, request.id, status=RequestStatus.APPROVED, approvals=dump_slots(decided)
     )
+    await notify_granted(ctx.session, request, actor_id=ctx.identity.user_id)
     return _approved(request, RequestStatus.APPROVED, slots[index], True, grant, None)
 
 
@@ -380,6 +389,7 @@ async def reject_request(ctx: ToolContext, args: RejectRequestInput) -> RejectRe
     await set_request_status(
         ctx.session, request.id, status=RequestStatus.REJECTED, approvals=dump_slots(decided)
     )
+    await notify_rejected(ctx.session, request, args.reason, actor_id=ctx.identity.user_id)
     return RejectRequestOutput(
         request_id=request.id,
         request_number=format_number(NumberKind.ACCESS_REQUEST, request.number),

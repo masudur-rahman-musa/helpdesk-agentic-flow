@@ -22,7 +22,28 @@ import { NOTIFICATION_KIND_LABELS, notificationKindLabel } from "@/features/noti
  */
 
 /** Every `helpdesk.models.notification.NotificationKind` member, as its wire value. */
-const KINDS = ["grant_expired", "grant_expiring", "review_overdue", "review_escalated"] as const;
+const KINDS = [
+  "grant_expired",
+  "grant_expiring",
+  "review_overdue",
+  "review_escalated",
+  "approval_needed",
+  "request_progress",
+  "request_granted",
+  "request_rejected",
+  "request_failed",
+  "access_revoked",
+] as const;
+
+/** The six request-flow labels, pinned as text. */
+const REQUEST_LABELS = {
+  approval_needed: "Approval needed",
+  request_progress: "Request update",
+  request_granted: "Access granted",
+  request_rejected: "Request rejected",
+  request_failed: "Request failed",
+  access_revoked: "Access removed",
+} as const;
 
 describe("every NotificationKind member", () => {
   it.each(KINDS)("%s reads as a label, not as its code", (kind) => {
@@ -41,8 +62,16 @@ describe("every NotificationKind member", () => {
   });
 });
 
+describe("the six request-flow kinds", () => {
+  it.each(Object.entries(REQUEST_LABELS))("%s reads as %s", (kind, label) => {
+    // Catches a label that is non-empty but wrong or vague (for example every
+    // new kind sharing "Notification"), which the generic case above allows.
+    expect(notificationKindLabel(kind)).toBe(label);
+  });
+});
+
 describe("the map and the lookup", () => {
-  it("holds exactly the four NotificationKind members", () => {
+  it("holds exactly the ten NotificationKind members", () => {
     // The mirror rule in the one direction the case above cannot see: a map
     // carrying a kind Python does NOT have is a vocabulary that has silently
     // drifted from `helpdesk/models/notification.py`, and a page rendering it
