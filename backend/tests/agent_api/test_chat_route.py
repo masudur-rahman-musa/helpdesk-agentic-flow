@@ -9,8 +9,6 @@ Expected implementation surface (the implementer must provide exactly this):
         ``app.state.session_factory`` — ``async_sessionmaker[AsyncSession]``.
         ``app.state.model`` — the gateway ``ModelClient``.
         ``app.state.redis`` — the ``redis.asyncio.Redis`` the limiter uses.
-        ``app.state.checkpointer_pool`` — the psycopg ``AsyncConnectionPool``.
-        ``app.state.checkpointer`` — the ``AsyncPostgresSaver`` over that pool.
     the chat router included beside the existing two.
 
 ``agent_api.chat_routes``
@@ -40,14 +38,14 @@ and carries NO reply key at all, because a dependency failure is a
 typed code and "never ... a partial reply".
 
 Cost and isolation. Postgres and Redis are the compose stack's: one throwaway
-database, its schema, LangGraph's checkpoint tables and two obviously fake
+database, its schema and two obviously fake
 tenants are built ONCE for the whole module, and per-case
 isolation is a fresh session id per case plus a Redis index dedicated to the
 suite that nothing here flushes. The gateway is an ``httpx.MockTransport`` and
 the tool caller is the scripted stub, so no socket is opened to either. The
 app's LIFESPAN is entered once per case, inside that case's own event loop,
 for the same reason every other agent-api suite builds its engine per
-``asyncio.run``: a psycopg pool and an asyncpg engine cannot cross loops.
+``asyncio.run``: an asyncpg engine cannot cross loops.
 Fixtures live in this module rather than a conftest, because a second
 ``conftest`` under ``services/agent-api/tests`` would collide with
 ``packages/helpdesk/tests/conftest.py`` under the repo-wide ``mypy`` run.
@@ -70,13 +68,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from helpdesk.agent_api.agent.checkpointer import (
-    build_pool,
-    psycopg_dsn,
-    setup_checkpointer,
-    thread_config,
-)
-from helpdesk.agent_api.agent.nodes.await_approval import PENDING_APPROVAL_REPLY
 from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.api.router import app
@@ -145,7 +136,7 @@ _REDIS_UNREACHABLE_MSG = (
 )
 
 
-# --- the throwaway database, its two tenants and the checkpoint tables ---------
+# --- the throwaway database and its two tenants ---------------------------------
 
 
 async def _admin_execute(admin_url: str, sql: str) -> None:
@@ -276,13 +267,11 @@ def _test_redis_url() -> str:
 
 @pytest.fixture(scope="session")
 def chat_db() -> Iterator[ChatEnv]:
-    """One database, its schema, the checkpoint tables and two tenants, once.
+    """One database, its schema and two tenants, once.
 
-    A throwaway database rather than the compose one for the checkpointer's reason:
-    `test_models.py` and `test_seed.py` assert on a database's full table list,
-    and LangGraph's checkpoint tables are outside `Base.metadata` on purpose.
-    Nothing per-case is built here; a case's namespace is its
-    own session id.
+    A throwaway database rather than the compose one: `test_models.py` and
+    `test_seed.py` assert on a database's full table list. Nothing per-case
+    is built here; a case's namespace is its own session id.
     """
     try:
         settings = load_settings()
@@ -314,13 +303,7 @@ def chat_db() -> Iterator[ChatEnv]:
             await engine.dispose()
         return ChatEnv(database_url=url, redis_url=redis_url, tenant_a=tenant_a, tenant_b=tenant_b)
 
-    async def create_checkpoint_tables(dsn: str) -> None:
-        pool = build_pool(dsn)
-        async with pool:
-            await setup_checkpointer(pool)
-
     env = asyncio.run(prepare())
-    asyncio.run(create_checkpoint_tables(psycopg_dsn(url)))
     yield env
     assert name.startswith("helpdesk_chat_test_")
     asyncio.run(_admin_execute(admin_url, f'DROP DATABASE "{name}" WITH (FORCE)'))
@@ -342,31 +325,33 @@ def chat_env(chat_db: ChatEnv, monkeypatch: pytest.MonkeyPatch) -> ChatEnv:
 # --- the staged gateway and the scripted caller -------------------------------
 
 
-def _as_composed(answer: str, request: httpx.Request) -> str:
-    """What the gateway sends for a staged string. A request for `ComposedReply`
-    gets a plain staged reply as the shape, marked a question when it holds "?"
-    (a writer that marks honestly); a string that is already JSON goes as it is."""
-    body = json.loads(request.content)
-    if body.get("response_format", {}).get("json_schema", {}).get("name") != "ComposedReply":
-        return answer
-    try:
-        parsed = json.loads(answer)
-    except ValueError:
-        parsed = None
-    if isinstance(parsed, dict):
-        return answer
-    return json.dumps({"text": answer, "asks_question": "?" in answer, "used_passages": [1]})
+type Staged = str | Mapping[str, Any]
+"""One staged model answer: a reply's text, or a whole `message` (tool calls)."""
 
 
-def _completion(answer: str, request: httpx.Request) -> httpx.Response:
-    content = _as_composed(answer, request)
+def _completion(answer: Staged) -> httpx.Response:
+    message = {"content": answer} if isinstance(answer, str) else dict(answer)
     return httpx.Response(
         200,
         json={
-            "choices": [{"message": {"content": content}}],
+            "choices": [{"message": message}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         },
     )
+
+
+def _tool_call(name: str, arguments: Mapping[str, Any], call_id: str = "call_1") -> dict[str, Any]:
+    """A model answer asking for one tool call, as the gateway sends it."""
+    return {
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": json.dumps(arguments)},
+            }
+        ],
+    }
 
 
 class StagedGateway:
@@ -377,7 +362,7 @@ class StagedGateway:
     token, the cap or the limit asks for an answer nobody staged.
     """
 
-    def __init__(self, answers: Sequence[str]) -> None:
+    def __init__(self, answers: Sequence[Staged]) -> None:
         self._answers = list(answers)
         self.requests: list[httpx.Request] = []
 
@@ -394,7 +379,7 @@ class StagedGateway:
                 f"the turn made {len(self.requests)} model requests; "
                 f"only {len(self._answers)} were staged"
             )
-        return _completion(self._answers[index], request)
+        return _completion(self._answers[index])
 
     @property
     def call_count(self) -> int:
@@ -477,23 +462,10 @@ def _page() -> dict[str, Any]:
     }
 
 
-def _approval_payload() -> dict[str, Any]:
-    """A `create_access_request` answer that went to an approval chain."""
-    return {
-        "request_id": str(REQUEST_ID),
-        "decision": "approval",
-        "status": "pending",
-        "required_approvers": ["manager", "system_owner"],
-    }
-
-
 def _card_payload() -> dict[str, Any]:
-    """The same approval answer, with every field a decision card projects.
-
-    `_approval_payload` carries only what the PAUSE gate reads, so a card
-    projected off it would be `None` for a missing key rather than for the
-    route dropping the key. This one is the tool's whole output:
-    one seat the engine resolved, one group seat it never can.
+    """A `create_access_request` answer that went to an approval chain, with
+    every field a decision card projects: the tool's whole output, with one
+    seat the engine resolved and one group seat it never can.
     """
     return {
         "request_id": str(REQUEST_ID),
@@ -515,49 +487,31 @@ def _card_payload() -> dict[str, Any]:
     }
 
 
-def _extraction_answer() -> str:
-    return json.dumps(
+def _policy_lookup() -> dict[str, Any]:
+    """The loop's first step: one `search_policy` lookup."""
+    return _tool_call(SEARCH_POLICY, {"query": "fake payroll read access"})
+
+
+def _one_turn_answers() -> list[Staged]:
+    """A lookup, then the reply: the ordinary two-step loop turn."""
+    return [_policy_lookup(), COMPOSED_REPLY]
+
+
+def _proposed_request(env: ChatEnv) -> dict[str, Any]:
+    """One step proposing exactly the request a yes files. It is held, not run."""
+    return _tool_call(
+        CREATE_REQUEST,
         {
-            "intent": "request_access",
-            "entities": {
-                "system": "payroll",
-                "role": "payroll-read",
-                "target_user": None,
-                "department": None,
-                "expiry_days": 30,
-                "justification": "Obviously fake reason.",
-            },
-            "confidence": 0.95,
-            "clarifying_question": None,
-            "second_request": None,
-        }
+            "target_user_id": str(env.tenant_a.user_id),
+            "role_id": str(env.tenant_a.role_id),
+            "justification": "Obviously fake justification.",
+            "requested_expiry_days": 30,
+        },
     )
 
 
-EMPTY_PLAN = json.dumps({"calls": []})
-"""A planning round proposing nothing: the ordinary end of a turn."""
-
-
-def _request_plan(env: ChatEnv) -> str:
-    """One planning round proposing exactly the request a pause waits on."""
-    return json.dumps(
-        {
-            "calls": [
-                {
-                    "tool": CREATE_REQUEST,
-                    "arguments": json.dumps(
-                        {
-                            "target_user_id": str(env.tenant_a.user_id),
-                            "role_id": str(env.tenant_a.role_id),
-                            "justification": "Obviously fake justification.",
-                            "requested_expiry_days": None,
-                            "citations": [],
-                        }
-                    ),
-                }
-            ]
-        }
-    )
+FILED_REPLY = "Your request REQ-0001 is filed and pending."
+"""The reply the step after a yes writes; its number and word are in the result."""
 
 
 # --- driving the app ----------------------------------------------------------
@@ -830,7 +784,7 @@ def test_one_message_stores_one_turn_and_answers_with_the_reply(
     response model that drops what the reply is grounded in.
     """
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
+    gateway = StagedGateway(_one_turn_answers())
     tools = ScriptedToolCaller(_page())
     token = _token(chat_env.tenant_a, session_id)
 
@@ -848,10 +802,10 @@ def test_one_message_stores_one_turn_and_answers_with_the_reply(
     assert body["outcome"] == TurnOutcome.DONE.value
     assert [citation["document"] for citation in body["citations"]] == [CITED_DOCUMENT]
     assert body["request_id"] is None
-    # Three staged answers (extraction, planning, composition) and one scripted
-    # tool call (the retrieval): a turn that made a fourth request or a second
-    # call fails inside the stub rather than here.
-    assert gateway.call_count == 3
+    # Two staged answers (the lookup step, the reply) and one scripted tool
+    # call: a turn that made a third request or a second call fails inside the
+    # stub rather than here.
+    assert gateway.call_count == 2
     assert tools.names == [SEARCH_POLICY]
 
     chat_id = uuid.UUID(body["chat_id"])
@@ -876,12 +830,12 @@ def test_identity_comes_from_the_token_and_not_from_the_body(
     tenant is the caller's own: a cross-tenant version would
     be refused by the tenant guard whether this control exists or not, so it
     would pin nothing. The named session id is the second identity a client
-    must not be able to choose — it IS the checkpoint thread, so a
-    route reading it addresses another turn's checkpoints.
+    must not be able to choose — it IS the chat, so a route reading it
+    writes into another person's chat.
     """
     session_id = uuid.uuid4()
     named_session_id = uuid.uuid4()
-    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
+    gateway = StagedGateway(_one_turn_answers())
     tools = ScriptedToolCaller(_page())
     token = _token(chat_env.tenant_a, session_id)
 
@@ -958,7 +912,7 @@ def test_a_message_one_character_over_the_cap_writes_no_row_at_all(
     assert MAX_MESSAGE_CHARS == 4000
 
     accepted_session = uuid.uuid4()
-    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
+    gateway = StagedGateway(_one_turn_answers())
     accepted = _post_chat(
         monkeypatch=monkeypatch,
         token=_token(chat_env.tenant_a, accepted_session),
@@ -987,41 +941,6 @@ def test_a_message_one_character_over_the_cap_writes_no_row_at_all(
     assert _stored_messages(chat_env, chat_env.tenant_a, refused_session) == []
 
 
-# --- the paused turn ----------------------------------------------------------
-
-
-def test_a_paused_turn_answers_with_the_pending_reply_and_the_request_id(
-    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Catches a route that treats a paused turn as an unfinished one (decision
-    E2's 202 with no body, or a 500 on the outcome it does not recognise): the
-    turn produced a reply, stored it and filed a request, and a client that
-    cannot read the request id cannot show the user what they are waiting for.
-
-    No composition answer is staged, so a route that re-ran or resumed the turn
-    would ask for an answer nobody staged and fail outright.
-    """
-    session_id = uuid.uuid4()
-    gateway = StagedGateway([_extraction_answer(), _request_plan(chat_env)])
-    tools = ScriptedToolCaller(_page(), _approval_payload())
-    token = _token(chat_env.tenant_a, session_id)
-
-    response = _post_request_and_yes(
-        monkeypatch=monkeypatch,
-        token=token,
-        gateway_handler=gateway.handler,
-        tools=tools,
-    )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["outcome"] == TurnOutcome.AWAIT_APPROVAL.value
-    assert body["request_id"] == str(REQUEST_ID)
-    assert body["reply"].startswith(PENDING_APPROVAL_REPLY.split("{")[0])
-    assert gateway.call_count == 2
-    assert tools.names == [SEARCH_POLICY, CREATE_REQUEST]
-
-
 # --- the decision card on the wire --------------------------------------------
 
 
@@ -1032,18 +951,17 @@ def test_a_filed_request_answers_its_decision_card(
     fifth key is read off the JSON body as a nested object — `body["decision"]`
     with `risk_class` and `approvers[0]["slot"]` inside it — so a route that
     flattened the card into the envelope, or that carries the tool's payload
-    through unprojected, fails here rather than at 22d's rendering.
+    through unprojected, fails here rather than at the web app's rendering.
 
-    The same turn shape as the paused case above and the same staging: two
-    gateway answers (extraction, planning; the pause composes from a template)
-    and two tool calls (the retrieval this turn always makes, then the create),
-    so a route that ran an extra call fails inside the stub. The payload is the
-    tool's whole output, so a `None` card here is the route's doing and not a
-    missing key's.
+    The first message only proposes the request, which is held; the yes runs
+    it. Two gateway answers (the proposal, the reply after the yes) and one
+    tool call (the create), so a route that ran an extra call fails inside the
+    stub. The payload is the tool's whole output, so a `None` card here is the
+    route's doing and not a missing key's.
     """
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_extraction_answer(), _request_plan(chat_env)])
-    tools = ScriptedToolCaller(_page(), _card_payload())
+    gateway = StagedGateway([_proposed_request(chat_env), FILED_REPLY])
+    tools = ScriptedToolCaller(_card_payload())
 
     response = _post_request_and_yes(
         monkeypatch=monkeypatch,
@@ -1054,7 +972,8 @@ def test_a_filed_request_answers_its_decision_card(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["outcome"] == TurnOutcome.AWAIT_APPROVAL.value
+    assert body["outcome"] == TurnOutcome.DONE.value
+    assert body["reply"] == FILED_REPLY
 
     card = body["decision"]
     assert card is not None
@@ -1069,7 +988,7 @@ def test_a_filed_request_answers_its_decision_card(
     assert str(CARD_APPROVER_ID) not in json.dumps(card)
 
     assert gateway.call_count == 2
-    assert tools.names == [SEARCH_POLICY, CREATE_REQUEST]
+    assert tools.names == [CREATE_REQUEST]
 
 
 def test_a_turn_with_no_access_tool_answers_a_null_decision(
@@ -1085,7 +1004,7 @@ def test_a_turn_with_no_access_tool_answers_a_null_decision(
     turns (one shape for both).
     """
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
+    gateway = StagedGateway(_one_turn_answers())
     tools = ScriptedToolCaller(_page())
 
     response = _post_chat(
@@ -1100,8 +1019,8 @@ def test_a_turn_with_no_access_tool_answers_a_null_decision(
     body = response.json()
     assert body["outcome"] == TurnOutcome.DONE.value
     assert body["decision"] is None
-    # Three staged answers (extraction, planning, composition), one tool call.
-    assert gateway.call_count == 3
+    # Two staged answers (the lookup step, the reply), one tool call.
+    assert gateway.call_count == 2
     assert tools.names == [SEARCH_POLICY]
 
 
@@ -1216,13 +1135,13 @@ def test_an_unreachable_mcp_server_answers_a_typed_code(
     chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a `ToolError` escaping the route unmapped: the MCP handshake
-    fails inside `run_turn`'s `async with deps.tools`, outside every node, so
+    fails inside the turn's `async with deps.tools`, before any step, so
     nothing on the turn path converts it into state and an unhandled
     `RemoteInternalError` reaches the client as FastAPI's untyped 500 with a
     stack trace.
 
-    The gateway is staged with nothing: the caller is entered before the graph
-    is invoked, so a model request here would mean the failure was swallowed
+    The gateway is staged with nothing: the caller is entered before the
+    first model step, so a model request here would mean the failure was swallowed
     and the turn ran anyway.
     """
     session_id = uuid.uuid4()
@@ -1287,7 +1206,7 @@ def _chat_id_of(path: str, response: httpx.Response) -> str:
 
 def _one_turn_staging() -> tuple[StagedGateway, ScriptedToolCaller]:
     return (
-        StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY]),
+        StagedGateway(_one_turn_answers()),
         ScriptedToolCaller(_page()),
     )
 
@@ -1427,7 +1346,7 @@ def test_message_with_chat_id_continues_that_chat(
     that falls back to the token's `sid` when it should use `chat_id` writes to
     a third place and the four rows are not all in the first chat.
     """
-    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY] * 2)
+    gateway = StagedGateway(_one_turn_answers() * 2)
     tools = ScriptedToolCaller(_page(), _page())
     first_login = uuid.uuid4()
     second_login = uuid.uuid4()
@@ -1731,7 +1650,7 @@ def test_tool_token_carries_chat_id_as_sid_and_same_user_and_tenant(
     monkeypatch.setattr(chat_service, "build_tool_caller", _capture, raising=False)
     login_sid = uuid.uuid4()
     login_token = _token(chat_env.tenant_a, login_sid)
-    gateway = StagedGateway([_extraction_answer(), EMPTY_PLAN, COMPOSED_REPLY])
+    gateway = StagedGateway(_one_turn_answers())
 
     response = _post_chat(
         monkeypatch=monkeypatch,
@@ -1754,68 +1673,15 @@ def test_tool_token_carries_chat_id_as_sid_and_same_user_and_tenant(
         assert claims.principals == ["employee"]
 
 
-def test_paused_request_resumes_in_a_chat_that_is_not_the_login(
-    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Catches a turn that pauses on the login's thread: a request filed in
-    chat B must leave its paused checkpoint under B's id, because resume reads
-    the thread named by the request's `session_id`, and that id is the `sid`
-    of the tool token (checked here to be B's id too).
-
-    The login `sid` differs from the chat; the checkpoint under the login's id
-    must not exist, and the one under the chat id must be waiting on the
-    filed request.
-    """
-    seen: list[str] = []
-    caller = ScriptedToolCaller(_page(), _approval_payload())
-
-    def _capture(settings: Settings, bearer_token: str) -> ToolCaller:
-        seen.append(bearer_token)
-        return caller
-
-    monkeypatch.setattr(chat_routes, "build_tool_caller", _capture)
-    monkeypatch.setattr(chat_service, "build_tool_caller", _capture, raising=False)
-    login_sid = uuid.uuid4()
-    gateway = StagedGateway([_extraction_answer(), _request_plan(chat_env)])
-
-    response = _post_request_and_yes(
-        monkeypatch=monkeypatch,
-        token=_token(chat_env.tenant_a, login_sid),
-        gateway_handler=gateway.handler,
-    )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["outcome"] == TurnOutcome.AWAIT_APPROVAL.value
-    chat_id = body["chat_id"]
-    assert chat_id != str(login_sid)
-    assert seen
-    for bearer in seen:
-        claims = verify_token(bearer, TEST_JWT_SIGNING_PHRASE, datetime.now(UTC))
-        assert claims.sid == chat_id
-
-    async def scenario(client: httpx.AsyncClient) -> tuple[Any, Any]:
-        saver = app.state.checkpointer
-        in_chat = await saver.aget_tuple(thread_config(chat_id))
-        in_login = await saver.aget_tuple(thread_config(str(login_sid)))
-        return in_chat, in_login
-
-    in_chat, in_login = _drive(monkeypatch=monkeypatch, scenario=scenario)
-    assert in_login is None
-    assert in_chat is not None
-    assert str(in_chat.checkpoint["channel_values"]["awaiting_request_id"]) == str(REQUEST_ID)
-
-
 # --- the lifespan -------------------------------------------------------------
 
 
-def test_the_lifespan_closes_the_pool_and_the_clients(
+def test_the_lifespan_closes_the_clients(
     chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Catches a lifespan that builds the checkpointer pool and the gateway
-    client at startup and never closes them at shutdown — a risk:
-    a process-lifetime pool left open leaks connections into the shared
-    compose Postgres, and every module after this one pays for it.
+    """Catches a lifespan that builds the gateway client at startup and never
+    closes it at shutdown — a risk: a process-lifetime client left open leaks
+    connections, and every module after this one pays for it.
 
     Both halves are read off the objects the LIFESPAN itself built: nothing is
     staged in this case, so the assertions cannot be satisfied by a client the
@@ -1825,12 +1691,9 @@ def test_the_lifespan_closes_the_pool_and_the_clients(
 
     async def scenario() -> None:
         async with app.router.lifespan_context(app):
-            assert app.state.checkpointer_pool.closed is False
             assert app.state.model.client.is_closed is False
-            assert app.state.checkpointer is not None
             assert app.state.session_factory is not None
 
     asyncio.run(scenario())
 
-    assert app.state.checkpointer_pool.closed is True
     assert app.state.model.client.is_closed is True

@@ -7,16 +7,13 @@ the verified claims. The tool's output is returned unchanged, and the tool
 alone checks comment and reason lengths so errors stay typed.
 """
 
-import contextlib
 import uuid
 from collections.abc import Mapping
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
 
-from helpdesk.agent_api.agent.gates import DECIDED_RESULTS
 from helpdesk.agent_api.agent.keys import derive_decision_key
-from helpdesk.agent_api.agent.resume import ResumeRefusedError
 from helpdesk.agent_api.core.deps import request_claims
 from helpdesk.agent_api.schemas.approvals import (
     ApproveBody,
@@ -26,17 +23,9 @@ from helpdesk.agent_api.schemas.approvals import (
     RejectBody,
     RejectRequestArgs,
 )
-from helpdesk.agent_api.services import approvals as approvals_service
 from helpdesk.agent_api.services.tool_proxy import proxy_tool
 
 router = APIRouter()
-
-resume_after_decision = approvals_service.resume_after_decision
-"""Resume the paused chat turn that filed this request.
-
-A module name so tests can swap in a spy. Called only once the decision is
-final, never on a seat that leaves the request pending.
-"""
 
 APPROVE_VERB = "approve"
 REJECT_VERB = "reject"
@@ -66,8 +55,8 @@ async def approve(
     """Approve one step of one request's approval chain.
 
     The id is a UUID so a bad path never turns into a key filed against nothing.
-    If the decision is final, the paused chat turn resumes. A request filed
-    outside a chat has nothing to resume, and the approver still gets the result.
+    The requester learns the decision from the notifications and from their
+    own request list; no chat turn waits on it.
     """
     claims = request_claims(request)
 
@@ -78,12 +67,7 @@ async def approve(
             approver_user_id=uuid.UUID(claims.sub), request_id=request_id, verb=APPROVE_VERB
         ),
     )
-    tool_body = await proxy_tool(request, "approve_request", arguments)
-    status = str(tool_body.get("status", ""))
-    if status in DECIDED_RESULTS:
-        with contextlib.suppress(ResumeRefusedError):
-            await resume_after_decision(request, request_id, status)
-    return tool_body
+    return await proxy_tool(request, "approve_request", arguments)
 
 
 @router.post("/approvals/{request_id}/reject")
@@ -105,9 +89,4 @@ async def reject(
             approver_user_id=uuid.UUID(claims.sub), request_id=request_id, verb=REJECT_VERB
         ),
     )
-    tool_body = await proxy_tool(request, "reject_request", arguments)
-    status = str(tool_body.get("status", ""))
-    if status in DECIDED_RESULTS:
-        with contextlib.suppress(ResumeRefusedError):
-            await resume_after_decision(request, request_id, status)
-    return tool_body
+    return await proxy_tool(request, "reject_request", arguments)

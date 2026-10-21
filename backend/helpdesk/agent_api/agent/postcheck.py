@@ -7,17 +7,14 @@ nothing, so a new status narrows the reply instead of widening it. Matching
 is on whole lowercase words, so `approvals` never matches `approved`.
 """
 
+import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from helpdesk.agent_api.agent.follow_up import (
-    CANNOT_PLACE_REPLY,
-    OUT_OF_SCOPE_REPLY,
-    last_assistant_reply,
-)
 from helpdesk.agent_api.agent.gates import ALREADY_REQUESTED
-from helpdesk.agent_api.agent.state import Intent, ToolResult, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.role_words import plain_role_name, with_plain_role_names
+from helpdesk.agent_api.agent.state import ToolResult, TurnOutcome, TurnState
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.policy.types import Decision
 
@@ -44,11 +41,15 @@ _STATUS_PERMITS: Mapping[str, frozenset[str]] = {
 """What each request status lets a reply say. `approved` is not `granted`:
 the grant may not have run yet. Statuses with no row allow nothing."""
 
-POSTCHECK_FALLBACK_REPLY = CANNOT_PLACE_REPLY
-"""What a reply that contradicted twice ends on when the turn returned nothing
-code can word: the line saying what the assistant helps with. It claims
-nothing, uses no decision word, and never reads like a fault in the app
-(`test_fallback_text_is_plain`, `test_couldnt_answer_text_is_gone`)."""
+POSTCHECK_FALLBACK_REPLY = (
+    "I am not sure what you need there. I can help with access to a system, "
+    "with a password reset or an unlocked account, with where your requests "
+    "and tickets stand, and with questions about the rules. Tell me which of "
+    "these you want and I will take it from there."
+)
+"""What a reply that was sent back too often ends on when the turn returned
+nothing code can word: the line saying what the assistant helps with. It
+names nothing, uses no decision word, and never reads like a fault in the app."""
 
 GRANTS_KEY = "grants"
 """Where `list_my_access` puts the person's live grants."""
@@ -72,16 +73,9 @@ def words_in(text: str) -> frozenset[str]:
 
 
 def permitted_words(state: TurnState) -> frozenset[str]:
-    """The decision words this turn's own results entitle a reply to use. A
-    follow-up also gets the words of the last stored assistant reply, which
-    already passed this check; never the new message's, and never on any other
-    intent (`test_follow_up.py`)."""
+    """The decision words this turn's own results entitle a reply to use;
+    never the person's message's."""
     permitted: set[str] = set()
-
-    if state.extraction is not None and state.extraction.intent is Intent.FOLLOW_UP:
-        earlier = last_assistant_reply(state.history)
-        if earlier is not None:
-            permitted |= words_in(earlier)
 
     if state.outcome is TurnOutcome.AWAIT_APPROVAL:
         permitted |= {"pending"}
@@ -121,6 +115,53 @@ def contradicts(reply: str, state: TurnState) -> bool:
     return not words_in(reply) <= permitted_words(state)
 
 
+REQUEST_NUMBER = re.compile(r"\bREQ-\d+\b")
+"""A request number as people see it (`REQ-0006`), as one whole token."""
+
+_NOT_A_WORD = re.compile(r"[^a-z0-9]+")
+
+
+def _results_text(results: Iterable[ToolResult]) -> str:
+    """The successful results as text, each also with its roles in plain words."""
+    return " ".join(
+        json.dumps([result.payload, with_plain_role_names(result.payload)], default=str)
+        for result in results
+        if result.ok
+    )
+
+
+def unbacked_numbers(reply: str, results: Iterable[ToolResult]) -> list[str]:
+    """The request numbers `reply` names that no successful result holds. The
+    person's own words do not count: a number they typed may not exist."""
+    backed = set(REQUEST_NUMBER.findall(_results_text(results)))
+    return sorted(set(REQUEST_NUMBER.findall(reply)) - backed)
+
+
+def _plain(text: str) -> str:
+    """Lowercase words and numbers, one space apart, with a space at each end,
+    so `wiki.viewer`, `Wiki viewer` and `wiki-viewer` all read the same."""
+    return f" {_NOT_A_WORD.sub(' ', text.lower()).strip()} "
+
+
+def unbacked_roles(
+    reply: str,
+    roles: Iterable[tuple[str, str]],
+    results: Iterable[ToolResult],
+    person_said: Sequence[str],
+) -> list[str]:
+    """The tenant roles `reply` names that neither a successful result nor
+    the person's own words name. `roles` are (system slug, role slug) pairs;
+    a role is named by its system and role words together, in any spelling."""
+    said = _plain(reply)
+    backed = _plain(" | ".join([_results_text(results), *person_said]))
+    named: list[str] = []
+    for system, role in roles:
+        words = _plain(f"{system} {role}")
+        if words in said and words not in backed:
+            named.append(plain_role_name(system, role))
+    return sorted(named)
+
+
 _FILED_STATUSES = frozenset(
     {
         RequestStatus.PENDING.value,
@@ -148,22 +189,6 @@ def request_filed(state: TurnState) -> bool:
     if state.outcome is TurnOutcome.AWAIT_APPROVAL:
         return True
     return any(_filed(result) for result in state.tool_results)
-
-
-def asks_after_filing(asks: bool, state: TurnState) -> bool:
-    """Whether a reply the writer marked as asking (`asks`) asks although the
-    request is already filed.
-
-    The question reads as if an answer still mattered, and it does not. A
-    blocked turn, or one that filed nothing, may still ask.
-    """
-    return asks and request_filed(state)
-
-
-def asks_on_a_best_reading(asks: bool, state: TurnState) -> bool:
-    """Whether a reply the writer marked as asking (`asks`) asks on a turn that
-    may not ask one: the turn before was already a clarifying question."""
-    return asks and state.best_reading
 
 
 def _seats(payload: Mapping[str, Any]) -> str:
@@ -332,6 +357,4 @@ def outcome_reply(state: TurnState) -> str:
             return reply
     if (reply := _held_from_grants(state, ok)) is not None:
         return reply
-    if state.extraction is not None and state.extraction.intent is Intent.OTHER:
-        return OUT_OF_SCOPE_REPLY
     return POSTCHECK_FALLBACK_REPLY

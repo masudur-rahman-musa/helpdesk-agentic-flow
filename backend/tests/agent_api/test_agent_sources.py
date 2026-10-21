@@ -4,7 +4,7 @@ Expected surface: ``helpdesk.agent_api.agent.sources.pick_used(citations, marks)
 (marks are 1-based, out of range ignored, repeats count once, search order kept)
 and ``shown_citations(state)`` (``state.reply_citations`` when known, else
 ``state.citations``). Both the ``/chat`` body (``services.chat._rendered``) and
-the stream's last event (``agent.graph._reply_data``) read ``shown_citations``.
+the stream's last event (``agent.loop.reply_data``) read ``shown_citations``.
 
 Cost: nothing. Pure functions and plain objects.
 """
@@ -12,7 +12,7 @@ Cost: nothing. Pure functions and plain objects.
 import uuid
 from datetime import UTC, datetime
 
-from helpdesk.agent_api.agent.graph import _reply_data
+from helpdesk.agent_api.agent.loop import reply_data
 from helpdesk.agent_api.agent.sources import pick_used, shown_citations
 from helpdesk.agent_api.agent.state import Citation, TurnOutcome, TurnState
 from helpdesk.agent_api.services.chat import _rendered
@@ -101,7 +101,7 @@ def test_known_marks_show_only_those() -> None:
 
     assert shown_citations(state) == (B,)
     assert _rendered(state).citations == [B.model_dump(mode="json")]
-    assert _reply_data(state)["citations"] == [B.model_dump(mode="json")]
+    assert reply_data(state)["citations"] == [B.model_dump(mode="json")]
 
 
 def test_known_empty_marks_show_nothing_on_both_outputs() -> None:
@@ -111,4 +111,4 @@ def test_known_empty_marks_show_nothing_on_both_outputs() -> None:
 
     assert shown_citations(state) == ()
     assert _rendered(state).citations == []
-    assert _reply_data(state)["citations"] == []
+    assert reply_data(state)["citations"] == []

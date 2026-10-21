@@ -11,7 +11,7 @@ class ChatRequest(BaseModel):
     """One message. Extra fields are allowed on purpose.
 
     A body naming a user, tenant or session is accepted and changes nothing;
-    identity comes from the token. The length check runs once, in `run_turn`.
+    identity comes from the token. The length check runs once, in `run_loop_turn`.
     """
 
     message: str

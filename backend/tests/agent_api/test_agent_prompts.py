@@ -1,34 +1,19 @@
-"""The prompt loader and the two shipped prompt files.
+"""The prompt loader and the shipped prompt file.
 
-Expected implementation surface (the implementer must provide exactly this):
-
-``agent_api.prompts``
-    ``PROMPTS_DIR: Path`` — ``services/agent-api/prompts/``.
-    ``@dataclass(frozen=True) class LoadedPrompt`` — ``name``, ``text``,
-        ``sha256``.
-    ``def load_prompt(name: str) -> LoadedPrompt`` — reads
-        ``PROMPTS_DIR / f"{name}.md"`` and returns the sha256 of the file's
-        BYTES as a 64-character lowercase hex digest. NOT cached: a rewritten
-        file yields a new digest on the next call, because the digest is what
-        every trace records as ``prompt_version``.
-        An unknown name raises ``PromptNotFoundError`` (a ``ToolError`` with
-        ``code = ErrorCode.INTERNAL``).
-    Files: ``prompts/system.md`` and ``prompts/intent_extraction.md``.
-
-A third file, ``prompts/tool_planning.md``, is the prompt
-``plan_tools`` sends under the ``agent-strong`` alias. Its digest rides on
-``TurnState.planning_prompt_version``, never on ``prompt_version``, because one
-string cannot carry two versions.
-
-A fourth file, ``prompts/reply_composition.md``, is the prompt
-``compose_reply`` sends under the ``agent-default`` alias. It must carry the
-two obligations in its own words, because the composition is the one
-call whose output a person reads.
+``agent_api.agent.prompts``
+    ``PROMPTS_DIR`` is the folder holding the prompt files.
+    ``load_prompt(name)`` reads ``PROMPTS_DIR / f"{name}.md"`` and returns its
+    text with the sha256 of the file's BYTES as a 64-character lowercase hex
+    digest. NOT cached: a rewritten file yields a new digest on the next call,
+    because the digest is what every trace records as ``prompt_version``. An
+    unknown name raises ``PromptNotFoundError`` (a ``ToolError`` with
+    ``code = ErrorCode.INTERNAL``).
+    The one shipped file is ``agent_loop.md``.
 
 Nothing here needs Postgres, Redis, Qdrant or a socket: the loader reads the
 repository's own files, and the mutation case writes into `tmp_path` with
-``PROMPTS_DIR`` monkeypatched, so the shipped prompts are never edited by a
-test run.
+``PROMPTS_DIR`` monkeypatched, so the shipped prompt is never edited by a test
+run.
 """
 
 import hashlib
@@ -38,32 +23,16 @@ import pytest
 
 import helpdesk.agent_api.agent as agent_package
 from helpdesk.agent_api.agent import prompts as prompts_module
-from helpdesk.agent_api.agent.gates import INTENT_TOOLS
 from helpdesk.agent_api.agent.prompts import (
     PROMPTS_DIR,
     LoadedPrompt,
     PromptNotFoundError,
     load_prompt,
 )
-from helpdesk.agent_api.agent.state import Intent
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 
-SYSTEM_PROMPT = "system"
-INTENT_PROMPT = "intent_extraction"
-PLANNING_PROMPT = "tool_planning"
-COMPOSITION_PROMPT = "reply_composition"
-
-SHIPPED_PROMPTS = (SYSTEM_PROMPT, INTENT_PROMPT, PLANNING_PROMPT, COMPOSITION_PROMPT)
-
-SYSTEM_PROMPT_REQUIRED_PHRASES = (
-    "does not decide access",
-    "policy engine",
-    "never claim",
-    "tool result",
-)
-"""The two obligations, in the words a reader can check: the agent
-does not decide access (the policy engine does), and it must never claim a
-grant happened unless a tool result says so."""
+LOOP_PROMPT = "agent_loop"
+SHIPPED_PROMPTS = (LOOP_PROMPT,)
 
 HEX_DIGEST_LENGTH = 64
 
@@ -132,111 +101,6 @@ def test_an_unknown_prompt_name_raises_the_typed_error(
     assert issubclass(PromptNotFoundError, ToolError)
 
 
-def test_the_system_prompt_states_the_agent_does_not_decide_access() -> None:
-    """Catches a system prompt missing the two obligations — the one
-    guardrail this repo's whole design rests on. Without them a model is free
-    to answer "you now have access" from its own judgement, with no tool result
-    behind it and no policy engine consulted."""
-    text = load_prompt(SYSTEM_PROMPT).text.lower()
-
-    missing = [phrase for phrase in SYSTEM_PROMPT_REQUIRED_PHRASES if phrase not in text]
-    assert not missing, f"system.md does not state: {missing}"
-
-
-def test_the_intent_prompt_names_every_intent_the_enum_carries() -> None:
-    """Catches the prompt and the closed label set
-    drifting apart. A 14th intent added to the enum but never described to the
-    model is a label the model can never produce; the schema would still
-    validate, so nothing else in the suite goes red."""
-    text = load_prompt(INTENT_PROMPT).text.lower()
-
-    missing = [intent.value for intent in Intent if intent.value not in text]
-    assert not missing, f"intent_extraction.md does not name: {missing}"
-
-
-def test_the_planning_prompt_names_every_tool_a_row_can_offer() -> None:
-    """The same failure `test_the_intent_prompt_...`
-    guards for the label set. Catches a tool added to an `INTENT_TOOLS` row
-    and never described to the model: it would be offered in the allowed set
-    with no explanation of when to reach for it, so the model either never
-    calls it or calls it for the wrong turn — and nothing else in the suite
-    goes red, because the schema still validates either way.
-
-    Read off `INTENT_TOOLS` rather than off `TOOL_INPUTS`: `search_policy` is
-    in no row and the planner must never be told it may call it."""
-    text = load_prompt(PLANNING_PROMPT).text.lower()
-    offered = sorted(frozenset().union(*INTENT_TOOLS.values()))
-
-    missing = [name for name in offered if name not in text]
-    assert not missing, f"tool_planning.md does not name: {missing}"
-
-
-def test_the_composition_prompt_states_the_agent_does_not_decide_access() -> None:
-    """Catches a composition prompt that describes the format of a
-    reply and nothing else: the composing call is handed the tool results and
-    the policy passages together, so a model told only to "write a friendly
-    answer" is free to read a `POLICY_BLOCKED` as a hurdle and tell the user
-    the access is on its way.
-
-    The same two obligations `system.md` carries, asserted separately here
-    because the composition is the one call whose words reach a person: the
-    agent does not decide access, and it may not claim a grant happened unless
-    a tool result says so. The decision-word post-check is the guard that
-    catches a reply which says it anyway; this is the instruction it rests on.
-    """
-    text = load_prompt(COMPOSITION_PROMPT).text.lower()
-
-    missing = [phrase for phrase in SYSTEM_PROMPT_REQUIRED_PHRASES if phrase not in text]
-    assert not missing, f"reply_composition.md does not state: {missing}"
-
-
-def test_the_composition_prompt_asks_for_the_question_mark() -> None:
-    """Catches a prompt left as it was: the writer would never be told to answer
-    in the shape or what the mark means, and every reply would read as no question.
-    The prompt must name both fields and say the mark is true only when the answer
-    asks the person something."""
-    text = load_prompt(COMPOSITION_PROMPT).text.lower()
-
-    assert "asks_question" in text
-    assert "`text`" in text
-    assert "true only when" in text
-    assert "asks the person" in text
-
-
-def test_the_composition_prompt_explains_used_passages() -> None:
-    """Catches a prompt left as it was: the writer is never told to list the
-    passages it relied on, or that each passage carries a number."""
-    text = load_prompt(COMPOSITION_PROMPT).text
-
-    assert "used_passages" in text
-    assert "passage" in text
-
-
-def test_the_intent_prompt_puts_own_tickets_under_check_my_access() -> None:
-    """Catches an intent prompt left as it was: a "what happened to my ticket"
-    message would be labelled `open_ticket` and file a new ticket instead of
-    reading the existing ones."""
-    text = load_prompt(INTENT_PROMPT).text.lower()
-    line = next(row for row in text.split("\n- ") if row.startswith("`check_my_access`"))
-
-    assert "ticket" in line
-
-
-def test_the_composition_prompt_covers_ticket_status() -> None:
-    """Catches a composition prompt that never says how to report tickets: the
-    writer could skip the ticket number or the open or solved status, stay
-    silent for a person with none, or describe someone else's ticket."""
-    text = load_prompt(COMPOSITION_PROMPT).text.lower()
-
-    assert "open or solved" in text
-    assert "no tickets" in text
-    assert "only their own" in text
-
-
-PLAN_54_PROMPT_FILES = (INTENT_PROMPT, PLANNING_PROMPT, COMPOSITION_PROMPT)
-"""The three prompt files; `system.md` sits in the same folder."""
-
-
 def test_prompts_dir_is_the_folder_holding_the_prompt_files() -> None:
     """Catches a `PROMPTS_DIR` resolved one level too high, at
     `agent_api/prompts`, which does not exist: every `load_prompt` call then
@@ -248,7 +112,7 @@ def test_prompts_dir_is_the_folder_holding_the_prompt_files() -> None:
 
     assert expected.parts[-4:] == ("helpdesk", "agent_api", "agent", "prompts")
     assert PROMPTS_DIR.resolve() == expected
-    for name in PLAN_54_PROMPT_FILES:
+    for name in SHIPPED_PROMPTS:
         assert (PROMPTS_DIR / f"{name}.md").is_file(), name
 
 
@@ -267,39 +131,6 @@ def test_a_missing_prompt_still_raises_prompt_not_found() -> None:
     assert excinfo.value.code is ErrorCode.INTERNAL
 
 
-def test_the_extraction_prompt_takes_only_the_latest_message() -> None:
-    """An earlier change replaces `test_the_intent_prompt_carries_details_across_one_request`:
-    code now carries the details in the saved draft, so the model fills only what
-    the latest message says.
-
-    Catches a prompt that still tells the model to fill system, role and reason
-    "from the earlier messages of the same request" (the model and the draft
-    would then both carry details, and a stale one could win), one that never
-    names `second_request` (the model is never told to report a second ask, so
-    it is dropped silently), and one that never describes the `follow_up` label
-    (a message about the last reply would be forced into an action label)."""
-    text = " ".join(load_prompt(INTENT_PROMPT).text.lower().split())
-
-    assert "earlier messages of the same request" not in text
-    assert "`second_request`" in text
-    assert "`follow_up`" in text
-
-
-def test_the_planning_prompt_files_the_reason_and_the_length() -> None:
-    """Catches a planning prompt that leaves the reason and the length out of the
-    filing call (the request is filed with no reason, or the default length
-    although the person named one), and one that plans the classification and the
-    request in two rounds, which makes a second preview round."""
-    text = " ".join(load_prompt(PLANNING_PROMPT).text.lower().split())
-
-    assert "`justification`" in text
-    assert "`requested_expiry_days`" in text
-    assert "one round" in text
-    assert "`classify_access_request`" in text
-    assert "`create_access_request`" in text
-
-
-LOOP_PROMPT = "agent_loop"
 LOOP_PROMPT_REQUIRED_PHRASES = (
     "does not decide access",
     "policy engine",
@@ -323,3 +154,43 @@ def test_loop_prompt_states_the_rules() -> None:
     missing = [phrase for phrase in LOOP_PROMPT_REQUIRED_PHRASES if phrase not in text.lower()]
     assert not missing, f"agent_loop.md does not state: {missing}"
     assert LOOP_PROMPT_DATA_RULE in text
+
+
+def _loop_prompt_words() -> str:
+    """The loop prompt as lowercase text with every run of spaces and line
+    breaks read as one space, so a phrase cut across lines still matches."""
+    return " ".join(load_prompt(LOOP_PROMPT).text.lower().split())
+
+
+def test_loop_prompt_states_scope() -> None:
+    """Catches a loop prompt that does not keep the chat to access, accounts,
+    tickets and policy questions, or that does not say what to say for
+    anything else (staying in scope is the prompt's job and the eval set's; no
+    code gate backs it up). A prompt that names only "access rules" and
+    "passwords" leaves the model free to answer a recipe.
+
+    The scope words and the out-of-scope instruction are checked in the
+    prompt's own words.
+    """
+    text = _loop_prompt_words()
+
+    for phrase in ("access", "accounts", "tickets", "policy questions"):
+        assert phrase in text, phrase
+    assert "anything else" in text
+    assert "cannot help" in text
+
+
+def test_loop_prompt_states_the_grounding_rule() -> None:
+    """Catches a loop prompt that does not tell the model that every request
+    number, role name and decision word must come from this turn's tool
+    results: the check would then bounce replies the model had no way to know
+    were wrong, and a reply sent back would not make sense to it.
+
+    Checked in the prompt's own words.
+    """
+    text = _loop_prompt_words()
+
+    assert "request number" in text
+    assert "role name" in text
+    assert "decision word" in text
+    assert "this turn" in text

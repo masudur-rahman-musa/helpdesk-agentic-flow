@@ -2,7 +2,7 @@
 
 Expected implementation surface (the implementer must provide exactly this):
 
-``agent_api.graph.matching`` (PURE: no I/O, no langgraph, no SQLAlchemy)
+``agent_api.agent.matching`` (PURE: no I/O, no langgraph, no SQLAlchemy)
     ``FUZZY_CUTOFF = 0.85`` (the fuzzy tier)
     ``@dataclass(frozen=True) class Candidate`` — ``id``, ``slug``, ``name``.
     ``def normalise(value: str) -> str`` — casefolded, every run of

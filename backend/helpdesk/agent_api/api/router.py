@@ -1,6 +1,6 @@
 """The agent API app: health, login, audit, chat and the web app's routes.
 
-Long-lived resources (the checkpointer pool, gateway, Redis and Qdrant
+Long-lived resources (the database engine, gateway, Redis and Qdrant
 clients) are built once in `lifespan` and read off `app.state`, since a pool
 per request would flood Postgres with connections.
 """
@@ -17,7 +17,6 @@ from starlette.datastructures import Headers
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from helpdesk.agent_api.agent.checkpointer import build_checkpointer, build_pool, psycopg_dsn
 from helpdesk.agent_api.api.middleware import RequireAuthMiddleware
 from helpdesk.agent_api.api.routes.admin.audit import router as audit_router
 from helpdesk.agent_api.api.routes.admin.killswitch import router as killswitch_router
@@ -112,8 +111,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # With no Langfuse keys set, this builds nothing and spans are no-ops.
     configure_tracing(settings=settings)
     engine = create_engine(settings.database_url)
-    pool = build_pool(psycopg_dsn(settings.database_url))
-    await pool.open()
 
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
@@ -125,8 +122,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # Kept for the readiness check, so it does not build a client per call.
     app.state.qdrant = AsyncQdrantClient(url=settings.qdrant_url)
-    app.state.checkpointer_pool = pool
-    app.state.checkpointer = build_checkpointer(pool)
     try:
         yield
     finally:
@@ -136,7 +131,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await app.state.qdrant.close()
         await app.state.redis.aclose()
         await app.state.model.aclose()
-        await app.state.checkpointer_pool.close()
         await app.state.engine.dispose()
 
 

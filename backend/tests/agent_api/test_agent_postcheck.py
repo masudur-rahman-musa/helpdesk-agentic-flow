@@ -1,8 +1,8 @@
-"""The decision-word post-check as a pure table (step 8).
+"""The decision-word post-check as a pure table.
 
 Expected implementation surface (the implementer must provide exactly this):
 
-``agent_api.graph.postcheck``
+``agent_api.agent.postcheck``
     ``DECISION_WORDS: frozenset[str]`` — exactly
         ``{"approved", "granted", "blocked", "pending"}``, 4 members.
     ``def words_in(text: str) -> frozenset[str]`` — a lowercase token scan
@@ -14,10 +14,10 @@ Expected implementation surface (the implementer must provide exactly this):
         ``state.outcome``. No I/O, no gateway, no database.
     ``def contradicts(reply: str, state: TurnState) -> bool`` — true when
         ``words_in(reply)`` is not a SUBSET of ``permitted_words(state)``.
-    ``POSTCHECK_FALLBACK_REPLY: str`` — the template a twice-contradicting
-        composition ends on.
+    ``POSTCHECK_FALLBACK_REPLY: str`` — the template a reply sent back too
+        often ends on when the turn returned nothing code can word.
 
-``agent_api.graph.state``
+``agent_api.agent.state``
     ``PostCheckOutcome`` — a ``StrEnum`` with exactly the 3 members
         ``passed``, ``regenerated``, ``fallback``.
     ``TurnState.postcheck: PostCheckOutcome`` — additive, defaulting to
@@ -29,16 +29,13 @@ predicates are tested in.
 """
 
 import uuid
-from pathlib import Path
 from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.agent import postcheck as postcheck_module
 from helpdesk.agent_api.agent.postcheck import (
     DECISION_WORDS,
     POSTCHECK_FALLBACK_REPLY,
-    asks_after_filing,
     contradicts,
     outcome_reply,
     permitted_words,
@@ -326,9 +323,9 @@ def test_the_fallback_reply_is_storable_and_claims_no_decision_at_all() -> None:
 
 
 def test_post_check_outcome_has_exactly_the_three_members_by_value() -> None:
-    """On an enum whose VALUE crosses the checkpointer's serde.
-    Asserted by value and not by name, because a checkpoint
-        written by one process is read back by another.
+    """On an enum whose VALUE is stored on traces and metrics.
+    Asserted by value and not by name, because a value written by one
+        process is read back by another.
 
         Catches a fourth member added without a matching metric — the metrics count fallbacks,
         and a member it has no row for is a turn nobody can classify — and a
@@ -345,61 +342,6 @@ def test_a_turn_records_a_passed_post_check_until_something_says_otherwise() -> 
     report a fallback for every turn that never reached composition and make
     the fallback count meaningless from the first day."""
     assert _state().postcheck is PostCheckOutcome.PASSED
-
-
-# --- a question after the request was already filed ----------------------------
-
-
-@pytest.mark.parametrize(
-    ("asks", "tool_results", "expected"),
-    [
-        pytest.param(
-            True,
-            (_result({"id": "r1", "status": RequestStatus.PENDING.value}),),
-            True,
-            id="question-after-a-pending-request",
-        ),
-        pytest.param(
-            True,
-            (_result({"decision": Decision.AUTO.value}),),
-            False,
-            id="question-after-an-auto-decision",
-        ),
-        pytest.param(
-            False,
-            (_result({"id": "r1", "status": RequestStatus.PENDING.value}),),
-            False,
-            id="statement-after-a-pending-request",
-        ),
-        pytest.param(
-            True,
-            (),
-            False,
-            id="question-when-nothing-was-filed",
-        ),
-        pytest.param(
-            True,
-            (_result({"decision": Decision.BLOCKED.value}),),
-            False,
-            id="question-after-a-block-is-allowed",
-        ),
-        pytest.param(
-            True,
-            (_result({"id": "r1", "status": RequestStatus.PENDING.value}, ok=False),),
-            False,
-            id="failed-call-filed-nothing",
-        ),
-    ],
-)
-def test_a_reply_may_not_ask_a_question_once_the_request_is_filed(
-    asks: bool, tool_results: tuple[ToolResult, ...], expected: bool
-) -> None:
-    """Catches the reply that says "before I can submit this, how long?" over
-    a card that shows the request already filed. The question reads as if the
-    person's answer still mattered, and it does not. A blocked turn and a turn
-    that filed nothing may still ask, so the rule cannot be a bare mark check.
-    The helper takes the writer's mark, not the reply text."""
-    assert asks_after_filing(asks, _state(tool_results=tool_results)) is expected
 
 
 # --- a classification is not a filing ------------------------------------------
@@ -434,7 +376,6 @@ def test_a_classification_alone_is_not_a_filed_request(decision: str) -> None:
     )
 
     assert request_filed(state) is False
-    assert asks_after_filing(True, state) is False
 
 
 # --- the last reply, built from the turn's own results -------------------------
@@ -512,7 +453,6 @@ def test_every_last_reply_passes_its_own_check(tool_results: tuple[ToolResult, .
     reply = outcome_reply(state)
 
     assert contradicts(reply, state) is False
-    assert asks_after_filing(False, state) is False
     assert "?" not in reply
     assert reply.strip() != ""
     assert len(reply) < MAX_MESSAGE_CHARS
@@ -534,43 +474,3 @@ def test_the_last_reply_ignores_failed_results() -> None:
 
     assert reply == POSTCHECK_FALLBACK_REPLY
     assert "approval" not in reply.lower()
-
-
-# --- a question on a best reading --------------------------
-
-
-def _best_reading(state: TurnState, *, value: bool) -> TurnState:
-    return state.model_copy(update={"best_reading": value})
-
-
-@pytest.mark.parametrize(
-    ("asks", "tool_results", "expected"),
-    [
-        (True, (_result({"id": "r1", "status": "pending"}),), True),
-        (False, (_result({"id": "r1", "status": "pending"}),), False),
-        (True, (), False),
-    ],
-)
-def test_asks_after_filing_ignores_best_reading(
-    asks: bool, tool_results: tuple[ToolResult, ...], expected: bool
-) -> None:
-    """Catches an `asks_after_filing` that was widened to read `best_reading`
-    (merging the two checks): its answer must be the same with the flag on and off."""
-    state = _state(tool_results=tool_results)
-
-    assert asks_after_filing(asks, _best_reading(state, value=True)) is expected
-    assert asks_after_filing(asks, _best_reading(state, value=False)) is expected
-
-
-# --- no question check looks for a question mark --------------------
-
-
-def test_no_question_check_looks_for_a_question_mark() -> None:
-    """Catches a check that went back to finding "?" in the reply text: the
-    writer's mark is the only source, so the literal must not appear in the
-    code that decides whether a reply asks."""
-    root = Path(postcheck_module.__file__).parent
-    for source in (root / "postcheck.py", root / "nodes" / "compose_reply.py"):
-        text = source.read_text()
-        assert '"?"' not in text, source.name
-        assert "'?'" not in text, source.name

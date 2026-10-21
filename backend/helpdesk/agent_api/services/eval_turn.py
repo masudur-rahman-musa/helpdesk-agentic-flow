@@ -2,12 +2,11 @@
 
 The console sends a seat name, not a login, so the seat is looked up in the
 seeded data and a short-lived token is minted for that user. Every turn then
-runs through `run_turn`, or `run_loop_turn` under `CHAT_ENGINE=loop`, exactly
-as a chat does, so each tool still reads tenant and user from the token and
-never from the body. `run_conversation` answers one record per user turn: the
-reply and that turn's tool calls with their results; the engine and prompt
-versions ride headers (`ConversationOutcome`). It scores nothing; the
-console's eval engine does.
+runs through `run_loop_turn` exactly as a chat does, so each tool still reads
+tenant and user from the token and never from the body. `run_conversation`
+answers one record per user turn: the reply and that turn's tool calls with
+their results; the engine and prompt versions ride headers
+(`ConversationOutcome`). It scores nothing; the console's eval engine does.
 
 Not mounted in production: `EVAL_ROUTES_ENABLED` is off there.
 """
@@ -24,10 +23,8 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from helpdesk.agent_api.agent.graph import run_turn
-from helpdesk.agent_api.agent.loop import LOOP_PROMPT, run_loop_turn
+from helpdesk.agent_api.agent.loop import LOOP_PROMPT, DbLoopStore, run_loop_turn
 from helpdesk.agent_api.agent.prompts import load_prompt
-from helpdesk.agent_api.agent.state import TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.schemas.eval import (
     EvalConversationAnswer,
@@ -52,7 +49,6 @@ __all__ = [
     "resolve_seat",
     "run_conversation",
     "run_loop_turn",
-    "run_turn",
 ]
 
 SEAT_PATTERN = re.compile(r"seed:([a-z]+)\.([a-z_]+)\.([0-9]{1,3})")
@@ -68,13 +64,8 @@ START_DATE_STEP = 97
 START_DATE_SPAN = 2900
 _STEP_INVERSE = pow(START_DATE_STEP, -1, START_DATE_SPAN)
 
-PROMPT_STEPS: tuple[tuple[str, str], ...] = (
-    ("intent", "intent_extraction"),
-    ("plan", "tool_planning"),
-    ("compose", "reply_composition"),
-    ("system", "system"),
-)
-"""The header's name for each step, and the prompt file that step reads."""
+ENGINE = "loop"
+"""What the engine header says. The loop is the only chat engine."""
 
 
 @dataclass(frozen=True)
@@ -132,12 +123,9 @@ def _seed_number(user: User) -> int:
     return (days * _STEP_INVERSE) % START_DATE_SPAN
 
 
-def prompt_versions(engine: str = "pipeline") -> str:
-    """`intent=<sha256>,plan=...,compose=...,system=...`, the digests the traces
-    record; under the loop, its one prompt as `loop=<sha256>`."""
-    if engine == "loop":
-        return f"loop={load_prompt(LOOP_PROMPT).sha256}"
-    return ",".join(f"{step}={load_prompt(name).sha256}" for step, name in PROMPT_STEPS)
+def prompt_versions() -> str:
+    """`loop=<sha256>`: the digest of the loop's one prompt, as traces record it."""
+    return f"loop={load_prompt(LOOP_PROMPT).sha256}"
 
 
 class _ResultTools:
@@ -203,13 +191,10 @@ async def run_conversation(
     settings: Settings,
     factory: async_sessionmaker[AsyncSession],
     model: ModelClient,
-    checkpointer: Any,
 ) -> ConversationOutcome:
     """Play the person's turns in one new chat and answer for every turn."""
     chat_id = uuid.uuid4()
     case = _Case()
-    engine = settings.chat_engine
-    turn = run_loop_turn if engine == "loop" else run_turn
     records: list[EvalConversationTurn] = []
     for number, message in enumerate(body.turns, start=1):
         now = datetime.now(UTC)
@@ -218,7 +203,9 @@ async def run_conversation(
             build_tool_caller(settings, _seat_token(seat, chat_id, settings, now)), calls
         )
         async with tenant_session(factory, seat.tenant_id) as db:
-            state = await turn(
+            if not case.role_names:
+                case.role_names = await _role_names(db, seat, chat_id)
+            state = await run_loop_turn(
                 deps=TurnDeps(
                     db=db,
                     model=model,
@@ -230,9 +217,7 @@ async def run_conversation(
                 session_id=chat_id,
                 tenant_slug=seat.tenant_slug,
                 message=message,
-                checkpointer=checkpointer,
             )
-        _remember_roles(case, state)
         records.append(
             EvalConversationTurn(
                 turn=number,
@@ -251,8 +236,8 @@ async def run_conversation(
         )
     return ConversationOutcome(
         answer=EvalConversationAnswer(case_id=body.case_id, turns=records),
-        prompt_versions=prompt_versions(engine),
-        engine=engine,
+        prompt_versions=prompt_versions(),
+        engine=ENGINE,
     )
 
 
@@ -276,14 +261,12 @@ def _clock(at: datetime) -> Callable[[], datetime]:
     return lambda: at
 
 
-def _remember_roles(case: _Case, state: TurnState) -> None:
-    """Keep the role ids this turn resolved, so a call's `role_id` reads back as a name."""
-    resolved = state.resolved
-    if resolved is None or resolved.role_id is None:
-        return
-    if resolved.system_slug is None or resolved.role_slug is None:
-        return
-    case.role_names[str(resolved.role_id)] = f"{resolved.system_slug}.{resolved.role_slug}"
+async def _role_names(db: AsyncSession, seat: Seat, chat_id: uuid.UUID) -> dict[str, str]:
+    """Every tenant role id as `<system slug>.<role slug>`, so a call's
+    `role_id` reads back as a name."""
+    store = DbLoopStore(db, session_id=chat_id, user_id=seat.user_id)
+    roles = await store.role_ids()
+    return {str(role_id): f"{system}.{role}" for (system, role), role_id in roles.items()}
 
 
 def _call_args(case: _Case, args: Mapping[str, Any]) -> dict[str, Any]:

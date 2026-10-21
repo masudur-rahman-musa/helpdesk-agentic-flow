@@ -9,28 +9,31 @@ the cases below use. The implementer must provide exactly these names:
 true, and are a typed 404 ``{"code": "NOT_FOUND"}`` otherwise. Both join the
 open paths only when it is true; when it is false they still need a token.
 
-``helpdesk.agent_api.services.eval_turn`` (new module) holds the turn. Three
-names in it are looked up at call time, so a test can swap them and no
-database, tool server or graph is needed:
+``helpdesk.agent_api.services.eval_turn`` holds the turn. Four names in it
+are looked up at call time, so a test can swap them and no database, tool
+server or model is needed:
 
 ``resolve_seat(factory, *, tenant_slug, principal_user)``
     async; the seat's user or ``None`` for an unknown tenant or seat. The
     result is read only through the attributes ``tenant_id``, ``tenant_slug``,
     ``user_id``, ``department_id`` and ``principals``.
-``run_turn(**kwargs)``
-    the graph's own ``run_turn`` (same keyword-only signature), called once
+``run_loop_turn(**kwargs)``
+    the loop's own ``run_loop_turn`` (same keyword-only signature), called once
     per message, in order, with ``deps.db`` bound to the seat's tenant, a
     ``deps.tools`` that records the calls made, and ``deps.model`` the app's
     model client (watched, so the headers of every call are kept).
 ``build_tool_caller(settings, bearer_token)``
     the same seam ``routes/chat.py`` has: called with the token minted for
     the seat.
+``DbLoopStore(db, *, session_id, user_id)``
+    read once per conversation for ``role_ids()``, the tenant's roles, so a
+    call's ``role_id`` reads back as ``<system slug>.<role slug>``.
 
 The answer is exactly the console's envelope, and every step's prompt version
 rides the ``X-Prompt-Versions`` header.
 
 Cost: no backing service, no socket. The database is a recording session
-factory, the graph a scripted function, the tool server a recording stub and
+factory over an empty directory, the loop a scripted function, the tool server a recording stub and
 the gateway an ``httpx.MockTransport``. Each case sets its own settings and
 ``app.state`` through ``monkeypatch``, so nothing is shared between cases.
 """
@@ -51,11 +54,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.agent.prompts import PROMPTS_DIR
-from helpdesk.agent_api.agent.state import (
-    ResolvedEntities,
-    TurnOutcome,
-    TurnState,
-)
+from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.api.router import app
 from helpdesk.agent_api.schemas import eval as eval_schemas
 from helpdesk.agent_api.services import eval_turn
@@ -97,15 +96,31 @@ class FakeSeat:
     principals: tuple[str, ...] = ("employee",)
 
 
+class _NoRows:
+    """A query result with no rows, as an empty directory answers."""
+
+    def scalars(self) -> "_NoRows":
+        return self
+
+    def all(self) -> list[Any]:
+        return []
+
+
 class RecordingSession:
-    """Stands in for an `AsyncSession`: it keeps the tenant bound to it."""
+    """Stands in for an `AsyncSession`: it keeps the tenant bound to it, and
+    every query it is asked finds no rows."""
 
     def __init__(self) -> None:
         self.info: dict[str, Any] = {}
         self.commits = 0
+        self.statements: list[Any] = []
 
     async def commit(self) -> None:
         self.commits += 1
+
+    async def execute(self, statement: Any) -> _NoRows:
+        self.statements.append(statement)
+        return _NoRows()
 
 
 class RecordingFactory:
@@ -159,7 +174,7 @@ class Step:
 
 
 class ScriptedTurns:
-    """A `run_turn` that plays one `Step` per message and records every call."""
+    """A `run_loop_turn` that plays one `Step` per message and records every call."""
 
     def __init__(self, steps: Sequence[Step]) -> None:
         self._steps = list(steps)
@@ -276,7 +291,7 @@ def install(
             return caller
 
         monkeypatch.setattr(eval_turn, "resolve_seat", resolve)
-        monkeypatch.setattr(eval_turn, "run_turn", turns)
+        monkeypatch.setattr(eval_turn, "run_loop_turn", turns)
         monkeypatch.setattr(eval_turn, "build_tool_caller", build_caller)
         model = ModelClient(
             base_url=GATEWAY_URL,
@@ -287,7 +302,6 @@ def install(
         )
         monkeypatch.setattr(app.state, "session_factory", factory, raising=False)
         monkeypatch.setattr(app.state, "model", model, raising=False)
-        monkeypatch.setattr(app.state, "checkpointer", None, raising=False)
         return Harness(turns, factory, caller, tokens, lookups)
 
     yield build
@@ -425,9 +439,9 @@ def test_reset_answers_204_when_switched_on(install: Callable[..., Harness]) -> 
 
 # --- the conversation route ---------------------------------------
 #
-# `POST /v1/eval/conversation` and `eval_turn.run_conversation`. The same three
-# seams are swapped (`resolve_seat`, `run_turn`, `build_tool_caller`), so no
-# database, tool server or graph is needed.
+# `POST /v1/eval/conversation` and `eval_turn.run_conversation`. The same
+# seams are swapped (`resolve_seat`, `run_loop_turn`, `build_tool_caller`,
+# `DbLoopStore`), so no database, tool server or model is needed.
 
 CONVERSATION_PATH = "/v1/eval/conversation"
 DW_ANALYST = "data-warehouse.analyst"
@@ -438,7 +452,7 @@ DW_ROLE_ID = uuid.UUID("a6666666-6666-5666-8666-666666666666")
 class ConvStep:
     """One scripted turn: the state it ends in and the tool calls it makes, in order.
 
-    A call that raises is caught here, as the real graph turns a tool error
+    A call that raises is caught here, as the real loop turns a tool error
     into a failed tool result, so the turn still answers.
     """
 
@@ -447,7 +461,7 @@ class ConvStep:
 
 
 class ConvTurns:
-    """A `run_turn` that plays one `ConvStep` per message."""
+    """A `run_loop_turn` that plays one `ConvStep` per message."""
 
     def __init__(self, steps: Sequence[ConvStep]) -> None:
         self._steps = list(steps)
@@ -496,14 +510,28 @@ class StubCaller:
         return self._answers[name]
 
 
-def _resolved(system: str, role: str, role_id: uuid.UUID) -> Mapping[str, Any]:
-    return {
-        "outcome": TurnOutcome.DONE,
-        "reply": f"reply about {system}.{role}",
-        "resolved": ResolvedEntities(
-            system_slug=system, role_slug=role, role_id=role_id, system_name=system
-        ),
-    }
+def _about(system: str, role: str) -> Mapping[str, Any]:
+    return {"outcome": TurnOutcome.DONE, "reply": f"reply about {system}.{role}"}
+
+
+TENANT_ROLES: Mapping[tuple[str, str], uuid.UUID] = {
+    ("data-warehouse", "analyst"): DW_ROLE_ID,
+    ("wiki", "viewer"): ROLE_ID,
+}
+"""The tenant's role list the fake directory answers."""
+
+
+class FakeDirectory:
+    """Stands in for `DbLoopStore`: only `role_ids` is read, and it is counted."""
+
+    reads = 0
+
+    def __init__(self, db: object, *, session_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        self._user_id = user_id
+
+    async def role_ids(self) -> Mapping[tuple[str, str], uuid.UUID]:
+        FakeDirectory.reads += 1
+        return TENANT_ROLES
 
 
 @pytest.fixture
@@ -527,8 +555,10 @@ def install_conversation(
             tokens.append(bearer_token)
             return stub
 
-        monkeypatch.setattr(eval_turn, "run_turn", turns)
+        monkeypatch.setattr(eval_turn, "run_loop_turn", turns)
         monkeypatch.setattr(eval_turn, "build_tool_caller", build_caller)
+        monkeypatch.setattr(eval_turn, "DbLoopStore", FakeDirectory)
+        monkeypatch.setattr(FakeDirectory, "reads", 0)
         return harness, turns
 
     return build
@@ -617,15 +647,16 @@ def test_each_turn_lists_only_its_own_calls_and_results(
     envelope does), so turn 3 would list turn 1's call too; a `role_id` left as
     an id; and a `result` that is rebuilt rather than the tool's own answer.
 
-    Turn 2 makes no call and must read `[]`. Turn 3 repeats the role id of turn
-    1 without resolving it again, so the name must be remembered across turns.
+    Turn 2 makes no call and must read `[]`. The role names come from the
+    tenant's role list, read once for the whole conversation, so turn 3 reads
+    the same name back without a second read.
     """
     answer_a = {"request_id": "r-1", "status": "executed", "decision": "auto"}
     answer_b = {"tickets": [{"id": "t-9"}], "count": 1}
     _, _ = install_conversation(
         [
             ConvStep(
-                update=_resolved("data-warehouse", "analyst", DW_ROLE_ID),
+                update=_about("data-warehouse", "analyst"),
                 calls=(("create_access_request", DW_ROLE_ID),),
             ),
             ConvStep(update=_plain(TurnOutcome.CLARIFY)),
@@ -657,6 +688,7 @@ def test_each_turn_lists_only_its_own_calls_and_results(
             "error_code": None,
         }
     ]
+    assert FakeDirectory.reads == 1
 
 
 def test_a_failed_call_is_kept_with_its_error_code(
@@ -667,13 +699,13 @@ def test_a_failed_call_is_kept_with_its_error_code(
     swallows the error so the turn never sees it.
 
     The stub raises the not-found client error, whose code is `NOT_FOUND`;
-    the scripted turn catches it as the graph does and still answers. The
+    the scripted turn catches it as the loop does and still answers. The
     success after it must stay `ok` true.
     """
     _, _ = install_conversation(
         [
             ConvStep(
-                update=_resolved("wiki", "viewer", ROLE_ID),
+                update=_about("wiki", "viewer"),
                 calls=(("revoke_access", ROLE_ID), ("create_ticket", ROLE_ID)),
             )
         ],
@@ -702,7 +734,7 @@ def test_the_conversation_identity_comes_from_the_seat(
     token per turn with a fresh `sid`, or lets body text reach a tool.
 
     The seat's ids are values nothing in the body spells. Every turn's token and
-    graph call must carry them and one chat id; the tool's arguments hold
+    loop call must carry them and one chat id; the tool's arguments hold
     only the role id.
     """
     harness, turns = install_conversation(
@@ -802,30 +834,22 @@ def test_the_conversation_body_limits(
     assert len(turns.calls) == (turn_count if status == 200 else 0)
 
 
-def test_the_conversation_answer_carries_every_prompt_version(
+def test_the_conversation_answer_carries_the_loop_prompt_version(
     install_conversation: Callable[..., tuple[Harness, ConvTurns]],
 ) -> None:
-    """Catches a conversation answer with no `X-Prompt-Versions` header, or one
-    that names fewer steps, is in another order, or holds anything but the
-    sha256 of each prompt file's bytes (the digest the traces record).
+    """Catches a conversation answer with no `X-Prompt-Versions` header, one
+    that still names the old pipeline's four steps, or one that holds anything
+    but the sha256 of the loop prompt's bytes (the digest the traces record),
+    and an engine header that names anything but the loop.
 
-    The scripted turn leaves the prompt versions empty on the state, so the
-    header cannot be copied from the state: it has to come from the files.
+    The scripted turn leaves the prompt version empty on the state, so the
+    header cannot be copied from the state: it has to come from the file.
     """
     install_conversation([ConvStep(update=_plain()), ConvStep(update=_plain())])
 
     conversation = _post_conversation(_conv_body())
 
-    def digest(name: str) -> str:
-        return hashlib.sha256((PROMPTS_DIR / f"{name}.md").read_bytes()).hexdigest()
-
-    expected = ",".join(
-        (
-            f"intent={digest('intent_extraction')}",
-            f"plan={digest('tool_planning')}",
-            f"compose={digest('reply_composition')}",
-            f"system={digest('system')}",
-        )
-    )
+    digest = hashlib.sha256((PROMPTS_DIR / "agent_loop.md").read_bytes()).hexdigest()
     assert conversation.status_code == 200
-    assert conversation.headers["X-Prompt-Versions"] == expected
+    assert conversation.headers["X-Prompt-Versions"] == f"loop={digest}"
+    assert conversation.headers["X-Chat-Engine"] == "loop"

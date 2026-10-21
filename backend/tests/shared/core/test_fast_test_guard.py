@@ -82,21 +82,15 @@ service just as much as one that builds an engine. Scanned together with
 
 EXEMPT_BUILDERS: frozenset[str] = frozenset(
     {
-        # agent-api graph, chat and route suites: each builds its own engine, and
-        # the checkpointer-backed ones a schema plus CREATE DATABASE; 57a deferred
-        # converting them to the shared fixtures.
-        "backend/tests/agent_api/test_agent_approval_interrupt.py",
-        "backend/tests/agent_api/test_agent_approval_resume.py",
-        "backend/tests/agent_api/test_agent_checkpointer.py",
+        # agent-api chat and route suites: each builds its own engine, and some a
+        # schema plus CREATE DATABASE; 57a deferred converting them to the shared
+        # fixtures.
         "backend/tests/agent_api/test_agent_metrics.py",
-        "backend/tests/agent_api/test_agent_tracing.py",
-        "backend/tests/agent_api/test_agent_turn.py",
         "backend/tests/agent_api/test_audit_verify_route.py",
         "backend/tests/agent_api/test_chat_route.py",
         "backend/tests/agent_api/test_chat_stream.py",
         "backend/tests/agent_api/test_login.py",
         "backend/tests/agent_api/test_rate_limit.py",
-        "backend/tests/agent_api/test_turn_stream.py",
         # mcp-server service suites (rag ingest/retrieval, idempotency, rollback):
         # each builds its own engine; the rag and subtest set 57a deferred.
         "backend/tests/mcp_server/services/access_requests/test_access_rollback.py",
@@ -166,7 +160,7 @@ EXEMPT_BUILDERS: frozenset[str] = frozenset(
 """The test files sanctioned to build their own backing service, as repo-relative paths.
 
 Read off the tree as it stands today:
-these 63 files each match a builder or schema pattern now. Grouped by the reason
+these 57 files each match a builder or schema pattern now. Grouped by the reason
 each still builds its own rather than taking the shared fixtures. Asserted as an
 EXACT set by `test_the_builders_are_exactly_the_exempt_list`: a file that reverts to building its
 own and is not here reddens, and a file
@@ -302,4 +296,4 @@ def test_the_scanned_test_set_is_not_empty() -> None:
     assert len(_scanned_test_sources()) >= 140, (
         f"only {len(_scanned_test_sources())} test files scanned"
     )
-    assert len(EXEMPT_BUILDERS) >= 60, f"only {len(EXEMPT_BUILDERS)} exempt builders listed"
+    assert len(EXEMPT_BUILDERS) >= 50, f"only {len(EXEMPT_BUILDERS)} exempt builders listed"

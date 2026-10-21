@@ -171,7 +171,7 @@ class McpToolCaller:
 
     async def call_tool(self, name: str, arguments: BaseModel) -> Mapping[str, Any]:
         """One `tools/call`, as a mapping or a raised `ToolError`."""
-        if self._session is None:  # pragma: no cover - `run_turn` always enters first
+        if self._session is None:  # pragma: no cover - the turn always enters first
             raise RemoteInternalError(TRANSPORT_FAILURE_MESSAGE)
 
         try:

@@ -1,8 +1,8 @@
-"""What a turn's nodes may reach outside themselves.
+"""What a turn may reach outside itself.
 
 The tenant-bound database session, the model client, the MCP tool caller and
 the clock. The clock is injected so tests control time. `tools` is the
-`ToolCaller` protocol so node tests use a stub; `run_turn` owns the session.
+`ToolCaller` protocol so tests use a stub; the route owns the session.
 """
 
 from collections.abc import Callable

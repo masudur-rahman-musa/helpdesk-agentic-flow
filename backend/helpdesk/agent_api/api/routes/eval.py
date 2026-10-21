@@ -60,7 +60,6 @@ async def conversation(request: Request, body: EvalConversationRequest) -> Respo
         settings=settings,
         factory=state.session_factory,
         model=state.model,
-        checkpointer=state.checkpointer,
     )
     return JSONResponse(
         content=outcome.answer.model_dump(mode="json"),

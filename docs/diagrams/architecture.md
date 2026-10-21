@@ -6,7 +6,7 @@ What runs, and what talks to what. The same diagram is embedded in the README.
 flowchart TB
     user([Employee or approver])
     web["web<br/>Next.js"]
-    api["agent-api<br/>FastAPI + LangGraph turn"]
+    api["agent-api<br/>FastAPI + agent loop"]
     mcp["mcp-server<br/>typed tools behind RBAC"]
     sched["scheduler<br/>asyncio loop, Redis locks"]
     policy["policy engine<br/>pure, no I/O"]

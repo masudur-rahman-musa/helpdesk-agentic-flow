@@ -1,6 +1,6 @@
 """POST /chat, POST /chat/stream, GET /chat/messages and GET /chat/chats: the agent's front door.
 
-`/chat` and `/chat/stream` are two views of one turn: the same checks, graph
+`/chat` and `/chat/stream` are two views of one turn: the same checks, loop
 and stored rows, sent once as JSON and once as SSE. Tenant and user
 come from the verified token; the body carries the message and, to continue a chat, its id.
 """

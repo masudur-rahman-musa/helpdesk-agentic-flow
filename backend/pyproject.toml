@@ -51,17 +51,8 @@ module-root = ""
 
 [dependency-groups]
 # Per-app runtime extras. An image installs its own with `uv sync --group <app>`
-# so only the mcp-server carries fastembed and only the agent-api carries
-# langgraph and the psycopg checkpointer.
-agent-api = [
-    # the design, an earlier change decision A: the agent turn is a LangGraph StateGraph.
-    "langgraph>=1.2",
-    # An earlier change decision B: the checkpoint tables are LangGraph's own.
-    "langgraph-checkpoint-postgres>=2.0",
-    # An earlier change decision C: the saver is psycopg3-only while the rest of the
-    # repo is asyncpg, so psycopg is carried for the checkpointer alone.
-    "psycopg[binary,pool]>=3.2",
-]
+# so only the mcp-server carries fastembed.
+agent-api = []
 mcp-server = [
     "fastembed>=0.7",
 ]

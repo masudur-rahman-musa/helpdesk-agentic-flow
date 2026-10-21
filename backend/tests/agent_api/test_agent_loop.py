@@ -30,7 +30,7 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.agent_api.agent.confirmation import OpenQuestion
+from helpdesk.agent_api.agent.confirmation import NOTHING_FILED_REPLY, OpenQuestion
 from helpdesk.agent_api.agent.events import ReplyEvent, StepEvent, TurnEvent
 from helpdesk.agent_api.agent.gates import MAX_TOOL_CALLS, TURN_DEADLINE_SECONDS
 from helpdesk.agent_api.agent.loop import (
@@ -48,7 +48,17 @@ from helpdesk.agent_api.agent.loop_tools import (
 )
 from helpdesk.agent_api.agent.postcheck import outcome_reply
 from helpdesk.agent_api.agent.prompts import load_prompt
-from helpdesk.agent_api.agent.state import PostCheckOutcome, ToolResult, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import (
+    Intent,
+    IntentEntities,
+    IntentExtraction,
+    PostCheckOutcome,
+    ResolvedEntities,
+    ToolResult,
+    TurnOutcome,
+    TurnState,
+    ValidatedCall,
+)
 from helpdesk.agent_api.agent.tool_args import CreateAccessRequestArgs
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.mcp_client import ToolCaller
@@ -75,11 +85,13 @@ WIKI_VIEWER_ID = uuid.UUID(int=101)
 WIKI_EDITOR_ID = uuid.UUID(int=102)
 VPN_USER_ID = uuid.UUID(int=103)
 MAIL_USER_ID = uuid.UUID(int=104)
+LEDGER_AUDITOR_ID = uuid.UUID(int=105)
 ROLE_IDS: dict[tuple[str, str], uuid.UUID] = {
     ("wiki", "viewer"): WIKI_VIEWER_ID,
     ("wiki", "editor"): WIKI_EDITOR_ID,
     ("vpn", "user"): VPN_USER_ID,
     ("mail", "user"): MAIL_USER_ID,
+    ("payroll", "ledger-auditor"): LEDGER_AUDITOR_ID,
 }
 
 # --- the gateway: scripted OpenAI-shaped answers ------------------------------
@@ -170,6 +182,7 @@ class FakeStore:
         history: Sequence[tuple[str, str]] = (),
         people: Sequence[PersonRow] = (),
         on_user_message: Callable[[], None] | None = None,
+        question: OpenQuestion | None = None,
     ) -> None:
         self._principals = tuple(principals)
         self._history = list(history)
@@ -178,6 +191,9 @@ class FakeStore:
         self.prepared: list[datetime] = []
         self.held: list[OpenQuestion] = []
         self.messages: list[tuple[MessageRole, str]] = []
+        self.question = question
+        """The held change on the chat row; `None` once it is cleared."""
+        self.cleared = 0
 
     async def prepare(self, now: datetime) -> None:
         self.prepared.append(now)
@@ -189,10 +205,11 @@ class FakeStore:
         return list(self._history)
 
     async def open_question(self) -> OpenQuestion | None:
-        return None
+        return self.question
 
     async def clear_open_question(self) -> None:
-        return None
+        self.question = None
+        self.cleared += 1
 
     async def hold(self, question: OpenQuestion) -> None:
         self.held.append(question)
@@ -675,12 +692,14 @@ def test_deadline_with_no_results_gives_the_fixed_line(delay: timedelta, timed_o
 
 def test_decision_word_breach_is_sent_back_once() -> None:
     """Catches a loop that lets "granted" through when no tool result says so,
-    that sends the breach back more than once, that gives the model no way to
-    fix it (the reason, with no tools), or that ends a second breach on the
-    model's own words instead of the fixed fallback line.
+    that sends the breach back only once, that gives the model
+    no way to fix it (the reason, with no tools), that sends a third breach
+    back too, or that ends the third breach on the model's own words instead of
+    the fixed fallback line.
 
-    Two runs: a fixed second answer is the regenerated reply; a second breach
-    ends on the fallback and makes no third model call.
+    Two runs: a fixed second answer is the regenerated reply; with no tool
+    results, a second breach goes back again and a third ends on the fallback
+    with no fourth model call.
     """
     fixed_gateway = ScriptedGateway(
         answer_body("Good news, your access is granted."),
@@ -709,12 +728,18 @@ def test_decision_word_breach_is_sent_back_once() -> None:
     ]
 
     stubborn_gateway = ScriptedGateway(
-        answer_body("Your access is granted."), answer_body("It is granted now.")
+        answer_body("Your access is granted."),
+        answer_body("It is granted now."),
+        answer_body("Granted, all done."),
     )
 
     stubborn = run(stubborn_gateway, FakeTools(), FakeStore())
 
-    assert len(stubborn_gateway.requests) == 2
+    assert len(stubborn_gateway.requests) == 3
+    third_messages = stubborn_gateway.requests[2]["messages"]
+    assert third_messages[-2] == {"role": "assistant", "content": "It is granted now."}
+    assert third_messages[-1]["role"] == "user"
+    assert "tools" not in stubborn_gateway.requests[2]
     assert stubborn.postcheck is PostCheckOutcome.FALLBACK
     assert stubborn.reply == outcome_reply(stubborn)
     assert stubborn.reply is not None
@@ -888,3 +913,374 @@ def test_stream_yields_steps_then_reply() -> None:
     assert reply.reply == ran.reply == "You have no open requests."
     assert set(reply.reply_data) == {"reply", "outcome", "citations", "request_id", "decision"}
     assert reply.reply_data["reply"] == ran.reply
+
+
+# --- an earlier change: the confirmation, the yes path and the wider grounding check ---------
+
+STORED_KEY = "stored-key-0001"
+FILED_REPLY = "Done. REQ-0001 is filed and still pending."
+FILED_PAYLOAD: dict[str, Any] = {
+    "request_id": str(REQUEST_ID),
+    "request_number": "REQ-0001",
+    "status": "pending",
+    "decision": "approval",
+    "required_approvers": [],
+}
+YES_MESSAGE = "Yes, that is right."
+
+
+def held_question(key: str = STORED_KEY) -> OpenQuestion:
+    """A change held from an earlier message: one filing call and its stored key."""
+    arguments = CreateAccessRequestArgs.model_validate(
+        {
+            "target_user_id": str(USER_ID),
+            "role_id": str(WIKI_VIEWER_ID),
+            "justification": "Obviously fake reason for a test.",
+            "requested_expiry_days": 30,
+            "idempotency_key": key,
+        }
+    ).model_dump(mode="json")
+    return OpenQuestion(
+        asked_at=START,
+        message="Please file wiki viewer access for me.",
+        calls=(ValidatedCall(tool="create_access_request", arguments=arguments),),
+        extraction=IntentExtraction(
+            intent=Intent.REQUEST_ACCESS,
+            entities=IntentEntities(
+                system=None,
+                role=None,
+                target_user=None,
+                department=None,
+                expiry_days=None,
+                justification=None,
+            ),
+            confidence=1.0,
+            clarifying_question=None,
+            second_request=None,
+        ),
+        resolved=ResolvedEntities(),
+    )
+
+
+def test_confirmation_names_role_days_reason_person() -> None:
+    """Catches a confirmation that shows the stored role name (`wiki.viewer`) or
+    the role id instead of the plain name, drops the days or the reason, or
+    names "someone else" or nobody for a request filed on behalf of a person
+    the finder found.
+
+    A manager has the model look up the role and the person, then propose the
+    filing for that person. The held reply must carry all four in plain words.
+    """
+    gateway = ScriptedGateway(
+        answer_body(
+            None,
+            wire_call("call_r", "find_role", {"words": "wiki viewer"}),
+            wire_call("call_p", "find_person", {"words": "dana"}),
+        ),
+        answer_body(
+            None,
+            wire_call(
+                "call_c",
+                "create_access_request",
+                {
+                    "target_user_id": str(uuid.UUID(int=201)),
+                    "role_id": str(WIKI_VIEWER_ID),
+                    "justification": "Obviously fake reason: audit preparation.",
+                    "requested_expiry_days": 30,
+                },
+            ),
+        ),
+    )
+    tools = FakeTools(
+        {"list_requestable_roles": {"roles": [role_row("wiki", "Internal Wiki", "viewer")]}}
+    )
+    store = FakeStore(
+        principals=["manager"],
+        people=[PersonRow(id=uuid.UUID(int=201), display_name="Dana Fake", department="Sales")],
+    )
+
+    state = run(gateway, tools, store, message="File wiki viewer access for Dana.")
+
+    assert state.outcome is TurnOutcome.CONFIRM
+    assert state.reply is not None
+    assert "Internal Wiki viewer" in state.reply
+    assert "30 days" in state.reply
+    assert '"Obviously fake reason: audit preparation."' in state.reply
+    assert "Dana Fake" in state.reply
+    assert "wiki.viewer" not in state.reply
+    assert str(WIKI_VIEWER_ID) not in state.reply
+    assert "someone else" not in state.reply
+    assert [name for name in tools.names if name == "create_access_request"] == []
+
+
+def test_yes_files_held_calls_with_stored_keys() -> None:
+    """Catches a yes that is still handed to the old graph, that files nothing,
+    that files with a new key instead of the stored one (a double yes would
+    then file twice), that files the model's idea of the call instead of the
+    stored arguments, that offers tools on the reply step (the model could
+    then propose or run more), or that never gives the results to the model.
+
+    The chat holds one filing call under a known key. One scripted model answer
+    is all the gateway holds: a second model step, or one with tools, fails.
+    """
+    gateway = ScriptedGateway(answer_body(FILED_REPLY))
+    tools = FakeTools({"create_access_request": FILED_PAYLOAD})
+    question = held_question()
+    store = FakeStore(question=question)
+
+    state = run(gateway, tools, store, message=YES_MESSAGE)
+
+    stored = CreateAccessRequestArgs.model_validate(question.calls[0].arguments)
+    assert tools.calls == [("create_access_request", stored.model_dump(mode="json"))]
+    assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
+    assert store.question is None
+    assert store.held == []
+    assert len(gateway.requests) == 1
+    request = gateway.requests[0]
+    assert request["model"] == "agent-strong"
+    assert "tools" not in request
+    assert "tool_choice" not in request
+    assert "REQ-0001" in json.dumps(request["messages"])
+    assert state.reply == FILED_REPLY
+    assert state.outcome not in (TurnOutcome.CONFIRM, TurnOutcome.FAILED)
+    assert state.tool_results == (
+        ToolResult(tool="create_access_request", ok=True, payload=FILED_PAYLOAD),
+    )
+    assert store.messages[-1] == (MessageRole.ASSISTANT, FILED_REPLY)
+
+
+def test_stream_yes_files_held_calls_with_stored_keys() -> None:
+    """Catches a streamed turn that still hands a yes to the old graph while
+    the plain turn was fixed, or that ends without one reply event.
+
+    Same set-up as the plain yes; the last event must be the reply and the
+    stored call must have run once with the stored key.
+    """
+    gateway = ScriptedGateway(answer_body(FILED_REPLY))
+    tools = FakeTools({"create_access_request": FILED_PAYLOAD})
+    store = FakeStore(question=held_question())
+
+    events = stream(gateway, tools, store, message=YES_MESSAGE)
+
+    assert isinstance(events[-1], ReplyEvent)
+    assert events[-1].reply == FILED_REPLY
+    assert [isinstance(event, ReplyEvent) for event in events].count(True) == 1
+    assert tools.names == ["create_access_request"]
+    assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
+    assert store.question is None
+    assert len(gateway.requests) == 1
+    assert "tools" not in gateway.requests[0]
+
+
+@pytest.mark.parametrize("message", ["no", "No.", "nope"])
+def test_no_files_nothing(message: str) -> None:
+    """Catches a no that still runs the held call, that leaves the question on
+    the chat row (a later yes would file it), that asks the model for a reply
+    (the fixed line is the answer), or that says anything but the fixed line.
+
+    The gateway is scripted no answer at all and the tool server no tool, so
+    any model call or tool call fails the run.
+    """
+    gateway = ScriptedGateway()
+    tools = FakeTools()
+    store = FakeStore(question=held_question())
+
+    state = run(gateway, tools, store, message=message)
+
+    assert NOTHING_FILED_REPLY
+    assert state.reply == NOTHING_FILED_REPLY
+    assert tools.calls == []
+    assert gateway.requests == []
+    assert store.question is None
+    assert store.messages[-1] == (MessageRole.ASSISTANT, NOTHING_FILED_REPLY)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "please go ahead and file whatever you think",
+        "yes please go ahead and file it now",
+        "no, I meant the CRM",
+    ],
+    ids=["model_words_not_the_persons", "yes_over_five_words", "no_with_a_correction"],
+)
+def test_model_cannot_confirm_for_the_person(message: str) -> None:
+    """Unhappy path. Catches a loop that runs the held call on any message
+    while a question is open, that reads a long "yes ..." or a "no, I meant ..."
+    as the person's answer, or that keeps the question open after the person
+    moved on (the next bare yes would then file it).
+
+    The held call is on the chat row. The message is not a yes or a bare no, so
+    the tool server (no tool scripted) must see nothing, the question must be
+    dropped, and the turn must go to the model as a normal turn with tools.
+    """
+    gateway = ScriptedGateway(answer_body("Tell me what you need."))
+    tools = FakeTools()
+    store = FakeStore(question=held_question())
+
+    state = run(gateway, tools, store, message=message)
+
+    assert tools.calls == []
+    assert store.question is None
+    assert store.held == []
+    assert len(gateway.requests) == 1
+    assert "tools" in gateway.requests[0]
+    assert state.reply == "Tell me what you need."
+
+
+PENDING_LISTING: dict[str, Any] = {
+    "requests": [
+        {
+            "request_number": "REQ-0001",
+            "status": "pending",
+            "system_name": "Internal Wiki",
+            "role_slug": "viewer",
+            "role_name": "wiki.viewer",
+        }
+    ]
+}
+
+
+def _listing_then(*texts: str) -> ScriptedGateway:
+    """A model that looks up the person's requests, then answers each text in turn."""
+    return ScriptedGateway(
+        answer_body(None, wire_call("call_a", "list_my_requests", {})),
+        *(answer_body(text) for text in texts),
+    )
+
+
+def _sent_back(request_body: Mapping[str, Any], bad_reply: str) -> str:
+    """The reason a request carried after `bad_reply`; fails if it carried none."""
+    messages = request_body["messages"]
+    assert messages[-2] == {"role": "assistant", "content": bad_reply}
+    assert messages[-1]["role"] == "user"
+    reason = messages[-1]["content"]
+    assert isinstance(reason, str)
+    return reason
+
+
+@pytest.mark.parametrize(
+    ("message", "bad_reply", "offender"),
+    [
+        (MESSAGE, "Your request REQ-0099 is pending.", "REQ-0099"),
+        ("What is REQ-0042 doing?", "REQ-0042 is fine, and REQ-0001 is pending.", "REQ-0042"),
+        (MESSAGE, "Your request REQ-00010 is pending.", "REQ-00010"),
+    ],
+    ids=["number_in_no_result", "number_only_the_person_typed", "longer_number_with_same_start"],
+)
+def test_unknown_request_number_is_sent_back(message: str, bad_reply: str, offender: str) -> None:
+    """Catches a loop that lets a request number through that no result of this
+    turn holds, that lets one pass because the person typed it (only role names
+    may be echoed from the person's words), that matches by prefix so
+    `REQ-00010` passes on `REQ-0001`, or that sends it back with no reason
+    naming the number.
+
+    The listing holds only REQ-0001 and "pending" is allowed by it, so the number
+    is the only breach. The second model request must carry the bad reply and a
+    reason naming the number, with no tools.
+    """
+    good = "You have one request, REQ-0001, and it is pending."
+    gateway = _listing_then(bad_reply, good)
+    tools = FakeTools({"list_my_requests": PENDING_LISTING})
+
+    state = run(gateway, tools, FakeStore(), message=message)
+
+    assert len(gateway.requests) == 3
+    assert offender in _sent_back(gateway.requests[2], bad_reply)
+    assert "tools" not in gateway.requests[2]
+    assert state.reply == good
+    assert state.postcheck is PostCheckOutcome.REGENERATED
+
+
+def test_unknown_role_name_is_sent_back() -> None:
+    """Catches a loop that lets the reply name a tenant role that no tool result
+    of this turn and no word of the person's message named (the model would be
+    promising a role from memory), or that sends it back without the role in
+    the reason.
+
+    The reply's request number and decision word are both backed by the
+    listing, so the role name is the only breach. The role is in the tenant's
+    role list (`LoopStore.role_ids`) as system `payroll`, role `ledger-auditor`.
+    """
+    bad = "REQ-0001 is pending. I can also get you Payroll ledger auditor access."
+    good = "REQ-0001 is pending."
+    gateway = _listing_then(bad, good)
+    tools = FakeTools({"list_my_requests": PENDING_LISTING})
+
+    state = run(gateway, tools, FakeStore())
+
+    assert len(gateway.requests) == 3
+    assert "ledger" in _sent_back(gateway.requests[2], bad).lower()
+    assert state.reply == good
+
+
+def test_role_name_the_person_typed_passes() -> None:
+    """Catches a role check so strict that the assistant cannot say back the
+    role the person asked about (every such reply would bounce), by ignoring
+    the words of the person's own message.
+
+    No tool ran, the reply uses no number or decision word, and the role words
+    are the person's own. One scripted answer: a send-back would fail the run.
+    """
+    reply = "I can look into the Payroll ledger auditor role for you."
+    gateway = ScriptedGateway(answer_body(reply))
+
+    state = run(
+        gateway,
+        FakeTools(),
+        FakeStore(),
+        message="Can I get the payroll ledger auditor role?",
+    )
+
+    assert state.reply == reply
+    assert len(gateway.requests) == 1
+
+
+def test_breach_goes_back_at_most_twice() -> None:
+    """Unhappy path. Catches a loop that sends a breach back only once, that
+    sends it back a third time, that ends on the model's own breaching words,
+    that ends on the "I am not sure" line although tool results exist, or that
+    names the wrong value in a later reason.
+
+    Three breaching replies follow one lookup. Exactly four model requests are
+    made. The turn ends on the sentence built from the listing, which names
+    REQ-0001 and none of the invented numbers.
+    """
+    gateway = _listing_then("REQ-0099 is pending.", "REQ-0098 is pending.", "REQ-0097 is pending.")
+    tools = FakeTools({"list_my_requests": PENDING_LISTING})
+    store = FakeStore()
+
+    state = run(gateway, tools, store)
+
+    assert len(gateway.requests) == 4
+    assert "REQ-0099" in _sent_back(gateway.requests[2], "REQ-0099 is pending.")
+    last_reason = _sent_back(gateway.requests[3], "REQ-0098 is pending.")
+    assert "REQ-0098" in last_reason
+    assert "REQ-0099" not in last_reason
+    assert state.postcheck is PostCheckOutcome.FALLBACK
+    assert state.reply is not None
+    assert state.reply == outcome_reply(state)
+    assert "REQ-0001" in state.reply
+    assert "I am not sure" not in state.reply
+    for invented in ("REQ-0097", "REQ-0098", "REQ-0099"):
+        assert invented not in state.reply
+    assert store.messages[-1] == (MessageRole.ASSISTANT, state.reply)
+
+
+def test_grounded_reply_passes_first_time() -> None:
+    """Catches a grounding check that bounces a reply whose request number, role
+    name and decision word are all in this turn's results (the rewritten role
+    name `Internal Wiki viewer` is the plain form of the row's `wiki.viewer`),
+    or one that rewrites the reply it let through.
+
+    One scripted answer after the lookup: any send-back fails the run.
+    """
+    reply = "Your request REQ-0001 for Internal Wiki viewer is pending."
+    gateway = _listing_then(reply)
+    tools = FakeTools({"list_my_requests": PENDING_LISTING})
+
+    state = run(gateway, tools, FakeStore())
+
+    assert len(gateway.requests) == 2
+    assert state.reply == reply
+    assert state.postcheck is PostCheckOutcome.PASSED

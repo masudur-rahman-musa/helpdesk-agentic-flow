@@ -11,8 +11,8 @@ Expected implementation surface (the implementer must provide exactly this):
         — ``ratelimit:{tenant_id}:{session_id}:{window}``, where ``window`` is
         the fixed-window index ``int(now.timestamp()) // RATE_LIMIT_WINDOW_SECONDS``.
         PURE, and it runs ``check_slug(session_id)`` BEFORE building the key,
-        so the value that lands in a Redis key is bounded by the same gate
-        ``checkpointer.thread_config`` uses (the contract's input-validation criterion).
+        so the value that lands in a Redis key is bounded by the shared slug
+        gate (the contract's input-validation criterion).
     ``class RateLimitExceededError(ToolError)`` — ``code = ErrorCode.POLICY_BLOCKED``,
         what the 31st message in one window raises.
     ``class RateLimitUnavailableError(ToolError)`` — ``code = ErrorCode.INTERNAL``,
@@ -315,9 +315,8 @@ def test_a_session_id_that_is_not_a_slug_is_refused_before_any_redis_call(
 def test_the_session_id_bound_is_check_slugs_own_inclusive_bound() -> None:
     """Catches a limiter with a length gate of its own instead of `check_slug`'s.
 
-    A local bound would drift from `checkpointer.thread_config`'s, and the two
-    values — the one bounded before a checkpoint write and the one bounded
-    before a counter — are the SAME session id. Accepted at exactly 64,
+    A local bound would drift from the shared slug gate's, which every other
+    session id check uses. Accepted at exactly 64,
     refused at 65, and 64 is `helpdesk.rag.naming.SLUG_LENGTH` rather than a
     number repeated here.
     """

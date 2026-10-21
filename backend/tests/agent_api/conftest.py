@@ -8,7 +8,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from helpdesk.agent_api.agent.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
 from helpdesk.shared.core.db import create_session_factory
 from helpdesk.shared.models import Base
 from tests.conftest import TempDatabaseFactory
@@ -16,7 +15,7 @@ from tests.conftest import TempDatabaseFactory
 
 @dataclass(frozen=True)
 class AgentDb:
-    """A database holding the schema and the checkpoint tables."""
+    """A database holding the schema."""
 
     url: str
     factory: async_sessionmaker[AsyncSession]
@@ -24,10 +23,10 @@ class AgentDb:
 
 @pytest.fixture(scope="session")
 def agent_db(pg: TempDatabaseFactory) -> Iterator[AgentDb]:
-    """One database for the run, with the schema and the checkpoint tables.
+    """One database for the run, with the schema.
 
-    Its own database, not the shared one, because the checkpoint tables are
-    not in `Base.metadata`. Each suite seeds its own tenant with its own slug.
+    Its own database, not the shared one, so the chat suites' rows never meet
+    another suite's. Each suite seeds its own tenant with its own slug.
     `NullPool` so the one engine works across every test's own `asyncio.run`.
     """
     url = pg.create()
@@ -36,9 +35,6 @@ def agent_db(pg: TempDatabaseFactory) -> Iterator[AgentDb]:
     async def build() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        pool = build_pool(psycopg_dsn(url))
-        async with pool:
-            await setup_checkpointer(pool)
 
     asyncio.run(build())
     yield AgentDb(url=url, factory=create_session_factory(engine))

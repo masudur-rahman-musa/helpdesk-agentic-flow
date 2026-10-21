@@ -1,4 +1,4 @@
-"""Typed events the turn graph yields, one per visited node or ending.
+"""Typed events a turn yields, one per loop step that ran a tool, then the ending.
 
 Nothing here knows about SSE: ``api/sse.py`` imports these and builds the
 frames.

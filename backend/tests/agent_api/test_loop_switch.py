@@ -1,22 +1,22 @@
-"""The `CHAT_ENGINE` switch between the old pipeline and the agent loop.
+"""The agent loop as the only chat engine, over the real chat row.
 
 Expected implementation surface:
 
-``helpdesk.shared.core.config.Settings.chat_engine`` (env ``CHAT_ENGINE``):
-    ``"pipeline"`` (the default) or ``"loop"``; any other value fails loading.
+``helpdesk.shared.core.config.Settings``
+    has no ``chat_engine`` field; a ``CHAT_ENGINE`` in the environment is ignored.
 ``helpdesk.agent_api.services.chat``
-    ``chat_turn`` calls ``run_loop_turn`` when the engine is ``loop`` and
-    ``run_turn`` otherwise; both names are module attributes.
+    ``chat_turn`` calls ``run_loop_turn``; the module has no ``run_turn``.
 ``helpdesk.agent_api.services.eval_turn``
-    ``run_conversation`` calls the module attribute ``run_loop_turn`` under
-    ``loop``; ``prompt_versions("loop")`` is ``loop=<sha256 of agent_loop.md>``;
-    the eval route adds the ``X-Chat-Engine`` header.
+    ``run_conversation`` calls the module attribute ``run_loop_turn``; the
+    module has no ``run_turn``. ``X-Chat-Engine`` always says ``loop`` and
+    ``X-Prompt-Versions`` is ``loop=<sha256 of agent_loop.md>``.
 
 Cost. Postgres is the shared `agent_db` session fixture: only Postgres shows
-the open question saved on the chat row by the loop and picked up from it by
-the old graph on the next message. Each case seeds its own tenant and uses a
-new chat id, so nothing is shared. The gateway is an `httpx.MockTransport`, the
+the open question saved on the chat row by the loop and read back from it by
+the loop on the next message. Each case seeds its own tenant and uses a new
+chat id, so nothing is shared. The gateway is an `httpx.MockTransport`, the
 tool server a recording fake and Redis a counter stub: no socket is opened.
+This file stands alone: it imports nothing from the pipeline's test files.
 """
 
 import asyncio
@@ -24,38 +24,32 @@ import hashlib
 import json
 import uuid
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
 import pytest
 from fastapi import Request
-from pydantic import ValidationError
+from pydantic import BaseModel
 
 from helpdesk.agent_api.agent.confirmation import parse_open_question
 from helpdesk.agent_api.agent.prompts import PROMPTS_DIR
-from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.api.router import app
 from helpdesk.agent_api.schemas.chat import ChatResponse
 from helpdesk.agent_api.services import chat as chat_service
 from helpdesk.agent_api.services import eval_turn
+from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.shared.auth.jwt import TokenClaims
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.crud.messages import list_recent_messages
+from helpdesk.shared.crud.sessions import get_open_question
+from helpdesk.shared.models import Department, Role, System, Tenant, User
 from tests.agent_api.conftest import AgentDb
-from tests.agent_api.test_agent_confirm import (
-    COMPOSED,
-    CREATE,
-    EMPTY_ROUND,
-    FakeTools,
-    _as_composed,
-    _stored,
-)
-from tests.agent_api.test_agent_confirm import Env as ConfirmEnv
-from tests.agent_api.test_agent_confirm import _seed as _seed_confirm_tenant
 from tests.agent_api.test_agent_loop import answer_body, wire_call
 from tests.agent_api.test_eval_routes import (
     PRINCIPAL_USER,
@@ -81,17 +75,85 @@ EVAL_JWT_PHRASE = "loop-switch-eval-jwt-secret-0123456789abcdef"
 ASK = "I need viewer access to the internal wiki"
 YES = "Yes, that is right."
 LOOP_SAYS = "Here is what I can tell you."
-PIPELINE_SAYS = "reply from the old pipeline"
+CREATE = "create_access_request"
+REQUEST_ID = uuid.UUID("77777777-7777-5777-8777-777777777777")
+"""What the fake `create_access_request` answers, obviously fake."""
+FILED_SAYS = "Your request REQ-0001 was filed."
+
+
+# --- the seeded tenant ----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Env:
+    db: AgentDb
+    tenant_id: uuid.UUID
+    tenant_slug: str
+    user_id: uuid.UUID
+    viewer_id: uuid.UUID
+
+
+async def _seed(db: AgentDb) -> Env:
+    slug = f"switch-{uuid.uuid4().hex[:12]}"
+    async with db.factory() as session:
+        tenant = Tenant(slug=slug, name="Fake Switch Tenant", residency="eu", settings={})
+        session.add(tenant)
+        await session.commit()
+        tenant_id = tenant.id
+
+    async with tenant_session(db.factory, tenant_id) as session:
+        department = Department(tenant_id=tenant_id, name="fake-dept", manager_user_id=None)
+        session.add(department)
+        await session.flush()
+        person = User(
+            tenant_id=tenant_id,
+            department_id=department.id,
+            email=f"fake.person@{slug}.example.test",
+            display_name="Fake Person",
+            password_hash="argon2id$obviously-fake-test-hash",
+            principals=["employee"],
+            status="active",
+            start_date=date(2026, 1, 5),
+            end_date=None,
+        )
+        session.add(person)
+        await session.flush()
+        system = System(
+            tenant_id=tenant_id,
+            slug="internal-wiki",
+            name="Internal Wiki",
+            sensitivity="low",
+            owner_user_id=person.id,
+        )
+        session.add(system)
+        await session.flush()
+        role = Role(
+            tenant_id=tenant_id,
+            system_id=system.id,
+            slug="wiki-viewer",
+            name="Viewer",
+            privilege="read",
+            default_expiry_days=90,
+        )
+        session.add(role)
+        await session.flush()
+        return Env(
+            db=db,
+            tenant_id=tenant_id,
+            tenant_slug=slug,
+            user_id=person.id,
+            viewer_id=role.id,
+        )
 
 
 @pytest.fixture
-def seeded(agent_db: AgentDb) -> ConfirmEnv:
-    """A new tenant with one person, one system and two roles, for one case."""
-    return asyncio.run(_seed_confirm_tenant(agent_db))
+def seeded(agent_db: AgentDb) -> Env:
+    """A new tenant with one person, one system and one role, for one case."""
+    return asyncio.run(_seed(agent_db))
 
 
 @pytest.fixture
-def chat_settings_env(seeded: ConfirmEnv, monkeypatch: pytest.MonkeyPatch) -> ConfirmEnv:
+def chat_settings_env(seeded: Env, monkeypatch: pytest.MonkeyPatch) -> Env:
     """Fake settings for the chat service. Nothing here is dialled."""
     monkeypatch.setenv("DATABASE_URL", seeded.db.url)
     monkeypatch.setenv("REDIS_URL", "redis://redis.invalid:6379/0")
@@ -112,32 +174,59 @@ class CounterRedis:
         return True
 
 
-class MixedGateway:
-    """Staged answers in order. A dict is a whole gateway body (the loop's
-    tool-calling steps); a string is the content of a structured answer (the old
-    graph's planner and writer). A request past the last one fails the run."""
+class FakeTools:
+    """A `ToolCaller` answering the filing call and recording every call."""
 
-    def __init__(self, *items: Mapping[str, Any] | str) -> None:
-        self._items = list(items)
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def __aenter__(self) -> ToolCaller:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    async def call_tool(self, name: str, arguments: BaseModel) -> Mapping[str, Any]:
+        self.calls.append((name, arguments.model_dump(mode="json")))
+        if name != CREATE:
+            raise AssertionError(f"the turn called an unscripted tool: {name}")
+        return {
+            "request_id": str(REQUEST_ID),
+            "request_number": "REQ-0001",
+            "status": "pending",
+            "decision": "approval",
+            "required_approvers": [],
+        }
+
+    @property
+    def names(self) -> list[str]:
+        return [name for name, _arguments in self.calls]
+
+    def arguments_of(self, tool: str) -> list[dict[str, Any]]:
+        return [arguments for name, arguments in self.calls if name == tool]
+
+
+class Gateway:
+    """Whole gateway bodies in order; a request past the last one fails the run."""
+
+    def __init__(self, *bodies: Mapping[str, Any]) -> None:
+        self._bodies = list(bodies)
         self.requests: list[httpx.Request] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         index = len(self.requests) - 1
-        if index >= len(self._items):
+        if index >= len(self._bodies):
             raise AssertionError(
                 f"the turn made {len(self.requests)} model requests; "
-                f"only {len(self._items)} were staged"
+                f"only {len(self._bodies)} were staged"
             )
-        item = self._items[index]
-        if isinstance(item, str):
-            item = answer_body(_as_composed(item, request))
-        return httpx.Response(200, json=dict(item))
+        return httpx.Response(200, json=dict(self._bodies[index]))
 
 
 def say(
-    env: ConfirmEnv,
-    gateway: MixedGateway,
+    env: Env,
+    gateway: Gateway,
     tools: FakeTools,
     message: str,
     *,
@@ -167,7 +256,7 @@ def say(
                     session_factory=env.db.factory,
                     redis=CounterRedis(),
                     model=model,
-                    checkpointer=None,
+                    checkpointer=None,  # an old reader still finds it; the loop ignores it
                 )
             ),
         )
@@ -185,7 +274,7 @@ def say(
     return asyncio.run(scenario())
 
 
-def stored_roles(env: ConfirmEnv, chat_id: str) -> list[tuple[str, str]]:
+def stored_roles(env: Env, chat_id: str) -> list[tuple[str, str]]:
     """The chat's saved messages as (role, text), oldest first."""
 
     async def read() -> list[tuple[str, str]]:
@@ -196,13 +285,23 @@ def stored_roles(env: ConfirmEnv, chat_id: str) -> list[tuple[str, str]]:
     return asyncio.run(read())
 
 
-def create_call_body(env: ConfirmEnv) -> dict[str, Any]:
+def stored_question(env: Env, chat_id: str) -> object:
+    """The raw open question on the chat row, read through a new session."""
+
+    async def read() -> object:
+        async with tenant_session(env.db.factory, env.tenant_id) as db:
+            return await get_open_question(db, session_id=uuid.UUID(chat_id))
+
+    return asyncio.run(read())
+
+
+def create_call_body(env: Env) -> dict[str, Any]:
     """A model answer proposing one request for the speaker."""
     return answer_body(
         None,
         wire_call(
             "call_c",
-            "create_access_request",
+            CREATE,
             {
                 "target_user_id": str(env.user_id),
                 "role_id": str(env.viewer_id),
@@ -213,91 +312,26 @@ def create_call_body(env: ConfirmEnv) -> dict[str, Any]:
     )
 
 
-def test_pipeline_is_the_default(
-    chat_settings_env: ConfirmEnv, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Catches a switch that defaults to the loop, or that ignores the setting
-    and always runs the loop: with no `CHAT_ENGINE` set, a chat turn must run
-    the old graph once and never touch the loop.
+def test_loop_is_the_only_engine(chat_settings_env: Env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Catches a service that still reads an engine setting (an old
+    `CHAT_ENGINE=pipeline` in the environment would then start the deleted
+    pipeline), a settings class that still carries the field, a chat service
+    that still holds the old runner, and a loop that answers but saves neither
+    the user's message nor its reply on the chat row.
 
-    The loop is replaced by a function that fails the run if it is called, so
-    only the default can keep the old graph on the road.
+    The environment still says `pipeline`. The one staged gateway answer is a
+    tool-calling step; the old graph would ask for a structured intent instead,
+    so the model request is checked for the loop's shape (tools offered, no
+    response format).
     """
     env = chat_settings_env
-    monkeypatch.delenv("CHAT_ENGINE", raising=False)
-    old_calls: list[dict[str, Any]] = []
-
-    async def old_graph(**kwargs: Any) -> TurnState:
-        old_calls.append(kwargs)
-        return TurnState(
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            session_id=kwargs["session_id"],
-            tenant_slug=kwargs["tenant_slug"],
-            user_message=kwargs["message"],
-            outcome=TurnOutcome.DONE,
-            reply=PIPELINE_SAYS,
-        )
-
-    async def loop_must_not_run(**kwargs: Any) -> TurnState:
-        raise AssertionError("the loop ran although CHAT_ENGINE was not set")
-
-    monkeypatch.setattr(chat_service, "run_turn", old_graph)
-    monkeypatch.setattr(chat_service, "run_loop_turn", loop_must_not_run)
-
-    response = say(env, MixedGateway(), FakeTools(), "hello")
-
-    assert len(old_calls) == 1
-    assert old_calls[0]["message"] == "hello"
-    assert response.reply == PIPELINE_SAYS
-
-
-@pytest.mark.parametrize("value", ["agent", "LOOP", "Pipeline", "loop ", "loop\n", "loop\r\n"])
-def test_unknown_engine_fails_at_start(value: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unhappy path. Catches a setting typed as a free string (a typo such as
-    `agent` would start the app on some default engine), one that cleans the
-    value before checking it, and one that forgets to read the environment.
-
-    Every other required name is set, so the only thing that can fail loading is
-    `CHAT_ENGINE`; the error must name that field. The two real values load,
-    and the unset one is `pipeline`.
-    """
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://fake:fake@db.invalid:5432/fake")
-    monkeypatch.setenv("REDIS_URL", "redis://redis.invalid:6379/0")
-    monkeypatch.setenv("QDRANT_URL", "http://qdrant.invalid:6333")
-    monkeypatch.setenv("JWT_SECRET", JWT_PHRASE)
-
-    monkeypatch.delenv("CHAT_ENGINE", raising=False)
-    assert Settings(_env_file=None).chat_engine == "pipeline"  # type: ignore[call-arg]
-    monkeypatch.setenv("CHAT_ENGINE", "loop")
-    assert Settings(_env_file=None).chat_engine == "loop"  # type: ignore[call-arg]
     monkeypatch.setenv("CHAT_ENGINE", "pipeline")
-    assert Settings(_env_file=None).chat_engine == "pipeline"  # type: ignore[call-arg]
-
-    monkeypatch.setenv("CHAT_ENGINE", value)
-    with pytest.raises(ValidationError) as excinfo:
-        Settings(_env_file=None)  # type: ignore[call-arg]
-
-    assert "chat_engine" in {str(error["loc"][0]) for error in excinfo.value.errors()}
-
-
-def test_loop_engine_serves_chat(
-    chat_settings_env: ConfirmEnv, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Catches a switch that sets the engine but still runs the old graph, a
-    loop that answers but saves neither the user's message nor its reply on the
-    chat row, and one that saves them in the wrong order.
-
-    The one staged gateway answer is a tool-calling step; the old graph would
-    ask for a structured intent instead, so the model request is checked for
-    the loop's shape (tools offered, no response format).
-    """
-    env = chat_settings_env
-    monkeypatch.setenv("CHAT_ENGINE", "loop")
-    gateway = MixedGateway(answer_body(LOOP_SAYS))
+    gateway = Gateway(answer_body(LOOP_SAYS))
 
     response = say(env, gateway, FakeTools(), "What can you do for me?")
 
+    assert "chat_engine" not in Settings.model_fields
+    assert not hasattr(chat_service, "run_turn")
     assert response.reply == LOOP_SAYS
     assert response.outcome == TurnOutcome.DONE.value
     assert len(gateway.requests) == 1
@@ -311,27 +345,23 @@ def test_loop_engine_serves_chat(
     ]
 
 
-def test_yes_after_a_held_change_files_once(
-    chat_settings_env: ConfirmEnv, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
     """Catches a loop that holds a change nobody can later confirm (the open
-    question is not saved to the chat row, or is saved in a shape the old graph
-    cannot read), a yes that is sent to the loop instead of the old graph, a
-    yes that files with a new key instead of the stored one, and a second yes
-    that files again.
+    question is not saved to the chat row, or is saved in a shape it cannot
+    read back), a yes that is answered as a new question instead of filing, a
+    yes that files with a new key instead of the stored one, a question left on
+    the row after filing, and a second yes that files again.
 
-    Message one: the loop proposes a request; nothing is filed and a question
-    is saved. Message two, "yes": the old graph files the stored call, exactly
-    as stored. Message three, "yes" again: the question is gone, so the loop
-    answers and files nothing more.
+    Message one: the loop proposes a request; nothing is filed and a question is
+    saved. Message two, "yes": the loop files the stored call, exactly as
+    stored, with one tool-less model step. Message three, "yes" again: the
+    question is gone, so a normal turn answers and files nothing more.
     """
     env = chat_settings_env
-    monkeypatch.setenv("CHAT_ENGINE", "loop")
     tools = FakeTools()
-    gateway = MixedGateway(
+    gateway = Gateway(
         create_call_body(env),
-        EMPTY_ROUND,
-        COMPOSED,
+        answer_body(FILED_SAYS),
         answer_body("Nothing is waiting for a yes right now."),
     )
 
@@ -341,7 +371,7 @@ def test_yes_after_a_held_change_files_once(
     assert asked.reply is not None
     assert asked.reply.startswith("I'll file this:")
     assert tools.names.count(CREATE) == 0
-    raw = _stored(env, uuid.UUID(asked.chat_id))
+    raw = stored_question(env, asked.chat_id)
     held = parse_open_question(raw, now=NOW)
     assert held is not None
     assert [call.tool for call in held.calls] == [CREATE]
@@ -352,25 +382,28 @@ def test_yes_after_a_held_change_files_once(
     filed = say(env, gateway, tools, YES, chat_id=asked.chat_id)
 
     assert tools.arguments_of(CREATE) == [stored_arguments]
-    assert filed.reply == COMPOSED
-    assert _stored(env, uuid.UUID(asked.chat_id)) is None
+    assert filed.reply == FILED_SAYS
+    assert "tools" not in json.loads(gateway.requests[1].content)
+    assert stored_question(env, asked.chat_id) is None
 
     again = say(env, gateway, tools, YES, chat_id=asked.chat_id)
 
     assert tools.names.count(CREATE) == 1
     assert again.reply == "Nothing is waiting for a yes right now."
-    assert len(gateway.requests) == 4
+    assert len(gateway.requests) == 3
 
 
 def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Catches an eval answer with no `X-Chat-Engine` header, one that names
-    the engine by a constant, a loop run that still reports the old four prompt
-    digests (the score would be filed under the wrong prompts), and a pipeline
-    run whose headers changed.
+    """Catches an eval answer with no `X-Chat-Engine` header, one that names a
+    different engine, a run that still reports the old four prompt digests (the
+    score would be filed under the wrong prompts), a run that still reads
+    `CHAT_ENGINE` and so runs the deleted pipeline, and an eval service that
+    keeps the old runner.
 
-    Both engines run one conversation through the route. Each engine has its own
-    recording turn function, and each must be called exactly once, by its own
-    engine only.
+    The route runs one conversation with no engine setting and with an old
+    `CHAT_ENGINE=pipeline` left in the environment. The loop's recording turn
+    function must be called exactly once per run, and the headers must name the
+    loop and its one prompt digest.
     """
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://fake:fake@db.invalid:5432/fake_eval")
     monkeypatch.setenv("REDIS_URL", "redis://redis.invalid:6379/0")
@@ -378,6 +411,7 @@ def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JWT_SECRET", EVAL_JWT_PHRASE)
     monkeypatch.setenv("MCP_URL", "http://mcp.invalid:8081/mcp")
     monkeypatch.setenv("EVAL_ROUTES_ENABLED", "true")
+    monkeypatch.setenv("CHAT_ENGINE", "pipeline")
 
     async def resolve(
         _factory: object, *, tenant_slug: str, principal_user: str
@@ -387,11 +421,9 @@ def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     loop_turns = ConvTurns([ConvStep(update=_plain())])
-    pipeline_turns = ConvTurns([ConvStep(update=_plain())])
     stub = StubCaller({}, {})
     monkeypatch.setattr(eval_turn, "resolve_seat", resolve)
     monkeypatch.setattr(eval_turn, "run_loop_turn", loop_turns)
-    monkeypatch.setattr(eval_turn, "run_turn", pipeline_turns)
     monkeypatch.setattr(eval_turn, "build_tool_caller", lambda _settings, _token: stub)
     model = ModelClient(
         base_url=GATEWAY_URL,
@@ -405,18 +437,11 @@ def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     async def post(client: httpx.AsyncClient) -> httpx.Response:
         return await client.post("/v1/eval/conversation", json=_conv_body())
 
-    monkeypatch.setenv("CHAT_ENGINE", "loop")
     looped = _drive(post)
-    monkeypatch.setenv("CHAT_ENGINE", "pipeline")
-    piped = _drive(post)
 
     digest = hashlib.sha256((PROMPTS_DIR / "agent_loop.md").read_bytes()).hexdigest()
+    assert not hasattr(eval_turn, "run_turn")
     assert looped.status_code == 200
     assert looped.headers["X-Chat-Engine"] == "loop"
     assert looped.headers["X-Prompt-Versions"] == f"loop={digest}"
     assert len(loop_turns.calls) == 1
-    assert piped.status_code == 200
-    assert piped.headers["X-Chat-Engine"] == "pipeline"
-    assert piped.headers["X-Prompt-Versions"].startswith("intent=")
-    assert "loop=" not in piped.headers["X-Prompt-Versions"]
-    assert len(pipeline_turns.calls) == 1

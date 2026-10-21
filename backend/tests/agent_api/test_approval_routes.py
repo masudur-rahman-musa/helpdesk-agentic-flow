@@ -253,23 +253,6 @@ class UnreachableToolCaller:
         raise AssertionError("a caller whose handshake failed must never be called")
 
 
-@pytest.fixture(autouse=True)
-def _stub_resume(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stub the resume seam so SUCCESS route tests stay socket-free.
-
-    A 200 decision now triggers resume_after_decision; these cases must stay
-    socket-free, so this autouse fixture stubs it to a no-op for every test
-    in this file.
-    """
-
-    async def _noop(*args: object, **kwargs: object) -> None:
-        return None
-
-    from helpdesk.agent_api.api.routes import approvals as approvals_routes
-
-    monkeypatch.setattr(approvals_routes, "resume_after_decision", _noop)
-
-
 class BoundCheckingToolCaller:
     """The MCP server's own input validation, standing in for the wire.
 

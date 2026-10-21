@@ -3,7 +3,7 @@
 import math
 import os
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
@@ -102,9 +102,6 @@ class Settings(BaseSettings):
         default_factory=lambda: list(DEFAULT_MCP_ALLOWED_HOSTS)
     )
 
-    intent_confidence_min: float = 0.7
-    """Below this confidence the agent asks instead of acting. 0 to 1 inclusive."""
-
     role_suggestion_floor: float = 0.70
     """A suggested role must score at least this. 0 to 1 inclusive."""
 
@@ -114,11 +111,7 @@ class Settings(BaseSettings):
     eval_routes_enabled: bool = False
     """Turns on `POST /admin/test/reset` and `POST /v1/eval/conversation`. Off in production."""
 
-    chat_engine: Literal["pipeline", "loop"] = "pipeline"
-    """Which engine answers a chat: the intent pipeline, or the tool-calling
-    loop. Any other value, case and spaces included, fails at start."""
-
-    @field_validator("intent_confidence_min", "role_suggestion_floor", "policy_refusal_floor")
+    @field_validator("role_suggestion_floor", "policy_refusal_floor")
     @classmethod
     def _cutoff_is_between_zero_and_one(cls, value: float) -> float:
         # NaN fails every comparison, so test the range the positive way round.

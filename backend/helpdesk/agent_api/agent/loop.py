@@ -1,4 +1,4 @@
-"""The chat as one tool-calling agent loop, the second engine beside the graph.
+"""The chat as one tool-calling agent loop.
 
 The model reads the chat as real `user` and `assistant` turns under the
 `agent_loop` prompt, with only the tools the caller's role allows
@@ -6,28 +6,34 @@ The model reads the chat as real `user` and `assistant` turns under the
 results come back as `tool` turns, which the prompt treats as data. Lookups
 run through MCP with the caller's own token; the finders run here.
 
-Limits, the graph's own budget: at most `MAX_STEPS` model steps, 6 tool
+Limits, the turn budget: at most `MAX_STEPS` model steps, 6 tool
 calls, 40,000 tokens and 90 seconds a turn. A limit hit with tool results
 gets one last step with no tools; with none, the fixed `TIMEOUT_REPLY` and
 no model call (`test_deadline_with_no_results_gives_the_fixed_line`).
 
-Changes are never run here. A proposed change is checked against the tool's
-input model, given a key by code, and held as the chat's open question; the
-reply is the code-written summary. Bad arguments go back to the model once
-with the reason, then `CHANGE_FAILED_REPLY` (`test_bad_change_arguments_go_back_once`).
-The next message, when it is a yes or a bare no to that question, is handed
-to the graph, which files or drops it exactly as before
-(`test_yes_after_a_held_change_files_once`).
+The model never runs a change. A proposed change is checked against the
+tool's input model, given a key by code, and held as the chat's open
+question; the reply is the code-written summary. Bad arguments go back to the
+model once with the reason, then `CHANGE_FAILED_REPLY`
+(`test_bad_change_arguments_go_back_once`). The next message is read by code
+(`read_answer`), never by the model: a yes runs the held calls with their
+stored keys, then one step with no tools writes the reply from their results
+(`test_yes_files_held_calls_with_stored_keys`); a bare no runs nothing and
+gives `NOTHING_FILED_REPLY`; anything else drops the question
+(`test_model_cannot_confirm_for_the_person`).
 
-The decision-word check runs on the final text against this turn's tool
-results; a breach goes back once with the reason, then the reply is said
-from the tool results by code (`test_decision_word_breach_is_sent_back_once`).
+The grounding check runs on the final text: every request number, tenant role
+name and decision word must come from this turn's tool results (role names
+may also come from the person's own words). A breach goes back with the
+reason, at most `MAX_SEND_BACKS` times, then the reply is said from the tool
+results by code (`test_breach_goes_back_at_most_twice`).
 """
 
 import contextlib
 import json
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Protocol
 
@@ -36,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.agent import gates
 from helpdesk.agent_api.agent.confirmation import (
+    NOTHING_FILED_REPLY,
     Answer,
     OpenQuestion,
     change_summary,
@@ -43,12 +50,6 @@ from helpdesk.agent_api.agent.confirmation import (
     read_answer,
 )
 from helpdesk.agent_api.agent.events import ErrorEvent, ReplyEvent, StepEvent, TurnEvent
-from helpdesk.agent_api.agent.graph import (
-    _reply_data,
-    _turn_telemetry,
-    run_turn,
-    stream_turn,
-)
 from helpdesk.agent_api.agent.keys import derive_idempotency_key
 from helpdesk.agent_api.agent.loop_tools import (
     FIND_PERSON,
@@ -61,15 +62,16 @@ from helpdesk.agent_api.agent.loop_tools import (
     find_role,
     offered_tools,
 )
-from helpdesk.agent_api.agent.nodes.extract_intent import FAILURE_REPLY
 from helpdesk.agent_api.agent.postcheck import (
-    contradicts,
     outcome_reply,
     permitted_words,
+    unbacked_numbers,
+    unbacked_roles,
     words_in,
 )
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.role_words import with_plain_role_names
+from helpdesk.agent_api.agent.sources import shown_citations
 from helpdesk.agent_api.agent.state import (
     Citation,
     Intent,
@@ -94,9 +96,15 @@ from helpdesk.agent_api.agent.turn_metrics import (
     record_turn_state,
     trace_attributes,
 )
+from helpdesk.agent_api.services.decision_card import decision_card
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ToolCall, ToolCallAnswer
-from helpdesk.agent_api.services.tracing import set_trace_attributes
+from helpdesk.agent_api.services.tracing import (
+    current_trace_id,
+    set_trace_attributes,
+    turn_trace,
+)
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.observability.context import bind_context, current_context
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.messages import append_message, list_recent_messages
 from helpdesk.shared.crud.sessions import (
@@ -110,11 +118,14 @@ from helpdesk.shared.models.conversation import MessageRole, check_message_conte
 
 __all__ = [
     "CHANGE_FAILED_REPLY",
+    "FAILURE_REPLY",
     "LOOP_PROMPT",
+    "MAX_SEND_BACKS",
     "MAX_STEPS",
     "TIMEOUT_REPLY",
     "DbLoopStore",
     "LoopStore",
+    "reply_data",
     "run_loop_turn",
     "stream_loop_turn",
 ]
@@ -125,7 +136,7 @@ MAX_STEPS = 4
 """Model steps a turn may take; the last is offered no tools, so it answers."""
 
 STEP_NODE = "agent_step"
-"""The `node` a loop step streams as; the web shows it like a graph node."""
+"""The `node` a loop step streams as; the web shows it as one step."""
 
 MAX_RESULT_CHARACTERS = 20_000
 """A tool result longer than this is cut, so one listing cannot fill the turn."""
@@ -135,6 +146,17 @@ TIMEOUT_REPLY = (
     "Please ask again, maybe in fewer words."
 )
 """Said when the deadline passed before any tool answered. No model call."""
+
+FAILURE_REPLY = (
+    "Sorry, I could not work out what you need just now. Please try saying it "
+    "again, or ask me to open a ticket so a person can pick it up."
+)
+"""Said when the model or a tool failed in a way no reply can cover. None of
+the model's output is shown; the code rides on the state as `error_code`."""
+
+MAX_SEND_BACKS = 2
+"""How many times a reply that names something no result backs goes back to
+the model. After that, code says the reply from the results."""
 
 CHANGE_FAILED_REPLY = (
     "I could not put that change together correctly, so nothing was prepared. "
@@ -156,10 +178,36 @@ _CHANGE_INTENTS: Mapping[str, Intent] = {
     "unlock_own_account": Intent.UNLOCK_ACCOUNT,
     "create_ticket": Intent.OPEN_TICKET,
 }
-"""The intent a held change is stored under, so the graph's yes path, which
-reads an intent, files it as it files its own."""
+"""The intent a held change is stored under, for telemetry and the decision card."""
 
 _DECISIONS = frozenset({gates.APPROVE_REQUEST, gates.REJECT_REQUEST})
+
+
+@contextmanager
+def _turn_telemetry() -> Iterator[None]:
+    """Open one turn's trace and tag its log lines with the trace id.
+    `bind_context` replaces rather than merges, so all fields are bound again."""
+    with turn_trace():
+        context = current_context()
+        with bind_context(
+            tenant_id=context.tenant_id,
+            session_id=context.session_id,
+            trace_id=current_trace_id(),
+            principal_kind=context.principal_kind,
+        ):
+            yield
+
+
+def reply_data(state: TurnState) -> dict[str, Any]:
+    """The final `reply` event, with the same keys `/chat` returns."""
+    card = decision_card(state)
+    return {
+        "reply": state.reply,
+        "outcome": state.outcome.value,
+        "citations": [citation.model_dump(mode="json") for citation in shown_citations(state)],
+        "request_id": None if state.awaiting_request_id is None else str(state.awaiting_request_id),
+        "decision": None if card is None else card.model_dump(mode="json"),
+    }
 
 
 class LoopStore(Directory, Protocol):
@@ -302,13 +350,15 @@ class _Turn:
         self.tokens = 0
         self.step = 0
         self.change_sent_back = False
+        self.person_said: list[str] = []
+        """The person's own messages, this turn's last; never the check's notes."""
         self.roles_found: dict[str, dict[str, Any]] = {}
         self.people_found: dict[str, str] = {}
 
     # --- the steps -----------------------------------------------------------
 
-    async def run(self) -> AsyncIterator[StepEvent | TurnState]:
-        """Every step event, then the final state as the last item."""
+    async def _start(self) -> None:
+        """Read the chat, save the person's message and set up the model's turns."""
         principals = await self.store.principals()
         history = await self.store.history()
         await self.store.add_message(MessageRole.USER, self.state.user_message)
@@ -319,6 +369,9 @@ class _Turn:
                 "prompt_version": self.prompt.sha256,
             }
         )
+        self.person_said = [text for role, text in history if role == MessageRole.USER.value] + [
+            self.state.user_message
+        ]
         self.offered = {tool.name: tool for tool in offered_tools(principals)}
         self.messages = [
             {"role": "system", "content": self.prompt.text},
@@ -329,6 +382,10 @@ class _Turn:
             ),
             {"role": "user", "content": self.state.user_message},
         ]
+
+    async def run(self) -> AsyncIterator[StepEvent | TurnState]:
+        """Every step event, then the final state as the last item."""
+        await self._start()
         tools_on = True
         try:
             while True:
@@ -355,6 +412,57 @@ class _Turn:
             yield await self._finish(
                 FAILURE_REPLY, outcome=TurnOutcome.FAILED, error_code=failed.code
             )
+
+    async def answer_held(
+        self, question: OpenQuestion, answer: Answer
+    ) -> AsyncIterator[StepEvent | TurnState]:
+        """The person's yes or bare no to a held change. The question is
+        cleared first, so a second yes finds nothing. A yes runs the stored
+        calls as they were checked, keys included, then one step with no tools
+        writes the reply; a no runs nothing and asks no model."""
+        await self.store.clear_open_question()
+        await self._start()
+        self.state = self.state.model_copy(
+            update={"extraction": question.extraction, "resolved": question.resolved}
+        )
+        self.citations = list(question.citations)
+        if answer is Answer.NO:
+            yield await self._finish(NOTHING_FILED_REPLY)
+            return
+        ran: list[dict[str, Any]] = []
+        try:
+            calls = [
+                ToolCall(id=f"held_{index}", name=call.tool, arguments=call.arguments)
+                for index, call in enumerate(question.calls)
+            ]
+            self.messages.append(_assistant_turn(None, calls))
+            for call in calls:
+                self.messages.append(await self._run_held(call, ran))
+            yield StepEvent(node=STEP_NODE, round=self.step, tools=ran)
+            self.step += 1
+            answer_step = await self._ask(tools=False)
+            yield await self._answer(answer_step.text)
+        except _TurnFailed as failed:
+            yield await self._finish(
+                FAILURE_REPLY, outcome=TurnOutcome.FAILED, error_code=failed.code
+            )
+
+    async def _run_held(self, call: ToolCall, ran: list[dict[str, Any]]) -> dict[str, Any]:
+        """Run one stored change through MCP with the caller's own token. A
+        typed refusal is a result the reply reads; only `INTERNAL` ends the turn."""
+        arguments = TOOL_INPUTS[call.name].model_validate(call.arguments)
+        self.calls_made += 1
+        try:
+            payload = dict(await self.deps.tools.call_tool(call.name, arguments))
+        except ToolError as exc:
+            if exc.code is ErrorCode.INTERNAL:
+                raise _TurnFailed(exc.code) from exc
+            self.results.append(ToolResult(tool=call.name, ok=False, error_code=exc.code))
+            ran.append({"tool": call.name, "ok": False, "error_code": exc.code.value})
+            return _tool_turn(call.id, {"error": exc.code.value})
+        self.results.append(ToolResult(tool=call.name, ok=True, payload=payload))
+        ran.append({"tool": call.name, "ok": True, "error_code": None})
+        return _tool_turn(call.id, with_plain_role_names(payload))
 
     def _spent(self) -> bool:
         """Whether the deadline or the token budget is used up. The deadline
@@ -553,30 +661,45 @@ class _Turn:
 
     async def _answer(self, text: str | None) -> TurnState:
         """The model's text, held to this turn's tool results: a breach goes
-        back once with the reason, then the reply is said from the results."""
+        back with the reason at most `MAX_SEND_BACKS` times, then the reply is
+        said from the results."""
         reply = (text or "").strip()
-        checked = self._state()
-        if not reply:
-            return await self._finish(outcome_reply(checked), postcheck=PostCheckOutcome.FALLBACK)
-        if not contradicts(reply, checked):
-            return await self._finish(reply)
-        unbacked = sorted(words_in(reply) - permitted_words(checked))
-        self.messages.extend(
-            [
-                {"role": "assistant", "content": reply},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Check failed: your reply says {', '.join(unbacked)}, but no tool "
-                        "result in this turn says so. Write the reply again without claiming it."
-                    ),
-                },
-            ]
-        )
-        again = ((await self._ask(tools=False)).text or "").strip()
-        if again and not contradicts(again, self._state()):
-            return await self._finish(again, postcheck=PostCheckOutcome.REGENERATED)
+        for sent_back in range(MAX_SEND_BACKS + 1):
+            if not reply:
+                break
+            unbacked = await self._unbacked(reply)
+            if not unbacked:
+                passed = PostCheckOutcome.REGENERATED if sent_back else PostCheckOutcome.PASSED
+                return await self._finish(reply, postcheck=passed)
+            if sent_back == MAX_SEND_BACKS:
+                break
+            self.messages.extend(
+                [
+                    {"role": "assistant", "content": reply},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Check failed: your reply names {', '.join(unbacked)}, but no "
+                            "tool result in this turn says so. Write the reply again "
+                            "without claiming it."
+                        ),
+                    },
+                ]
+            )
+            reply = ((await self._ask(tools=False)).text or "").strip()
         return await self._finish(outcome_reply(self._state()), postcheck=PostCheckOutcome.FALLBACK)
+
+    async def _unbacked(self, reply: str) -> list[str]:
+        """Every decision word, request number and tenant role name in `reply`
+        that this turn's results do not back. Role names may also be the
+        person's own words, this turn or earlier."""
+        checked = self._state()
+        roles = list(await self.store.role_ids())
+        return [
+            *sorted(words_in(reply) - permitted_words(checked)),
+            *unbacked_numbers(reply, checked.tool_results),
+            *unbacked_roles(reply, roles, checked.tool_results, self.person_said),
+        ]
 
     def _state(self, **update: Any) -> TurnState:
         """The turn as a state, with what it gathered so far."""
@@ -604,17 +727,32 @@ class _Turn:
         return self._state(reply=reply, outcome=outcome, postcheck=postcheck, error_code=error_code)
 
 
-async def _answers_held_question(store: LoopStore, message: str, now: datetime) -> bool:
-    """Whether the message is a yes or a bare no to a held change. Anything
-    else drops the question, as the graph does, so it is answered once at most."""
+async def _held_answer(
+    store: LoopStore, message: str, now: datetime
+) -> tuple[OpenQuestion, Answer] | None:
+    """The held change and the person's yes or bare no to it, read by code.
+    Anything else drops the question, so it is answered once at most."""
     await store.prepare(now)
     question = await store.open_question()
     if question is None:
-        return False
-    if read_answer(message) is not Answer.OTHER:
-        return True
+        return None
+    answer = read_answer(message)
+    if answer is not Answer.OTHER:
+        return question, answer
     await store.clear_open_question()
-    return False
+    return None
+
+
+async def _turn_items(
+    deps: TurnDeps, store: LoopStore, state: TurnState
+) -> AsyncIterator[StepEvent | TurnState]:
+    """The turn's step events and final state: the answer to a held change,
+    or a normal loop turn."""
+    turn = _Turn(state, deps, store)
+    held = await _held_answer(store, state.user_message, turn.started)
+    items = turn.run() if held is None else turn.answer_held(*held)
+    async for item in items:
+        yield item
 
 
 async def run_loop_turn(
@@ -625,36 +763,23 @@ async def run_loop_turn(
     session_id: uuid.UUID,
     tenant_slug: str,
     message: str,
-    checkpointer: Any = None,
     store: LoopStore | None = None,
 ) -> TurnState:
-    """One loop turn, with the same arguments and result as the graph's
-    `run_turn`. A yes or no to a held change runs on the graph instead."""
+    """One loop turn: the person's message in, the final state out."""
     check_message_content(message)
     store = store or DbLoopStore(deps.db, session_id=session_id, user_id=user_id)
-    started = deps.now()
-    if await _answers_held_question(store, message, started):
-        return await run_turn(
-            deps=deps,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            session_id=session_id,
-            tenant_slug=tenant_slug,
-            message=message,
-            checkpointer=checkpointer,
-        )
     state = TurnState(
         tenant_id=tenant_id,
         user_id=user_id,
         session_id=session_id,
         tenant_slug=tenant_slug,
         user_message=message,
-        started_at=started,
+        started_at=deps.now(),
     )
     final: TurnState | None = None
     with _turn_telemetry():
         async with deps.tools:
-            async for item in _Turn(state, deps, store).run():
+            async for item in _turn_items(deps, store, state):
                 if isinstance(item, TurnState):
                     final = item
         if final is None:  # pragma: no cover - `run` always ends on a state
@@ -672,39 +797,25 @@ async def stream_loop_turn(
     session_id: uuid.UUID,
     tenant_slug: str,
     message: str,
-    checkpointer: Any = None,
     store: LoopStore | None = None,
 ) -> AsyncIterator[TurnEvent]:
     """The same turn as `run_loop_turn`, streamed: one step event per model
     step that ran a tool, then one reply event with the keys `/chat` returns."""
     check_message_content(message)
     store = store or DbLoopStore(deps.db, session_id=session_id, user_id=user_id)
-    started = deps.now()
-    if await _answers_held_question(store, message, started):
-        async for event in stream_turn(
-            deps=deps,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            session_id=session_id,
-            tenant_slug=tenant_slug,
-            message=message,
-            checkpointer=checkpointer,
-        ):
-            yield event
-        return
     state = TurnState(
         tenant_id=tenant_id,
         user_id=user_id,
         session_id=session_id,
         tenant_slug=tenant_slug,
         user_message=message,
-        started_at=started,
+        started_at=deps.now(),
     )
     final: TurnState | None = None
     with _turn_telemetry():
         try:
             async with deps.tools:
-                async for item in _Turn(state, deps, store).run():
+                async for item in _turn_items(deps, store, state):
                     if isinstance(item, TurnState):
                         final = item
                     else:
@@ -721,4 +832,4 @@ async def stream_loop_turn(
         if final.outcome is TurnOutcome.FAILED:
             yield ErrorEvent(code=final.error_code or ErrorCode.INTERNAL)
             return
-        yield ReplyEvent(reply=final.reply, reply_data=_reply_data(final))
+        yield ReplyEvent(reply=final.reply, reply_data=reply_data(final))

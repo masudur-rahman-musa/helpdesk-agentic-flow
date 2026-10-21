@@ -7,8 +7,7 @@ Expected implementation surface (the implementer must provide exactly this):
 , the same verification, the same rate limit and the same
         tenant-bound session. On success a ``StreamingResponse`` with
         ``media_type="text/event-stream"`` over
-        ``agent_api.graph.build.stream_turn``, whose frames are the ones
-        ``test_turn_stream.py`` pins.
+        ``agent.loop.stream_loop_turn``, whose events ``api/sse.py`` frames.
 
 Everything that can refuse does so BEFORE the first byte, as the same typed
 bodies ``/chat`` already answers with (19a, copied rather than invented):
@@ -30,13 +29,13 @@ tokens.
 Cost and isolation. The compose Postgres and Redis, and nothing else: no
 Qdrant, no real MCP server (the scripted stub of 17b) and no gateway socket (an
 ``httpx.MockTransport``). ONE session-scoped fixture builds the throwaway
-database, its schema, LangGraph's checkpoint tables and two obviously fake
-tenants for the whole module; per-case isolation is a fresh
+database, its schema and one obviously fake
+tenant for the whole module; per-case isolation is a fresh
 ``sid`` per case — which is both the conversation and the rate-limit key's
 namespace — plus a Redis database index dedicated to the suite that nothing
 here flushes. The app's LIFESPAN is entered once per case, inside that case's
 own event loop, for the reason every other agent-api suite builds its engine
-per ``asyncio.run``: a psycopg pool and an asyncpg engine cannot cross loops.
+per ``asyncio.run``: an asyncpg engine cannot cross loops.
 Fixtures live in this module rather than a conftest, because a second
 ``conftest`` under ``services/agent-api/tests`` would collide with
 ``packages/helpdesk/tests/conftest.py`` under the repo-wide ``mypy`` run.
@@ -59,7 +58,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from helpdesk.agent_api.agent.checkpointer import build_pool, psycopg_dsn, setup_checkpointer
 from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.api.router import app
@@ -180,7 +178,7 @@ def _streamed_text(frames: Sequence[Frame]) -> str:
     return "".join(str(frame.data["text"]) for frame in _of(frames, TOKEN))
 
 
-# --- the throwaway database, its tenant and the checkpoint tables --------------
+# --- the throwaway database and its tenant ------------------------------------
 
 
 async def _admin_execute(admin_url: str, sql: str) -> None:
@@ -305,12 +303,11 @@ def _test_redis_url() -> str:
 
 @pytest.fixture(scope="session")
 def stream_route_db() -> Iterator[StreamRouteEnv]:
-    """One database, its schema, the checkpoint tables and one tenant, once.
+    """One database, its schema and one tenant, once.
 
     nothing per-case is built here, and nothing is flushed.
-    A throwaway database rather than the compose one for the checkpointer's reason —
-    `test_models.py` and `test_seed.py` assert on a database's full table list,
-    and LangGraph's checkpoint tables are outside `Base.metadata` on purpose.
+    A throwaway database rather than the compose one: `test_models.py` and
+    `test_seed.py` assert on a database's full table list.
     """
     try:
         settings = load_settings()
@@ -340,13 +337,7 @@ def stream_route_db() -> Iterator[StreamRouteEnv]:
             await engine.dispose()
         return StreamRouteEnv(database_url=url, redis_url=redis_url, tenant_a=tenant_a)
 
-    async def create_checkpoint_tables(dsn: str) -> None:
-        pool = build_pool(dsn)
-        async with pool:
-            await setup_checkpointer(pool)
-
     env = asyncio.run(prepare())
-    asyncio.run(create_checkpoint_tables(psycopg_dsn(url)))
     yield env
     assert name.startswith("helpdesk_chat_stream_test_")
     asyncio.run(_admin_execute(admin_url, f'DROP DATABASE "{name}" WITH (FORCE)'))
@@ -368,28 +359,16 @@ def stream_env(stream_route_db: StreamRouteEnv, monkeypatch: pytest.MonkeyPatch)
 # --- the staged gateway and the scripted caller -------------------------------
 
 
-def _as_composed(answer: str, request: httpx.Request) -> str:
-    """What the gateway sends for a staged string. A request for `ComposedReply`
-    gets a plain staged reply as the shape, marked a question when it holds "?"
-    (a writer that marks honestly); a string that is already JSON goes as it is."""
-    body = json.loads(request.content)
-    if body.get("response_format", {}).get("json_schema", {}).get("name") != "ComposedReply":
-        return answer
-    try:
-        parsed = json.loads(answer)
-    except ValueError:
-        parsed = None
-    if isinstance(parsed, dict):
-        return answer
-    return json.dumps({"text": answer, "asks_question": "?" in answer, "used_passages": [1]})
+type Staged = str | Mapping[str, Any]
+"""One staged model answer: a reply's text, or a whole `message` (tool calls)."""
 
 
-def _completion(answer: str, request: httpx.Request) -> httpx.Response:
-    content = _as_composed(answer, request)
+def _completion(answer: Staged) -> httpx.Response:
+    message = {"content": answer} if isinstance(answer, str) else dict(answer)
     return httpx.Response(
         200,
         json={
-            "choices": [{"message": {"content": content}}],
+            "choices": [{"message": message}],
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         },
     )
@@ -403,7 +382,7 @@ class StagedGateway:
     token, the cap or the limit asks for an answer nobody staged.
     """
 
-    def __init__(self, answers: Sequence[str]) -> None:
+    def __init__(self, answers: Sequence[Staged]) -> None:
         self._answers = list(answers)
         self.requests: list[httpx.Request] = []
 
@@ -420,7 +399,7 @@ class StagedGateway:
                 f"the turn made {len(self.requests)} model requests; "
                 f"only {len(self._answers)} were staged"
             )
-        return _completion(self._answers[index], request)
+        return _completion(self._answers[index])
 
     @property
     def call_count(self) -> int:
@@ -488,33 +467,27 @@ def _page() -> dict[str, Any]:
     }
 
 
-def _extraction_answer() -> str:
-    return json.dumps(
+POLICY_LOOKUP: dict[str, Any] = {
+    "content": None,
+    "tool_calls": [
         {
-            "intent": "request_access",
-            "entities": {
-                "system": "payroll",
-                "role": "payroll-read",
-                "target_user": None,
-                "department": None,
-                "expiry_days": 30,
-                "justification": "Obviously fake reason.",
+            "id": "call_1",
+            "type": "function",
+            "function": {
+                "name": SEARCH_POLICY,
+                "arguments": json.dumps({"query": "fake payroll read access"}),
             },
-            "confidence": 0.95,
-            "clarifying_question": None,
-            "second_request": None,
         }
-    )
+    ],
+}
+"""The loop's first step: one `search_policy` lookup."""
 
 
-EMPTY_PLAN = json.dumps({"calls": []})
-"""A planning round proposing nothing: the ordinary end of a turn."""
-
-
-def _one_turn(answers: Sequence[str] = ()) -> list[str]:
-    """The three answers one ordinary turn asks the gateway for."""
+def _one_turn(answers: Sequence[str] = ()) -> list[Staged]:
+    """The two answers one ordinary turn asks the gateway for: the lookup step,
+    then the reply."""
     staged = list(answers) or [COMPOSED_REPLY]
-    return [_extraction_answer(), EMPTY_PLAN, *staged]
+    return [POLICY_LOOKUP, *staged]
 
 
 # --- driving the app ----------------------------------------------------------
@@ -645,7 +618,7 @@ def test_one_message_streams_its_steps_its_tokens_and_its_reply(
     frames = parse_frames(response.text)
     token_count = len(chunk_reply(COMPOSED_REPLY))
     assert token_count > 1, "premise: the reply must span several chunks"
-    assert _names(frames) == [STEP] * 7 + [TOKEN] * token_count + [REPLY, DONE]
+    assert _names(frames) == [STEP] + [TOKEN] * token_count + [REPLY, DONE]
     assert len(_of(frames, REPLY)) == 1
     assert _streamed_text(frames) == COMPOSED_REPLY
 
@@ -706,7 +679,7 @@ def test_both_routes_store_the_same_rows_for_one_message(
 
     assert plain.status_code == 200, plain.text
     assert streamed.status_code == 200, streamed.text
-    assert gateway.call_count == 6, "each route owes exactly three model calls"
+    assert gateway.call_count == 4, "each route owes exactly two model calls"
     assert tools.names == [SEARCH_POLICY, SEARCH_POLICY]
 
     body = plain.json()

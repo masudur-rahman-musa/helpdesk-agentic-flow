@@ -19,7 +19,6 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from helpdesk.agent_api.agent.role_words import plain_role_name
 from helpdesk.agent_api.agent.state import (
     Citation,
-    IntentEntities,
     IntentExtraction,
     ResolvedEntities,
     ToolResult,
@@ -35,11 +34,6 @@ FILE_LINE = "Say yes to file, or tell me what to change."
 CHANGE_LINE = "Say yes to go ahead, or no to stop."
 """Ends the summary of every change other than an access request."""
 
-NOT_FOUND_APPROVALS_REPLY = "I couldn't find those requests among the ones waiting for you."
-"""Said when every held approval named a request this turn's listing did not show."""
-
-SELF_WORDS = frozenset({"me", "myself", "i", "self", "mine", "my"})
-"""What the model may put in `target_user` when the request is the speaker's own."""
 USUAL_LENGTH = "its usual length"
 """Said for the days when neither the policy nor the person gave a number."""
 
@@ -77,12 +71,6 @@ NOTHING_FILED_REPLY = (
     "system and the role, and I will check it with you before filing."
 )
 """The fixed reply to a bare no. No model call, so nothing new is planned."""
-
-NOTHING_WAITING_REPLY = (
-    "Nothing is waiting for a yes. Tell me what you need, and I'll check it with you first."
-)
-"""The fixed reply to a yes right after a no: the no dropped what it would
-have run, so a yes brings nothing back (`test_no_then_do_it_files_nothing`)."""
 
 _WORD = re.compile(r"[a-z']+")
 
@@ -188,23 +176,6 @@ def next_step(results: Sequence[ToolResult]) -> str:
             continue
     who = _joined(seats) or "an approver"
     return f"If you say yes, I will file it and it needs approval from {who}."
-
-
-def other_person(entities: IntentEntities) -> str | None:
-    """The person a request is for, when the message names someone other than
-    the speaker; `None` for the speaker's own."""
-    name = (entities.target_user or "").strip()
-    if not name or name.lower() in SELF_WORDS:
-        return None
-    return name
-
-
-def only_for_you_reply(name: str) -> str:
-    """The fixed stop for a request for someone else without the on-behalf scope."""
-    return (
-        f"I can only file access requests for you. {name} needs to ask for it, "
-        "or their manager can ask for them."
-    )
 
 
 def _held_create(calls: Sequence[ValidatedCall]) -> dict[str, object]:
@@ -332,49 +303,3 @@ def change_summary(
     )
     lines = list(dict.fromkeys(lines))
     return f"{' '.join(lines)} {CHANGE_LINE}"
-
-
-_WAITING_SEATS: dict[ApproverSlot, str] = {
-    ApproverSlot.DEPARTMENT_MANAGER: "the department manager",
-    ApproverSlot.SYSTEM_OWNER: "the system owner",
-    ApproverSlot.IT_ADMIN: "IT admin",
-    ApproverSlot.HR: "HR",
-}
-"""Seats as the approver reads them: the request is someone else's, so never "your manager"."""
-
-
-def _decided_line(result: ToolResult) -> str | None:
-    """One line for one approve or reject result, said to the person who decided."""
-    payload = result.payload
-    number = str(payload.get("request_number") or "the request")
-    role = str(payload.get("role_name") or "").strip()
-    named = f"{number} ({role})" if role else number
-    if result.tool == "reject_request":
-        return f"You rejected {named}. The person who asked is told, with your reason."
-    if payload.get("failure_code"):
-        return (
-            f"You approved {named}, but the access could not be given: the rules "
-            "refuse it now. It is marked failed, and the person who asked is told."
-        )
-    if payload.get("chain_complete"):
-        return f"You approved {named}. That was the last approval, so the access is given."
-    seats: list[str] = []
-    for raw in payload.get("waiting_on") or []:
-        try:
-            seats.append(_WAITING_SEATS[ApproverSlot(str(raw))])
-        except (KeyError, ValueError):
-            continue
-    if not seats:
-        return f"You approved {named}. It still waits for other approvals."
-    return f"You approved {named}. It still waits for {_joined(seats)}."
-
-
-def decision_reply(results: Sequence[ToolResult]) -> str | None:
-    """The whole reply when this turn only approved or rejected requests, in
-    fixed words, or `None` for any other turn (a listing, a failed call, a mix)."""
-    if not results or any(
-        not result.ok or result.tool not in _DECISION_VERBS for result in results
-    ):
-        return None
-    lines = [line for result in results if (line := _decided_line(result)) is not None]
-    return "\n".join(lines) or None

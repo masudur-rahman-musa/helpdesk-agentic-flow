@@ -11,7 +11,6 @@ from datetime import datetime
 from fastapi import Request
 
 from helpdesk.agent_api.agent.events import ReplyEvent
-from helpdesk.agent_api.agent.graph import run_turn, stream_turn
 from helpdesk.agent_api.agent.loop import run_loop_turn, stream_loop_turn
 from helpdesk.agent_api.agent.sources import shown_citations
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
@@ -46,11 +45,6 @@ def _typed_error(code: ErrorCode) -> ToolError:
     return exc
 
 
-def _uses_loop() -> bool:
-    """Whether `CHAT_ENGINE` picks the agent loop over the intent pipeline."""
-    return load_settings().chat_engine == "loop"
-
-
 ToolsFactory = Callable[[str], ToolCaller]
 """Builds the tool caller from the bearer token a turn hands to the tool server."""
 
@@ -80,8 +74,8 @@ def _identity(claims: TokenClaims, chat_id: uuid.UUID) -> _Identity:
 def _tool_token(claims: TokenClaims, chat_id: uuid.UUID, now: datetime) -> str:
     """The token the tool server sees: the caller's own claims, `sid` set to the chat.
 
-    The tool server stamps `sid` on audit rows and filed requests, and a paused
-    request resumes by it, so it must be the chat and not the login.
+    The tool server stamps `sid` on audit rows and filed requests, so it must
+    be the chat and not the login.
     """
     return issue_token(
         {
@@ -150,15 +144,13 @@ async def _stream_frames(
                 yield encode_event(ERROR, {"code": ErrorCode.INTERNAL.value})
                 yield encode_event(DONE, {})
                 return
-            stream = stream_loop_turn if _uses_loop() else stream_turn
-            async for event in stream(
+            async for event in stream_loop_turn(
                 deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
                 tenant_id=identity.tenant_id,
                 user_id=identity.user_id,
                 session_id=identity.session_id,
                 tenant_slug=tenant.slug,
                 message=message,
-                checkpointer=request.app.state.checkpointer,
             ):
                 if isinstance(event, ReplyEvent):
                     event = dataclasses.replace(
@@ -200,15 +192,13 @@ async def chat_turn(
         if tenant is None:
             # A verified token for a tenant that no longer exists.
             raise ToolError(ErrorCode.INTERNAL)
-        run = run_loop_turn if _uses_loop() else run_turn
-        state = await run(
+        state = await run_loop_turn(
             deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
             tenant_id=identity.tenant_id,
             user_id=identity.user_id,
             session_id=identity.session_id,
             tenant_slug=tenant.slug,
             message=message,
-            checkpointer=request.app.state.checkpointer,
         )
     return _rendered(state)  # raises ToolError if FAILED, else returns ChatResponse
 

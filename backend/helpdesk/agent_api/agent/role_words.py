@@ -7,35 +7,14 @@ and `_` read as spaces ("Internal Wiki editor"). The stored role name
 read (`test_role_words.py`).
 """
 
-from collections.abc import Sequence
 from typing import Any
 
-from helpdesk.shared.access.role_names import plain_role_name, role_word
+from helpdesk.shared.access.role_names import plain_role_name
 
 __all__ = [
-    "grouped_suggestions",
-    "joined_with_or",
     "plain_role_name",
-    "role_word",
     "with_plain_role_names",
 ]
-
-
-def joined_with_or(words: Sequence[str]) -> str:
-    """ "a", "a or b", "a, b or c"."""
-    if len(words) <= 1:
-        return "".join(words)
-    return f"{', '.join(words[:-1])} or {words[-1]}"
-
-
-def grouped_suggestions(roles: Sequence[tuple[str, str]]) -> str:
-    """The offered roles, one group per system: "Internal Wiki: editor or
-    viewer; Mail and Files: user". `roles` are (system name, role slug) pairs,
-    best first; a group sits where its system is first seen."""
-    groups: dict[str, list[str]] = {}
-    for system_name, role_slug in roles:
-        groups.setdefault(system_name, []).append(role_word(role_slug))
-    return "; ".join(f"{system}: {joined_with_or(words)}" for system, words in groups.items())
 
 
 def with_plain_role_names(data: Any) -> Any:

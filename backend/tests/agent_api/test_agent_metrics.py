@@ -15,14 +15,12 @@ Written before the implementation exists. Surface under test:
         for a stream that fails before any state exists: intent ``"unknown"``,
         decision ``"failed"``, tenant from
         ``helpdesk.obs.context.current_context()``.
-Called at the terminals of ``graph.build.run_turn``, ``graph.build.stream_turn``
-(its early returns included) and ``resume.resume_turn`` — so the
-two routes cannot drift and a resume is counted at all.
+Called at the terminals of ``loop.run_loop_turn`` and ``loop.stream_loop_turn``
+(its early returns included), so the two routes cannot drift.
 
 Cost and isolation. The compose Postgres and Redis through the suite's
-existing session-scoped fixtures — ``test_chat_stream.py``'s seeded throwaway
-database for the two routes, ``test_agent_approval_interrupt.py``'s for the
-paused thread a resume needs. Nothing is rebuilt per case:
+existing session-scoped fixtures: ``test_chat_stream.py``'s seeded throwaway
+database for the two routes. Nothing is rebuilt per case:
 each case's isolation is its own ``CollectorRegistry`` installed over
 ``helpdesk.obs.metrics``'s module-level pair, so every number here is an
 absolute value and never a delta.
@@ -36,30 +34,13 @@ import httpx
 import pytest
 from prometheus_client import CollectorRegistry
 
-from helpdesk.agent_api.agent.state import Intent, TurnOutcome
+from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.api.sse import ERROR
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import User
-from helpdesk.shared.models.access import RequestStatus
-from tests.agent_api.test_agent_approval_interrupt import (
-    ApprovalEnv,
-    approval_env,  # noqa: F401 - fixture resolved by name
-)
-from tests.agent_api.test_agent_approval_interrupt import (
-    ScriptedToolCaller as ApprovalToolCaller,
-)
-from tests.agent_api.test_agent_approval_interrupt import (
-    StagedGateway as ApprovalGateway,
-)
-from tests.agent_api.test_agent_approval_resume import (
-    COMPOSED_APPROVAL,
-    _pause,
-    _resume,
-    _store_request,
-)
 
 # The unreachable-gateway transport is this suite's, not a new one: a turn that
 # cannot reach the gateway is how a FAILED terminal is produced without faking
@@ -85,7 +66,7 @@ TURNS = "helpdesk_turns_total"
 REFUSALS = "helpdesk_refusals_total"
 
 UNKNOWN_INTENT = "unknown"
-"""The sentinel label for a turn with no extraction, verbatim.
+"""The sentinel label for a turn that held no change, verbatim.
 
 A literal rather than a member of `Intent`: the closed set has
 no "we never got that far" member, and adding one would put a label the model
@@ -159,14 +140,14 @@ def test_one_chat_turn_counts_exactly_one(
     fresh_registry: CollectorRegistry,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Catches a turn counted per NODE rather than per turn — the shape a
-    counter dropped into the graph's node wrapper takes, which would report
-    eight turns for one message and make every rate on this metric wrong by
-    the graph's depth — and catches a counter that never fires at all.
+    """Catches a turn counted per STEP rather than per turn — the shape a
+    counter dropped into the loop's step takes, which would report two turns
+    for one message and make every rate on this metric wrong by the loop's
+    depth — and catches a counter that never fires at all.
 
     The labels are asserted as the closed values: the tenant from the
-    token's uuid, the intent from the extraction the model returned, and the
-    decision from `TurnOutcome`. The total pins that no second series moved, so
+    token's uuid, the intent `unknown` (a lookup turn holds no change), and
+    the decision from `TurnOutcome`. The total pins that no second series moved, so
     a turn counted once under the right labels and once under a fallback set
     fails here.
     """
@@ -187,9 +168,7 @@ def test_one_chat_turn_counts_exactly_one(
 
     assert response.status_code == 200, response.text
     assert response.json()["outcome"] == TurnOutcome.DONE.value
-    labels = _turn_labels(
-        stream_env, intent=Intent.REQUEST_ACCESS.value, decision=TurnOutcome.DONE.value
-    )
+    labels = _turn_labels(stream_env, intent=UNKNOWN_INTENT, decision=TurnOutcome.DONE.value)
     assert _sample(fresh_registry, TURNS, labels) == 1.0
     assert _sum_of(fresh_registry, TURNS) == 1.0
     assert _sum_of(fresh_registry, REFUSALS) == 0.0
@@ -200,7 +179,7 @@ def test_one_streamed_turn_counts_exactly_one(
     fresh_registry: CollectorRegistry,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Catches `stream_turn` left uninstrumented, which is invisible on any
+    """Catches `stream_loop_turn` left uninstrumented, which is invisible on any
     dashboard: `/chat` and `/chat/stream` are two views of ONE turn,
     so a counter placed on the plain route only makes every streamed turn —
     which is what the web client sends — disappear from the turn rate.
@@ -226,69 +205,9 @@ def test_one_streamed_turn_counts_exactly_one(
     )
 
     assert response.status_code == 200, response.text
-    labels = _turn_labels(
-        stream_env, intent=Intent.REQUEST_ACCESS.value, decision=TurnOutcome.DONE.value
-    )
+    labels = _turn_labels(stream_env, intent=UNKNOWN_INTENT, decision=TurnOutcome.DONE.value)
     assert _sample(fresh_registry, TURNS, labels) == 1.0
     assert _sum_of(fresh_registry, TURNS) == 1.0
-    assert _sum_of(fresh_registry, REFUSALS) == 0.0
-
-
-# --- the resumed turn ---------------------------------------------------------
-
-
-def test_a_resumed_turn_counts_exactly_one(
-    approval_env: ApprovalEnv,  # noqa: F811
-    fresh_registry: CollectorRegistry,
-) -> None:
-    """Catches a resume counted once per node REPLAYED.
-
-    LangGraph replays the interrupting node from its start on a resume, so a
-    counter placed inside a node — or on the graph's update stream — fires
-    again for work that already happened, and the turn rate climbs every time
-    an approver decides. Only `resume_turn`'s terminal fires once, which is
-    what the absolute 1 on the `done` cell says.
-
-    The paused turn's own count is asserted beside it rather than isolated
-    away: the pause and the resume are two counts of "a resumed turn adds
-    exactly one", and a total of 2 is the only reading in which neither was
-    lost and neither was doubled. The two cells differ ONLY in the decision
-    label, so an implementation that reported both under one outcome fails
-    here.
-    """
-    tenant = str(approval_env.tenant_id)
-    session_id, request_id, paused = _pause(approval_env)
-
-    assert paused.outcome is TurnOutcome.AWAIT_APPROVAL, "premise: the thread is paused"
-    paused_labels = {
-        "tenant": tenant,
-        "intent": Intent.REQUEST_ACCESS.value,
-        "decision": TurnOutcome.AWAIT_APPROVAL.value,
-    }
-    assert _sample(fresh_registry, TURNS, paused_labels) == 1.0
-
-    _store_request(
-        approval_env,
-        request_id=request_id,
-        status=RequestStatus.APPROVED.value,
-        session_id=session_id,
-    )
-    state = _resume(
-        approval_env,
-        request_id=request_id,
-        gateway=ApprovalGateway([COMPOSED_APPROVAL]),
-        tools=ApprovalToolCaller(),
-    )
-
-    assert state.outcome is TurnOutcome.DONE
-    resumed_labels = {
-        "tenant": tenant,
-        "intent": Intent.REQUEST_ACCESS.value,
-        "decision": TurnOutcome.DONE.value,
-    }
-    assert _sample(fresh_registry, TURNS, resumed_labels) == 1.0
-    # The asking turn counts too: ask, pause, resume.
-    assert _sum_of(fresh_registry, TURNS) == 3.0
     assert _sum_of(fresh_registry, REFUSALS) == 0.0
 
 
@@ -352,9 +271,9 @@ def test_a_stream_that_fails_before_any_state_counts_intent_unknown(
     fresh_registry: CollectorRegistry,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Catches `stream_turn`'s EARLY returns left uninstrumented.
+    """Catches `stream_loop_turn`'s EARLY returns left uninstrumented.
 
-    The MCP handshake fails outside every node, so no `TurnState` was ever
+    The MCP handshake fails before any step, so no `TurnState` was ever
     finished and `record_turn_state` has nothing to be called with: an
     implementation with only the state-shaped helper counts nothing at all
     here, and the turns that fail hardest are exactly the ones missing from the

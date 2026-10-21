@@ -40,7 +40,7 @@ the built web app, with only the model replaced by a stub gateway.
 flowchart TB
     user([Employee or approver])
     web["web<br/>Next.js"]
-    api["agent-api<br/>FastAPI + LangGraph turn"]
+    api["agent-api<br/>FastAPI + agent loop"]
     mcp["mcp-server<br/>typed tools behind RBAC"]
     sched["scheduler<br/>asyncio loop, Redis locks"]
     policy["policy engine<br/>pure, no I/O"]
@@ -133,10 +133,12 @@ Non-obvious choices are recorded as decision records in
 the project notes Twenty-three of them so far; these are the ones that
 shape the product.
 
-- **LangGraph orchestrates and decides nothing.** It owns the node sequence,
-  the turn state, the checkpoint and the approval pause. It never owns the
-  decision, the mutation, identity or the audit record.
-  0001
+- **The chat is an agent loop with locked writes.** The model looks things up
+  with tools and proposes changes; code holds each change, shows it in fixed
+  words, and runs it only on the person's own yes. It never owns the
+  decision, identity or the audit record.
+  0053,
+  0057
 - **The policy engine is pure.** No input or output, no imports from models or
   services, table-driven, and held at 100% coverage. The decision a tool
   enforces is the decision the reply explains.
