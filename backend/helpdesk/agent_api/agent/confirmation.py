@@ -332,3 +332,49 @@ def change_summary(
     )
     lines = list(dict.fromkeys(lines))
     return f"{' '.join(lines)} {CHANGE_LINE}"
+
+
+_WAITING_SEATS: dict[ApproverSlot, str] = {
+    ApproverSlot.DEPARTMENT_MANAGER: "the department manager",
+    ApproverSlot.SYSTEM_OWNER: "the system owner",
+    ApproverSlot.IT_ADMIN: "IT admin",
+    ApproverSlot.HR: "HR",
+}
+"""Seats as the approver reads them: the request is someone else's, so never "your manager"."""
+
+
+def _decided_line(result: ToolResult) -> str | None:
+    """One line for one approve or reject result, said to the person who decided."""
+    payload = result.payload
+    number = str(payload.get("request_number") or "the request")
+    role = str(payload.get("role_name") or "").strip()
+    named = f"{number} ({role})" if role else number
+    if result.tool == "reject_request":
+        return f"You rejected {named}. The person who asked is told, with your reason."
+    if payload.get("failure_code"):
+        return (
+            f"You approved {named}, but the access could not be given: the rules "
+            "refuse it now. It is marked failed, and the person who asked is told."
+        )
+    if payload.get("chain_complete"):
+        return f"You approved {named}. That was the last approval, so the access is given."
+    seats: list[str] = []
+    for raw in payload.get("waiting_on") or []:
+        try:
+            seats.append(_WAITING_SEATS[ApproverSlot(str(raw))])
+        except (KeyError, ValueError):
+            continue
+    if not seats:
+        return f"You approved {named}. It still waits for other approvals."
+    return f"You approved {named}. It still waits for {_joined(seats)}."
+
+
+def decision_reply(results: Sequence[ToolResult]) -> str | None:
+    """The whole reply when this turn only approved or rejected requests, in
+    fixed words, or `None` for any other turn (a listing, a failed call, a mix)."""
+    if not results or any(
+        not result.ok or result.tool not in _DECISION_VERBS for result in results
+    ):
+        return None
+    lines = [line for result in results if (line := _decided_line(result)) is not None]
+    return "\n".join(lines) or None

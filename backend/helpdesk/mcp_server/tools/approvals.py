@@ -51,6 +51,7 @@ from helpdesk.shared.notifications.request_events import (
     notify_granted,
     notify_progress,
     notify_rejected,
+    plain_role_name_for,
 )
 from helpdesk.shared.policy.types import ApproverSlot
 
@@ -145,6 +146,13 @@ class ApproveRequestOutput(BaseModel):
     """Set only when the chain completed but the fresh check refused the
 grant. The row is `failed`; the call still succeeds."""
 
+    role_name: str = ""
+    """The requested role in plain words ("Production AWS auditor"), so a reply
+    never reads the filled seat as the role."""
+
+    waiting_on: list[ApproverSlot] = []
+    """The seats still open after this approval, in chain order; empty once complete."""
+
 
 class RejectRequestInput(RequestDecisionInput):
     reason: str = Field(min_length=1, max_length=REASON_MAX_LENGTH)
@@ -155,6 +163,8 @@ class RejectRequestOutput(BaseModel):
     request_number: str
     status: RequestStatus
     slot: ApproverSlot
+    role_name: str = ""
+    """The requested role in plain words."""
 
 
 async def list_pending_approvals(
@@ -307,7 +317,16 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
             ctx.session, request.id, status=RequestStatus.PENDING, approvals=dump_slots(decided)
         )
         await notify_progress(ctx.session, request, decided, actor_id=ctx.identity.user_id)
-        return _approved(request, RequestStatus.PENDING, slots[index], False, None, None)
+        return _approved(
+            request,
+            RequestStatus.PENDING,
+            slots[index],
+            False,
+            None,
+            None,
+            role_name=await plain_role_name_for(ctx.session, request.role_id),
+            waiting_on=[slot.slot for slot in decided if slot.is_open],
+        )
 
     try:
         grant = await _execute(ctx, request)
@@ -318,13 +337,29 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
             ctx.session, request.id, status=RequestStatus.FAILED, approvals=dump_slots(decided)
         )
         await notify_failed(ctx.session, request, actor_id=ctx.identity.user_id)
-        return _approved(request, RequestStatus.FAILED, slots[index], True, None, exc.code)
+        return _approved(
+            request,
+            RequestStatus.FAILED,
+            slots[index],
+            True,
+            None,
+            exc.code,
+            role_name=await plain_role_name_for(ctx.session, request.role_id),
+        )
 
     await set_request_status(
         ctx.session, request.id, status=RequestStatus.APPROVED, approvals=dump_slots(decided)
     )
     await notify_granted(ctx.session, request, actor_id=ctx.identity.user_id)
-    return _approved(request, RequestStatus.APPROVED, slots[index], True, grant, None)
+    return _approved(
+        request,
+        RequestStatus.APPROVED,
+        slots[index],
+        True,
+        grant,
+        None,
+        role_name=await plain_role_name_for(ctx.session, request.role_id),
+    )
 
 
 async def _execute(ctx: ToolContext, request: AccessRequest) -> Grant:
@@ -352,6 +387,9 @@ def _approved(
     chain_complete: bool,
     grant: Grant | None,
     failure_code: ErrorCode | None,
+    *,
+    role_name: str,
+    waiting_on: list[ApproverSlot] | None = None,
 ) -> ApproveRequestOutput:
     return ApproveRequestOutput(
         request_id=request.id,
@@ -362,6 +400,8 @@ def _approved(
         grant_id=None if grant is None else grant.id,
         expires_at=None if grant is None else grant.expires_at,
         failure_code=failure_code,
+        role_name=role_name,
+        waiting_on=waiting_on or [],
     )
 
 
@@ -395,4 +435,5 @@ async def reject_request(ctx: ToolContext, args: RejectRequestInput) -> RejectRe
         request_number=format_number(NumberKind.ACCESS_REQUEST, request.number),
         status=RequestStatus.REJECTED,
         slot=slots[index].slot,
+        role_name=await plain_role_name_for(ctx.session, request.role_id),
     )

@@ -229,7 +229,7 @@ async def send(
         )
 
 
-async def _role_name(session: AsyncSession, role_id: uuid.UUID) -> str:
+async def plain_role_name_for(session: AsyncSession, role_id: uuid.UUID) -> str:
     """The role in plain words ("Production Cluster deployer"), never its stored code."""
     role = await Repository(session, Role).get(role_id)
     if role is None:
@@ -242,7 +242,7 @@ async def _facts(session: AsyncSession, request: AccessRequest) -> RequestFacts:
     return RequestFacts(
         request_id=request.id,
         number=format_number(NumberKind.ACCESS_REQUEST, request.number),
-        role_name=await _role_name(session, request.role_id),
+        role_name=await plain_role_name_for(session, request.role_id),
         requester_id=request.requester_user_id,
         target_id=request.target_user_id,
     )
@@ -315,7 +315,7 @@ async def notify_revoked(
     )
     planned = plan_revoked(
         user_id=grant.user_id,
-        role_name=await _role_name(session, grant.role_id),
+        role_name=await plain_role_name_for(session, grant.role_id),
         request_number=None
         if request is None
         else format_number(NumberKind.ACCESS_REQUEST, request.number),

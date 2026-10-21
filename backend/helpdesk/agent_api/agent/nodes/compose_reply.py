@@ -62,6 +62,7 @@ from helpdesk.agent_api.agent.clarify_cap import (
     CORRECT_ME_LINE,
     QuestionKind,
 )
+from helpdesk.agent_api.agent.confirmation import decision_reply
 from helpdesk.agent_api.agent.errors import PLAIN_ERRORS
 from helpdesk.agent_api.agent.follow_up import (
     CANNOT_PLACE_REPLY,
@@ -346,12 +347,19 @@ async def compose_reply(state: TurnState, deps: TurnDeps) -> TurnState:
     postcheck = PostCheckOutcome.FALLBACK
     asks_question = False
     reply_citations: tuple[Citation, ...] | None = None
+    # A turn that only approved or rejected is said in fixed words, with no
+    # model call: the writer read the filled seat as the role.
+    decided = decision_reply(state.tool_results)
+    if decided is not None:
+        reply = decided
+        postcheck = PostCheckOutcome.PASSED
+        reply_citations = ()
 
     asked = False
     asked_again = False
     mixed = False
     try:
-        for attempt in range(COMPOSITION_ATTEMPTS):
+        for attempt in range(0 if decided is not None else COMPOSITION_ATTEMPTS):
             if attempt:
                 if asked:
                     note = _question_note()

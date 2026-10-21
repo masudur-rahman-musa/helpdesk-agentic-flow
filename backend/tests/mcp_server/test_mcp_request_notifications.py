@@ -408,6 +408,34 @@ def test_a_middle_approval_tells_the_requester_who_is_left(mcp_env: SeededMcp) -
     assert "Department manager" not in notes[0].body
 
 
+def test_an_approval_result_names_the_role_and_the_seats_left(mcp_env: SeededMcp) -> None:
+    """Catches an approve result that carries only the filled seat, which the
+    chat then read as the role ("for the it_admin role"). The result names the
+    requested role in plain words and the seats still open, not the one just
+    filled.
+    """
+    manager = _seeded(PRODUCTION_MANAGER)
+    requester, target = _plant_user(mcp_env), _plant_user(mcp_env)
+    request_id = _plant_request(
+        mcp_env,
+        requester=requester,
+        target=target,
+        role_id=GRANTABLE_ROLE,
+        slots=[ApproverSlot.DEPARTMENT_MANAGER, ApproverSlot.IT_ADMIN],
+    )
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(manager)),
+            APPROVE,
+            {"request_id": str(request_id), "idempotency_key": _key()},
+        )
+    )
+
+    assert payload["role_name"] == "Grafana viewer"
+    assert payload["waiting_on"] == ["it_admin"]
+
+
 def test_the_last_approval_tells_requester_and_target(mcp_env: SeededMcp) -> None:
     """Catches a completing approval that tells only the requester, only the
     target, tells either twice, or tells the approver who just acted.
