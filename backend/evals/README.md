@@ -122,3 +122,18 @@ Eight labels at each score of 1 to 5, every `case_id` naming a case in the
 golden set. The replies are written by hand rather than captured from a model
 run, so the calibration is reproducible and does not drift with a provider.
 Report Cohen's kappa between the judge and `human_score` in every run.
+
+## Conversation cases
+
+`conversations/cases.jsonl` holds 33 multi-turn cases, one JSON line each: the
+person's messages (`turns`), the tool calls the whole conversation must make
+(`expected.tool_calls`), the turn that says yes (`expected.confirm_turn`, `null`
+when nothing may change) and 1 to 3 replies to grade (`graded`, each with a pass
+or fail question). There is no larger set. The help desk scores nothing: the
+console's eval engine plays each case through `POST /v1/eval/conversation`,
+which answers every turn's reply, tool calls and results.
+
+`make eval-chat` resets and seeds the database, then calls the console's
+`ops-eval conversations`. It is manual and costs money, like `make eval`.
+Cases run in file order and share one database, so an approval case relies on
+the request an earlier case filed. Run the whole file, not one case.

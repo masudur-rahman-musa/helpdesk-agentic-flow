@@ -1,4 +1,4 @@
-.PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify eval infra-check e2e load-smoke images app-up app-down
+.PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify eval infra-check e2e load-smoke eval-chat images app-up app-down
 # Where `dev/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
@@ -127,6 +127,11 @@ eval:       ## Project evals: the golden set run by the console against the real
 	    --report $(CURDIR)/backend/evals/reports/$$tenant/report.json \
 	    --baseline $(CONSOLE_DIR)/backend/evals/baseline.json) || status=1; \
 	done; exit $$status
+eval-chat:  ## Conversation evals: the 33 cases played here, scored by the console (manual, costs money)
+	cd backend && uv run python ../dev/scripts/e2e_reset.py
+	cd backend && uv run python scripts/seed.py
+	cd $(CONSOLE_DIR) && uv run --project backend ops-eval conversations --target $(AGENT_API_URL) \
+	  --cases $(CURDIR)/backend/evals/conversations/cases.jsonl
 infra-check: ## Validate infrastructure as code (no apply)
 	echo 'deployed by the companion console infra'
 images:     ## Build the four service images locally: make images TAG=local

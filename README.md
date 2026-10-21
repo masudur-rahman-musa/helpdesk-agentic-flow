@@ -191,7 +191,8 @@ number.
 
 `make eval` runs the golden set against the product and compares it to a
 committed baseline. `make load-smoke` drives 20 concurrent chat sessions for
-five minutes against the real gateway and prints p50 and p95 per turn. Both
+five minutes against the real gateway and prints p50 and p95 per turn. `make eval-chat` plays the 33 conversation cases and the
+console scores them. Both
 need a real gateway; a figure taken from the stubbed run would measure this
 repository's own overhead and nothing a reader cares about.
 

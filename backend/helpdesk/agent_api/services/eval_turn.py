@@ -6,6 +6,10 @@ runs through `run_turn` exactly as a chat does, so each tool still reads tenant
 and user from the token and never from the body. The answer is the console's
 envelope and nothing else; the prompt versions ride a header (`EvalOutcome`).
 
+`run_conversation` plays a conversation case the same way and answers one record
+per user turn: the reply and that turn's tool calls with their results
+(`ConversationOutcome`). It scores nothing; the console's eval engine does.
+
 Not mounted in production: `EVAL_ROUTES_ENABLED` is off there.
 """
 
@@ -29,17 +33,35 @@ from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.agent.turn_metrics import turn_risk_class
-from helpdesk.agent_api.schemas.eval import EvalEnvelope, EvalToolCall, EvalTurnRequest
+from helpdesk.agent_api.schemas.eval import (
+    EvalConversationAnswer,
+    EvalConversationCall,
+    EvalConversationRequest,
+    EvalConversationTurn,
+    EvalEnvelope,
+    EvalToolCall,
+    EvalTurnRequest,
+)
 from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelAnswer, ModelClient
 from helpdesk.agent_api.services.tool_proxy import build_tool_caller
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.db import tenant_session
+from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.models import Department, User
 
-__all__ = ["EvalOutcome", "Seat", "build_tool_caller", "resolve_seat", "run_case", "run_turn"]
+__all__ = [
+    "ConversationOutcome",
+    "EvalOutcome",
+    "Seat",
+    "build_tool_caller",
+    "resolve_seat",
+    "run_case",
+    "run_conversation",
+    "run_turn",
+]
 
 SEAT_PATTERN = re.compile(r"seed:([a-z]+)\.([a-z_]+)\.([0-9]{1,3})")
 """`seed:<department lowercased>.<principal>.<index>`, matched in full."""
@@ -178,11 +200,59 @@ class _RecordingTools:
         return await self._inner.call_tool(name, arguments)
 
 
+class _ResultTools:
+    """A tool caller that keeps each call's name, arguments and answer, a refused
+    call included (`ok` false, the typed code), and lets the refusal go on."""
+
+    def __init__(self, inner: ToolCaller, calls: list["_Call"]) -> None:
+        self._inner = inner
+        self._calls = calls
+
+    async def __aenter__(self) -> "_ResultTools":
+        await self._inner.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        await self._inner.__aexit__(exc_type, exc, tb)
+
+    async def call_tool(self, name: str, arguments: BaseModel) -> Mapping[str, Any]:
+        args = arguments.model_dump(mode="json")
+        try:
+            result = await self._inner.call_tool(name, arguments)
+        except ToolError as error:
+            self._calls.append(_Call(name, args, False, {}, error.code.value))
+            raise
+        self._calls.append(_Call(name, args, True, dict(result), None))
+        return result
+
+
+@dataclass
+class _Call:
+    name: str
+    args: dict[str, Any]
+    ok: bool
+    result: dict[str, Any]
+    error_code: str | None
+
+
 @dataclass
 class EvalOutcome:
     """The envelope and the prompt-version header that goes with it."""
 
     envelope: EvalEnvelope
+    prompt_versions: str
+
+
+@dataclass
+class ConversationOutcome:
+    """The per-turn records and the prompt-version header that goes with them."""
+
+    answer: EvalConversationAnswer
     prompt_versions: str
 
 
@@ -213,17 +283,7 @@ async def run_case(
         if message.role != "user":
             continue
         now = datetime.now(UTC)
-        token = issue_token(
-            {
-                "sub": str(seat.user_id),
-                "tenant_id": str(seat.tenant_id),
-                "department_id": str(seat.department_id),
-                "principals": list(seat.principals),
-                "sid": str(chat_id),
-            },
-            settings.jwt_secret,
-            now,
-        )
+        token = _seat_token(seat, chat_id, settings, now)
         tools = _RecordingTools(build_tool_caller(settings, token), case.calls)
         async with tenant_session(factory, seat.tenant_id) as db:
             state = await run_turn(
@@ -245,6 +305,79 @@ async def run_case(
     return EvalOutcome(
         envelope=_envelope(case, state, watched, latency_ms),
         prompt_versions=prompt_versions(),
+    )
+
+
+async def run_conversation(
+    *,
+    body: EvalConversationRequest,
+    seat: Seat,
+    settings: Settings,
+    factory: async_sessionmaker[AsyncSession],
+    model: ModelClient,
+    checkpointer: Any,
+) -> ConversationOutcome:
+    """Play the person's turns in one new chat and answer for every turn."""
+    chat_id = uuid.uuid4()
+    watched = _WatchedModel(model)
+    case = _Case()
+    records: list[EvalConversationTurn] = []
+    for number, message in enumerate(body.turns, start=1):
+        now = datetime.now(UTC)
+        calls: list[_Call] = []
+        tools = _ResultTools(
+            build_tool_caller(settings, _seat_token(seat, chat_id, settings, now)), calls
+        )
+        async with tenant_session(factory, seat.tenant_id) as db:
+            state = await run_turn(
+                deps=TurnDeps(
+                    db=db,
+                    model=cast(ModelClient, watched),
+                    tools=tools,
+                    now=_clock(now),
+                ),
+                tenant_id=seat.tenant_id,
+                user_id=seat.user_id,
+                session_id=chat_id,
+                tenant_slug=seat.tenant_slug,
+                message=message,
+                checkpointer=checkpointer,
+            )
+        _remember_roles(case, state)
+        records.append(
+            EvalConversationTurn(
+                turn=number,
+                reply=state.reply or "",
+                tool_calls=[
+                    EvalConversationCall(
+                        name=call.name,
+                        args=_call_args(case, call.args),
+                        ok=call.ok,
+                        result=call.result,
+                        error_code=call.error_code,
+                    )
+                    for call in calls
+                ],
+            )
+        )
+    return ConversationOutcome(
+        answer=EvalConversationAnswer(case_id=body.case_id, turns=records),
+        prompt_versions=prompt_versions(),
+    )
+
+
+def _seat_token(seat: Seat, chat_id: uuid.UUID, settings: Settings, now: datetime) -> str:
+    """The short-lived token one message runs under, minted for the seat."""
+    return issue_token(
+        {
+            "sub": str(seat.user_id),
+            "tenant_id": str(seat.tenant_id),
+            "department_id": str(seat.department_id),
+            "principals": list(seat.principals),
+            "sid": str(chat_id),
+        },
+        settings.jwt_secret,
+        now,
     )
 
 

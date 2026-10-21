@@ -316,8 +316,8 @@ def test_the_open_list_is_exactly_health_ready_metrics_and_login() -> None:
     assert {"/healthz", "/readyz", "/metrics", "/auth/login"} == OPEN_PATHS
 
 
-EVAL_PATHS = ("/admin/test/reset", "/v1/eval/turn")
-"""The two routes the companion console calls with no bearer, in eval runs only."""
+EVAL_PATHS = ("/admin/test/reset", "/v1/eval/turn", "/v1/eval/conversation")
+"""The three routes the companion console calls with no bearer, in eval runs only."""
 
 
 def _post_no_bearer(path: str) -> httpx.Response:

@@ -19,8 +19,8 @@ OPEN_PATHS = frozenset({"/healthz", "/readyz", "/metrics", "/auth/login"})
 `/metricsX` is still turned away."""
 
 
-EVAL_OPEN_PATHS = frozenset({"/admin/test/reset", "/v1/eval/turn"})
-"""The two routes the companion console calls with no token. Open only while
+EVAL_OPEN_PATHS = frozenset({"/admin/test/reset", "/v1/eval/turn", "/v1/eval/conversation"})
+"""The three routes the companion console calls with no token. Open only while
 `EVAL_ROUTES_ENABLED` is true, and matched exactly like the paths above."""
 
 

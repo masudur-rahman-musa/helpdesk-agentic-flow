@@ -64,10 +64,11 @@ from helpdesk.agent_api.agent.state import (
 )
 from helpdesk.agent_api.api.router import app
 from helpdesk.agent_api.services import eval_turn
+from helpdesk.agent_api.services.mcp_client import RemoteNotFoundError
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
 from helpdesk.shared.auth.jwt import issue_token, verify_token
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.core.errors import ErrorCode
+from helpdesk.shared.core.errors import ErrorCode, ToolError
 
 RESET_PATH = "/admin/test/reset"
 TURN_PATH = "/v1/eval/turn"
@@ -693,3 +694,400 @@ def test_a_refusal_and_a_question_set_the_flags(
     assert response.status_code == 200
     assert body["refused"] is refused
     assert body["clarified"] is clarified
+
+
+# --- the conversation route ---------------------------------------
+#
+# `POST /v1/eval/conversation` and `eval_turn.run_conversation`. The same three
+# seams are swapped (`resolve_seat`, `run_turn`, `build_tool_caller`), so no
+# database, tool server or graph is needed.
+
+CONVERSATION_PATH = "/v1/eval/conversation"
+DW_ANALYST = "data-warehouse.analyst"
+DW_ROLE_ID = uuid.UUID("a6666666-6666-5666-8666-666666666666")
+
+
+@dataclass(frozen=True)
+class ConvStep:
+    """One scripted turn: the state it ends in and the tool calls it makes, in order.
+
+    A call that raises is caught here, as the real graph turns a tool error
+    into a failed tool result, so the turn still answers.
+    """
+
+    update: Mapping[str, Any]
+    calls: tuple[tuple[str, uuid.UUID], ...] = ()
+
+
+class ConvTurns:
+    """A `run_turn` that plays one `ConvStep` per message."""
+
+    def __init__(self, steps: Sequence[ConvStep]) -> None:
+        self._steps = list(steps)
+        self.calls: list[dict[str, Any]] = []
+
+    async def __call__(self, **kwargs: Any) -> TurnState:
+        index = len(self.calls)
+        self.calls.append(kwargs)
+        if index >= len(self._steps):
+            raise AssertionError(f"turn {index + 1} ran; only {len(self._steps)} were scripted")
+        step = self._steps[index]
+        async with kwargs["deps"].tools:
+            for name, role_id in step.calls:
+                try:
+                    await kwargs["deps"].tools.call_tool(name, RoleArgs(role_id=role_id))
+                except ToolError:
+                    continue
+        return TurnState(
+            tenant_id=kwargs["tenant_id"],
+            user_id=kwargs["user_id"],
+            session_id=kwargs["session_id"],
+            tenant_slug=kwargs["tenant_slug"],
+            user_message=kwargs["message"],
+            **step.update,
+        )
+
+
+class StubCaller:
+    """A tool caller answering a fixed mapping per tool, or raising the error named."""
+
+    def __init__(
+        self, answers: Mapping[str, Mapping[str, Any]], failures: Mapping[str, ToolError]
+    ) -> None:
+        self._answers = answers
+        self._failures = failures
+
+    async def __aenter__(self) -> "StubCaller":
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+    async def call_tool(self, name: str, arguments: BaseModel) -> Mapping[str, Any]:
+        if name in self._failures:
+            raise self._failures[name]
+        return self._answers[name]
+
+
+def _resolved(system: str, role: str, role_id: uuid.UUID) -> Mapping[str, Any]:
+    return {
+        "outcome": TurnOutcome.DONE,
+        "reply": f"reply about {system}.{role}",
+        "resolved": ResolvedEntities(
+            system_slug=system, role_slug=role, role_id=role_id, system_name=system
+        ),
+    }
+
+
+@pytest.fixture
+def install_conversation(
+    install: Callable[..., Harness], monkeypatch: pytest.MonkeyPatch
+) -> Callable[..., tuple[Harness, ConvTurns]]:
+    """`install`, then the conversation's own scripted turns and stub caller."""
+
+    def build(
+        steps: Sequence[ConvStep],
+        *,
+        answers: Mapping[str, Mapping[str, Any]] | None = None,
+        failures: Mapping[str, ToolError] | None = None,
+    ) -> tuple[Harness, ConvTurns]:
+        harness = install([])
+        turns = ConvTurns(steps)
+        tokens = harness.tokens
+        stub = StubCaller(answers or {}, failures or {})
+
+        def build_caller(_settings: object, bearer_token: str) -> StubCaller:
+            tokens.append(bearer_token)
+            return stub
+
+        monkeypatch.setattr(eval_turn, "run_turn", turns)
+        monkeypatch.setattr(eval_turn, "build_tool_caller", build_caller)
+        return harness, turns
+
+    return build
+
+
+def _conv_body(
+    *,
+    turns: Sequence[str] = ("hello",),
+    case_id: str = "conv-001",
+    tenant: str = TENANT_SLUG,
+    principal_user: str = PRINCIPAL_USER,
+) -> dict[str, Any]:
+    return {
+        "case_id": case_id,
+        "tenant": tenant,
+        "principal_user": principal_user,
+        "turns": list(turns),
+    }
+
+
+def _post_conversation(body: Mapping[str, Any], *, token: str | None = None) -> httpx.Response:
+    headers = {} if token is None else {"Authorization": f"Bearer {token}"}
+
+    async def scenario(client: httpx.AsyncClient) -> httpx.Response:
+        return await client.post(CONVERSATION_PATH, json=dict(body), headers=headers)
+
+    return _drive(scenario)
+
+
+def test_the_conversation_route_is_404_when_switched_off(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a conversation route that answers in production: one that ignores
+    `EVAL_ROUTES_ENABLED`, or is not mounted (FastAPI's `{"detail"}` instead of
+    the typed `NOT_FOUND`).
+
+    The fakes would make the switched-on route answer 200, so the 404 can only
+    come from the switch.
+    """
+    harness, turns = install_conversation([ConvStep(update=_plain())])
+    monkeypatch.setenv("EVAL_ROUTES_ENABLED", "false")
+
+    response = _post_conversation(_conv_body(), token=_login_token())
+
+    assert (response.status_code, response.json()) == (404, {"code": ErrorCode.NOT_FOUND.value})
+    assert turns.calls == []
+    assert harness.seat_lookups == []
+
+
+def test_a_conversation_answers_one_record_per_turn_in_order(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+) -> None:
+    """Catches an answer that keeps only the last turn's reply (as `/v1/eval/turn`
+    does), numbers turns from 0, reorders them, or starts a new chat per turn.
+
+    Each scripted reply differs, so a record carrying another turn's reply fails.
+    """
+    _, turns = install_conversation(
+        [
+            ConvStep(update={"outcome": TurnOutcome.CLARIFY, "reply": "first reply"}),
+            ConvStep(update={"outcome": TurnOutcome.CLARIFY, "reply": "second reply"}),
+            ConvStep(update={"outcome": TurnOutcome.DONE, "reply": "third reply"}),
+        ]
+    )
+
+    response = _post_conversation(_conv_body(turns=("one", "two", "three"), case_id="conv-007"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"case_id", "turns"}
+    assert body["case_id"] == "conv-007"
+    assert [(t["turn"], t["reply"]) for t in body["turns"]] == [
+        (1, "first reply"),
+        (2, "second reply"),
+        (3, "third reply"),
+    ]
+    assert [call["message"] for call in turns.calls] == ["one", "two", "three"]
+    assert len({call["session_id"] for call in turns.calls}) == 1
+
+
+def test_each_turn_lists_only_its_own_calls_and_results(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+) -> None:
+    """Catches calls piled up across the whole conversation (as the single-turn
+    envelope does), so turn 3 would list turn 1's call too; a `role_id` left as
+    an id; and a `result` that is rebuilt rather than the tool's own answer.
+
+    Turn 2 makes no call and must read `[]`. Turn 3 repeats the role id of turn
+    1 without resolving it again, so the name must be remembered across turns.
+    """
+    answer_a = {"request_id": "r-1", "status": "executed", "decision": "auto"}
+    answer_b = {"tickets": [{"id": "t-9"}], "count": 1}
+    _, _ = install_conversation(
+        [
+            ConvStep(
+                update=_resolved("data-warehouse", "analyst", DW_ROLE_ID),
+                calls=(("create_access_request", DW_ROLE_ID),),
+            ),
+            ConvStep(update=_plain(TurnOutcome.CLARIFY)),
+            ConvStep(update=_plain(), calls=(("create_ticket", DW_ROLE_ID),)),
+        ],
+        answers={"create_access_request": answer_a, "create_ticket": answer_b},
+    )
+
+    response = _post_conversation(_conv_body(turns=("a", "b", "c")))
+
+    assert response.status_code == 200
+    records = response.json()["turns"]
+    assert records[0]["tool_calls"] == [
+        {
+            "name": "create_access_request",
+            "args": {"role": DW_ANALYST},
+            "ok": True,
+            "result": answer_a,
+            "error_code": None,
+        }
+    ]
+    assert records[1]["tool_calls"] == []
+    assert records[2]["tool_calls"] == [
+        {
+            "name": "create_ticket",
+            "args": {"role": DW_ANALYST},
+            "ok": True,
+            "result": answer_b,
+            "error_code": None,
+        }
+    ]
+
+
+def test_a_failed_call_is_kept_with_its_error_code(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+) -> None:
+    """Catches a recorder that drops a call which raised, that keeps it with
+    `ok` true, or that loses the error code (`None` or `INTERNAL`); and one that
+    swallows the error so the turn never sees it.
+
+    The stub raises the not-found client error, whose code is `NOT_FOUND`;
+    the scripted turn catches it as the graph does and still answers. The
+    success after it must stay `ok` true.
+    """
+    _, _ = install_conversation(
+        [
+            ConvStep(
+                update=_resolved("wiki", "viewer", ROLE_ID),
+                calls=(("revoke_access", ROLE_ID), ("create_ticket", ROLE_ID)),
+            )
+        ],
+        answers={"create_ticket": {"ticket_id": "t-1"}},
+        failures={"revoke_access": RemoteNotFoundError("no such grant")},
+    )
+
+    response = _post_conversation(_conv_body())
+
+    assert response.status_code == 200
+    record = response.json()["turns"][0]
+    assert record["reply"] == "reply about wiki.viewer"
+    failed, fine = record["tool_calls"]
+    assert failed["name"] == "revoke_access"
+    assert failed["ok"] is False
+    assert failed["error_code"] == ErrorCode.NOT_FOUND.value == "NOT_FOUND"
+    assert isinstance(failed["result"], dict)
+    assert fine["ok"] is True
+    assert fine["error_code"] is None
+
+
+def test_the_conversation_identity_comes_from_the_seat(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+) -> None:
+    """Catches a conversation that takes tenant or user from the body, mints a
+    token per turn with a fresh `sid`, or lets body text reach a tool.
+
+    The seat's ids are values nothing in the body spells. Every turn's token and
+    graph call must carry them and one chat id; the tool's arguments hold
+    only the role id.
+    """
+    harness, turns = install_conversation(
+        [
+            ConvStep(update=_plain(), calls=(("create_ticket", ROLE_ID),)),
+            ConvStep(update=_plain(), calls=(("create_ticket", ROLE_ID),)),
+        ],
+        answers={"create_ticket": {"ok": True}},
+    )
+
+    response = _post_conversation(_conv_body(turns=("first", "second")))
+
+    assert response.status_code == 200
+    assert harness.seat_lookups == [(TENANT_SLUG, PRINCIPAL_USER)]
+    chat_ids = {call["session_id"] for call in turns.calls}
+    assert len(chat_ids) == 1
+    chat_id = next(iter(chat_ids))
+    for call in turns.calls:
+        assert call["tenant_id"] == SEAT_TENANT_ID
+        assert call["user_id"] == SEAT_USER_ID
+        assert call["tenant_slug"] == TENANT_SLUG
+        assert bound_tenant_id(cast(AsyncSession, call["deps"].db)) == SEAT_TENANT_ID
+    assert len(harness.tokens) >= 1
+    for token in harness.tokens:
+        claims = verify_token(token, JWT_SECRET, datetime.now(UTC))
+        assert claims.sub == str(SEAT_USER_ID)
+        assert claims.tenant_id == str(SEAT_TENANT_ID)
+        assert claims.sid == str(chat_id)
+    for record in response.json()["turns"]:
+        for call in record["tool_calls"]:
+            assert PRINCIPAL_USER not in json.dumps(call)
+            assert "first" not in json.dumps(call["args"])
+
+
+@pytest.mark.parametrize(
+    ("tenant", "principal_user"),
+    [
+        pytest.param(TENANT_SLUG, "seed:production.employee.999", id="unknown-seat"),
+        pytest.param("nobody", PRINCIPAL_USER, id="unknown-tenant"),
+        pytest.param(TENANT_SLUG, "not-a-seat", id="malformed-seat"),
+    ],
+)
+def test_an_unknown_seat_is_rejected_on_the_conversation_route(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+    tenant: str,
+    principal_user: str,
+) -> None:
+    """Catches a conversation that runs anyway for a seat or tenant that is not
+    seeded, or answers 404, 500 or 200 instead of 422 `VALIDATION`.
+
+    The only seat the fake knows is the good one, and each row is unknown for
+    its own reason, so a lookup on one half alone lets a row through.
+    """
+    harness, turns = install_conversation([ConvStep(update=_plain())])
+
+    response = _post_conversation(_conv_body(tenant=tenant, principal_user=principal_user))
+
+    assert response.status_code == 422
+    assert response.json() == {"code": ErrorCode.VALIDATION.value}
+    assert turns.calls == []
+    assert harness.tokens == []
+
+
+@pytest.mark.parametrize(
+    ("case_id", "turn_count", "status"),
+    [
+        pytest.param("conv-001", 1, 200, id="one-turn"),
+        pytest.param("conv-001", 10, 200, id="ten-turns"),
+        pytest.param("conv-000", 2, 200, id="conv-000"),
+        pytest.param("conv-001", 0, 422, id="zero-turns"),
+        pytest.param("conv-001", 11, 422, id="eleven-turns"),
+        pytest.param("conv-12", 2, 422, id="two-digit-id"),
+        pytest.param("conv-1000", 2, 422, id="four-digit-id"),
+        pytest.param("conv-001\n", 2, 422, id="id-trailing-newline"),
+        pytest.param("conv-001\r\n", 2, 422, id="id-trailing-crlf"),
+        pytest.param("conv-001 ", 2, 422, id="id-trailing-space"),
+    ],
+)
+def test_the_conversation_body_limits(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+    case_id: str,
+    turn_count: int,
+    status: int,
+) -> None:
+    """Catches limits that are off by one (0 or 11 turns let through, 10 refused),
+    an id pattern that is looser than three digits or unanchored (a trailing
+    newline, CRLF or space let through), and a lower bound that refuses `conv-000`.
+
+    The accepted rows run every turn, so a bound that is too tight also fails.
+    """
+    _, turns = install_conversation([ConvStep(update=_plain()) for _ in range(10)])
+    messages = [f"message {n}" for n in range(turn_count)]
+
+    response = _post_conversation(_conv_body(turns=messages, case_id=case_id))
+
+    assert response.status_code == status
+    assert len(turns.calls) == (turn_count if status == 200 else 0)
+
+
+def test_the_conversation_answer_carries_every_prompt_version(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+) -> None:
+    """Catches a conversation answer with no `X-Prompt-Versions` header, or one
+    that differs from `/v1/eval/turn`'s (fewer steps, another order, another digest).
+
+    The turn route's header is read in the same run and must be equal.
+    """
+    install_conversation([ConvStep(update=_plain()), ConvStep(update=_plain())])
+    conversation = _post_conversation(_conv_body())
+    turn_route = _post_turn(_body())
+
+    assert conversation.status_code == 200
+    assert turn_route.status_code == 200
+    assert conversation.headers["X-Prompt-Versions"] == turn_route.headers["X-Prompt-Versions"]
+    assert conversation.headers["X-Prompt-Versions"].count("=") == 4

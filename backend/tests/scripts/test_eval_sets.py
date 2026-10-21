@@ -156,3 +156,54 @@ def test_this_repo_holds_no_baseline_file() -> None:
     in this plan, because the console's baseline is the only baseline. A copy
     here would be gated against by nobody and drift."""
     assert not (ROOT / "backend" / "evals" / "baseline.json").exists()
+
+
+# --- the eval-chat recipe -------------------------------------------
+
+
+def _recipe_of(target: str) -> str:
+    """The recipe of one target, backslash continuations joined, as one text."""
+    lines = MAKEFILE.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if re.match(rf"^{re.escape(target)}:", line))
+    recipe: list[str] = []
+    for line in lines[start + 1 :]:
+        if line and not line.startswith(("\t", " ", "#")):
+            break
+        recipe.append(line)
+    return re.sub(r"\\\n\s*", " ", "\n".join(recipe))
+
+
+def test_the_eval_chat_target_calls_the_console() -> None:
+    """Catches a target missing from `.PHONY` or `make help`, one that plays the
+    cases on a database it did not reset and seed first, one that scores them
+    here instead of calling the console's `ops-eval conversations` (run from
+    `$(CONSOLE_DIR)`), one that drops `--target $(AGENT_API_URL)`, and one whose
+    `--cases` names a file that does not exist.
+
+    The order is checked by position in the recipe, and the `cd` must sit on
+    the same line as the command so the run really starts in the console's folder.
+    """
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    phony = next(line for line in makefile.splitlines() if line.startswith(".PHONY:"))
+    assert "eval-chat" in phony.split()
+    assert re.search(r"^eval-chat:.*##\s*\S", makefile, re.MULTILINE), "no help text"
+
+    recipe = _recipe_of("eval-chat")
+    for needle in ("e2e_reset.py", "seed.py", "ops-eval conversations"):
+        assert needle in recipe, f"the eval-chat recipe never names {needle!r}"
+    assert (
+        recipe.index("e2e_reset.py")
+        < recipe.index("seed.py")
+        < recipe.index("ops-eval conversations")
+    ), "reset, seed, then play"
+    command_lines = [line for line in recipe.splitlines() if "ops-eval conversations" in line]
+    assert any("cd $(CONSOLE_DIR)" in line for line in command_lines)
+    for line in command_lines:
+        assert "--target $(AGENT_API_URL)" in line
+        match = re.search(r"--cases\s+(\S+)", line)
+        assert match, "no --cases"
+        assert match.group(1).endswith("backend/evals/conversations/cases.jsonl")
+    cases = ROOT / "backend" / "evals" / "conversations" / "cases.jsonl"
+    assert cases.is_file(), f"{cases} does not exist"
+    verify = next(line for line in makefile.splitlines() if re.match(r"^verify:", line))
+    assert "eval-chat" not in verify.split("##")[0].split(":", 1)[1].split()
