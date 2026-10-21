@@ -177,7 +177,7 @@ everything works.
 
 ## Numbers
 
-Measured against the golden set and the load smoke run, filled in as the
+Measured against the conversation cases and the load smoke run, filled in as the
 harness runs. An unmeasured cell says so rather than showing a plausible
 number.
 
@@ -189,8 +189,7 @@ number.
 | Cost per turn | not yet measured |
 | p95 latency per chat turn | not yet measured |
 
-`make eval` runs the golden set against the product and compares it to a
-committed baseline. `make load-smoke` drives 20 concurrent chat sessions for
+`make load-smoke` drives 20 concurrent chat sessions for
 five minutes against the real gateway and prints p50 and p95 per turn. `make eval-chat` plays the 33 conversation cases and the
 console scores them. Both
 need a real gateway; a figure taken from the stubbed run would measure this

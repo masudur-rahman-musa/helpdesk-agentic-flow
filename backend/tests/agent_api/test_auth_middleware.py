@@ -316,8 +316,8 @@ def test_the_open_list_is_exactly_health_ready_metrics_and_login() -> None:
     assert {"/healthz", "/readyz", "/metrics", "/auth/login"} == OPEN_PATHS
 
 
-EVAL_PATHS = ("/admin/test/reset", "/v1/eval/turn", "/v1/eval/conversation")
-"""The three routes the companion console calls with no bearer, in eval runs only."""
+EVAL_PATHS = ("/admin/test/reset", "/v1/eval/conversation")
+"""The two routes the companion console calls with no bearer, in eval runs only."""
 
 
 def _post_no_bearer(path: str) -> httpx.Response:
@@ -338,7 +338,7 @@ def test_the_eval_paths_are_open_only_when_the_eval_routes_are_on(
     The same path is driven twice in one case: with the switch off the answer
     is the middleware's 401, and with it on the request gets past the
     middleware, to the route's own answer (204 for the reset, FastAPI's 422 for
-    the turn's empty body), which is anything but 401.
+    the conversation's empty body), which is anything but 401.
     """
     monkeypatch.setenv("EVAL_ROUTES_ENABLED", "false")
     assert _post_no_bearer(path).status_code == 401
@@ -352,7 +352,7 @@ def test_a_path_that_only_starts_like_an_eval_path_stays_closed_when_on(
     mw_env: None, monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
     """Catches an eval open path matched by prefix: like the four fixed paths, the
-    two are matched exactly, so `/v1/eval/turnX` and `/admin/test/reset/` are
+    two are matched exactly, so `/v1/eval/conversationX` and `/admin/test/reset/` are
     still turned away at 401 even with the eval routes on.
     """
     monkeypatch.setenv("EVAL_ROUTES_ENABLED", "true")

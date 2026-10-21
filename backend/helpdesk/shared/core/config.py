@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     """A policy answer whose best passage scores below this is refused. 0 to 1 inclusive."""
 
     eval_routes_enabled: bool = False
-    """Turns on `POST /admin/test/reset` and `POST /v1/eval/turn`. Off in production."""
+    """Turns on `POST /admin/test/reset` and `POST /v1/eval/conversation`. Off in production."""
 
     @field_validator("intent_confidence_min", "role_suggestion_floor", "policy_refusal_floor")
     @classmethod

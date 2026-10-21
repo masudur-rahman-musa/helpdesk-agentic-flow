@@ -4,45 +4,40 @@ Project evals measure the PRODUCT'S behaviour (model-driven features), unlike
 coding evals which judge the coding agent's output. The discipline, distilled
 from the portfolio projects:
 
-1. **Golden set** (`golden/*.jsonl`): labelled cases with expected outcomes.
-   Grows from production failures. Categories cover the happy path, refusals,
-   ambiguity, injection attempts, and any guarded invariant.
-2. **Deterministic assertions first** (exact fields, tool calls, forbidden
-   phrases); **LLM-as-judge only for free text**, and only after calibration
-   against human labels in `labels/` (report agreement; distrust the judge
-   below kappa 0.7).
+1. **Conversation cases** (`conversations/cases.jsonl`): 33 chosen multi-turn
+   cases with expected tool calls and graded replies. A chat failure found
+   later becomes one of them or replaces one; the count stays 33.
+2. **Deterministic checks first** (exact tool calls, the turn that says yes);
+   **LLM-as-judge only for free text**, and only after calibration against
+   human labels, which the companion console keeps.
 3. **Baseline**: the companion console's `backend/evals/baseline.json` is the
-   only baseline. This repo keeps the golden set and holds no baseline file.
+   only baseline. This repo keeps the cases and holds no baseline file.
    It is never edited to make a run pass.
 4. **Failure taxonomy**: every failed case gets a tag (wrong_output, wrong_tool,
    missed_refusal, false_refusal, injection_followed, timeout, judge_low, ADAPT).
    Read 50 failures by hand before changing anything.
-5. **Gate**: `make eval` runs the console's `ops-eval run` and `ops-eval gate`;
-   a regression below the console's baseline fails the run. It needs the real
-   gateway and costs money, so it is a manual run and not part of `make verify`.
-6. Metrics to report: accuracy per category, refusal precision/recall,
-   injection_resistance (must be 1.0), p50/p95 latency, cost per case.
+5. **Run**: `make eval-chat` plays the cases and the console scores them. It
+   needs the real gateway and costs money, so it is a manual run and not part
+   of `make verify`.
 
 ## Running it
 
-`make eval` needs the stack up (`docker compose up -d`) with the agent-api
+`make eval-chat` needs the stack up (`docker compose up -d`) with the agent-api
 started with `EVAL_ROUTES_ENABLED=true`, the real gateway, and the console
 checked out beside this repo (`CONSOLE_DIR`, default `../ai-operations-console`).
-It restores the database with `dev/scripts/e2e_reset.py` and the seed, splits
-the golden set into one file per tenant, runs
-`ops-eval run` for each tenant against `$(AGENT_API_URL)`, then `ops-eval gate`
-on each report. Reports land in `backend/evals/reports/` (ignored).
+It restores the database with `dev/scripts/e2e_reset.py` and the seed, then
+calls the console's `ops-eval conversations` against `$(AGENT_API_URL)`.
 
 The agent-api answers the console on two routes that exist only while
 `EVAL_ROUTES_ENABLED` is true (off in production): `POST /admin/test/reset`
-(answers 204, clears nothing) and `POST /v1/eval/turn` (one case in, the
-console's envelope out). Every step's prompt version is in the
+(answers 204, clears nothing) and `POST /v1/eval/conversation` (one case in,
+one record per turn out). Every step's prompt version is in the
 `X-Prompt-Versions` response header.
 
 ## The cut-offs
 
 Three numbers decide a turn. Each is a setting, so it can be tuned against the
-golden set, and the value that is kept is recorded here with its numbers.
+conversation cases, and the value that is kept is recorded here with its numbers.
 
 | Setting | Default | What it decides |
 |---|---|---|
@@ -56,73 +51,6 @@ golden set, and the value that is kept is recorded here with its numbers.
 | `ROLE_SUGGESTION_FLOOR` | 0.70 | not tuned yet | not tuned yet | not tuned yet | not tuned yet |
 | `POLICY_REFUSAL_FLOOR` | 0.35 | not tuned yet | not tuned yet | not tuned yet | not tuned yet |
 
-## The delivered set
-
-`golden/helpdesk-v1.jsonl` holds the golden cases. It is
-validated in CI by `backend/tests/scripts/test_eval_golden_set.py`, which
-resolves every named value against the code that owns it: tenant slugs and
-seats against the seed, intents against the agent's intent enum, decisions and
-risk classes against the policy engine, tool names against the permission
-matrix. `golden/example.jsonl` stays as the shape sample for a new set and is
-not read by the validator.
-
-### A case
-
-One JSON object per line, exactly seven keys:
-
-```json
-{"id": "aut-001",
- "category": "access_auto",
- "tenant": "nordlicht",
- "principal_user": "seed:production.employee.5",
- "messages": [{"role": "user", "content": "I need to read the internal wiki."}],
- "expected": {"intent": "request_access",
-              "should_refuse": false,
-              "should_clarify": false,
-              "tool_calls": [{"name": "create_access_request",
-                              "args_subset": {"role": "wiki.viewer"}}],
-              "decision": "auto",
-              "risk_class": "low",
-              "citation_documents": ["access-control-policy"]},
- "judge_rubric": "The answer grants standard wiki read access automatically."}
-```
-
-- `id` is `^[a-z]{3,4}-[0-9]{3}$`, unique across the file.
-- `category` is one of the twelve the validator lists, and the counts per
-  category are exact, not minimums.
-- `principal_user` is `seed:<department lowercased>.<principal>.<index>`, a
-  coordinate into the seeded directory rather than an address. A runner
-  resolves it the way the validator does: department by name, index within the
-  department, and the seat must hold the named principal. Departments whose
-  name is not a single lowercase word cannot be addressed this way.
-- `messages` may hold several user messages. A runner sends them in order
-  on one chat and grades the last reply. Every access request takes two:
-  the request, then "Yes, that is right.", since the assistant asks
-  "Do you mean ...?" before it files anything.
-- `expected` always carries `intent`, `should_refuse` and `should_clarify`.
-  `tool_calls`, `decision`, `risk_class`, `citation_documents` and
-  `forbidden_phrases` appear where the category needs them; an unknown key is
-  rejected.
-- A tool call's `args_subset` is symbolic. An access request names its role as
-  `<system slug>.<role slug>`, which the runner resolves to a role id.
-- `judge_rubric` is one sentence of at most 40 words, and is what the judge
-  model grades free text against.
-
-### A calibration label
-
-```json
-{"id": "cal-001",
- "case_id": "aut-001",
- "output": "Done, wiki read access is standard for your department.",
- "human_score": 5,
- "note": "Correct decision, names the standard access clause."}
-```
-
-Eight labels at each score of 1 to 5, every `case_id` naming a case in the
-golden set. The replies are written by hand rather than captured from a model
-run, so the calibration is reproducible and does not drift with a provider.
-Report Cohen's kappa between the judge and `human_score` in every run.
-
 ## Conversation cases
 
 `conversations/cases.jsonl` holds 33 multi-turn cases, one JSON line each: the
@@ -133,7 +61,12 @@ or fail question). There is no larger set. The help desk scores nothing: the
 console's eval engine plays each case through `POST /v1/eval/conversation`,
 which answers every turn's reply, tool calls and results.
 
-`make eval-chat` resets and seeds the database, then calls the console's
-`ops-eval conversations`. It is manual and costs money, like `make eval`.
+- `principal_user` is `seed:<department lowercased>.<principal>.<index>`, a
+  coordinate into the seeded directory rather than an address: department by
+  name, index within the department, and the seat must hold the named
+  principal.
+- A tool call's `args_subset` is symbolic. An access request names its role as
+  `<system slug>.<role slug>`, which the route writes back in place of the role id.
+
 Cases run in file order and share one database, so an approval case relies on
 the request an earlier case filed. Run the whole file, not one case.

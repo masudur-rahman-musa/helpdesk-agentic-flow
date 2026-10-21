@@ -1,4 +1,4 @@
-.PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify eval infra-check e2e load-smoke eval-chat images app-up app-down
+.PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify infra-check e2e load-smoke eval-chat images app-up app-down
 # Where `dev/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake by a project rule, and still not
@@ -6,7 +6,7 @@
 # Absolute so it means the same file to the reset/accounts scripts (run from
 # backend/, where they find backend/.env) and to Playwright (run from web/).
 E2E_ACCOUNTS_FILE ?= $(CURDIR)/.cache/e2e-accounts.json
-# The companion console, whose `ops-eval` runs the golden set and holds the only baseline.
+# The companion console, whose `ops-eval` scores the conversation cases and holds the only baseline.
 CONSOLE_DIR ?= ../ai-operations-console
 # The agent-api the eval calls; it must run with EVAL_ROUTES_ENABLED=true.
 AGENT_API_URL ?= http://localhost:8000
@@ -114,19 +114,6 @@ load-smoke: ## 20 chat sessions for 5 minutes against the REAL gateway (manual, 
 	uv run --project backend locust -f infra/load/load_smoke.py --headless \
 	  --users 20 --spawn-rate 2 --run-time 5m \
 	  --host $${AGENT_API_URL:-http://localhost:8000}
-eval:       ## Project evals: the golden set run by the console against the real agent (manual, costs money)
-	cd backend && uv run python ../dev/scripts/e2e_reset.py
-	cd backend && uv run python scripts/seed.py
-	rm -rf backend/evals/reports
-	uv run --project backend python dev/scripts/eval_sets.py backend/evals/golden/helpdesk-v1.jsonl backend/evals/reports
-	status=0; for tenant in nordlicht cuan; do \
-	  (cd $(CONSOLE_DIR) && uv run --project backend ops-eval run --target $(AGENT_API_URL) \
-	    --set $(CURDIR)/backend/evals/reports/$$tenant.jsonl --tenant $$tenant \
-	    --out $(CURDIR)/backend/evals/reports/$$tenant) || status=1; \
-	  (cd $(CONSOLE_DIR) && uv run --project backend ops-eval gate \
-	    --report $(CURDIR)/backend/evals/reports/$$tenant/report.json \
-	    --baseline $(CONSOLE_DIR)/backend/evals/baseline.json) || status=1; \
-	done; exit $$status
 eval-chat:  ## Conversation evals: the 33 cases played here, scored by the console (manual, costs money)
 	cd backend && uv run python ../dev/scripts/e2e_reset.py
 	cd backend && uv run python scripts/seed.py
