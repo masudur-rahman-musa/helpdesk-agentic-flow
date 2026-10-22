@@ -68,9 +68,14 @@ flowchart LR
 - **It decides nothing.** LangGraph only moves the state between nodes. Access
   stays with the policy engine, and changes still run only on the person's yes.
 
-The graph was scored on the same 33 conversations before it shipped:
+The graph had to score at least as well as the plain loop on the same 33
+conversations before it shipped:
 
-- The loop in LangGraph has not been scored yet.
+- The loop in LangGraph passed 21 of 33.
+
+The frame did not make the model smarter. The same steps run in the same order;
+the number moved because the run is a sample of real model answers, so treat
+it as "at least as good", not as a gain LangGraph gave.
 
 ## What it costs
 

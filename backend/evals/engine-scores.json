@@ -1,4 +1,5 @@
 {
   "pipeline": {"score": 45.45, "cases_passed": 15, "cases": 33, "commit": "c234386", "date": "2026-10-22"},
-  "loop": {"score": 51.52, "cases_passed": 17, "cases": 33, "commit": "c234386", "date": "2026-10-22"}
+  "loop": {"score": 51.52, "cases_passed": 17, "cases": 33, "commit": "c234386", "date": "2026-10-22"},
+  "graph": {"score": 63.64, "cases_passed": 21, "cases": 33, "commit": "a314be4", "date": "2026-10-23"}
 }
