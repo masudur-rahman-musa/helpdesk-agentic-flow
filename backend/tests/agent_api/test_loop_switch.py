@@ -177,8 +177,10 @@ class CounterRedis:
 class FakeTools:
     """A `ToolCaller` answering the filing call and recording every call."""
 
-    def __init__(self) -> None:
+    def __init__(self, lookups: Mapping[str, Mapping[str, Any]] | None = None) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.lookups = dict(lookups or {})
+        """Read tools answered as scripted, so a change can carry looked-up ids."""
 
     async def __aenter__(self) -> ToolCaller:
         return self
@@ -188,6 +190,8 @@ class FakeTools:
 
     async def call_tool(self, name: str, arguments: BaseModel) -> Mapping[str, Any]:
         self.calls.append((name, arguments.model_dump(mode="json")))
+        if name in self.lookups:
+            return self.lookups[name]
         if name != CREATE:
             raise AssertionError(f"the turn called an unscripted tool: {name}")
         return {
@@ -295,6 +299,24 @@ def stored_question(env: Env, chat_id: str) -> object:
     return asyncio.run(read())
 
 
+def lookup_body() -> dict[str, Any]:
+    """A model step looking up the person and their access, so the request
+    proposed next carries ids a lookup of this turn returned."""
+    return answer_body(
+        None,
+        wire_call("call_me", "get_me", {}),
+        wire_call("call_access", "list_my_access", {}),
+    )
+
+
+def lookup_answers(env: Env) -> dict[str, dict[str, Any]]:
+    """What `get_me` and `list_my_access` answer: the person's id and the role id."""
+    return {
+        "get_me": {"user_id": str(env.user_id)},
+        "list_my_access": {"grants": [{"role_id": str(env.viewer_id)}]},
+    }
+
+
 def create_call_body(env: Env) -> dict[str, Any]:
     """A model answer proposing one request for the speaker."""
     return answer_body(
@@ -358,8 +380,9 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
     question is gone, so a normal turn answers and files nothing more.
     """
     env = chat_settings_env
-    tools = FakeTools()
+    tools = FakeTools(lookup_answers(env))
     gateway = Gateway(
+        lookup_body(),
         create_call_body(env),
         answer_body(FILED_SAYS),
         answer_body("Nothing is waiting for a yes right now."),
@@ -383,14 +406,14 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
 
     assert tools.arguments_of(CREATE) == [stored_arguments]
     assert filed.reply == FILED_SAYS
-    assert "tools" not in json.loads(gateway.requests[1].content)
+    assert "tools" not in json.loads(gateway.requests[2].content)
     assert stored_question(env, asked.chat_id) is None
 
     again = say(env, gateway, tools, YES, chat_id=asked.chat_id)
 
     assert tools.names.count(CREATE) == 1
     assert again.reply == "Nothing is waiting for a yes right now."
-    assert len(gateway.requests) == 3
+    assert len(gateway.requests) == 4
 
 
 def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:

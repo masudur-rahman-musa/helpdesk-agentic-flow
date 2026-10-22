@@ -5,11 +5,12 @@ The list offered is cut to what the caller's principals may call
 That only says what to show: every call still goes through MCP with the
 caller's own token, where the tool's own check holds.
 
-Three kinds. A lookup is an MCP read tool, run as asked. A finder
+Four kinds. A lookup is an MCP read tool, run as asked. A finder
 (`find_role`, `find_person`) runs here, so loose words, typos and picks
-become real rows without a new MCP tool. A change is an MCP mutating tool
-the loop only holds for a yes; it is offered with its planner schema, which
-has no idempotency key.
+become real rows without a new MCP tool. A note (`note_request`) runs here
+too and only writes the request draft on the chat row (`draft.py`). A change
+is an MCP mutating tool the loop only holds for a yes; it is offered with its
+planner schema, which has no idempotency key.
 """
 
 import difflib
@@ -22,6 +23,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from helpdesk.agent_api.agent import matching
+from helpdesk.agent_api.agent.draft import NOTE_SCHEMA
 from helpdesk.agent_api.agent.matching import Candidate
 from helpdesk.agent_api.agent.role_words import plain_role_name
 from helpdesk.agent_api.agent.tool_args import (
@@ -37,6 +39,7 @@ from helpdesk.shared.core.errors import ToolError
 
 FIND_ROLE = "find_role"
 FIND_PERSON = "find_person"
+NOTE_REQUEST = "note_request"
 LIST_REQUESTABLE_ROLES = "list_requestable_roles"
 
 MAX_FOUND = 3
@@ -48,10 +51,11 @@ CATALOGUE_LIMIT = 200
 
 
 class ToolKind(StrEnum):
-    """How the loop treats a call: run it, run it here, or hold it for a yes."""
+    """How the loop treats a call: run it, run it here, note it, or hold it for a yes."""
 
     LOOKUP = "lookup"
     FIND = "find"
+    NOTE = "note"
     CHANGE = "change"
 
 
@@ -156,9 +160,14 @@ _ACTS_FOR_OTHERS = frozenset(
 )
 """A role holding any of these acts for someone else, so it may look people up."""
 
+_FILES = frozenset(
+    {rbac.Tool.CREATE_ACCESS_REQUEST_SELF, rbac.Tool.CREATE_ACCESS_REQUEST_ON_BEHALF}
+)
+"""A role holding either may file, so it keeps a request draft."""
+
 
 def offered_tools(principals: Sequence[str]) -> tuple[LoopTool, ...]:
-    """The tools these principals are offered: lookups, finders, then changes."""
+    """The tools these principals are offered: lookups, finders, the note, then changes."""
     allowed = frozenset(rbac.tools_for(principals))
     offered = [
         LoopTool(name, description, planner_schema(name), ToolKind.LOOKUP)
@@ -183,6 +192,17 @@ def offered_tools(principals: Sequence[str]) -> tuple[LoopTool, ...]:
                 "with their id, name and department.",
                 _WORDS_SCHEMA,
                 ToolKind.FIND,
+            )
+        )
+    if allowed & _FILES:
+        offered.append(
+            LoopTool(
+                NOTE_REQUEST,
+                "Note what the person has said about the request they are building "
+                "(role, person, reason, days), so it is not asked again. Send only "
+                "what changed. It files nothing.",
+                NOTE_SCHEMA,
+                ToolKind.NOTE,
             )
         )
     offered.extend(

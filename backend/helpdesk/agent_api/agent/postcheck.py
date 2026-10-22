@@ -161,6 +161,38 @@ def unbacked_roles(
     return sorted(named)
 
 
+PROMISE = re.compile(
+    r"\b(?P<opener>I['\u2019]ll|I will)\b[^.!?;\n]*?"
+    r"\b(?P<verb>check|look into|notify|let you know|escalate|get back|follow up"
+    r"|keep you posted)\b",
+    re.IGNORECASE,
+)
+"""A first-person promise of future work: "I'll" or "I will", then one of
+the verbs later in the same sentence. The first verb names the promise."""
+
+_PROMISE_BACKERS: Mapping[str, str] = {
+    "escalate": "create_ticket",
+    "notify": "create_access_request",
+    "let you know": "create_access_request",
+}
+"""The tool whose ok result this turn backs a promise. A ticket is the
+escalation; a filed request is what sends the notices. Checking, looking
+into, getting back, following up and keeping posted are never backed: no
+tool does them later."""
+
+
+def unbacked_promises(reply: str, results: Iterable[ToolResult]) -> list[str]:
+    """Each promise in `reply` ("I'll check") that no ok tool result of this
+    turn backs, in reply order. Pinned by `test_which_tool_backs_which_promise`."""
+    done = {result.tool for result in results if result.ok}
+    unbacked: list[str] = []
+    for found in PROMISE.finditer(reply):
+        verb = found["verb"].lower()
+        if _PROMISE_BACKERS.get(verb) not in done:
+            unbacked.append(f"{found['opener']} {found['verb']}")
+    return unbacked
+
+
 _FILED_STATUSES = frozenset(
     {
         RequestStatus.PENDING.value,

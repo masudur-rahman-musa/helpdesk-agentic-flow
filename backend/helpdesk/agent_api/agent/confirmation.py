@@ -65,12 +65,6 @@ MAX_NO_WORDS = 3
 OPEN_QUESTION_LIFE = timedelta(hours=24)
 """A question this old or older counts as none: the person has moved on."""
 
-NOTHING_FILED_REPLY = (
-    "Okay, nothing has been filed. What do you need instead? Tell me the "
-    "system and the role, and I will check it with you before filing."
-)
-"""The fixed reply to a bare no. No model call, so nothing new is planned."""
-
 _WORD = re.compile(r"[a-z']+")
 
 

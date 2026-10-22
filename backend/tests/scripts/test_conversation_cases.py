@@ -2,7 +2,7 @@
 
     backend/evals/conversations/cases.jsonl
 
-The help desk owns 38 multi-turn cases; the companion console scores them.
+The help desk owns 45 multi-turn cases; the companion console scores them.
 Every named value is checked against the code that owns it: tenant slugs and
 seat rows from ``scripts.seed``, tool names from the tool registry.
 
@@ -35,7 +35,7 @@ def _repo_root() -> Path:
 
 CASES = _repo_root() / "backend" / "evals" / "conversations" / "cases.jsonl"
 
-CASE_COUNT = 38
+CASE_COUNT = 45
 CASE_FIELDS = {"id", "category", "tenant", "principal_user", "turns", "expected", "graded"}
 EXPECTED_FIELDS = {"tool_calls", "confirm_turn"}
 TOOL_CALL_FIELDS = {"name", "args_subset"}
@@ -188,8 +188,8 @@ def _made_up(**changes: Any) -> Case:
 # --- the file -----------------------------------------------------------------
 
 
-def test_the_case_file_holds_38_parsable_cases() -> None:
-    """Catches a file with 37 or 39 cases, a blank line (the console would read an
+def test_the_case_file_holds_45_parsable_cases() -> None:
+    """Catches a file with 44 or 46 cases, a blank line (the console would read an
     empty case), a line that is not JSON, and a case with a missing, extra or
     renamed field at any of the four levels.
 
@@ -214,9 +214,9 @@ def test_the_case_file_holds_38_parsable_cases() -> None:
         assert isinstance(case["expected"]["confirm_turn"], int | None)
 
 
-def test_ids_run_conv_001_to_conv_038_in_order(cases: list[Case]) -> None:
+def test_ids_run_conv_001_to_conv_045_in_order(cases: list[Case]) -> None:
     """Catches a repeated id, a gap, an id out of order, or a number that starts
-    at 000 or stops short of 038.
+    at 000 or stops short of 045.
 
     The ids are compared with the exact list, so no looser rule passes.
     """
@@ -418,3 +418,66 @@ def test_every_rubric_is_one_pass_or_fail_question() -> None:
             _check_rubric(entry["rubric"])
             seen += 1
     assert seen >= CASE_COUNT
+
+
+# --- the guardrail cases ---------------------------------------------
+
+GUARDRAIL_SLOTS: Mapping[str, tuple[str, ...]] = {
+    "ids": ("conv-039", "conv-040"),
+    "denial": ("conv-041", "conv-042"),
+    "draft": ("conv-043", "conv-044"),
+    "promises": ("conv-045",),
+}
+"""Which case holds which rule: two each for ids, denial and draft, one for
+promises, in the order the plan names them. The case format has no tag field
+(the field set is fixed), so the slot is the id and the rule is then read from
+the case's own words below."""
+
+_NO_OPENERS = ("no", "nope", "same, but", "not that")
+_RUBRIC_SIGNS: Mapping[str, re.Pattern[str]] = {
+    "ids": re.compile(r"\bids?\b|look(?:s|ed)?[ -]?up|look it up", re.IGNORECASE),
+    "draft": re.compile(r"again|already|repeat", re.IGNORECASE),
+    "promises": re.compile(r"promis", re.IGNORECASE),
+}
+
+
+def _shows_rule(case: Case, rule: str) -> bool:
+    """Whether the case's own words are about `rule`. Denial reads the turns:
+    a later turn that opens with a no or a "same, but" answers a proposal.
+    The others read the graded rubrics."""
+    if rule == "denial":
+        later = [str(turn).strip().lower() for turn in case["turns"][1:]]
+        return any(turn.startswith(_NO_OPENERS) for turn in later)
+    rubrics = " ".join(entry["rubric"] for entry in case["graded"])
+    return _RUBRIC_SIGNS[rule].search(rubrics) is not None
+
+
+def test_the_new_guardrail_cases_cover_each_rule(cases: list[Case]) -> None:
+    """Catches a plan that adds seven cases but leaves a rule with fewer than
+    its share (two for ids, two for denial, two for draft, one for promises),
+    that puts a case in the wrong slot (a denial case that never answers a
+    proposal with a no), or that leaves conv-039 to conv-045 missing.
+
+    The detector is shown made-up cases first: a denial needs a LATER turn that
+    opens with a no (an opening "no" in turn 1 is nothing to deny), and a
+    rubric without the rule's sign is refused, so a detector that says yes to
+    everything fails here.
+    """
+    plain = _made_up(turns=["file it", "yes"])
+    assert not _shows_rule(plain, "denial")
+    assert not _shows_rule(_made_up(turns=["no thanks", "yes"]), "denial")
+    assert _shows_rule(_made_up(turns=["file it", "No, make it read-only"]), "denial")
+    assert _shows_rule(_made_up(turns=["file it", "same, but for Dana"]), "denial")
+    for rule in ("ids", "draft", "promises"):
+        assert not _shows_rule(plain, rule)
+    assert _shows_rule(
+        _made_up(graded=[{"turn": 1, "rubric": "Does the reply avoid promising future work?"}]),
+        "promises",
+    )
+
+    by_id = {case["id"]: case for case in cases}
+    assert [len(ids) for ids in GUARDRAIL_SLOTS.values()] == [2, 2, 2, 1]
+    for rule, ids in GUARDRAIL_SLOTS.items():
+        for case_id in ids:
+            assert case_id in by_id, f"{case_id} (the {rule} case) is missing"
+            assert _shows_rule(by_id[case_id], rule), f"{case_id} does not read as a {rule} case"

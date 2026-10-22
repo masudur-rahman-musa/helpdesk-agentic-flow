@@ -189,10 +189,19 @@ number.
 | p95 latency per chat turn | not yet measured |
 
 `make load-smoke` drives 20 concurrent chat sessions for
-five minutes against the real gateway and prints p50 and p95 per turn. `make eval-chat` plays the 33 conversation cases and the
-console scores them. Both
-need a real gateway; a figure taken from the stubbed run would measure this
-repository's own overhead and nothing a reader cares about.
+five minutes against the real gateway and prints p50 and p95 per turn. `make eval-chat` plays the
+conversation cases and the console scores them. Both need a real gateway; a
+figure taken from the stubbed run would measure this repository's own overhead
+and nothing a reader cares about.
+
+Conversation eval pass rate: 21 of 33 conversation cases passed on the last
+scored run (2026-10-23, the graph engine), as recorded in
+[`backend/evals/engine-scores.json`](backend/evals/engine-scores.json). The
+set now holds 45 cases; the 12 newest wait for the next scored run. The
+newest per-case report, from an earlier run that passed 12 of 33
+([`backend/evals/reports/chat-report.json`](backend/evals/reports/chat-report.json)),
+shows which groups still pass under half of their cases: typo, short answer,
+follow up, change of mind, other person and other language.
 
 ## At 10x and 100x
 

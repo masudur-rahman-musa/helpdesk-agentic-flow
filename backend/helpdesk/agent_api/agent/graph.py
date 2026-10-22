@@ -5,19 +5,25 @@ allows, then a tool step whose results go back to the model, until it answers.
 LangGraph is the frame: each part is a node, the arrows are edges, and a saver
 keeps the state after every node, one thread per turn. Four nodes:
 
-- `held_answer`: reads the chat and, when a change is held, the person's yes
-  or bare no to it, by code. A yes runs the stored calls, then the reply is
-  written with no tools.
+- `held_answer`: reads the chat and, when a change is held, the person's
+  answer to it, by code. A yes runs the stored calls, then the reply is
+  written with no tools. Anything else drops the change and goes to the model
+  as the person's answer: each held call comes back denied, with their words.
 - `agent`: one model step under the `agent_loop` prompt. A step that asks for
   tools goes to `tools`; one that answers goes to `check_reply`.
 - `tools`: runs lookups and finders through MCP with the caller's own token,
   back to `agent`. A proposed change is checked, given a key by code and held
-  as the chat's open question, which ends the turn. Bad arguments go back once
-  with the reason, then `CHANGE_FAILED_REPLY`. The model never runs a change.
+  as the chat's open question, which ends the turn. It is held only when every
+  person and role id in it came from an ok tool result of this turn, and never
+  when it is the very change the person just turned down. Bad arguments go
+  back once with the reason, then `CHANGE_FAILED_REPLY`. The model never runs
+  a change. `note_request` writes the request draft, shown to the model as
+  data at every step.
 - `check_reply`: every request number, tenant role name and decision word must
   come from this turn's tool results (role names may also be the person's own
-  words). A breach goes back to `agent` with the reason, at most
-  `MAX_SEND_BACKS` times, then code says the reply from the results.
+  words), and so must every promise of future work. A breach goes back to
+  `agent` with the reason, at most `MAX_SEND_BACKS` times, then code says
+  the reply from the results.
 
 Limits, the turn budget: at most `MAX_STEPS` model steps, 6 tool calls,
 40,000 tokens and 90 seconds a turn. A limit hit with tool results gets one
@@ -44,12 +50,12 @@ from pydantic import ValidationError
 
 from helpdesk.agent_api.agent import gates
 from helpdesk.agent_api.agent.confirmation import (
-    NOTHING_FILED_REPLY,
     Answer,
     OpenQuestion,
     change_summary,
     read_answer,
 )
+from helpdesk.agent_api.agent.draft import draft_message, merge_draft
 from helpdesk.agent_api.agent.events import StepEvent
 from helpdesk.agent_api.agent.keys import derive_idempotency_key
 from helpdesk.agent_api.agent.loop_tools import (
@@ -66,6 +72,7 @@ from helpdesk.agent_api.agent.postcheck import (
     outcome_reply,
     permitted_words,
     unbacked_numbers,
+    unbacked_promises,
     unbacked_roles,
     words_in,
 )
@@ -77,6 +84,7 @@ from helpdesk.agent_api.agent.state import (
     IntentEntities,
     IntentExtraction,
     PostCheckOutcome,
+    RequestDraft,
     ResolvedEntities,
     ToolResult,
     TurnOutcome,
@@ -162,6 +170,13 @@ _CHANGE_INTENTS: Mapping[str, Intent] = {
 
 _DECISIONS = frozenset({gates.APPROVE_REQUEST, gates.REJECT_REQUEST})
 
+ID_FIELDS = ("role_id", "target_user_id", "user_id", "manager_user_id")
+"""The person and role ids a change may carry only when a tool result of this
+turn returned them. Identity, tenant and session are filled by code."""
+
+REFUSED_AGAIN = "the person refused this exact change"
+"""The reason a proposal equal to a just-denied call goes back with."""
+
 
 class LoopStore(Directory, Protocol):
     """The chat row and directory reads one loop turn needs."""
@@ -179,6 +194,10 @@ class LoopStore(Directory, Protocol):
     async def hold(self, question: OpenQuestion) -> None: ...
 
     async def add_message(self, role: MessageRole, content: str) -> None: ...
+
+    async def request_draft(self) -> RequestDraft | None: ...
+
+    async def save_request_draft(self, draft: RequestDraft | None) -> None: ...
 
 
 LOOP_NODES = ("held_answer", "agent", "tools", "check_reply")
@@ -212,6 +231,8 @@ class LoopState(TypedDict, total=False):
     person_said: list[str]
     roles_found: dict[str, dict[str, Any]]
     people_found: dict[str, str]
+    denied: list[dict[str, Any]]
+    """The held calls the person just turned down, keys left out."""
     final: TurnState | None
     """The turn's end state; once set, the graph stops."""
 
@@ -266,6 +287,21 @@ def _assistant_turn(text: str | None, calls: Sequence[ToolCall]) -> dict[str, An
     }
 
 
+def _without_key(arguments: Mapping[str, Any]) -> dict[str, Any]:
+    """A change's arguments without its idempotency key, to compare two calls."""
+    return {name: value for name, value in arguments.items() if name != IDEMPOTENCY_KEY}
+
+
+def _unfound_id(arguments: Mapping[str, Any], found: str) -> str | None:
+    """The first id field whose value no ok result of this turn holds, or
+    `None`. Pinned by `test_ids_on_every_person_field_are_checked`."""
+    for name in ID_FIELDS:
+        value = arguments.get(name)
+        if value is not None and str(value) not in found:
+            return name
+    return None
+
+
 def _problems(exc: ValidationError) -> str:
     """A validation error as "field: what is wrong" lines the model can act on."""
     return "; ".join(
@@ -304,6 +340,7 @@ class _Turn:
         """The person's own messages, this turn's last; never the check's notes."""
         self.roles_found: dict[str, dict[str, Any]] = dict(state.get("roles_found", {}))
         self.people_found: dict[str, str] = dict(state.get("people_found", {}))
+        self.denied: list[dict[str, Any]] = list(state.get("denied", []))
         self.final: TurnState | None = None
 
     def saved(self) -> LoopState:
@@ -329,21 +366,25 @@ class _Turn:
             "person_said": self.person_said,
             "roles_found": self.roles_found,
             "people_found": self.people_found,
+            "denied": self.denied,
             "final": self.final,
         }
 
     # --- the steps -----------------------------------------------------------
 
     async def _start(self) -> None:
-        """Read the chat, save the person's message and set up the model's turns."""
+        """Read the chat and its draft, save the person's message and set up
+        the model's turns."""
         principals = await self.store.principals()
         history = await self.store.history()
+        draft = await self.store.request_draft()
         await self.store.add_message(MessageRole.USER, self.state.user_message)
         self.state = self.state.model_copy(
             update={
                 "principals": principals,
                 "history": tuple(f"{role}: {text}" for role, text in history),
                 "prompt_version": self.prompt.sha256,
+                "request_draft": draft,
             }
         )
         self.person_said = [text for role, text in history if role == MessageRole.USER.value] + [
@@ -361,25 +402,25 @@ class _Turn:
         ]
 
     async def held_answer(self) -> None:
-        """Code reads a yes or bare no to a held change, never the model. Any
-        other message drops the question, so it is answered once at most. A
-        yes runs the stored calls as they were checked, keys included, then one
-        step with no tools writes the reply; a no runs nothing and asks no model."""
+        """Code reads the answer to a held change, never the model. The
+        question is dropped either way, so it is answered once at most. A yes
+        runs the stored calls as they were checked, keys included, then one
+        step with no tools writes the reply. Anything else, a bare no included,
+        runs nothing and goes to the model as the person's answer (`_deny`)."""
         await self.store.prepare(self.started)
         question = await self.store.open_question()
-        answer = None if question is None else read_answer(self.state.user_message)
         if question is not None:
             await self.store.clear_open_question()
         await self._start()
-        if question is None or answer is None or answer is Answer.OTHER:
+        if question is None:
+            return
+        if read_answer(self.state.user_message) is not Answer.YES:
+            self._deny(question)
             return
         self.state = self.state.model_copy(
             update={"extraction": question.extraction, "resolved": question.resolved}
         )
         self.citations = list(question.citations)
-        if answer is Answer.NO:
-            self.final = await self._finish(NOTHING_FILED_REPLY)
-            return
         ran: list[dict[str, Any]] = []
         calls = [
             ToolCall(id=f"held_{index}", name=call.tool, arguments=call.arguments)
@@ -389,6 +430,7 @@ class _Turn:
         for call in calls:
             self.messages.append(await self._run_held(call, ran))
         await self._read_after_refused_cancel(ran)
+        await self._clear_draft_once_filed()
         _emit(StepEvent(node=STEP_NODE, round=self.step, tools=ran))
         self.step += 1
         self.pending = (await self._ask(tools=False)).text or ""
@@ -465,6 +507,32 @@ class _Turn:
         """End the turn on `FAILURE_REPLY`; none of the model's output is shown."""
         self.final = await self._finish(FAILURE_REPLY, outcome=TurnOutcome.FAILED, error_code=code)
 
+    def _deny(self, question: OpenQuestion) -> None:
+        """Give the model the held calls answered as denied, with the person's
+        own words as the reason, right before their message, so it re-plans.
+        The calls are kept so this turn cannot hold one of them again.
+        Pinned by `test_a_bare_no_goes_to_the_model_as_a_denial`."""
+        calls = [
+            ToolCall(id=f"held_{index}", name=call.tool, arguments=call.arguments)
+            for index, call in enumerate(question.calls)
+        ]
+        denial = {"denied_by_person": True, "reason": self.state.user_message}
+        self.messages[-1:-1] = [
+            _assistant_turn(None, calls),
+            *(_tool_turn(call.id, denial) for call in calls),
+        ]
+        self.denied = [
+            {"tool": call.tool, "arguments": _without_key(call.arguments)}
+            for call in question.calls
+        ]
+
+    async def _clear_draft_once_filed(self) -> None:
+        """A filing that ran ok ends the draft, so the next request starts blank."""
+        filed = any(result.ok and result.tool == "create_access_request" for result in self.results)
+        if filed and self.state.request_draft is not None:
+            await self.store.save_request_draft(None)
+            self.state = self.state.model_copy(update={"request_draft": None})
+
     async def _read_after_refused_cancel(self, ran: list[dict[str, Any]]) -> None:
         """A held cancel the server found already decided gets one fresh
         `list_my_requests`, since the reply step has no tools. The reply then
@@ -505,10 +573,16 @@ class _Turn:
         return elapsed > gates.TURN_DEADLINE_SECONDS or self.tokens > gates.MAX_TURN_TOKENS
 
     async def _ask(self, *, tools: bool) -> ToolCallAnswer:
-        """One model step on the strong alias; no tools sends none."""
+        """One model step on the strong alias; no tools sends none. The draft,
+        when there is one, goes right after the prompt, rebuilt every step."""
+        messages = [dict(message) for message in self.messages]
+        if self.state.request_draft is not None:
+            messages.insert(
+                1, {"role": "system", "content": draft_message(self.state.request_draft)}
+            )
         try:
             answer = await self.deps.model.complete_with_tools(
-                [dict(message) for message in self.messages],
+                messages,
                 [tool.wire() for tool in self.offered.values()] if tools else [],
                 alias=ModelAlias.AGENT_STRONG,
                 tenant_slug=self.state.tenant_slug,
@@ -540,6 +614,8 @@ class _Turn:
                 answers[call.id] = _tool_turn(
                     call.id, {"error": "limit", "reason": "no more tool calls this turn"}
                 )
+            elif tool.kind is ToolKind.NOTE:
+                answers[call.id] = await self._note(call, ran)
             else:
                 answers[call.id] = await self._look_up(call, tool, ran)
         if changes:
@@ -588,6 +664,22 @@ class _Turn:
         self._remember(call.name, payload)
         return _tool_turn(call.id, with_plain_role_names(payload))
 
+    async def _note(self, call: ToolCall, ran: list[dict[str, Any]]) -> dict[str, Any]:
+        """Lay the call over the request draft and save it. A bad value goes
+        back with the reason and the old draft stays. Not kept as a result, so
+        nothing the model notes can back an id or a claim."""
+        self.calls_made += 1
+        try:
+            draft = merge_draft(self.state.request_draft, call.arguments, now=self.deps.now())
+        except ValidationError as exc:
+            ran.append({"tool": call.name, "ok": False, "error_code": None})
+            return _tool_turn(call.id, {"error": "bad_arguments", "reason": _problems(exc)})
+        await self.store.save_request_draft(draft)
+        self.state = self.state.model_copy(update={"request_draft": draft})
+        ran.append({"tool": call.name, "ok": True, "error_code": None})
+        shown = draft.model_dump(mode="json", exclude={"saved_at"}, exclude_none=True)
+        return _tool_turn(call.id, {"ok": True, "draft": shown})
+
     async def _find(self, name: str, words: str) -> dict[str, Any]:
         if name == FIND_ROLE:
             return {"roles": await find_role(words, tools=self.deps.tools, directory=self.store)}
@@ -613,8 +705,13 @@ class _Turn:
         self, calls: Sequence[ToolCall]
     ) -> tuple[list[ValidatedCall], dict[str, str]]:
         """The step's changes with their keys, all or none, and the reason per
-        call when any is wrong. Code adds the key; a model that names one is wrong."""
+        call when any is wrong. Code adds the key; a model that names one is
+        wrong. After the schema, every id must come from this turn's ok results
+        (`_unfound_id`), and a just-denied call is refused again."""
         listed = gates.listed_request_ids(tuple(self.results))
+        found = " ".join(
+            json.dumps(result.payload, default=str) for result in self.results if result.ok
+        )
         validated: list[ValidatedCall] = []
         reasons: dict[str, str] = {}
         for index, call in enumerate(calls):
@@ -641,9 +738,17 @@ class _Turn:
             except ValidationError as exc:
                 reasons[call.id] = _problems(exc)
                 continue
-            validated.append(
-                ValidatedCall(tool=call.name, arguments=checked.model_dump(mode="json"))
-            )
+            dumped = checked.model_dump(mode="json")
+            unfound = _unfound_id(dumped, found)
+            if unfound is not None:
+                reasons[call.id] = (
+                    f"{unfound}: not returned by a lookup this turn; look it up first"
+                )
+                continue
+            if {"tool": call.name, "arguments": _without_key(dumped)} in self.denied:
+                reasons[call.id] = REFUSED_AGAIN
+                continue
+            validated.append(ValidatedCall(tool=call.name, arguments=dumped))
         if reasons:
             for call in calls:
                 reasons.setdefault(call.id, "held back: another change in this step was wrong")
@@ -694,15 +799,19 @@ class _Turn:
     # --- the answer ----------------------------------------------------------
 
     async def _unbacked(self, reply: str) -> list[str]:
-        """Every decision word, request number and tenant role name in `reply`
-        that this turn's results do not back. Role names may also be the
-        person's own words, this turn or earlier."""
+        """Every decision word, request number, tenant role name and promise
+        of future work in `reply` that this turn's results do not back. Role
+        names may also be the person's own words, this turn or earlier."""
         checked = self._state()
         roles = list(await self.store.role_ids())
         return [
             *sorted(words_in(reply) - permitted_words(checked)),
             *unbacked_numbers(reply, checked.tool_results),
             *unbacked_roles(reply, roles, checked.tool_results, self.person_said),
+            *(
+                f'the promise "{promise}"'
+                for promise in unbacked_promises(reply, checked.tool_results)
+            ),
         ]
 
     def _state(self, **update: Any) -> TurnState:

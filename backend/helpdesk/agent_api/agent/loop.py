@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.agent.checkpointer import thread_config, turn_thread_id
 from helpdesk.agent_api.agent.confirmation import OpenQuestion, parse_open_question
+from helpdesk.agent_api.agent.draft import parse_draft
 from helpdesk.agent_api.agent.events import ErrorEvent, ReplyEvent, StepEvent, TurnEvent
 from helpdesk.agent_api.agent.graph import (
     CHANGE_FAILED_REPLY,
@@ -37,7 +38,7 @@ from helpdesk.agent_api.agent.graph import (
 from helpdesk.agent_api.agent.loop_tools import PersonRow
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.sources import shown_citations
-from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import RequestDraft, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.agent.turn_metrics import (
     record_turn_code,
@@ -57,7 +58,9 @@ from helpdesk.shared.crud.messages import append_message, list_recent_messages
 from helpdesk.shared.crud.sessions import (
     get_open_question,
     get_or_create_session,
+    get_request_draft,
     set_open_question,
+    set_request_draft,
 )
 from helpdesk.shared.crud.users import find_user_by_id
 from helpdesk.shared.models import Department, Role, System, User
@@ -140,6 +143,19 @@ class DbLoopStore:
     async def hold(self, question: OpenQuestion) -> None:
         await set_open_question(
             self._db, session_id=self._session_id, value=question.model_dump(mode="json")
+        )
+
+    async def request_draft(self) -> RequestDraft | None:
+        if self._now is None:  # pragma: no cover - the turn always prepares first
+            return None
+        raw = await get_request_draft(self._db, session_id=self._session_id)
+        return parse_draft(raw, now=self._now)
+
+    async def save_request_draft(self, draft: RequestDraft | None) -> None:
+        await set_request_draft(
+            self._db,
+            session_id=self._session_id,
+            value=None if draft is None else draft.model_dump(mode="json"),
         )
 
     async def add_message(self, role: MessageRole, content: str) -> None:

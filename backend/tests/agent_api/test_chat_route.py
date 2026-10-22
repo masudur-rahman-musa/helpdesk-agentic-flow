@@ -510,6 +510,30 @@ def _proposed_request(env: ChatEnv) -> dict[str, Any]:
     )
 
 
+def _lookups() -> dict[str, Any]:
+    """One step looking up the person and their access, so the request proposed
+    next carries ids a lookup of this turn returned."""
+    return {
+        "content": None,
+        "tool_calls": [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": "{}"},
+            }
+            for call_id, name in (("call_me", "get_me"), ("call_access", "list_my_access"))
+        ],
+    }
+
+
+def _lookup_payloads(env: ChatEnv) -> tuple[dict[str, Any], dict[str, Any]]:
+    """What `get_me` and `list_my_access` answer: the person's id and the role id."""
+    return (
+        {"user_id": str(env.tenant_a.user_id)},
+        {"grants": [{"role_id": str(env.tenant_a.role_id)}]},
+    )
+
+
 FILED_REPLY = "Your request REQ-0001 is filed and pending."
 """The reply the step after a yes writes; its number and word are in the result."""
 
@@ -960,8 +984,8 @@ def test_a_filed_request_answers_its_decision_card(
     route's doing and not a missing key's.
     """
     session_id = uuid.uuid4()
-    gateway = StagedGateway([_proposed_request(chat_env), FILED_REPLY])
-    tools = ScriptedToolCaller(_card_payload())
+    gateway = StagedGateway([_lookups(), _proposed_request(chat_env), FILED_REPLY])
+    tools = ScriptedToolCaller(*_lookup_payloads(chat_env), _card_payload())
 
     response = _post_request_and_yes(
         monkeypatch=monkeypatch,
@@ -987,8 +1011,8 @@ def test_a_filed_request_answers_its_decision_card(
     assert card["expires_at"] == CARD_EXPIRES_AT
     assert str(CARD_APPROVER_ID) not in json.dumps(card)
 
-    assert gateway.call_count == 2
-    assert tools.names == [CREATE_REQUEST]
+    assert gateway.call_count == 3
+    assert tools.names == ["get_me", "list_my_access", CREATE_REQUEST]
 
 
 def test_a_turn_with_no_access_tool_answers_a_null_decision(

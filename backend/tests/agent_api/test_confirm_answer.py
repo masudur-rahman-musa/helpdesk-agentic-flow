@@ -7,7 +7,7 @@ values, so the file runs in milliseconds and shares no state.
 Surface the implementer must provide (names fixed by the plan):
 `Answer` (YES, NO, OTHER), `read_answer`, `OPEN_QUESTION_LIFE`, `OpenQuestion`,
 `parse_open_question`, `summary_reply` (it replaces `question_reply`;
-`summary_reply(resolved, results, held_calls)`), `next_step`, `NOTHING_FILED_REPLY`, and
+`summary_reply(resolved, results, held_calls)`), `next_step`, and
 `ResolvedEntities.system_name` / `role_name` in `state.py`.
 """
 
@@ -18,7 +18,6 @@ from typing import Any
 import pytest
 
 from helpdesk.agent_api.agent.confirmation import (
-    NOTHING_FILED_REPLY,
     OPEN_QUESTION_LIFE,
     Answer,
     OpenQuestion,
@@ -352,13 +351,6 @@ def test_a_create_result_alone_does_not_count_as_a_classification() -> None:
     only_create = (ToolResult(tool=CREATE, ok=True, payload={"decision": "auto"}),)
 
     assert next_step(only_create) == next_step(())
-
-
-def test_the_nothing_filed_reply_says_nothing_was_filed() -> None:
-    """Catches an empty or unrelated constant: the person who says "no" must be
-    told in words that nothing was filed, and be asked what they need instead."""
-    assert "nothing" in NOTHING_FILED_REPLY.lower()
-    assert "filed" in NOTHING_FILED_REPLY.lower()
 
 
 # --- the stored question --------------------------------------------------------

@@ -30,7 +30,7 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from helpdesk.agent_api.agent.confirmation import NOTHING_FILED_REPLY, OpenQuestion
+from helpdesk.agent_api.agent.confirmation import OpenQuestion
 from helpdesk.agent_api.agent.events import ReplyEvent, StepEvent, TurnEvent
 from helpdesk.agent_api.agent.gates import MAX_TOOL_CALLS, TURN_DEADLINE_SECONDS
 from helpdesk.agent_api.agent.loop import (
@@ -53,6 +53,7 @@ from helpdesk.agent_api.agent.state import (
     IntentEntities,
     IntentExtraction,
     PostCheckOutcome,
+    RequestDraft,
     ResolvedEntities,
     ToolResult,
     TurnOutcome,
@@ -183,6 +184,7 @@ class FakeStore:
         people: Sequence[PersonRow] = (),
         on_user_message: Callable[[], None] | None = None,
         question: OpenQuestion | None = None,
+        draft: RequestDraft | None = None,
     ) -> None:
         self._principals = tuple(principals)
         self._history = list(history)
@@ -194,6 +196,8 @@ class FakeStore:
         self.question = question
         """The held change on the chat row; `None` once it is cleared."""
         self.cleared = 0
+        self.draft = draft
+        """The request draft on the chat row; `None` once it is cleared."""
 
     async def prepare(self, now: datetime) -> None:
         self.prepared.append(now)
@@ -213,6 +217,12 @@ class FakeStore:
 
     async def hold(self, question: OpenQuestion) -> None:
         self.held.append(question)
+
+    async def request_draft(self) -> RequestDraft | None:
+        return self.draft
+
+    async def save_request_draft(self, draft: RequestDraft | None) -> None:
+        self.draft = draft
 
     async def add_message(self, role: MessageRole, content: str) -> None:
         self.messages.append((role, content))
@@ -760,25 +770,49 @@ def _create_arguments(**more: Any) -> dict[str, Any]:
     return arguments
 
 
+def lookup_step() -> dict[str, Any]:
+    """A model step that looks up the person (`get_me`) and their access
+    (`list_my_access`), so a change proposed next carries ids a lookup returned."""
+    return answer_body(
+        None,
+        wire_call("call_me", "get_me", {}),
+        wire_call("call_access", "list_my_access", {}),
+    )
+
+
+def lookup_tools() -> FakeTools:
+    """The tool server for `lookup_step`: `get_me` returns `USER_ID` and
+    `list_my_access` returns a row carrying `ROLE_ID`."""
+    return FakeTools(
+        {
+            "get_me": {"user_id": str(USER_ID), "display_name": "Fake Person"},
+            "list_my_access": {"grants": [{"role_id": str(ROLE_ID)}]},
+        }
+    )
+
+
 def test_proposed_change_is_held_not_run() -> None:
     """Catches a loop that runs the change itself (the model would then act
     with no yes), that holds it without a key from code, that lets the model
-    pick the key, that asks the model to word the summary (a second request),
-    or that ends on any outcome but the confirm one.
+    pick the key, that asks the model to word the summary (a third request), or
+    that ends on any outcome but the confirm one.
 
-    The held call must fit the tool's own input model, and the reply must be
-    the code-written "I'll file this" summary naming the reason and the days.
+    A lookup step first returns the person's id and the role's id (the held
+    change only carries ids a lookup returned). The held call must fit the
+    tool's own input model, and the reply must be the code-written "I'll file
+    this" summary naming the reason and the days.
     """
     gateway = ScriptedGateway(
-        answer_body(None, wire_call("call_c", "create_access_request", _create_arguments()))
+        lookup_step(),
+        answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
     )
-    tools = FakeTools()
+    tools = lookup_tools()
     store = FakeStore()
 
     state = run(gateway, tools, store, message="Please file wiki viewer access for me.")
 
-    assert tools.calls == []
-    assert len(gateway.requests) == 1
+    assert tools.names == ["get_me", "list_my_access"]
+    assert len(gateway.requests) == 2
     assert len(store.held) == 1
     held = store.held[0]
     assert held.message == "Please file wiki viewer access for me."
@@ -1075,24 +1109,34 @@ def test_stream_yes_files_held_calls_with_stored_keys() -> None:
 @pytest.mark.parametrize("message", ["no", "No.", "nope"])
 def test_no_files_nothing(message: str) -> None:
     """Catches a no that still runs the held call, that leaves the question on
-    the chat row (a later yes would file it), that asks the model for a reply
-    (the fixed line is the answer), or that says anything but the fixed line.
+    the chat row (a later yes would file it), that answers with a fixed line
+    and never asks the model (the model would not learn the person turned the
+    change down), or that sends the model the person's words changed.
 
-    The gateway is scripted no answer at all and the tool server no tool, so
-    any model call or tool call fails the run.
+    The tool server is scripted no tool, so a tool call fails the run. The
+    gateway holds one answer: the model is asked exactly once, and its request
+    must end with the held call, its `denied_by_person` tool turn carrying the
+    person's exact message, then that message.
     """
-    gateway = ScriptedGateway()
+    gateway = ScriptedGateway(answer_body("Okay. What do you need instead?"))
     tools = FakeTools()
     store = FakeStore(question=held_question())
 
     state = run(gateway, tools, store, message=message)
 
-    assert NOTHING_FILED_REPLY
-    assert state.reply == NOTHING_FILED_REPLY
     assert tools.calls == []
-    assert gateway.requests == []
     assert store.question is None
-    assert store.messages[-1] == (MessageRole.ASSISTANT, NOTHING_FILED_REPLY)
+    assert store.held == []
+    assert len(gateway.requests) == 1
+    sent = gateway.requests[0]["messages"]
+    assert sent[-3]["role"] == "assistant"
+    assert [call["id"] for call in sent[-3]["tool_calls"]] == ["held_0"]
+    assert sent[-2]["role"] == "tool"
+    assert sent[-2]["tool_call_id"] == "held_0"
+    assert json.loads(sent[-2]["content"]) == {"denied_by_person": True, "reason": message}
+    assert sent[-1] == {"role": "user", "content": message}
+    assert state.reply == "Okay. What do you need instead?"
+    assert store.messages[-1] == (MessageRole.ASSISTANT, "Okay. What do you need instead?")
 
 
 @pytest.mark.parametrize(

@@ -61,6 +61,8 @@ from tests.agent_api.test_agent_loop import (
     ScriptedGateway,
     _create_arguments,
     answer_body,
+    lookup_step,
+    lookup_tools,
     wire_call,
 )
 from tests.support.mcp import TempDatabaseFactory
@@ -296,15 +298,17 @@ def test_a_change_never_reaches_the_tools_node_as_a_run() -> None:
     model would then act with no yes from the person), or that runs it and also
     holds it.
 
-    The model proposes the change. The tool server is scripted no tool, so a
-    call fails the run, and the recorded calls must stay empty. The change must
-    sit on the chat row and the turn must end on the confirm outcome. The turn
-    goes through the compiled graph.
+    A lookup step first returns the ids the change carries, then the model
+    proposes the change. The tool server holds only the two lookups, so a
+    create call fails the run, and the recorded calls must be the lookups
+    alone. The change must sit on the chat row and the turn must end on the
+    confirm outcome. The turn goes through the compiled graph.
     """
     gateway = ScriptedGateway(
-        answer_body(None, wire_call("call_c", "create_access_request", _create_arguments()))
+        lookup_step(),
+        answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
     )
-    tools = FakeTools()
+    tools = lookup_tools()
     store = FakeStore()
 
     state = asyncio.run(
@@ -318,11 +322,11 @@ def test_a_change_never_reaches_the_tools_node_as_a_run() -> None:
         )
     )
 
-    assert tools.calls == []
+    assert tools.names == ["get_me", "list_my_access"]
     assert [call.tool for call in store.held[0].calls] == ["create_access_request"]
     assert len(store.held) == 1
     assert state.outcome is TurnOutcome.CONFIRM
-    assert len(gateway.requests) == 1
+    assert len(gateway.requests) == 2
 
 
 @pytest.mark.db

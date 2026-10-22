@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, WithJsonSchema
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema
 
 from helpdesk.shared.core.errors import ErrorCode
 
@@ -63,17 +63,15 @@ class IntentExtraction(BaseModel):
 
 class RequestDraft(BaseModel):
     """The request the chat is building, kept on the chat row between messages
-    (`request_draft.py`). Plain JSON in, so a bad value reads as no draft."""
+    (`draft.py`) and written by the model through `note_request`. Role and
+    person stay as words, so each turn still finds their ids by lookup."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    intent: Intent
-    system: str | None = None
-    role: str | None = None
-    target_user: str | None = None
-    department: str | None = None
-    expiry_days: int | None = None
-    justification: str | None = None
+    role: str | None = Field(default=None, max_length=200)
+    person: str | None = Field(default=None, max_length=200)
+    reason: str | None = Field(default=None, max_length=500)
+    days: int | None = Field(default=None, ge=1, le=365)
     saved_at: datetime
 
 
@@ -258,11 +256,8 @@ class TurnState(BaseModel):
     `resolve_entities`, and only for a request about the caller."""
 
     request_draft: RequestDraft | None = None
-    """The saved draft as loaded by `load_session`, before this message changes
-    it; `None` when there is none, or it is too old or badly shaped."""
-
-    draft_to_save: RequestDraft | None = None
-    """The merged draft `extract_intent` leaves for the graph to store."""
+    """The draft on the chat row as this turn knows it, read at the start and
+    changed by `note_request`; `None` when there is none or it is too old."""
 
     extraction: IntentExtraction | None = None
     prompt_version: str | None = None
