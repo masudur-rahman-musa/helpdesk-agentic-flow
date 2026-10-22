@@ -153,6 +153,7 @@ _CHANGE_INTENTS: Mapping[str, Intent] = {
     "decide_review_item": Intent.REVIEW,
     "approve_request": Intent.APPROVALS,
     "reject_request": Intent.APPROVALS,
+    "cancel_request": Intent.REQUEST_ACCESS,
     "reset_own_password": Intent.RESET_PASSWORD,
     "unlock_own_account": Intent.UNLOCK_ACCOUNT,
     "create_ticket": Intent.OPEN_TICKET,
@@ -387,6 +388,7 @@ class _Turn:
         self.messages.append(_assistant_turn(None, calls))
         for call in calls:
             self.messages.append(await self._run_held(call, ran))
+        await self._read_after_refused_cancel(ran)
         _emit(StepEvent(node=STEP_NODE, round=self.step, tools=ran))
         self.step += 1
         self.pending = (await self._ask(tools=False)).text or ""
@@ -462,6 +464,22 @@ class _Turn:
     async def fail(self, code: ErrorCode) -> None:
         """End the turn on `FAILURE_REPLY`; none of the model's output is shown."""
         self.final = await self._finish(FAILURE_REPLY, outcome=TurnOutcome.FAILED, error_code=code)
+
+    async def _read_after_refused_cancel(self, ran: list[dict[str, Any]]) -> None:
+        """A held cancel the server found already decided gets one fresh
+        `list_my_requests`, since the reply step has no tools. The reply then
+        reads the real status, and offers removal only when access was given.
+        Pinned by `test_a_cancel_refused_as_not_pending_runs_list_my_requests_once`."""
+        refused = any(
+            step["tool"] == gates.CANCEL_REQUEST
+            and step["error_code"] == ErrorCode.REQUEST_NOT_PENDING.value
+            for step in ran
+        )
+        if not refused:
+            return
+        call = ToolCall(id="held_read", name=gates.LIST_MY_REQUESTS, arguments={})
+        self.messages.append(_assistant_turn(None, [call]))
+        self.messages.append(await self._look_up(call, self.offered[call.name], ran))
 
     async def _run_held(self, call: ToolCall, ran: list[dict[str, Any]]) -> dict[str, Any]:
         """Run one stored change through MCP with the caller's own token. A

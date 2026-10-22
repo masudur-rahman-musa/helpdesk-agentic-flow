@@ -144,6 +144,10 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": False,
         "platform_admin": True,
     },
+    # A person takes back a request they filed or that was filed for them:
+    # every principal, self only. Who may cancel WHICH row is decided inside
+    # the handler (requester or target), pinned in `test_mcp_cancel_request.py`.
+    "cancel_request": dict.fromkeys(PRINCIPALS, True),
     # The matrix's `onboard_user` row: three cells, and the narrowest
     # of the lifecycle rows — `manager` and `system_owner` hold nothing here
     # even though the revoke row above gives them both a cell.
@@ -437,6 +441,8 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
     {
         "approve_request",
         "reject_request",
+        # A permitted caller naming a request nobody filed: the lookup refuses.
+        "cancel_request",
         "revoke_access",
         "onboard_user",
         "transfer_user",
@@ -510,6 +516,7 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "create_access_request",
         "approve_request",
         "reject_request",
+        "cancel_request",
         "revoke_access",
         "onboard_user",
         "transfer_user",

@@ -280,6 +280,19 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=approvals.reject_request,
     ),
     ToolSpec(
+        name=rbac.Tool.CANCEL_REQUEST.value,
+        tool=rbac.Tool.CANCEL_REQUEST,
+        description=(
+            "Cancel an access request the calling user filed, or one filed for them, "
+            "while it still waits for approval."
+        ),
+        input_model=approvals.CancelRequestInput,
+        output_model=approvals.CancelRequestOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=True,
+        handler=approvals.cancel_request,
+    ),
+    ToolSpec(
         name=rbac.Tool.RESET_OWN_PASSWORD.value,
         tool=rbac.Tool.RESET_OWN_PASSWORD,
         description="Simulated password reset for the calling user's own account.",

@@ -126,6 +126,10 @@ _CHANGES: Mapping[str, tuple[str, frozenset[rbac.Tool]]] = {
         "Propose rejecting a request listed by list_pending_approvals.",
         frozenset({rbac.Tool.REJECT_REQUEST}),
     ),
+    "cancel_request": (
+        "Propose cancelling a request listed by list_my_requests that is still pending.",
+        frozenset({rbac.Tool.CANCEL_REQUEST}),
+    ),
     "reset_own_password": (
         "Propose resetting the person's own password.",
         frozenset({rbac.Tool.RESET_OWN_PASSWORD}),

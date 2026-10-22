@@ -1,7 +1,7 @@
 """The old single-reply eval is gone and nothing live names it.
 
 What is pinned: the golden set, its checker test and the split script no
-longer exist; the 33 conversation cases do; the Makefile has no `eval` target
+longer exist; the 35 conversation cases do; the Makefile has no `eval` target
 but still has `eval-chat`; and no tracked file outside the history paths and
 the tests names the old route, files, models or command.
 
@@ -91,13 +91,13 @@ def test_the_old_eval_files_are_gone() -> None:
     that cuts too far and shrinks the conversation cases.
 
     Each file is checked on its own, so one survivor is named. The case count
-    is exactly 33 lines: a range would admit a lost or an added case.
+    is exactly 35 lines: a range would admit a lost or an added case.
     """
     survivors = [name for name in GONE_FILES if (REPO_ROOT / name).exists()]
     assert survivors == []
 
     lines = (REPO_ROOT / CONVERSATION_CASES).read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 33
+    assert len(lines) == 35
 
 
 def test_the_makefile_has_no_eval_target() -> None:

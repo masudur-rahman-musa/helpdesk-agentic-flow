@@ -70,6 +70,8 @@ EXPECTED_TOOL_NAMES = {
     "list_pending_approvals",
     "approve_request",
     "reject_request",
+    # A person takes back their own waiting request.
+    "cancel_request",
     # The one tool that takes access away.
     "revoke_access",
     # The joiner, mover and leaver tools.

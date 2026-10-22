@@ -25,6 +25,7 @@ class RequestStatus(StrEnum):
     FAILED = "failed"
     ROLLED_BACK = "rolled_back"
     EXPIRED = "expired"
+    CANCELLED = "cancelled"
 
 
 class AccessRequest(TenantScoped):

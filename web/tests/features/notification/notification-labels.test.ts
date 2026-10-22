@@ -33,6 +33,7 @@ const KINDS = [
   "request_rejected",
   "request_failed",
   "access_revoked",
+  "request_cancelled",
 ] as const;
 
 /** The six request-flow labels, pinned as text. */
@@ -71,7 +72,7 @@ describe("the six request-flow kinds", () => {
 });
 
 describe("the map and the lookup", () => {
-  it("holds exactly the ten NotificationKind members", () => {
+  it("holds exactly the eleven NotificationKind members", () => {
     // The mirror rule in the one direction the case above cannot see: a map
     // carrying a kind Python does NOT have is a vocabulary that has silently
     // drifted from `helpdesk/models/notification.py`, and a page rendering it

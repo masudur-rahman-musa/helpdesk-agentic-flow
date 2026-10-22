@@ -220,16 +220,24 @@ _FIXED_CHANGES: dict[str, str] = {
     "unlock_own_account": "I'll unlock your account.",
 }
 
-_DECISION_VERBS: dict[str, str] = {"approve_request": "approve", "reject_request": "reject"}
+_DECISION_VERBS: dict[str, str] = {
+    "approve_request": "approve",
+    "reject_request": "reject",
+    "cancel_request": "cancel",
+}
+
+_LISTINGS: dict[str, str] = {"list_pending_approvals": "approvals", "list_my_requests": "requests"}
+"""Each listing a request is named from, and the key its rows sit under."""
 
 
 def _listed_names(results: Sequence[ToolResult]) -> dict[str, str]:
     """ "REQ-0006 Data Warehouse engineer" per request id, from this turn's listings."""
     names: dict[str, str] = {}
     for result in results:
-        if result.tool != "list_pending_approvals" or not result.ok:
+        key = _LISTINGS.get(result.tool)
+        if key is None or not result.ok:
             continue
-        rows: object = result.payload.get("approvals")
+        rows: object = result.payload.get(key)
         if not isinstance(rows, list):
             continue
         for row in rows:

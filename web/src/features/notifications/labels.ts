@@ -14,6 +14,7 @@ export const NOTIFICATION_KIND_LABELS: Record<string, string> = {
   request_granted: "Access granted",
   request_rejected: "Request rejected",
   request_failed: "Request failed",
+  request_cancelled: "Request cancelled",
   access_revoked: "Access removed",
 };
 

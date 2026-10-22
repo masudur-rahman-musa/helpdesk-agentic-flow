@@ -30,6 +30,7 @@ class NotificationKind(StrEnum):
     REQUEST_GRANTED = "request_granted"
     REQUEST_REJECTED = "request_rejected"
     REQUEST_FAILED = "request_failed"
+    REQUEST_CANCELLED = "request_cancelled"
     ACCESS_REVOKED = "access_revoked"
 
 

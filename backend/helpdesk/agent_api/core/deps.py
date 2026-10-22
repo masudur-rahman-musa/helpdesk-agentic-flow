@@ -19,6 +19,7 @@ STATUS_FOR_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.SOD_CONFLICT: 409,
     ErrorCode.POLICY_BLOCKED: 409,
+    ErrorCode.REQUEST_NOT_PENDING: 409,
     ErrorCode.IDEMPOTENCY_CONFLICT: 409,
     ErrorCode.TOOL_DISABLED: 503,
     ErrorCode.INTERNAL: 500,

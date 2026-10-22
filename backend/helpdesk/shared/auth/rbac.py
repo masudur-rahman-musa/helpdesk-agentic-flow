@@ -38,6 +38,7 @@ class Tool(StrEnum):
     LIST_PENDING_APPROVALS = "list_pending_approvals"
     APPROVE_REQUEST = "approve_request"
     REJECT_REQUEST = "reject_request"
+    CANCEL_REQUEST = "cancel_request"
     REVOKE_ACCESS = "revoke_access"
     ONBOARD_USER = "onboard_user"
     TRANSFER_USER = "transfer_user"
@@ -131,6 +132,8 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.RESET_OWN_PASSWORD: _all(Scope.SELF_ONLY),
         Tool.UNLOCK_OWN_ACCOUNT: _all(Scope.SELF_ONLY),
         Tool.CREATE_ACCESS_REQUEST_SELF: _all(Scope.SELF_ONLY),
+        # Only a request the caller filed or is the target of; the tool checks which.
+        Tool.CANCEL_REQUEST: _all(Scope.SELF_ONLY),
         # A notification goes to one person, so everyone may read and
         # clear their own.
         Tool.LIST_NOTIFICATIONS: _all(Scope.SELF_ONLY),

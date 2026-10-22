@@ -50,6 +50,7 @@ SPEC_CODES: tuple[str, ...] = (
     "TOOL_DISABLED",
     "VALIDATION",
     "INTERNAL",
+    "REQUEST_NOT_PENDING",
 )
 
 # Every typed error the package exposes today, with the code it must carry.
@@ -85,8 +86,8 @@ def test_error_codes_are_exactly_the_spec_set() -> None:
     assert {member.value for member in ErrorCode} == set(SPEC_CODES)
 
 
-def test_there_are_eight_codes() -> None:
-    assert len(list(ErrorCode)) == len(SPEC_CODES) == 8
+def test_there_are_nine_codes() -> None:
+    assert len(list(ErrorCode)) == len(SPEC_CODES) == 9
 
 
 @pytest.mark.parametrize("code", SPEC_CODES)

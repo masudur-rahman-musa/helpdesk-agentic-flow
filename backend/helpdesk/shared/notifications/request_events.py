@@ -116,6 +116,23 @@ def plan_approval_needed(
 ) -> list[Planned]:
     """Every open seat's person; a group seat reaches every active holder.
     The requester and the target never approve, so they are never asked."""
+    parties = {facts.requester_id, facts.target_id}
+    return _each_once(
+        (person for person in _open_seat_people(seats, holders) if person not in parties),
+        actor_id=actor_id,
+        kind=NotificationKind.APPROVAL_NEEDED,
+        title=_title(facts),
+        body=(
+            f"{facts.number} asks for {facts.role_name} and waits for your approval. "
+            "Open Approvals to decide."
+        ),
+    )
+
+
+def _open_seat_people(
+    seats: Sequence[SlotState], holders: Mapping[ApproverSlot, Sequence[Holder]]
+) -> list[uuid.UUID]:
+    """Who sits on each open seat; a group seat is every active holder."""
     people: list[uuid.UUID] = []
     for seat in seats:
         if not seat.is_open:
@@ -128,15 +145,26 @@ def plan_approval_needed(
             for holder in holders.get(seat.slot, ())
             if holder.status == TargetStatus.ACTIVE.value
         )
+    return people
+
+
+def plan_cancelled(
+    facts: RequestFacts,
+    seats: Sequence[SlotState],
+    holders: Mapping[ApproverSlot, Sequence[Holder]],
+    *,
+    actor_id: uuid.UUID | None,
+) -> list[Planned]:
+    """Approvers on seats still open, so nobody opens a request with nothing
+    left to decide. Decided seats, the requester and the target are not told."""
     parties = {facts.requester_id, facts.target_id}
     return _each_once(
-        (person for person in people if person not in parties),
+        (person for person in _open_seat_people(seats, holders) if person not in parties),
         actor_id=actor_id,
-        kind=NotificationKind.APPROVAL_NEEDED,
+        kind=NotificationKind.REQUEST_CANCELLED,
         title=_title(facts),
         body=(
-            f"{facts.number} asks for {facts.role_name} and waits for your approval. "
-            "Open Approvals to decide."
+            f"{facts.number} for {facts.role_name} was cancelled. There is nothing left to decide."
         ),
     )
 
@@ -254,6 +282,17 @@ async def _send_about(
     await send(session, planned, subject_type=_REQUEST_SUBJECT, subject_id=str(request.id))
 
 
+async def _open_group_holders(
+    session: AsyncSession, seats: Sequence[SlotState]
+) -> dict[ApproverSlot, Sequence[Holder]]:
+    holders: dict[ApproverSlot, Sequence[Holder]] = {}
+    for seat in seats:
+        principal = _GROUP_PRINCIPALS.get(seat.slot)
+        if seat.is_open and seat.user_id is None and principal is not None:
+            holders[seat.slot] = await fetch_active_holders(session, principal.value)
+    return holders
+
+
 async def notify_approval_needed(
     session: AsyncSession,
     request: AccessRequest,
@@ -261,15 +300,23 @@ async def notify_approval_needed(
     *,
     actor_id: uuid.UUID | None,
 ) -> None:
-    holders: dict[ApproverSlot, Sequence[Holder]] = {}
-    for seat in seats:
-        principal = _GROUP_PRINCIPALS.get(seat.slot)
-        if seat.is_open and seat.user_id is None and principal is not None:
-            holders[seat.slot] = await fetch_active_holders(session, principal.value)
+    holders = await _open_group_holders(session, seats)
     facts = await _facts(session, request)
     await _send_about(
         session, request, plan_approval_needed(facts, seats, holders, actor_id=actor_id)
     )
+
+
+async def notify_cancelled(
+    session: AsyncSession,
+    request: AccessRequest,
+    seats: Sequence[SlotState],
+    *,
+    actor_id: uuid.UUID | None,
+) -> None:
+    holders = await _open_group_holders(session, seats)
+    facts = await _facts(session, request)
+    await _send_about(session, request, plan_cancelled(facts, seats, holders, actor_id=actor_id))
 
 
 async def notify_progress(

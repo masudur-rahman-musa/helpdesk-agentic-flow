@@ -92,10 +92,11 @@ def test_the_one_map_has_a_row_for_every_code() -> None:
         ErrorCode.SOD_CONFLICT: 409,
         ErrorCode.POLICY_BLOCKED: 409,
         ErrorCode.IDEMPOTENCY_CONFLICT: 409,
+        ErrorCode.REQUEST_NOT_PENDING: 409,
         ErrorCode.TOOL_DISABLED: 503,
         ErrorCode.INTERNAL: 500,
     }
-    assert len(deps.STATUS_FOR_CODE) == 8
+    assert len(deps.STATUS_FOR_CODE) == 9
 
 
 # --- chat no longer carries its own map ---------------------------------------

@@ -48,6 +48,7 @@ from helpdesk.agent_api.services.mcp_client import (
     RemoteInternalError,
     RemoteNotFoundError,
     RemotePolicyBlockedError,
+    RemoteRequestNotPendingError,
     RemoteSodConflictError,
     RemoteToolDisabledError,
     RemoteToolError,
@@ -84,6 +85,7 @@ PLANNED_REMOTE_ERRORS: dict[str, str] = {
     "TOOL_DISABLED": "RemoteToolDisabledError",
     "VALIDATION": "RemoteValidationError",
     "INTERNAL": "RemoteInternalError",
+    "REQUEST_NOT_PENDING": "RemoteRequestNotPendingError",
 }
 """The eight codes and the class each maps to, as a literal.
 
@@ -196,8 +198,8 @@ def test_remote_errors_covers_every_error_code_exactly_once() -> None:
     user can act on — down the same `INTERNAL` path as an unreachable socket,
     so the reason a request was blocked is lost at the client boundary."""
     assert set(REMOTE_ERRORS) == set(ErrorCode)
-    assert len(REMOTE_ERRORS) == 8
-    assert len(set(REMOTE_ERRORS.values())) == 8
+    assert len(REMOTE_ERRORS) == 9
+    assert len(set(REMOTE_ERRORS.values())) == 9
 
 
 @pytest.mark.parametrize(
@@ -219,8 +221,8 @@ def test_each_code_maps_to_the_subclass_that_declares_it(code_value: str, class_
     assert issubclass(mapped, ToolError)
 
 
-def test_the_eight_named_subclasses_are_exactly_the_mapped_ones() -> None:
-    """Catches a ninth remote error class added beside the eight — a second
+def test_the_nine_named_subclasses_are_exactly_the_mapped_ones() -> None:
+    """Catches a tenth remote error class added beside the nine — a second
     answer for a code the error list closes — and a subclass declared but never
     reachable through the map, which is a code the client can never raise."""
     named = {
@@ -228,6 +230,7 @@ def test_the_eight_named_subclasses_are_exactly_the_mapped_ones() -> None:
         RemoteNotFoundError,
         RemoteSodConflictError,
         RemotePolicyBlockedError,
+        RemoteRequestNotPendingError,
         RemoteIdempotencyConflictError,
         RemoteToolDisabledError,
         RemoteValidationError,

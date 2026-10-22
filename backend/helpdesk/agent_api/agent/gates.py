@@ -22,6 +22,11 @@ ALREADY_REQUESTED = "already_requested"
 
 APPROVE_REQUEST = "approve_request"
 REJECT_REQUEST = "reject_request"
+CANCEL_REQUEST = "cancel_request"
+
+LIST_MY_REQUESTS = "list_my_requests"
+"""The listing a cancel is named from, and read again when a held cancel
+finds the request already decided."""
 
 LIST_PENDING_APPROVALS = "list_pending_approvals"
 """The listing an approval in chat must come from."""

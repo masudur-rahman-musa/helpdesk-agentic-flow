@@ -23,6 +23,7 @@ const STATUS_TONES: ReadonlyMap<string, BadgeTone> = new Map<string, BadgeTone>(
   ["revoke", "danger"],
   ["rolled_back", "neutral"],
   ["expired", "neutral"],
+  ["cancelled", "neutral"],
 ]);
 
 /** Unknown status is `neutral`. A Map, so `constructor` is unknown too. */

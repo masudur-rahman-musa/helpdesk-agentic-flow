@@ -201,6 +201,11 @@ class RejectRequestArgs(_MutatingToolArgs):
     reason: str = Field(description="Why it is being rejected.")
 
 
+class CancelRequestArgs(_MutatingToolArgs):
+    request_id: uuid.UUID = Field(description="The person's own waiting request to cancel.")
+    reason: str | None = Field(default=None, description="An optional note for the audit trail.")
+
+
 class ResetOwnPasswordArgs(_MutatingToolArgs):
     """No arguments beyond the key: the account reset is the token user's own."""
 
@@ -267,6 +272,7 @@ TOOL_INPUTS: Mapping[str, type[BaseModel]] = MappingProxyType(
         "list_pending_approvals": ListPendingApprovalsArgs,
         "approve_request": ApproveRequestArgs,
         "reject_request": RejectRequestArgs,
+        "cancel_request": CancelRequestArgs,
         "reset_own_password": ResetOwnPasswordArgs,
         "unlock_own_account": UnlockOwnAccountArgs,
         SEARCH_POLICY: SearchPolicyArgs,

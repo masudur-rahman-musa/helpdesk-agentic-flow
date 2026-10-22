@@ -56,6 +56,12 @@ class RemotePolicyBlockedError(RemoteToolError):
     code = ErrorCode.POLICY_BLOCKED
 
 
+class RemoteRequestNotPendingError(RemoteToolError):
+    """The request was already decided, so it can no longer be cancelled."""
+
+    code = ErrorCode.REQUEST_NOT_PENDING
+
+
 class RemoteIdempotencyConflictError(RemoteToolError):
     """The same key was reused for a different request."""
 
@@ -86,6 +92,7 @@ REMOTE_ERRORS: Mapping[ErrorCode, type[RemoteToolError]] = MappingProxyType(
         ErrorCode.NOT_FOUND: RemoteNotFoundError,
         ErrorCode.SOD_CONFLICT: RemoteSodConflictError,
         ErrorCode.POLICY_BLOCKED: RemotePolicyBlockedError,
+        ErrorCode.REQUEST_NOT_PENDING: RemoteRequestNotPendingError,
         ErrorCode.IDEMPOTENCY_CONFLICT: RemoteIdempotencyConflictError,
         ErrorCode.TOOL_DISABLED: RemoteToolDisabledError,
         ErrorCode.VALIDATION: RemoteValidationError,
@@ -241,6 +248,7 @@ __all__ = [
     "RemoteInternalError",
     "RemoteNotFoundError",
     "RemotePolicyBlockedError",
+    "RemoteRequestNotPendingError",
     "RemoteSodConflictError",
     "RemoteToolDisabledError",
     "RemoteToolError",

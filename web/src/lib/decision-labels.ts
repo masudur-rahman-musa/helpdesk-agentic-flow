@@ -49,6 +49,7 @@ export const STATUS_LABELS: Record<string, string> = {
   rejected: "Rejected",
   executed: "Access granted",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 /** `helpdesk.auth.rbac.Principal`, in the enum's own order. */

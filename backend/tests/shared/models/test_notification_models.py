@@ -109,7 +109,7 @@ def test_the_notifications_table_carries_the_composite_tenant_index() -> None:
     assert composite, "notifications needs a composite index led by tenant_id"
 
 
-def test_the_notification_kind_enum_has_exactly_the_ten_planned_members() -> None:
+def test_the_notification_kind_enum_has_exactly_the_eleven_planned_members() -> None:
     """The set is widened by six request-flow kinds, because the
     request tools and `revoke_grant_row` write them.
 
@@ -134,6 +134,7 @@ def test_the_notification_kind_enum_has_exactly_the_ten_planned_members() -> Non
         "request_rejected",
         "request_failed",
         "access_revoked",
+        "request_cancelled",
     }
     assert NotificationKind.APPROVAL_NEEDED.value == "approval_needed"
     assert NotificationKind.REQUEST_PROGRESS.value == "request_progress"

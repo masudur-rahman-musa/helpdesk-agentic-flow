@@ -132,9 +132,10 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
         "unlock_own_account",
         "search_policy",
         "create_ticket",
+        "cancel_request",
     }
 )
-"""Every tool the agent may reach, as a literal: twenty-one.
+"""Every tool the agent may reach, as a literal: twenty-two.
 
 Counted from the server's own `REGISTRY` — thirty specs — less the seven
 in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools
@@ -158,9 +159,10 @@ MUTATING_TOOLS: frozenset[str] = frozenset(
         "reset_own_password",
         "unlock_own_account",
         "create_ticket",
+        "cancel_request",
     }
 )
-"""The twelve catalogued tools whose registry spec says `mutating=True`.
+"""The thirteen catalogued tools whose registry spec says `mutating=True`.
 
 Counted from `REGISTRY` and written out here, because agent-api never imports
 mcp-server: these are exactly the tools whose wire input carries
@@ -208,7 +210,7 @@ def test_the_args_model_defaults_top_k_to_the_catalogue_constant() -> None:
     assert SearchPolicyArgs.model_fields["top_k"].default == SEARCH_POLICY_TOP_K
 
 
-def test_tool_inputs_holds_exactly_the_twenty_one_tools_the_agent_may_reach() -> None:
+def test_tool_inputs_holds_exactly_the_twenty_two_tools_the_agent_may_reach() -> None:
     """Catches a
     catalogue short of a tool — a name in an `INTENT_TOOLS` row that no model
     validates, so its arguments reach the server unchecked — and one that
@@ -222,7 +224,7 @@ def test_tool_inputs_holds_exactly_the_twenty_one_tools_the_agent_may_reach() ->
     mapping lets a node register a tool at runtime, and a tool registered at
     runtime is a tool the drift sweep below never compares."""
     assert set(TOOL_INPUTS) == CATALOGUED_TOOLS
-    assert len(TOOL_INPUTS) == 21
+    assert len(TOOL_INPUTS) == 22
     assert ADMIN_TOOLS.isdisjoint(TOOL_INPUTS)
     assert TOOL_INPUTS[SEARCH_POLICY] is SearchPolicyArgs
     assert isinstance(TOOL_INPUTS, MappingProxyType)
@@ -360,7 +362,7 @@ def test_the_planner_facing_schema_is_the_wire_schema_minus_the_idempotency_key(
     name: str,
 ) -> None:
     """Over every tool rather than the
-    mutating twelve, because the read tools are what catch the opposite defect.
+    mutating thirteen, because the read tools are what catch the opposite defect.
 
     Catches a projection that returns the wire schema untouched — the model
     would then be shown a required `idempotency_key`, name one, and have it

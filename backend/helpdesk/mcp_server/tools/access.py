@@ -516,7 +516,7 @@ async def revoke_access(ctx: ToolContext, args: RevokeAccessInput) -> RevokeAcce
 
 
 async def list_my_requests(ctx: ToolContext, args: ListMyRequestsInput) -> ListMyRequestsOutput:
-    """The requests the token user has filed, optionally by status."""
+    """The requests the token user has filed or that were filed for them, optionally by status."""
     rows = await list_requests_with_context_for_requester(
         ctx.session,
         ctx.identity.user_id,

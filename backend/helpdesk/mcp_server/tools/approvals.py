@@ -1,4 +1,4 @@
-"""The three approval tools: the queue and the two decisions.
+"""The approval tools: the queue, the two decisions, and a person's own cancel.
 
 Both decisions lock the row first: two approvers on the last seat send
 different idempotency keys, so only the lock stops a double grant. When
@@ -31,6 +31,7 @@ from helpdesk.shared.access.approvals import (
     parse_slots,
     request_in_scope,
 )
+from helpdesk.shared.access.cancel import cancel_own_request
 from helpdesk.shared.access.execute import (
     PolicyBlockedAtExecutionError,
     SodConflictAtExecutionError,
@@ -47,6 +48,7 @@ from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System
 from helpdesk.shared.models.numbers import NumberKind, format_number
 from helpdesk.shared.notifications.request_events import (
+    notify_cancelled,
     notify_failed,
     notify_granted,
     notify_progress,
@@ -58,6 +60,9 @@ from helpdesk.shared.policy.types import ApproverSlot
 REQUEST_APPROVED_EVENT_TYPE = "request.approved"
 """Decision event, appended by the handler so it names the request and
 the seat, which the pipeline's own event cannot."""
+
+REQUEST_CANCELLED_EVENT_TYPE = "request.cancelled"
+"""A person took back their own request; nothing was decided."""
 
 _ACTOR_KIND = "user"
 _SUBJECT_TYPE = "access_request"
@@ -435,5 +440,47 @@ async def reject_request(ctx: ToolContext, args: RejectRequestInput) -> RejectRe
         request_number=format_number(NumberKind.ACCESS_REQUEST, request.number),
         status=RequestStatus.REJECTED,
         slot=slots[index].slot,
+        role_name=await plain_role_name_for(ctx.session, request.role_id),
+    )
+
+
+class CancelRequestInput(RequestDecisionInput):
+    """Input for `cancel_request`. The reason is optional; a person need not
+    explain taking back their own request."""
+
+    reason: str | None = Field(default=None, min_length=1, max_length=REASON_MAX_LENGTH)
+
+
+class CancelRequestOutput(BaseModel):
+    request_id: uuid.UUID
+    request_number: str
+    status: RequestStatus
+    role_name: str = ""
+    """The requested role in plain words."""
+
+
+async def cancel_request(ctx: ToolContext, args: CancelRequestInput) -> CancelRequestOutput:
+    """Take back a request the caller filed or is the target of, while it waits.
+
+    Approvers on seats still open are told; seats already approved stay.
+    """
+    request = await cancel_own_request(
+        ctx.session, args.request_id, caller_user_id=ctx.identity.user_id
+    )
+    await _append(
+        ctx.session,
+        ctx.identity,
+        REQUEST_CANCELLED_EVENT_TYPE,
+        request,
+        {"reason": args.reason},
+        ctx.now,
+    )
+    await notify_cancelled(
+        ctx.session, request, parse_slots(request.approvals), actor_id=ctx.identity.user_id
+    )
+    return CancelRequestOutput(
+        request_id=request.id,
+        request_number=format_number(NumberKind.ACCESS_REQUEST, request.number),
+        status=RequestStatus.CANCELLED,
         role_name=await plain_role_name_for(ctx.session, request.role_id),
     )

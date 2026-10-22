@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.models import AccessRequest, Grant, RequestStatus, Role, System, User
@@ -31,9 +31,10 @@ async def list_requests_with_context_for_requester(
     status: str | None,
     limit: int,
 ) -> Sequence[RequestWithContext]:
-    """Requests filed by this user, with names and any grant, oldest first.
+    """Requests filed by this user or for them, with names and any grant, oldest first.
 
-    Filtered by requester, so an on-behalf request belongs to the manager.
+    An on-behalf request shows to both the manager who filed it and the
+    person it is for, so either can find it and cancel it.
     Whole rows are selected so the tenant guard scopes all five tables. The
     grant join is a LEFT join, so ungranted requests are kept.
     """
@@ -43,7 +44,12 @@ async def list_requests_with_context_for_requester(
         .join(System, System.id == Role.system_id)
         .join(User, User.id == AccessRequest.target_user_id)
         .outerjoin(Grant, Grant.request_id == AccessRequest.id)
-        .where(AccessRequest.requester_user_id == requester_user_id)
+        .where(
+            or_(
+                AccessRequest.requester_user_id == requester_user_id,
+                AccessRequest.target_user_id == requester_user_id,
+            )
+        )
     )
     if status is not None:
         statement = statement.where(AccessRequest.status == status)
