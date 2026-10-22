@@ -184,7 +184,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex min-h-[calc(100dvh-var(--shell-offset))] w-full flex-col gap-4 lg:flex-row">
+    <div className="flex min-h-[calc(100dvh-var(--shell-offset))] w-full flex-col gap-4 lg:h-[calc(100dvh-var(--shell-offset))] lg:flex-row">
       <ChatList
         chats={chatList.data}
         activeId={chatId}
@@ -192,7 +192,7 @@ export function ChatPanel() {
         onNew={newChat}
         failed={chatList.isError}
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-4 lg:min-h-0 lg:overflow-y-auto">
         <h1 className="text-lg font-semibold">Chat</h1>
 
         <Conversation messages={messages} live={live} working={working} />
@@ -219,7 +219,7 @@ export function ChatPanel() {
       {showSteps ? (
         <aside
           aria-label="Tool steps column"
-          className="w-full lg:w-80 lg:shrink-0 lg:self-end lg:pb-4"
+          className="w-full lg:max-h-full lg:w-80 lg:shrink-0 lg:self-end lg:overflow-y-auto lg:pb-4"
         >
           <ToolSteps steps={steps} />
         </aside>

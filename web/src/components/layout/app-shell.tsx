@@ -22,7 +22,7 @@ export function AppShell({
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <SkipLink />
       <DemoBanner />
-      <header className="border-b border-border bg-card">
+      <header className="sticky top-0 z-30 border-b border-border bg-card">
         <Container>
           <div className="flex h-14 items-center justify-between gap-4">
             <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
