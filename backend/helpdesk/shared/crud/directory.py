@@ -37,15 +37,18 @@ async def fetch_live_role_ids_for_user(
 
 
 async def list_role_catalogue(
-    session: AsyncSession, system_slug: str | None, limit: int
+    session: AsyncSession, system_slug: str | None, limit: int | None
 ) -> Sequence[tuple[Role, System]]:
     """The tenant's roles with their systems, by system then role slug.
 
     Whole rows are selected so the tenant guard scopes both tables. The
-    system filter is an exact slug match.
+    system filter is an exact slug match. A `None` limit reads every role.
     """
     query = select(Role, System).join(System, System.id == Role.system_id)
     if system_slug is not None:
         query = query.where(System.slug == system_slug)
-    result = await session.execute(query.order_by(System.slug, Role.slug).limit(limit))
+    query = query.order_by(System.slug, Role.slug)
+    if limit is not None:
+        query = query.limit(limit)
+    result = await session.execute(query)
     return [(role, system) for role, system in result.all()]

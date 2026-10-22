@@ -1,4 +1,4 @@
-"""The request tools write the notifications of an earlier change, through the transport.
+"""The request tools write the request notifications, through the transport.
 
 Surface under test (written before it exists):
 

@@ -45,6 +45,13 @@ helpdesk-mcp-stdio = "helpdesk.mcp_server.main:run_stdio"
 requires = ["uv_build>=0.12"]
 build-backend = "uv_build"
 
+[tool.uv]
+# fastembed caps pillow below 13, but pillow 12 carries security fixes only 13
+# has (`make security` fails on them). fastembed uses pillow for its image
+# models only; this project embeds text. Drop this once fastembed allows 13.
+# Added 2026-10-22.
+override-dependencies = ["pillow>=13"]
+
 [tool.uv.build-backend]
 module-name = "helpdesk"
 module-root = ""
@@ -78,7 +85,8 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-extend-exclude = [".claude"]
+# `dev/` holds the owner's own working scripts, which never ship, so no check reads them.
+extend-exclude = [".claude", "dev"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

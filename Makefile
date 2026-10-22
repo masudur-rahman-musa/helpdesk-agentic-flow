@@ -84,6 +84,9 @@ web-verify: ## The web gate: types, lint, unit tests, production build
 # is added only with a comment carrying the reason and the date.
 # --no-emit-workspace drops the local editable lines, which pip-audit cannot
 # hash and which are this repo's own code anyway.
+# --disable-pip reads the exported versions as they are, hashes and all, instead
+# of letting pip solve them again: pip does not see uv's pillow override in
+# backend/pyproject.toml, so it would refuse the very set the lock file holds.
 #
 # Compose configuration. Both compose files, because the override example is
 # copied verbatim by anyone running the stack locally. infra/.trivyignore is
@@ -93,7 +96,7 @@ security:   ## Secret scan, Python and web advisories, compose config scan (need
 	  detect --source=/repo --config=/repo/.gitleaks.toml --no-banner \
 	  --baseline-path=/repo/.gitleaks-baseline.json
 	cd backend && uv export --frozen --no-emit-project --no-emit-workspace --format requirements-txt \
-	  --output-file requirements-audit.txt && uvx pip-audit --strict -r requirements-audit.txt
+	  --output-file requirements-audit.txt && uvx pip-audit --strict --disable-pip -r requirements-audit.txt
 	cd web && pnpm audit --audit-level high
 	docker run --rm -v "$(CURDIR):/work" -w /work aquasec/trivy:0.58.1 \
 	  config --severity HIGH,CRITICAL --exit-code 1 --ignorefile infra/.trivyignore \

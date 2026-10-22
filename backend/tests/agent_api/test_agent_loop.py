@@ -692,7 +692,7 @@ def test_deadline_with_no_results_gives_the_fixed_line(delay: timedelta, timed_o
 
 def test_decision_word_breach_is_sent_back_once() -> None:
     """Catches a loop that lets "granted" through when no tool result says so,
-    that sends the breach back only once, that gives the model
+    that sends the breach back only once (it goes back twice), that gives the model
     no way to fix it (the reason, with no tools), that sends a third breach
     back too, or that ends the third breach on the model's own words instead of
     the fixed fallback line.
@@ -915,7 +915,7 @@ def test_stream_yields_steps_then_reply() -> None:
     assert reply.reply_data["reply"] == ran.reply
 
 
-# --- an earlier change: the confirmation, the yes path and the wider grounding check ---------
+# --- the confirmation, the yes path and the wider grounding check ---------
 
 STORED_KEY = "stored-key-0001"
 FILED_REPLY = "Done. REQ-0001 is filed and still pending."

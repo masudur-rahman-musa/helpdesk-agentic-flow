@@ -9,7 +9,7 @@ Three kinds. A lookup is an MCP read tool, run as asked. A finder
 (`find_role`, `find_person`) runs here, so loose words, typos and picks
 become real rows without a new MCP tool. A change is an MCP mutating tool
 the loop only holds for a yes; it is offered with its planner schema, which
-has no idempotency key (`test_agent_loop.py`).
+has no idempotency key.
 """
 
 import difflib

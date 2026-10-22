@@ -323,8 +323,7 @@ async def create_access_request(
     )
     classification = classify(snapshot)
 
-    # Checked in the tool, not only the agent, so no planner can file twice
-    # (a design note, `test_create_returns_open_request_instead_of_filing`).
+    # Checked in the tool, not only the agent, so no planner can file twice.
     open_request = await open_request_for_target_role(
         ctx.session, args.target_user_id, args.role_id
     )

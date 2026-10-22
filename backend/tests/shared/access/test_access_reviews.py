@@ -96,6 +96,7 @@ from tests.shared.access.test_access_snapshot import (
     ROWS,
     access_db_url,  # noqa: F401
 )
+from tests.support.mcp import SeededMcp, TempDatabaseFactory
 
 OTHER_TENANT_ROWS = generate_tenant(CUAN)
 
@@ -2319,3 +2320,58 @@ def test_list_items_answers_the_same_orm_rows_as_the_widened_read(
     assert len(narrow_ids) == 3
     assert narrow_ids == widened_ids
     assert are_orm_rows == [True, True, True]
+
+
+# --- the copy every test in this suite plants into -------------------------------
+
+
+def test_the_copy_holds_no_review_the_shared_database_got_later(
+    mcp_pg: TempDatabaseFactory, seeded_mcp_db: SeededMcp
+) -> None:
+    """Catches a per-file copy made from the SHARED database instead of from the
+    pristine one: a review written into the shared database by another file
+    before the copy is cloned would then be in this suite's copy too, and a
+    count or a period check here would pass or fail on file order.
+
+    The review is written into the shared database FIRST (and proved there), and
+    only then is a fresh clone taken from `clean_database_url`. A clone of
+    `database_url` carries the row, so only cloning the pristine copy keeps it
+    out.
+    """
+    clean_url = seeded_mcp_db.clean_database_url
+    shared_url = seeded_mcp_db.database_url
+    review_id = uuid.uuid4()
+    reviewer = ROWS.users_by_department["IT"][0].id
+    department_id = _rows(
+        shared_url,
+        "SELECT id FROM departments WHERE tenant_id = :tenant LIMIT 1",
+        {"tenant": ROWS.tenant_id},
+    )[0][0]
+    _execute(
+        shared_url,
+        "INSERT INTO access_reviews (id, tenant_id, reviewer_user_id, department_id,"
+        " period, status) VALUES (:id, :tenant, :reviewer, :department, '2090-Q1', 'open')",
+        {
+            "id": review_id,
+            "tenant": ROWS.tenant_id,
+            "reviewer": reviewer,
+            "department": department_id,
+        },
+    )
+    clone_url: str | None = None
+    try:
+        in_shared = _rows(
+            shared_url, "SELECT id FROM access_reviews WHERE id = :id", {"id": review_id}
+        )
+        assert len(in_shared) == 1, "premise: the shared database holds the planted review"
+
+        clone_url = mcp_pg.clone(clean_url)
+
+        assert (
+            _rows(clone_url, "SELECT id FROM access_reviews WHERE id = :id", {"id": review_id})
+            == []
+        )
+    finally:
+        if clone_url is not None:
+            mcp_pg.drop(clone_url)
+        _execute(shared_url, "DELETE FROM access_reviews WHERE id = :id", {"id": review_id})

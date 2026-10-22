@@ -34,6 +34,8 @@ import pytest
 
 from helpdesk.mcp_server.core import rag_clients
 from helpdesk.mcp_server.services.rag.embedding import SparseVector
+from helpdesk.mcp_server.services.rag.role_suggestions import TextVectorCache
+from helpdesk.mcp_server.tools import role_suggest
 from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.auth import rbac
 from scripts.seed import CUAN, NORDLICHT, TenantSpec
@@ -86,6 +88,9 @@ def embedder(monkeypatch: pytest.MonkeyPatch) -> TextOnlyEmbedder:
     """The fake, installed where the handler reads the process embedder."""
     model = TextOnlyEmbedder()
     monkeypatch.setattr(rag_clients, "embedder", lambda: model)
+    # A fresh cache too: vectors another file's embedder left in it would not
+    # match this one's width.
+    monkeypatch.setattr(role_suggest, "_CACHE", TextVectorCache())
     return model
 
 
@@ -313,3 +318,57 @@ def test_a_system_phrase_finds_its_roles(mcp_env: SeededMcp, embedder: TextOnlyE
     assert roles[0]["score"] == pytest.approx(1.0)
     assert all(set(role) == ROLE_FIELDS for role in roles), roles
     assert all("about" not in role for role in roles)
+
+
+@pytest.fixture
+def many_early_roles(mcp_env: SeededMcp) -> Iterator[int]:
+    """201 roles of one planted system of tenant A, whose system slug and role
+    slugs all sort BEFORE every seeded slug (and so before `wiki`). Yields the
+    count. Removed again afterwards, so no other case sees them."""
+    count = 201
+    system_id = uuid.uuid4()
+    suffix = system_id.hex[:8]
+    sql_execute(
+        mcp_env.database_url,
+        "INSERT INTO systems (id, tenant_id, slug, name, sensitivity)"
+        " VALUES (:id, :t, :slug, 'Fake Bulk System', 'low')",
+        {"id": system_id, "t": mcp_env.tenant_a.tenant_id, "slug": f"0-fake-bulk-{suffix}"},
+    )
+    try:
+        for index in range(count):
+            sql_execute(
+                mcp_env.database_url,
+                "INSERT INTO roles (id, tenant_id, system_id, slug, name, privilege,"
+                " default_expiry_days) VALUES (:id, :t, :sys, :slug, :name, 'read', 90)",
+                {
+                    "id": uuid.uuid4(),
+                    "t": mcp_env.tenant_a.tenant_id,
+                    "sys": system_id,
+                    "slug": f"fake-a{index:03d}",
+                    "name": f"Fake Bulk Role {index:03d}",
+                },
+            )
+        yield count
+    finally:
+        sql_execute(
+            mcp_env.database_url, "DELETE FROM roles WHERE system_id = :s", {"s": system_id}
+        )
+        sql_execute(mcp_env.database_url, "DELETE FROM systems WHERE id = :id", {"id": system_id})
+
+
+@pytest.mark.db
+def test_a_role_past_the_first_two_hundred_is_still_offered(
+    mcp_env: SeededMcp, embedder: TextOnlyEmbedder, many_early_roles: int
+) -> None:
+    """Catches a tool that scores only the first 200 roles (by system slug, then
+    role slug) of the tenant: 201 planted roles sort ahead of every `wiki` role,
+    so a capped read never sees the wiki, whose phrase equals the query and
+    which must come first.
+    """
+    assert many_early_roles > 200, "premise: more planted roles than the old cap"
+
+    roles = _roles(_call(mcp_env.tenant_a, {"query": "team pages"}))
+
+    assert roles, "something must be offered"
+    assert roles[0]["system_slug"] == "wiki"
+    assert roles[0]["score"] == pytest.approx(1.0)

@@ -257,7 +257,7 @@ async def _run_mutating_tool(
     result = _success_result(output)
     if guarded.response.get(NOTHING_DONE_FIELD) is True and not guarded.replayed:
         # The tool found the thing already done and changed nothing, so its
-        # own event would be a false record (`test_create_returns_open_request_instead_of_filing`).
+        # own event would be a false record.
         return result
     event_type = REPLAYED_EVENT_TYPE if guarded.replayed else spec.event_type
     await _append(ctx.session, ctx.identity, spec, event_type, scope, None, None, ctx.now)

@@ -3,10 +3,9 @@
 Pure, so the yes that files a request is read by fixed word lists, never by the
 model: a misread yes would file. The open question is stored on the
 chat row as plain JSON and checked here on every read. The question is a
-summary of what a yes files: the role in plain words, the days and the reason
-(a design note, `test_confirm_answer.py`). Every other change gets its own
-code-written line per tool, ending `CHANGE_LINE` (a design note,
-`test_confirm_every_change.py`).
+summary of what a yes files: the role in plain words, the days and the reason.
+Every other change gets its own code-written line per tool, ending
+`CHANGE_LINE`.
 """
 
 import re

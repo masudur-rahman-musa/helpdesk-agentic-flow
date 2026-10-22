@@ -25,10 +25,18 @@ export function useChatHistory(chatId: string | null) {
   });
 }
 
-/** A function that reloads the chat list, for after a reply names a new chat. */
-export function useRefreshChatList(): () => void {
+/**
+ * A function to run after each reply: it reloads the chat list, since a reply
+ * may name a new chat, and the person's requests and tickets, so one made in
+ * the turn shows at once.
+ */
+export function useRefreshAfterReply(): () => void {
   const client = useQueryClient();
-  return () => void client.invalidateQueries({ queryKey: queryKeys.chatList });
+  return () => {
+    void client.invalidateQueries({ queryKey: queryKeys.chatList });
+    void client.invalidateQueries({ queryKey: queryKeys.myRequests });
+    void client.invalidateQueries({ queryKey: queryKeys.myTickets });
+  };
 }
 
 /** The person's chats, newest first. */

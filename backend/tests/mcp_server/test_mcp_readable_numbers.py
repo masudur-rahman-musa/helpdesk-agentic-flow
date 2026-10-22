@@ -50,10 +50,11 @@ REJECT = "reject_request"
 
 ROWS = generate_tenant(NORDLICHT)
 
-# Production index 2 has no planted anomaly (the create tests use it too); the
-# deployer role on `prod-k8s` is outside its template, so the request is filed
-# `pending` and no grant is made.
-CLEAN_USER = ROWS.users_by_department["Production"][2]
+# Production index 18 has no planted anomaly and no other file files for them.
+# A repeat of an open request answers with the first one, so a pair another
+# file also files would draw no new number. The deployer role on `prod-k8s` is
+# outside the template, so the request is filed `pending` and no grant is made.
+CLEAN_USER = ROWS.users_by_department["Production"][18]
 APPROVAL_ROLE = ROWS.role_ids[("prod-k8s", "deployer")]
 # Two Production users no other file uses, for the planted-queue case.
 APPROVER = ROWS.users_by_department["Production"][33]
@@ -206,6 +207,7 @@ def test_create_access_request_answers_with_its_request_number(
     stored = _stored_number(
         mcp_env.database_url, "access_requests", uuid.UUID(str(payload["request_id"]))
     )
+    assert payload["already_requested"] is False
     assert stored > before
     assert payload["request_number"] == format_number(NumberKind.ACCESS_REQUEST, stored)
     assert re.fullmatch(r"REQ-\d{4,}", payload["request_number"])

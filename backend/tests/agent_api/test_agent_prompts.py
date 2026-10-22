@@ -1,4 +1,4 @@
-"""The prompt loader and the shipped prompt file.
+"""The prompt loader and the shipped prompt file (the loop's only prompt).
 
 ``agent_api.agent.prompts``
     ``PROMPTS_DIR`` is the folder holding the prompt files.

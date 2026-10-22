@@ -91,8 +91,7 @@ def permitted_words(state: TurnState) -> frozenset[str]:
             permitted |= _STATUS_PERMITS.get(status, frozenset())
         if result.payload.get("grant_id") is not None:
             permitted |= {"granted"}
-        # A listing carries each status inside its rows
-        # (`test_list_statuses_permit_their_words`).
+        # A listing carries each status inside its rows.
         for row in _rows(result.payload):
             row_status = row.get("status")
             if isinstance(row_status, str):
@@ -338,7 +337,7 @@ def outcome_reply(state: TurnState) -> str:
     and asks nothing, so it passes the check it replaces. A turn with no
     usable outcome gets the line saying what the assistant helps with, and a
     listing of the person's access that holds the resolved role gets the held
-    line (`test_held_line_from_tool_data`).
+    line.
     """
     ok = [result for result in reversed(state.tool_results) if result.ok]
     for result in ok:

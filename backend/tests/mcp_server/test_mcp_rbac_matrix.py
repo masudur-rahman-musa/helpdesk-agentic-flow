@@ -46,6 +46,8 @@ from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.mcp_server.core import rag_clients
+from helpdesk.mcp_server.services.rag.role_suggestions import TextVectorCache
+from helpdesk.mcp_server.tools import role_suggest
 from helpdesk.mcp_server.tools.registry import REGISTRY
 from helpdesk.shared.auth.rbac import Principal
 from helpdesk.shared.models import (
@@ -397,6 +399,9 @@ MATRIX: dict[str, dict[str, bool]] = {
     # reach (this literal is part of every diff adding a
     # REGISTRY entry).
     "search_policy": dict.fromkeys(PRINCIPALS, True),
+    # `Scope.ANY` too: anyone who may ask for a role may be offered the
+    # closest names. A suggestion files nothing and grants nothing.
+    "suggest_roles": dict.fromkeys(PRINCIPALS, True),
     # The `/notifications` page belongs to every
     # principal, and a notification is addressed to ONE person and read by
     # that person — so both rows are `self_only` for all seven, the shape
@@ -553,6 +558,9 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # collection name, which no argument can reach, and it is pinned end
         # to end against the real store by `test_mcp_policy_isolation.py`.
         "search_policy",
+        # Its one argument is the words typed, and the roles it ranks are
+        # the token's tenant's. There is no id for a cross-tenant call to carry.
+        "suggest_roles",
         # `list_reviews` takes a page size and an optional status and
         # nothing else — the scope it answers comes from the TOKEN, so there is
         # no id for a cross-tenant call to carry. That isolation is pinned
@@ -859,6 +867,10 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         # store is stubbed for this file (`_stub_policy_search` below), so
         # the page comes back empty and the call succeeds as a refusal.
         return {"query": "fake matrix policy question"}
+    if tool_name == "suggest_roles":
+        # A `query` is required, as for `search_policy`. The embedder is
+        # stubbed for this file, so no model loads.
+        return {"query": "fake matrix role words"}
     if tool_name in ALLOW_ANSWERS_NOT_FOUND:
         # Valid arguments naming a row that does not exist: a permitted
         # caller must get past RBAC and be refused NOT_FOUND by the lookup,
@@ -930,6 +942,9 @@ def _stub_policy_search(monkeypatch: pytest.MonkeyPatch) -> None:
     registry touches either accessor.
     """
     monkeypatch.setattr(rag_clients, "embedder", lambda: RecordingEmbedder())
+    # `suggest_roles` keeps role vectors for the life of the process. Vectors
+    # another file's embedder left there would not match this one's width.
+    monkeypatch.setattr(role_suggest, "_CACHE", TextVectorCache())
     monkeypatch.setattr(rag_clients, "qdrant", lambda settings: as_client(RecordingQdrant()))
     monkeypatch.setattr(rag_clients, "redactor", lambda *_settings: _RefusingRedactor())
 

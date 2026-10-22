@@ -6,7 +6,7 @@ Another tenant's row reads as missing, so an id reveals nothing.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.models import Department, System, User
@@ -27,6 +27,21 @@ async def list_user_display_names(session: AsyncSession) -> list[str]:
     spelling fix. Whole rows, so the tenant guard scopes them."""
     result = await session.execute(select(User))
     return [user.display_name for user in result.scalars().all()]
+
+
+async def list_users_in_department_named(
+    session: AsyncSession, tenant_id: uuid.UUID, department_name: str
+) -> list[User]:
+    """The tenant's users whose department has this name, case ignored."""
+    result = await session.execute(
+        select(User)
+        .join(Department, Department.id == User.department_id)
+        .where(
+            User.tenant_id == tenant_id,
+            func.lower(Department.name) == department_name.lower(),
+        )
+    )
+    return list(result.scalars().all())
 
 
 async def lock_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:

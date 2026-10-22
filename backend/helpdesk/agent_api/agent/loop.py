@@ -9,24 +9,22 @@ run through MCP with the caller's own token; the finders run here.
 Limits, the turn budget: at most `MAX_STEPS` model steps, 6 tool
 calls, 40,000 tokens and 90 seconds a turn. A limit hit with tool results
 gets one last step with no tools; with none, the fixed `TIMEOUT_REPLY` and
-no model call (`test_deadline_with_no_results_gives_the_fixed_line`).
+no model call.
 
 The model never runs a change. A proposed change is checked against the
 tool's input model, given a key by code, and held as the chat's open
 question; the reply is the code-written summary. Bad arguments go back to the
-model once with the reason, then `CHANGE_FAILED_REPLY`
-(`test_bad_change_arguments_go_back_once`). The next message is read by code
+model once with the reason, then `CHANGE_FAILED_REPLY`. The next message is read by code
 (`read_answer`), never by the model: a yes runs the held calls with their
-stored keys, then one step with no tools writes the reply from their results
-(`test_yes_files_held_calls_with_stored_keys`); a bare no runs nothing and
-gives `NOTHING_FILED_REPLY`; anything else drops the question
-(`test_model_cannot_confirm_for_the_person`).
+stored keys, then one step with no tools writes the reply from their results;
+a bare no runs nothing and gives `NOTHING_FILED_REPLY`; anything else drops
+the question.
 
 The grounding check runs on the final text: every request number, tenant role
 name and decision word must come from this turn's tool results (role names
 may also come from the person's own words). A breach goes back with the
 reason, at most `MAX_SEND_BACKS` times, then the reply is said from the tool
-results by code (`test_breach_goes_back_at_most_twice`).
+results by code.
 """
 
 import contextlib

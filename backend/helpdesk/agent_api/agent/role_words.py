@@ -4,7 +4,7 @@ Pure: no I/O. The plain-name rule lives in `shared/access/role_names.py`, so
 notifications use the same one. A role reads as its system's name, then the role slug with `-`
 and `_` read as spaces ("Internal Wiki editor"). The stored role name
 (`wiki.editor`) never reaches the chat; it stays what matching and the tools
-read (`test_role_words.py`).
+read.
 """
 
 from typing import Any
@@ -24,7 +24,7 @@ def with_plain_role_names(data: Any) -> Any:
     The slug is used when the row has one; else the part of `role_name` after
     its last "." (review rows carry no slug). The writer only sees plain
     names, so a stored value like `wiki.editor` never reaches a reply. The
-    stored result is left as it is (`test_reply_names_roles_plainly.py`).
+    stored result is left as it is.
     """
     if isinstance(data, dict):
         rewritten = {key: with_plain_role_names(value) for key, value in data.items()}

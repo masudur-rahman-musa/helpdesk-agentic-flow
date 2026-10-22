@@ -5,11 +5,9 @@
  * lines make one numbered list, and `**text**` is bold.
  *
  * Only React elements are built, never an HTML string, so tags in the text
- * show as typed (`test_html_shows_as_text`). Links, headings, tables and code
- * are never made (`test_links_are_never_made`,
- * `test_headings_tables_and_code_stay_plain`). An unclosed `**` shows as
- * typed until its pair arrives, so a streaming reply never hides words
- * (`test_an_unclosed_bold_shows_as_typed`).
+ * show as typed. Links, headings, tables and code are never made. An unclosed
+ * `**` shows as typed until its pair arrives, so a streaming reply never hides
+ * words.
  */
 
 import { Fragment, type ReactNode } from "react";

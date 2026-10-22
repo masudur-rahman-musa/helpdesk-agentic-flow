@@ -649,8 +649,7 @@ def _assign_principals(
     # The demo manager runs the demo employee's own department, and the demo
     # system owner owns the one prod_infra system, the only category that adds
     # the it_admin seat. So one request from the demo employee for that system
-    # reaches the demo manager, owner and IT admin
-    # (test_one_request_reaches_all_three_demo_approvers).
+    # reaches the demo manager, owner and IT admin.
     employee = users_by_department[spec.departments[1]][5]
     prod_infra = next(slug for slug, _n, _s, category in spec.systems if category == "prod_infra")
     demo_accounts = {
@@ -908,8 +907,7 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
     )
     # The counter starts where the fixed numbers end. A rerun leaves it alone,
     # so tickets filed since keep their numbers. A counter the numbers
-    # migration made has a random id, so it is found by kind, not by id
-    # (`test_a_reseed_keeps_a_counter_the_migration_made`).
+    # migration made has a random id, so it is found by kind, not by id.
     counters = _SeedRepository(session, ReferenceCounter)
     has_counter = any(c.kind == NumberKind.TICKET.value for c in await counters.list())
     if reporters and not has_counter:

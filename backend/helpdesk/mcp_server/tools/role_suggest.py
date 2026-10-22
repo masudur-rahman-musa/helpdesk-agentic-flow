@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from helpdesk.mcp_server.services.rag import role_suggestions
 from helpdesk.mcp_server.services.rag.role_suggestions import RoleRow, TextVectorCache
 from helpdesk.mcp_server.tools.context import ToolContext
-from helpdesk.mcp_server.tools.read import ROLES_LIMIT_MAX
 from helpdesk.shared.crud.directory import list_role_catalogue
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
@@ -45,10 +44,13 @@ class SuggestRolesOutput(BaseModel):
 
 
 async def suggest_roles(ctx: ToolContext, args: SuggestRolesInput) -> SuggestRolesOutput:
-    """Rank this tenant's roles against the words; refuse a query that is empty
-    or too long before any model call."""
+    """Rank every role of this tenant against the words; refuse a query that is
+    empty or too long before any model call.
+
+    No cap on the read: a cap by slug would never offer a system late in the
+    alphabet."""
     query = role_suggestions.check_suggest_query(args.query)
-    catalogue = await list_role_catalogue(ctx.session, None, ROLES_LIMIT_MAX)
+    catalogue = await list_role_catalogue(ctx.session, None, None)
     rows = [
         RoleRow(
             system_slug=system.slug,

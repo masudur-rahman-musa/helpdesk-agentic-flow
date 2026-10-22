@@ -97,7 +97,7 @@ async def fetch_open_request(
     """The oldest pending or approved request for this user and role, if any.
 
     Executed, rejected and failed ones are over, so asking again is a new
-    request (`test_open_request_lookup.py`).
+    request.
     """
     result = await session.execute(
         select(AccessRequest)

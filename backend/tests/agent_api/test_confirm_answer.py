@@ -6,7 +6,7 @@ values, so the file runs in milliseconds and shares no state.
 
 Surface the implementer must provide (names fixed by the plan):
 `Answer` (YES, NO, OTHER), `read_answer`, `OPEN_QUESTION_LIFE`, `OpenQuestion`,
-`parse_open_question`, `summary_reply` (an earlier change: it replaces `question_reply`;
+`parse_open_question`, `summary_reply` (it replaces `question_reply`;
 `summary_reply(resolved, results, held_calls)`), `next_step`, `NOTHING_FILED_REPLY`, and
 `ResolvedEntities.system_name` / `role_name` in `state.py`.
 """

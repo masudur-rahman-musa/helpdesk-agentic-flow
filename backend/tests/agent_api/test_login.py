@@ -129,7 +129,7 @@ def seeded_login_db(mcp_pg: TempDatabaseFactory, seeded_mcp_db: SeededMcp) -> It
     demo_emails = {account.email for account in parse_demo_accounts()}
     assert demo_emails, f"no demo accounts parsed from {DEMO_ACCOUNTS_DOC}"
 
-    url = mcp_pg.clone(seeded_mcp_db.database_url)
+    url = mcp_pg.clone(seeded_mcp_db.clean_database_url)
 
     async def prepare() -> SeededLogin:
         engine = create_engine(url)

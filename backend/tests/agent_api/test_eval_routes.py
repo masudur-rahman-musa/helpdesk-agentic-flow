@@ -67,7 +67,7 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 RESET_PATH = "/admin/test/reset"
 
 # Obviously fake, tests only: none of these is a credential.
-JWT_SECRET = "eval-routes-test-jwt-secret-0123456789abcdef"
+TEST_JWT_SIGNING_PHRASE = "eval-routes-test-jwt-secret-0123456789abcdef"
 DATABASE_URL = "postgresql+asyncpg://fake:fake@db.invalid:5432/fake_eval"
 REDIS_URL = "redis://redis.invalid:6379/0"
 QDRANT_URL = "http://qdrant.invalid:6333"
@@ -249,7 +249,7 @@ def eval_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
     monkeypatch.setenv("REDIS_URL", REDIS_URL)
     monkeypatch.setenv("QDRANT_URL", QDRANT_URL)
-    monkeypatch.setenv("JWT_SECRET", JWT_SECRET)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SIGNING_PHRASE)
     monkeypatch.setenv("MCP_URL", MCP_URL)
     monkeypatch.setenv("EVAL_ROUTES_ENABLED", "true")
 
@@ -325,7 +325,7 @@ def _login_token() -> str:
             "principals": ["employee"],
             "sid": str(uuid.UUID(int=7)),
         },
-        JWT_SECRET,
+        TEST_JWT_SIGNING_PHRASE,
         datetime.now(UTC),
     )
 
@@ -759,7 +759,7 @@ def test_the_conversation_identity_comes_from_the_seat(
         assert bound_tenant_id(cast(AsyncSession, call["deps"].db)) == SEAT_TENANT_ID
     assert len(harness.tokens) >= 1
     for token in harness.tokens:
-        claims = verify_token(token, JWT_SECRET, datetime.now(UTC))
+        claims = verify_token(token, TEST_JWT_SIGNING_PHRASE, datetime.now(UTC))
         assert claims.sub == str(SEAT_USER_ID)
         assert claims.tenant_id == str(SEAT_TENANT_ID)
         assert claims.sid == str(chat_id)

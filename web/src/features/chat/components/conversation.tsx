@@ -10,7 +10,7 @@ import { FormattedText } from "@/features/chat/format";
  * the final check may have rewritten the streamed text. While `working` and no
  * text has arrived yet, three dots stand where the reply will appear.
  * Assistant replies draw their lists and bold; the person's own messages stay
- * exactly as typed (`test_the_persons_own_message_stays_plain`).
+ * exactly as typed.
  */
 export function Conversation({
   messages,

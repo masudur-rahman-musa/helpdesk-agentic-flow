@@ -87,12 +87,12 @@ NON_APPROVED_ROLE = ROWS.role_ids[("crm", "editor")]
 
 @pytest.fixture(scope="session")
 def access_db_url(mcp_pg: TempDatabaseFactory, seeded_mcp_db: SeededMcp) -> Iterator[str]:
-    """A copy of the one seeded database for this file.
+    """A copy of the clean seeded database for this file.
 
     A copy, not the shared database itself: these tests plant requests, users
     and systems, which other files' tests could trip over.
     """
-    url = mcp_pg.clone(seeded_mcp_db.database_url)
+    url = mcp_pg.clone(seeded_mcp_db.clean_database_url)
     yield url
     mcp_pg.drop(url)
 

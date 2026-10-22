@@ -102,7 +102,8 @@ wrapper that opened its own connection pass anyway."""
 def _grants_recorder(
     calls: list[tuple[object, datetime]],
 ) -> Callable[..., Awaitable[None]]:
-    """A double for `refresh_active_grants_gauge`: records session and `now`."""
+    """A double for `refresh_active_grants_gauge` or `refresh_waiting_chats_gauge`:
+    records session and `now`."""
 
     async def engine(session: AsyncSession, *, now: datetime) -> None:
         calls.append((session, now))
@@ -208,11 +209,12 @@ def test_the_metrics_sweep_wrapper_hands_its_session_and_now_to_both_engines(
 ) -> None:
     """Catches a wrapper that decides anything at all, in three ways.
 
-    One engine only: a wrapper calling just the grant count leaves
+    A dropped engine: a wrapper calling just the grant count leaves
     `helpdesk_audit_chain_ok` at its registration default for ever, so the
     metric whose whole purpose is to notice a doctored audit log would report
-    `0` on a sound chain and nobody would be able to tell the difference. Both
-    call lists are asserted, so dropping either one fails.
+    `0` on a sound chain and nobody would be able to tell the difference. The
+    waiting-chats count is read on the same tick. All three call lists are
+    asserted, so dropping any one fails.
 
     A clock read here instead of the tick's instant: `now` is the boundary that
     decides which grants count (`expires_at > now`), and it is the exact
@@ -226,14 +228,17 @@ def test_the_metrics_sweep_wrapper_hands_its_session_and_now_to_both_engines(
     the count and the verdict answer for the SAME tenant.
     """
     grants_calls: list[tuple[object, datetime]] = []
+    waiting_calls: list[tuple[object, datetime]] = []
     chain_calls: list[object] = []
     monkeypatch.setattr(jobs, "refresh_active_grants_gauge", _grants_recorder(grants_calls))
+    monkeypatch.setattr(jobs, "refresh_waiting_chats_gauge", _grants_recorder(waiting_calls))
     monkeypatch.setattr(jobs, "refresh_chain_gauge", _chain_recorder(chain_calls))
     session = cast(AsyncSession, _FAKE_SESSION)
 
     asyncio.run(jobs.run_metrics_sweep(session, NOW))
 
     assert grants_calls == [(_FAKE_SESSION, NOW)]
+    assert waiting_calls == [(_FAKE_SESSION, NOW)]
     assert chain_calls == [_FAKE_SESSION]
 
 

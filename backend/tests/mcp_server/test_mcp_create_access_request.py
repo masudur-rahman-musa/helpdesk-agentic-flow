@@ -950,7 +950,7 @@ def test_an_extra_argument_is_refused_with_no_row_and_no_grant(
     assert _grant_count(mcp_env.database_url, caller.tenant_id) == grants_before
 
 
-# --- an earlier change: a request already open is returned, not filed again -------------
+# --- a request already open is returned, not filed again -------------
 
 # Engineering has 46 seeded users and no other test names index 30 or 31, so
 # no earlier test has left an open request for them in the shared database.

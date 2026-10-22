@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 
 import { useMe } from "@/features/auth/api";
 import {
   postChatMessage,
   useChatHistory,
   useChatList,
-  useRefreshChatList,
+  useRefreshAfterReply,
 } from "@/features/chat/api";
 import { ChatList } from "@/features/chat/components/chat-list";
 import { Citations } from "@/features/chat/components/citations";
@@ -23,11 +22,11 @@ import {
   type StepEvent,
 } from "@/features/chat/components/types";
 import { failureMessage } from "@/lib/failure-messages";
+import { keepOpenChat, readOpenChat } from "@/features/chat/open-chat";
 import { readAsk } from "@/features/chat/prefill";
 import { chatMessageSchema } from "@/features/chat/schema";
 import { readTurnStream, refusalCode } from "@/features/chat/turn-stream";
 import { Alert } from "@/components/ui/alert";
-import { queryKeys } from "@/lib/query-keys";
 
 /**
  * The chat page. It fills the shell's width, so the chat list in the left
@@ -42,8 +41,7 @@ import { queryKeys } from "@/lib/query-keys";
  * `?ask=` from a renewal link but never sends on its own.
  */
 export function ChatPanel() {
-  const refreshChatList = useRefreshChatList();
-  const queryClient = useQueryClient();
+  const refreshAfterReply = useRefreshAfterReply();
   const [chatId, setChatId] = useState<string | null>(null);
   const [openedId, setOpenedId] = useState<string | null>(null);
   const history = useChatHistory(openedId);
@@ -169,10 +167,7 @@ export function ChatPanel() {
             setChatId(reply.chatId);
             keepOpenChat(reply.chatId);
           }
-          refreshChatList();
-          // A request or ticket made in this turn shows beside the chat at once.
-          void queryClient.invalidateQueries({ queryKey: queryKeys.myRequests });
-          void queryClient.invalidateQueries({ queryKey: queryKeys.myTickets });
+          refreshAfterReply();
         },
         onError: (code) => {
           setDecision(null);
@@ -231,27 +226,4 @@ export function ChatPanel() {
       ) : null}
     </div>
   );
-}
-
-const OPEN_CHAT_KEY = "helpdesk.open-chat";
-
-/** The chat open in this browser tab, or null. Storage can be blocked, so it never throws. */
-function readOpenChat(): string | null {
-  try {
-    return window.sessionStorage.getItem(OPEN_CHAT_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function keepOpenChat(id: string | null): void {
-  try {
-    if (id === null) {
-      window.sessionStorage.removeItem(OPEN_CHAT_KEY);
-    } else {
-      window.sessionStorage.setItem(OPEN_CHAT_KEY, id);
-    }
-  } catch {
-    // Blocked storage only means the chat is not reopened on return.
-  }
 }

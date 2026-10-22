@@ -78,7 +78,7 @@ class Planned:
 
 def _fit(body: str) -> str:
     """Cut a body to the column width, ending in "…", so the write never fails
-    and undoes the change (`test_a_long_reason_is_cut_to_the_body_cap`)."""
+    and undoes the change."""
     if len(body) <= NOTIFICATION_BODY_MAX_LENGTH:
         return body
     return body[: NOTIFICATION_BODY_MAX_LENGTH - 1] + _ELLIPSIS

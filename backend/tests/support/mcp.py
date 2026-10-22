@@ -26,6 +26,7 @@ and the one password hash placeholder is a literal marker, not a real hash.
 """
 
 import asyncio
+import dataclasses
 import os
 import uuid
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
@@ -183,6 +184,9 @@ class SeededMcp:
     """The seeded temp database and the handles the tests address it by."""
 
     database_url: str
+    clean_database_url: str
+    """A copy made right after seeding and never connected to. A file that
+    clones clones this one, so no other file's writes reach its copy."""
     tenant_a: SeededUser
     tenant_b: SeededUser
     probe: SeededUser
@@ -431,6 +435,7 @@ def seeded_mcp_db(mcp_pg: TempDatabaseFactory) -> Iterator[SeededMcp]:
             )
             return SeededMcp(
                 database_url=url,
+                clean_database_url="",
                 tenant_a=tenant_a,
                 tenant_b=tenant_b,
                 probe=probe,
@@ -442,9 +447,14 @@ def seeded_mcp_db(mcp_pg: TempDatabaseFactory) -> Iterator[SeededMcp]:
         finally:
             await engine.dispose()
 
+    clean_url: str | None = None
     try:
-        yield asyncio.run(prepare())
+        seeded = asyncio.run(prepare())
+        clean_url = mcp_pg.clone(url)
+        yield dataclasses.replace(seeded, clean_database_url=clean_url)
     finally:
+        if clean_url is not None:
+            mcp_pg.drop(clean_url)
         mcp_pg.drop(url)
 
 

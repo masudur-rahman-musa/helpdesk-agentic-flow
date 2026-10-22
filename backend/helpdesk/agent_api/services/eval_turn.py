@@ -20,7 +20,6 @@ from types import TracebackType
 from typing import Any
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.agent_api.agent.loop import LOOP_PROMPT, DbLoopStore, run_loop_turn
@@ -40,7 +39,8 @@ from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ToolError
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
-from helpdesk.shared.models import Department, User
+from helpdesk.shared.crud.users import list_users_in_department_named
+from helpdesk.shared.models import User
 
 __all__ = [
     "ConversationOutcome",
@@ -58,7 +58,7 @@ SEAT_PATTERN = re.compile(r"seed:([a-z]+)\.([a-z_]+)\.([0-9]{1,3})")
 # (n * 97) % 2900` days, and numbers a department's users in a row. 97 and 2900
 # share no factor, so the date gives the number back, and with it the order
 # the conversation cases' seat index counts in. Copied from `scripts/seed.py`, which
-# the agent-api image does not ship; `test_eval_routes.py` pins the behaviour.
+# the agent-api image does not ship.
 HIRING_EPOCH_ORDINAL = datetime(2018, 1, 1).toordinal()
 START_DATE_STEP = 97
 START_DATE_SPAN = 2900
@@ -93,15 +93,8 @@ async def resolve_seat(
     if tenant is None:
         return None
     async with tenant_session(factory, tenant.id) as session:
-        result = await session.execute(
-            select(User)
-            .join(Department, Department.id == User.department_id)
-            .where(
-                User.tenant_id == tenant.id,
-                func.lower(Department.name) == department_part,
-            )
-        )
-        users = sorted(result.scalars().all(), key=_seed_number)
+        found = await list_users_in_department_named(session, tenant.id, department_part)
+        users = sorted(found, key=_seed_number)
     index = int(index_part)
     if index >= len(users) or principal not in users[index].principals:
         return None

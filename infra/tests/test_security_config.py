@@ -78,7 +78,7 @@ through the restructure split); their shape is pinned in full by
 
 The last four are an earlier change's: the pre-commit config and `pyproject.toml` whose
 ruff versions must agree, `uv.lock` as the record of which ruff version this
-project actually resolves, and the gitleaks baseline that records the nine
+project actually resolves, and the gitleaks baseline that records the ten
 findings living only in history."""
 
 FAKE_CREDENTIAL_PATHS: frozenset[str] = frozenset(
@@ -107,11 +107,12 @@ RUFF_FLOOR_SPECIFIER = re.compile(r"^ruff\s*>=\s*(\d+(?:\.\d+)*)$")
 `ruff>=0.12`. Anchored so an entry carrying an upper bound or an extra marker is
 not silently read as a bare floor by a partial match."""
 
-BASELINED_FINDING_COUNT = 9
+BASELINED_FINDING_COUNT = 10
 """The exact number of findings `.gitleaks-baseline.json` excuses, every one of
 them against a commit already in history (an earlier change decision B, corrected while
 implementing: a rename cannot reach a committed line, so all nine are baselined
-rather than two). Asserted with the not-at-HEAD property by
+rather than two). The tenth is the eval routes' test signing phrase, renamed the
+same way once the scan found it in history. Asserted with the not-at-HEAD property by
 `test_the_baseline_records_only_the_historical_findings`, so a tenth entry has to
 be argued rather than regenerated in."""
 
@@ -495,7 +496,7 @@ def test_the_gitleaks_step_passes_a_baseline_path() -> None:
 def test_the_gitleaks_hook_and_the_ci_job_pass_the_same_baseline() -> None:
     """Catches the divergence that made the baseline unlandable: gitleaks skips its
     own baseline FILE only when `--baseline-path` names it, so a hook without the
-    flag reads the baseline's nine entries as fresh leaks and blocks every commit.
+    flag reads the baseline's ten entries as fresh leaks and blocks every commit.
     The hook and the `make security` command (where an earlier change moved the CI step) are
     the only two invocations in the repo, and they have to agree on which file is
     the baseline."""

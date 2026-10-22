@@ -187,5 +187,26 @@
   "Message": "Add project scaffolding and agent governance",
   "Tags": [],
   "Fingerprint": "27b1afd14eee5db3c8d9faa8c3c916b580045c24:.env.example:generic-api-key:7"
+ },
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 76,
+  "EndLine": 76,
+  "StartColumn": 2,
+  "EndColumn": 60,
+  "Match": "JWT_SECRET = \"eval-routes-test-jwt-secret-0123456789abcdef\"",
+  "Secret": "eval-routes-test-jwt-secret-0123456789abcdef",
+  "File": "backend/tests/agent_api/test_eval_routes.py",
+  "SymlinkFile": "",
+  "Commit": "759425334dbbbe6f44f2833bd0e23f3be41aebe6",
+  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/759425334dbbbe6f44f2833bd0e23f3be41aebe6/backend/tests/agent_api/test_eval_routes.py#L76",
+  "Entropy": 4.3347964,
+  "Author": "Masudur Rahman",
+  "Email": "developer.musa@gmail.com",
+  "Date": "2026-10-20T15:55:18Z",
+  "Message": "Run the golden set against the real agent, make the cut-offs settings and count stuck chats (plan 107)",
+  "Tags": [],
+  "Fingerprint": "759425334dbbbe6f44f2833bd0e23f3be41aebe6:backend/tests/agent_api/test_eval_routes.py:generic-api-key:76"
  }
 ]

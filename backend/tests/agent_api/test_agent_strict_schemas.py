@@ -36,12 +36,11 @@ _SWEPT_TREES: tuple[Path, ...] = (_REPO_ROOT / "backend" / "helpdesk",)
 _CALL_SITE = re.compile(r"\.complete_json\(")
 
 SCHEMA_MODELS: tuple[type[BaseModel], ...] = (IntentExtraction, ToolPlanAnswer, ComposedReply)
-"""The schema model of each `complete_json` caller: `extract_intent` asks for
-`IntentExtraction`, `plan_tools` for `ToolPlanAnswer`, `compose_reply` for
-`ComposedReply`. The sweep below keeps
-this list honest: a fourth caller turns it red before its schema goes unread."""
+"""The schema models `complete_json` was built for. Nothing calls it today, and
+the sweep below keeps it that way: a new caller turns it red before its schema
+goes unread."""
 
-KNOWN_CALLERS = frozenset({"extract_intent.py", "plan_tools.py", "compose_reply.py"})
+KNOWN_CALLERS: frozenset[str] = frozenset()
 
 
 @pytest.mark.parametrize("model", SCHEMA_MODELS, ids=lambda model: model.__name__)
@@ -53,24 +52,30 @@ def test_every_schema_sent_to_complete_json_meets_strict_mode(model: type[BaseMo
     assert strict_schema_problems(model.model_json_schema()) == []
 
 
-def _callers() -> set[str]:
-    """Every non-test source file under the swept trees calling `complete_json`."""
-    return {
-        path.name
+def _swept_files() -> list[Path]:
+    """Every non-test source file under the swept trees."""
+    return [
+        path
         for tree in _SWEPT_TREES
         for path in tree.rglob("*.py")
-        if "tests" not in path.parts
-        and ".venv" not in path.parts
-        and _CALL_SITE.search(path.read_text())
-    }
+        if "tests" not in path.parts and ".venv" not in path.parts
+    ]
 
 
-def test_the_complete_json_callers_are_exactly_the_known_two() -> None:
-    """Catches a third `complete_json` caller added without its schema model
-    joining `SCHEMA_MODELS`, which is how a non-strict schema would reach the
-    gateway with no case here reading it. Exact equality, so a sweep reading
-    zero files fails too."""
-    assert _callers() == KNOWN_CALLERS
+def _callers(files: list[Path]) -> set[str]:
+    """The names of the files calling `complete_json`."""
+    return {path.name for path in files if _CALL_SITE.search(path.read_text())}
+
+
+def test_the_complete_json_callers_are_exactly_the_known_ones() -> None:
+    """Catches a `complete_json` caller added without its schema model joining
+    `SCHEMA_MODELS`, which is how a non-strict schema would reach the gateway
+    with no case here reading it. The sweep must read files, so a wrong path
+    that reads none fails too."""
+    files = _swept_files()
+
+    assert files, "the sweep read no files"
+    assert _callers(files) == KNOWN_CALLERS
 
 
 def test_planned_call_arguments_decode_to_a_dict() -> None:
