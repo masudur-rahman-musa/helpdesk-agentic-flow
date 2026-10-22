@@ -236,16 +236,17 @@ MATRIX: dict[str, dict[str, bool]] = {
         "platform_admin": True,
     },
     # The matrix's revoke row, written out literally rather than
-    # derived from `_MATRIX`: five cells, and `hr` DOES hold one here (unlike
+    # derived from `_MATRIX`: seven cells, and `hr` DOES hold one here (unlike
     # the approval rows above), so a row copied from `approve_request` by
-    # habit fails. `employee` and `auditor` have no cell at all.
+    # habit fails. `employee` and `auditor` hold a self-only cell: their own
+    # access only.
     "revoke_access": {
-        "employee": False,
+        "employee": True,
         "manager": True,
         "system_owner": True,
         "hr": True,
         "it_admin": True,
-        "auditor": False,
+        "auditor": True,
         "platform_admin": True,
     },
     # The matrix's rollback row, the narrowest yet: TWO cells. `hr`

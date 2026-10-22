@@ -172,11 +172,15 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
+        # Every role may give up its own access; `self_only` reaches no one
+        # else's grant, so an employee still cannot touch a colleague's.
         Tool.REVOKE_ACCESS: {
+            Principal.EMPLOYEE: Scope.SELF_ONLY,
             Principal.MANAGER: Scope.OWN_DEPARTMENT,
             Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
             Principal.HR: Scope.ANY,
             Principal.IT_ADMIN: Scope.ANY,
+            Principal.AUDITOR: Scope.SELF_ONLY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
         Tool.ONBOARD_USER: {

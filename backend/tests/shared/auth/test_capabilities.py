@@ -136,3 +136,14 @@ def test_an_it_admin_is_told_they_can_solve_tickets() -> None:
     assert SENTENCES[Tool.SOLVE_TICKET] == sentence
     assert sentence in capability_lines(("it_admin",))
     assert sentence not in capability_lines(("employee",))
+
+
+def test_an_employee_is_told_they_can_remove_their_own_access() -> None:
+    """Catches a revoke sentence that still says "remove access" without the
+    self wording (an employee told they can remove anyone's), and one that is
+    missing from the employee's lines because the employee row has no revoke
+    cell."""
+    sentence = "Remove access you hold, or access you look after for others."
+
+    assert SENTENCES[Tool.REVOKE_ACCESS] == sentence
+    assert sentence in capability_lines(("employee",))

@@ -114,6 +114,8 @@ EXTRA_ARG_TARGET = ROWS.users_by_department["Production"][17]
 REPLAY_TARGET = ROWS.users_by_department["Production"][19]
 DENIED_TARGET = ROWS.users_by_department["Production"][20]
 RACE_TARGET = ROWS.users_by_department["Production"][22]
+# Holds no grant in this file: it only calls, as an employee, on a colleague's grant.
+EMPLOYEE_CALLER = ROWS.users_by_department["Production"][23]
 
 # Same tenant, another department: a cross-tenant target
 # would be refused by the tenant guard whether the scope rule holds or not.
@@ -478,25 +480,19 @@ def test_a_system_owner_revokes_only_on_systems_they_own(
 def test_a_denied_call_writes_tool_denied_and_revokes_nothing(
     mcp_env: SeededMcp,
 ) -> None:
-    """The caller holds `employee`, which the matrix's revoke row gives NO cell at
-    all, so the pipeline's matrix stage refuses them.
+    """The caller holds `employee`, whose revoke cell is `self_only`, and
+    names a COLLEAGUE's grant. The matrix admits the call, so only the scope
+    check can refuse it: catches a handler that lets any caller with a cell
+    revoke any grant. The refusal must be recorded as `tool.denied` rather than
+    `tool.failed` (a permission decision filed as an outage is a false
+    record), and no `grant.revoked` is written.
 
-    NOT a standing-rule-16 kill of that stage, and deliberately not written as
-    one: `_grant_in_scope` opens with `rbac.authorize`, which RAISES for a
-    principal with no cell, so deleting the pipeline's RBAC stage leaves this
-    answer exactly as it is. On this the matrix row no principal exists that the
-    scope check admits and the matrix refuses, so the two guards cannot be
-    killed independently. What this case does pin is that a principal with no
-    cell is refused before any effect and that the refusal is recorded as
-    `tool.denied` rather than `tool.failed` — a permission decision filed as an
-    outage is a false record — and that no `grant.revoked` is written. The
-    scope comparison has its own kill in
-    `test_a_manager_may_not_revoke_outside_their_department`, whose caller the
-    matrix admits.
+    Caller and holder are in the same tenant and the grant is live, so neither
+    the tenant guard nor the liveness check can refuse on the scope rule's
+    behalf.
     """
-    caller = _seeded(DENIED_TARGET)
-    # The grant is the caller's OWN, so the department comparison the scope
-    # check makes is a user against themselves: it cannot refuse this call.
+    caller = _seeded(EMPLOYEE_CALLER)
+    assert caller.user_id != DENIED_TARGET.id, "premise: the grant is a colleague's"
     _premise_no_grants(mcp_env.database_url, DENIED_TARGET.id, REVOKED_ROLE)
     grant_id = _plant_grant(mcp_env.database_url, user_id=DENIED_TARGET.id, role_id=REVOKED_ROLE)
     events_before = _audit_event_types(mcp_env.database_url, caller.tenant_id)

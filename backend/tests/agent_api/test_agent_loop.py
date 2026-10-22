@@ -470,12 +470,12 @@ def test_a_tool_not_offered_is_refused() -> None:
     one the person's role was never offered (the tool server's own check would
     be the only guard left), or that treats the call as a held change.
 
-    An employee's model names `revoke_access`. Nothing may run or be held, and
+    An employee's model names `approve_request`. Nothing may run or be held, and
     the model must get an error `tool` turn for that call id and another step.
     """
-    arguments = {"grant_id": str(uuid.UUID(int=7)), "reason": "Obviously fake reason."}
+    arguments = {"request_id": str(uuid.UUID(int=7))}
     gateway = ScriptedGateway(
-        answer_body(None, wire_call("call_x", "revoke_access", arguments)),
+        answer_body(None, wire_call("call_x", "approve_request", arguments)),
         answer_body("I cannot do that for you."),
     )
     tools = FakeTools()
@@ -486,7 +486,7 @@ def test_a_tool_not_offered_is_refused() -> None:
     assert tools.calls == []
     assert store.held == []
     assert state.outcome is not TurnOutcome.CONFIRM
-    assert not any(result.tool == "revoke_access" and result.ok for result in state.tool_results)
+    assert not any(result.tool == "approve_request" and result.ok for result in state.tool_results)
     assert state.reply == "I cannot do that for you."
     refused = tool_turns(gateway.requests[1])
     assert [turn["tool_call_id"] for turn in refused] == ["call_x"]

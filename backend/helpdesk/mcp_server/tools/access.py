@@ -443,6 +443,11 @@ REASON_MAX_LENGTH = 2000
 """Cap on `revoke_access.reason`. At least one character, since a
 removal with no reason cannot be audited."""
 
+SELF_REASON_PREFIX = "Removed by the user: "
+"""Starts the stored reason when a person gives up their own access, so the
+audit reads it as their own choice. Outside the cap: the cap is on what they
+typed (`test_the_self_reason_boundary_is_inclusive_at_1_and_2000`)."""
+
 
 class RevokeAccessInput(MutatingToolInput):
     """Input for `revoke_access`."""
@@ -464,9 +469,13 @@ included."""
 async def _grant_in_scope(ctx: ToolContext, grant: Grant) -> bool:
     """Does the caller's `revoke_access` scope reach this grant?
 
-    Same scope check as approvals. Departments come from the directory, not
-    the token, so a moved manager cannot revoke in their old department.
+    The caller's own grant always passes: every role may give up its own
+    access. Any other grant takes the same scope check as approvals.
+    Departments come from the directory, not the token, so a moved manager
+    cannot revoke in their old department.
     """
+    if grant.user_id == ctx.identity.user_id:
+        return True
     caller = await ctx.directory.lookup_user(ctx.identity.user_id)
     holder = await ctx.directory.lookup_user(grant.user_id)
     role = await Repository(ctx.session, Role).get(grant.role_id)
@@ -478,6 +487,13 @@ async def _grant_in_scope(ctx: ToolContext, grant: Grant) -> bool:
         target_department_id=None if holder is None else holder.department_id,
         system_owner_user_id=None if system is None else system.owner_user_id,
     )
+
+
+def _stored_reason(ctx: ToolContext, grant: Grant, reason: str) -> str:
+    """The reason as typed, marked "Removed by the user" when it is the caller's own grant."""
+    if grant.user_id == ctx.identity.user_id:
+        return f"{SELF_REASON_PREFIX}{reason}"
+    return reason
 
 
 async def revoke_access(ctx: ToolContext, args: RevokeAccessInput) -> RevokeAccessOutput:
@@ -504,7 +520,7 @@ async def revoke_access(ctx: ToolContext, args: RevokeAccessInput) -> RevokeAcce
         ctx.directory,
         user_id=grant.user_id,
         role_id=grant.role_id,
-        reason=args.reason,
+        reason=_stored_reason(ctx, grant, args.reason),
         revoked_by_user_id=ctx.identity.user_id,
         actor_ref=str(ctx.identity.user_id),
         session_id=ctx.identity.session_id,

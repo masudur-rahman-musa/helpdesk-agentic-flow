@@ -2,7 +2,7 @@
 
     backend/evals/conversations/cases.jsonl
 
-The help desk owns 35 multi-turn cases; the companion console scores them.
+The help desk owns 38 multi-turn cases; the companion console scores them.
 Every named value is checked against the code that owns it: tenant slugs and
 seat rows from ``scripts.seed``, tool names from the tool registry.
 
@@ -35,7 +35,7 @@ def _repo_root() -> Path:
 
 CASES = _repo_root() / "backend" / "evals" / "conversations" / "cases.jsonl"
 
-CASE_COUNT = 35
+CASE_COUNT = 38
 CASE_FIELDS = {"id", "category", "tenant", "principal_user", "turns", "expected", "graded"}
 EXPECTED_FIELDS = {"tool_calls", "confirm_turn"}
 TOOL_CALL_FIELDS = {"name", "args_subset"}
@@ -188,8 +188,8 @@ def _made_up(**changes: Any) -> Case:
 # --- the file -----------------------------------------------------------------
 
 
-def test_the_case_file_holds_35_parsable_cases() -> None:
-    """Catches a file with 34 or 36 cases, a blank line (the console would read an
+def test_the_case_file_holds_38_parsable_cases() -> None:
+    """Catches a file with 37 or 39 cases, a blank line (the console would read an
     empty case), a line that is not JSON, and a case with a missing, extra or
     renamed field at any of the four levels.
 
@@ -214,9 +214,9 @@ def test_the_case_file_holds_35_parsable_cases() -> None:
         assert isinstance(case["expected"]["confirm_turn"], int | None)
 
 
-def test_ids_run_conv_001_to_conv_035_in_order(cases: list[Case]) -> None:
+def test_ids_run_conv_001_to_conv_038_in_order(cases: list[Case]) -> None:
     """Catches a repeated id, a gap, an id out of order, or a number that starts
-    at 000 or stops short of 035.
+    at 000 or stops short of 038.
 
     The ids are compared with the exact list, so no looser rule passes.
     """

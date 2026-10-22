@@ -34,7 +34,7 @@ SENTENCES: Mapping[Tool, str] = MappingProxyType(
         Tool.APPROVE_REQUEST: "Approve a request that is waiting on you.",
         Tool.REJECT_REQUEST: "Reject a request that is waiting on you.",
         Tool.CANCEL_REQUEST: "Cancel a request of yours that is still waiting for approval.",
-        Tool.REVOKE_ACCESS: "Take away access someone holds.",
+        Tool.REVOKE_ACCESS: "Remove access you hold, or access you look after for others.",
         Tool.ONBOARD_USER: "Set up a new joiner with their starting access.",
         Tool.TRANSFER_USER: "Move a person to another department.",
         Tool.OFFBOARD_USER: "Remove a leaver's access.",
