@@ -40,15 +40,15 @@
     --space-gutter: 1rem;
     --space-section: 1.5rem;
     /* What sits above the chat column: banner, the two header rows and
-       main's top and bottom padding. `chat-panel.tsx` subtracts it so an
-       empty chat shows the composer pinned with no page scroll. */
-    --shell-offset: 11.5rem;
+       main's top padding. `chat-panel.tsx` subtracts it so the chat fills
+       the screen down to the bottom edge. */
+    --shell-offset: 9.375rem;
   }
 
   /* Under `sm` the demo banner wraps to a second line. */
   @media (max-width: 639px) {
     :root {
-      --shell-offset: 13rem;
+      --shell-offset: 10.875rem;
     }
   }
 

@@ -184,7 +184,7 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="flex min-h-[calc(100dvh-var(--shell-offset))] w-full flex-col gap-4 lg:flex-row">
+    <div className="flex min-h-[calc(100dvh-var(--shell-offset))] w-full flex-col gap-4 lg:-mb-6 lg:flex-row">
       <ChatList
         chats={chatList.data}
         activeId={chatId}
