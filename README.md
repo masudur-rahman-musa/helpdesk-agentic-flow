@@ -40,7 +40,7 @@ the built web app, with only the model replaced by a stub gateway.
 flowchart TB
     user([Employee or approver])
     web["web<br/>Next.js"]
-    api["agent-api<br/>FastAPI + agent loop"]
+    api["agent-api<br/>FastAPI + agent loop in LangGraph"]
     mcp["mcp-server<br/>typed tools behind RBAC"]
     sched["scheduler<br/>asyncio loop, Redis locks"]
     policy["policy engine<br/>pure, no I/O"]
@@ -77,7 +77,9 @@ images, so the picture and its source cannot disagree:
 - [docs/diagrams/grant-lifecycle.md](docs/diagrams/grant-lifecycle.md), how
   access ends
 - [docs/diagrams/approval-lifecycle.md](docs/diagrams/approval-lifecycle.md),
-  what a paused turn waits for
+  what a request waits for
+- [docs/agent-loop-and-langgraph.md](docs/agent-loop-and-langgraph.md), why
+  the agent is a loop and why it runs in LangGraph
 
 ## Guarantees
 
@@ -107,11 +109,11 @@ each named test.
   different scale, so almost no answer cleared it. The fix was to measure the
   threshold on the dense cosine while the fused score keeps ordering the page,
   recorded in the project notes
-- **A resumed turn would have granted twice.** Approval executes the grant in
-  the same transaction as the last filled seat, so the paused conversation had
-  nothing left to execute when it woke up. Fixed by having a resumed run
-  compose its reply from the decision recorded on the row and make no tool call
-  at all, recorded in the project notes
+- **An approval could have granted twice.** Approval executes the grant in
+  the same transaction as the last filled seat, so the waiting conversation had
+  nothing left to execute when it picked up again. Fixed by having that follow-up
+  write its reply from the decision recorded on the row and make no tool call
+  at all.
 - **A turn that ran out of budget told the user nothing had happened.** The
   templated refusal was sent over a turn that had already filed a request, so
   the reply and the audit log disagreed. The fix routes a spent budget on what
@@ -133,21 +135,16 @@ Non-obvious choices are recorded as decision records in
 the project notes Twenty-three of them so far; these are the ones that
 shape the product.
 
-- **The chat is an agent loop with locked writes.** The model looks things up
-  with tools and proposes changes; code holds each change, shows it in fixed
-  words, and runs it only on the person's own yes. It never owns the
-  decision, identity or the audit record.
+- **The chat is an agent loop in LangGraph, with locked writes.** The loop is
+  the technique: the model looks things up with tools and proposes changes.
+  LangGraph is the frame: four nodes, each step saved. Code holds each change,
+  shows it in fixed words, and runs it only on the person's own yes. Why both,
+  with the scores: [docs/agent-loop-and-langgraph.md](docs/agent-loop-and-langgraph.md).
   0053,
-  0057
+  0059
 - **The policy engine is pure.** No input or output, no imports from models or
   services, table-driven, and held at 100% coverage. The decision a tool
   enforces is the decision the reply explains.
-- **The checkpoint thread is the session.** The request a paused turn waits on
-  rides on the state rather than in the key, because the request does not exist
-  when the run starts.
-  0012
-- **A resumed run composes and never re-executes.**
-  0013
 - **The stream carries the checked reply.** Tokens are slices of a reply that
   already passed the contradiction check, because a token on the socket cannot
   be taken back.

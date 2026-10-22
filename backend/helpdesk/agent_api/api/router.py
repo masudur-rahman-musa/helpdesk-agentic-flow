@@ -17,6 +17,8 @@ from starlette.datastructures import Headers
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from helpdesk.agent_api.agent.checkpointer import build_checkpointer, build_pool, psycopg_dsn
+from helpdesk.agent_api.agent.graph import compiled_graph
 from helpdesk.agent_api.api.middleware import RequireAuthMiddleware
 from helpdesk.agent_api.api.routes.admin.audit import router as audit_router
 from helpdesk.agent_api.api.routes.admin.killswitch import router as killswitch_router
@@ -122,6 +124,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # Kept for the readiness check, so it does not build a client per call.
     app.state.qdrant = AsyncQdrantClient(url=settings.qdrant_url)
+    # The loop's graph, compiled once. With steps saved, its saver writes
+    # through a psycopg pool of its own; the tables come from the cli, never here.
+    pool = build_pool(psycopg_dsn(settings.database_url)) if settings.save_turn_steps else None
+    if pool is not None:
+        await pool.open()
+    app.state.checkpointer_pool = pool
+    app.state.loop_graph = compiled_graph(None if pool is None else build_checkpointer(pool))
     try:
         yield
     finally:
@@ -131,6 +140,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await app.state.qdrant.close()
         await app.state.redis.aclose()
         await app.state.model.aclose()
+        if app.state.checkpointer_pool is not None:
+            await app.state.checkpointer_pool.close()
         await app.state.engine.dispose()
 
 

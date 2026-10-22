@@ -108,6 +108,10 @@ class Settings(BaseSettings):
     policy_refusal_floor: float = 0.35
     """A policy answer whose best passage scores below this is refused. 0 to 1 inclusive."""
 
+    save_turn_steps: bool = True
+    """Save each step of a chat turn in LangGraph's checkpoint tables, which
+    `python -m helpdesk.agent_api.cli` makes. Off runs the same graph, saving nothing."""
+
     eval_routes_enabled: bool = False
     """Turns on `POST /admin/test/reset` and `POST /v1/eval/conversation`. Off in production."""
 

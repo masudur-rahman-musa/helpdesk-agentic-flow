@@ -367,6 +367,10 @@ def migrated_db_url(pg: TempDatabaseFactory) -> Iterator[str]:
 # the name the app reads. Set at import, before any test builds a name.
 os.environ["QDRANT_COLLECTION_PREFIX"] = "ptests_"
 
+# The apps the route tests start save no turn steps: their databases have no
+# checkpoint tables. `test_loop_graph.py` saves steps with its own saver.
+os.environ["SAVE_TURN_STEPS"] = "false"
+
 
 @pytest.fixture(scope="session")
 def restricted_db_password() -> str:

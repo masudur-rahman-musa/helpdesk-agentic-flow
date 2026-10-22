@@ -6,7 +6,7 @@ What runs, and what talks to what. The same diagram is embedded in the README.
 flowchart TB
     user([Employee or approver])
     web["web<br/>Next.js"]
-    api["agent-api<br/>FastAPI + agent loop"]
+    api["agent-api<br/>FastAPI + agent loop in LangGraph"]
     mcp["mcp-server<br/>typed tools behind RBAC"]
     sched["scheduler<br/>asyncio loop, Redis locks"]
     policy["policy engine<br/>pure, no I/O"]
@@ -36,7 +36,9 @@ under an alias. No service names a provider model.
 
 Every write to PostgreSQL on a user's behalf arrives through `mcp-server`,
 which authorizes the call against the caller's token before the handler runs.
-`agent-api` writes only its own session and checkpoint rows.
+`agent-api` writes only its own session and checkpoint rows. Why the agent is
+a loop, and why it runs in LangGraph: [docs/agent-loop-and-langgraph.md](../agent-loop-and-langgraph.md)
+(`docs/agent-loop-and-langgraph.md`).
 
 The policy engine is a library, not a service. Both callers import the same
 pure module, so the decision a tool enforces is the decision the turn

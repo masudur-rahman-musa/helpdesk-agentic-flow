@@ -59,7 +59,11 @@ module-root = ""
 [dependency-groups]
 # Per-app runtime extras. An image installs its own with `uv sync --group <app>`
 # so only the mcp-server carries fastembed.
-agent-api = []
+agent-api = [
+    "langgraph>=1.2",
+    "langgraph-checkpoint-postgres>=2.0",
+    "psycopg[binary,pool]>=3.2",
+]
 mcp-server = [
     "fastembed>=0.7",
 ]

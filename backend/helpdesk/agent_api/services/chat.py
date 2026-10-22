@@ -11,6 +11,7 @@ from datetime import datetime
 from fastapi import Request
 
 from helpdesk.agent_api.agent.events import ReplyEvent
+from helpdesk.agent_api.agent.graph import LoopGraph
 from helpdesk.agent_api.agent.loop import run_loop_turn, stream_loop_turn
 from helpdesk.agent_api.agent.sources import shown_citations
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
@@ -36,6 +37,13 @@ from helpdesk.shared.crud.messages import list_recent_messages
 from helpdesk.shared.crud.sessions import get_owned_chat, list_user_chats
 from helpdesk.shared.crud.tenants import find_tenant_by_id
 from helpdesk.shared.models.conversation import check_message_content
+
+
+def _loop_graph(request: Request) -> LoopGraph | None:
+    """The graph app start compiled, with its saver when steps are saved. An
+    app that never ran its start has none, and the turn saves nothing."""
+    graph: LoopGraph | None = getattr(request.app.state, "loop_graph", None)
+    return graph
 
 
 def _typed_error(code: ErrorCode) -> ToolError:
@@ -145,7 +153,13 @@ async def _stream_frames(
                 yield encode_event(DONE, {})
                 return
             async for event in stream_loop_turn(
-                deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
+                deps=TurnDeps(
+                    db=db,
+                    model=request.app.state.model,
+                    tools=tools,
+                    now=lambda: now,
+                    graph=_loop_graph(request),
+                ),
                 tenant_id=identity.tenant_id,
                 user_id=identity.user_id,
                 session_id=identity.session_id,
@@ -193,7 +207,13 @@ async def chat_turn(
             # A verified token for a tenant that no longer exists.
             raise ToolError(ErrorCode.INTERNAL)
         state = await run_loop_turn(
-            deps=TurnDeps(db=db, model=request.app.state.model, tools=tools, now=lambda: now),
+            deps=TurnDeps(
+                db=db,
+                model=request.app.state.model,
+                tools=tools,
+                now=lambda: now,
+                graph=_loop_graph(request),
+            ),
             tenant_id=identity.tenant_id,
             user_id=identity.user_id,
             session_id=identity.session_id,

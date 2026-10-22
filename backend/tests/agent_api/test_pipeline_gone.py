@@ -23,10 +23,8 @@ PROMPTS = AGENT / "prompts"
 SCORES = BACKEND / "evals" / "engine-scores.json"
 
 DELETED_MODULES = (
-    "graph",
     "resume",
     "replay",
-    "checkpointer",
     "understand",
     "clarify_cap",
     "pushback",
@@ -40,6 +38,8 @@ DELETED_MODULES = (
 DELETED_PROMPTS = ("intent_extraction", "reply_composition", "system", "tool_planning")
 KEPT_MODULES = (
     "loop",
+    "graph",
+    "checkpointer",
     "loop_tools",
     "confirmation",
     "postcheck",
@@ -98,23 +98,33 @@ def _imported_modules(path: Path) -> list[str]:
     return found
 
 
-def test_nothing_under_helpdesk_imports_langgraph() -> None:
-    """Catches a kept module that still imports `langgraph` (or its checkpoint
-    package), which would keep the dependency alive after the delete.
+def test_only_the_graph_and_checkpointer_import_langgraph() -> None:
+    """Catches a module other than the graph and the checkpointer that imports
+    `langgraph` (the frame would then spread into the loop's own steps and
+    tools), and a graph that stops being the place that uses it.
 
     Every import in every `.py` file is read from the syntax tree, so a mention
     in a comment or docstring does not count and a late import inside a
-    function does.
+    function does. The set of files that import it must be exactly those two.
     """
     files = sorted(HELPDESK.rglob("*.py"))
     assert len(files) > 50
-    offenders = [
-        f"{path.relative_to(BACKEND)}: {module}"
+    importers = {
+        path.relative_to(AGENT).as_posix()
         for path in files
         for module in _imported_modules(path)
         if module == "langgraph" or module.startswith("langgraph.")
+        if AGENT in path.parents
+    }
+    outside = [
+        f"{path.relative_to(BACKEND)}: {module}"
+        for path in files
+        if AGENT not in path.parents
+        for module in _imported_modules(path)
+        if module == "langgraph" or module.startswith("langgraph.")
     ]
-    assert offenders == []
+    assert outside == []
+    assert importers == {"graph.py", "checkpointer.py"}
 
 
 def test_no_kept_module_imports_a_deleted_one() -> None:
@@ -132,20 +142,31 @@ def test_no_kept_module_imports_a_deleted_one() -> None:
     assert offenders == []
 
 
-def test_langgraph_packages_leave_the_dependencies() -> None:
-    """Catches a delete that stops importing langgraph but still installs it
-    (`pyproject.toml`) or still locks it (`uv.lock`)."""
+def test_langgraph_packages_are_in_the_agent_api_group() -> None:
+    """Catches a graph that imports `langgraph` while the packages are missing
+    from `pyproject.toml` (a fresh install would fail on import), one that puts
+    them anywhere but the `agent-api` group, a missing `psycopg`, or a lock file
+    that does not hold them.
+    """
     project: dict[str, Any] = tomllib.loads((BACKEND / "pyproject.toml").read_text())
-    names: list[str] = list(project["project"].get("dependencies", []))
-    for group in project["project"].get("optional-dependencies", {}).values():
-        names.extend(group)
-    for group in project.get("dependency-groups", {}).values():
-        names.extend(item for item in group if isinstance(item, str))
-    assert [name for name in names if name.lower().startswith("langgraph")] == []
+    group: list[str] = [
+        item for item in project["dependency-groups"]["agent-api"] if isinstance(item, str)
+    ]
+    wanted = ("langgraph", "langgraph-checkpoint-postgres", "psycopg")
+    for name in wanted:
+        assert any(re.match(rf"{re.escape(name)}(\[|[<>=!~ ]|$)", item) for item in group), name
+
+    elsewhere: list[str] = list(project["project"].get("dependencies", []))
+    for extra in project["project"].get("optional-dependencies", {}).values():
+        elsewhere.extend(extra)
+    for other, items in project["dependency-groups"].items():
+        if other != "agent-api":
+            elsewhere.extend(item for item in items if isinstance(item, str))
+    assert [name for name in elsewhere if name.lower().startswith("langgraph")] == []
 
     lock: dict[str, Any] = tomllib.loads((BACKEND / "uv.lock").read_text())
-    locked = [package["name"] for package in lock["package"]]
-    assert [name for name in locked if name.startswith("langgraph")] == []
+    locked = {package["name"] for package in lock["package"]}
+    assert {"langgraph", "langgraph-checkpoint-postgres", "psycopg"} <= locked
 
 
 def test_engine_setting_is_gone() -> None:
@@ -164,8 +185,9 @@ def _scores() -> dict[str, Any]:
     return loaded
 
 
-def test_engine_scores_have_both_engines_in_one_shape() -> None:
-    """Catches a scores file with a missing engine, a missing field, a case
+def test_engine_scores_have_all_three_engines_in_one_shape() -> None:
+    """Catches a scores file with a missing engine (the graph's score must be
+    recorded beside the pipeline's and the loop's), a missing field, a case
     count other than the 33 conversation cases, a count of passed cases that
     cannot be (negative or above 33), a score that is not a number, or a commit
     and date that are not a commit hash and a calendar day.
@@ -174,7 +196,7 @@ def test_engine_scores_have_both_engines_in_one_shape() -> None:
     """
     scores = _scores()
 
-    assert sorted(scores) == ["loop", "pipeline"]
+    assert sorted(scores) == ["graph", "loop", "pipeline"]
     for engine, record in scores.items():
         assert sorted(record) == ["cases", "cases_passed", "commit", "date", "score"], engine
         assert record["cases"] == CONVERSATION_CASES, engine
