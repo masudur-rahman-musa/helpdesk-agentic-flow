@@ -24,7 +24,7 @@ export function ChatList({
   return (
     <nav
       aria-label="Chats"
-      className="flex w-full flex-col gap-2 rounded-md bg-muted/50 p-2 lg:min-h-0 lg:w-64 lg:shrink-0"
+      className="flex w-full flex-col gap-2 rounded-md bg-muted/50 p-2 lg:sticky lg:top-0 lg:h-[calc(100dvh-var(--shell-offset))] lg:w-64 lg:shrink-0 lg:self-start"
     >
       <Button type="button" variant="secondary" onClick={onNew}>
         New chat

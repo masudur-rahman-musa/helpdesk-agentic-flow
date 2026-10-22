@@ -19,10 +19,10 @@ export function AppShell({
   showNav?: boolean;
 }) {
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="flex h-dvh flex-col bg-background text-foreground">
       <SkipLink />
       <DemoBanner />
-      <header className="sticky top-0 z-30 border-b border-border bg-card">
+      <header className="border-b border-border bg-card">
         <Container>
           <div className="flex h-14 items-center justify-between gap-4">
             <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
@@ -43,7 +43,7 @@ export function AppShell({
           {showNav ? <MainNav /> : null}
         </Container>
       </header>
-      <main id="main-content" tabIndex={-1} className="flex-1 py-6 focus:outline-none">
+      <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto py-6 focus:outline-none">
         <Container>{children}</Container>
       </main>
     </div>
