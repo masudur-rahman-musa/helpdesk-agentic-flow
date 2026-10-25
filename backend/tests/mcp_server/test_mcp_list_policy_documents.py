@@ -177,8 +177,8 @@ def _plant_tenant(database_url: str, label: str, principal: str = "it_admin") ->
         database_url,
         [
             (
-                "INSERT INTO tenants (id, slug, name, residency, settings)"
-                " VALUES (:id, :slug, :name, 'eu', '{}'::jsonb)",
+                "INSERT INTO tenants (id, slug, name, settings)"
+                " VALUES (:id, :slug, :name, '{}'::jsonb)",
                 {"id": tenant_id, "slug": slug, "name": "Fake Tenant (policy board)"},
             ),
             (

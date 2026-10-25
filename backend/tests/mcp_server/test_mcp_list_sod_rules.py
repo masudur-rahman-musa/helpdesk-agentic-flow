@@ -256,8 +256,8 @@ def _plant_ruleless_tenant(database_url: str) -> SeededUser:
         database_url,
         [
             (
-                "INSERT INTO tenants (id, slug, name, residency, settings)"
-                " VALUES (:id, :slug, :name, 'eu', '{}'::jsonb)",
+                "INSERT INTO tenants (id, slug, name, settings)"
+                " VALUES (:id, :slug, :name, '{}'::jsonb)",
                 {
                     "id": tenant_id,
                     "slug": f"fake-ruleless-{marker}",

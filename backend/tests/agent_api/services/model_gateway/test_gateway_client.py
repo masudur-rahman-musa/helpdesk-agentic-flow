@@ -428,6 +428,29 @@ def test_complete_maps_the_body_and_the_gateway_headers_onto_the_answer() -> Non
     assert answer.gateway_trace_id == GATEWAY_TRACE_ID
 
 
+def test_a_region_header_is_not_kept_on_the_answer() -> None:
+    """Catches a client that still reads `X-Gateway-Region` into a field on the
+    answer, and one that drops the provider or cost headers while removing it.
+
+    The fixture response carries `X-Gateway-Region`, so only the removed read
+    can make `gateway_region` appear.
+    """
+    response = httpx.Response(
+        200,
+        json=_ok_body(),
+        headers={
+            **_OK_HEADERS,
+            "X-Gateway-Region": "eu-west",
+            "X-Gateway-Cost-USD": "0.0123",
+        },
+    )
+    answer = _complete(_client(_Recorder(response)))
+
+    assert not hasattr(answer, "gateway_region")
+    assert answer.gateway_provider == "fake-provider"
+    assert answer.gateway_cost_usd == "0.0123"
+
+
 # --- the status table ---------------------------------------------------------
 
 
@@ -446,7 +469,6 @@ _STATUS_ROWS: tuple[_Row, ...] = (
     _Row("422", 422, GATEWAY_WORDING, None, ModelRequestError, ErrorCode.VALIDATION),
     _Row("404", 404, GATEWAY_WORDING, None, ModelUnavailableError, ErrorCode.INTERNAL),
     _Row("429", 429, GATEWAY_WORDING, None, ModelUnavailableError, ErrorCode.INTERNAL),
-    _Row("451", 451, GATEWAY_WORDING, None, ModelUnavailableError, ErrorCode.INTERNAL),
     _Row("502", 502, GATEWAY_WORDING, None, ModelUnavailableError, ErrorCode.INTERNAL),
     _Row("503", 503, GATEWAY_WORDING, None, ModelUnavailableError, ErrorCode.INTERNAL),
     _Row("unmapped-418", 418, GATEWAY_WORDING, None, ModelUnavailableError, ErrorCode.INTERNAL),

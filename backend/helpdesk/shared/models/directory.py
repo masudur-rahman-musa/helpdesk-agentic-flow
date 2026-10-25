@@ -22,7 +22,6 @@ class Tenant(Base):
 
     slug: Mapped[str] = mapped_column(String(64), unique=True)
     name: Mapped[str] = mapped_column(String(256))
-    residency: Mapped[str] = mapped_column(String(16))  # eu | any
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
 

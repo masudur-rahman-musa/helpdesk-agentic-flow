@@ -81,9 +81,8 @@ spec:
   resources:
     requests:
       storage: 256Mi
-  # `storageClassName` is deliberately absent, the same reason `llama.yaml`'s
-  # claim omits it: k3s defaults to `local-path` and EKS to `gp2`, so one build
-  # deploys to both without leaving a Pending claim on a class that is not there.
+  # `storageClassName` is deliberately absent: k3s defaults to `local-path`
+  # and EKS to `gp2`, so one build deploys to both without leaving a Pending claim on a class that is not there.
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -117,7 +117,6 @@ async def seed_tenant(factory: async_sessionmaker[AsyncSession], slug: str) -> S
         tenant = Tenant(
             slug=tenant_slug,
             name=f"Fake Tenant {slug}",
-            residency="eu",
             settings={},
         )
         session.add(tenant)

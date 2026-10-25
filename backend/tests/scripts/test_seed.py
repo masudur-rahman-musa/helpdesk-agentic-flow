@@ -27,6 +27,7 @@ not by slug, so the implementer is free to pick tenant slugs.
 """
 
 import asyncio
+import dataclasses
 import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
@@ -586,6 +587,18 @@ def test_every_system_has_phrases() -> None:
                 assert " and " not in f" {phrase} ", (spec.slug, slug, phrase)
 
 
+def test_tenant_spec_has_no_residency_field() -> None:
+    """Catches a seed that still carries a residency value per tenant (it would
+    be written to a column that no longer exists).
+
+    The rebuild starts from a complete real spec, so the only thing that can
+    raise `TypeError` is the unknown `residency` keyword, not a missing field.
+    """
+    assert "residency" not in {f.name for f in dataclasses.fields(seed_module.TenantSpec)}
+    with pytest.raises(TypeError):
+        dataclasses.replace(seed_module.NORDLICHT, residency="eu")  # type: ignore[call-arg]
+
+
 @pytest.mark.db
 def test_a_reseed_backfills_system_about(fresh_db_url: str) -> None:
     """Catches a re-seed that leaves `systems.about` empty on existing rows (an
@@ -772,7 +785,6 @@ def test_upsert_many_with_no_rows_sends_no_statement(fresh_db_url: str) -> None:
                         id=tenant_id,
                         slug="emptybatch",
                         name="Emptybatch Test Co",
-                        residency="eu",
                         settings={},
                     )
                 )

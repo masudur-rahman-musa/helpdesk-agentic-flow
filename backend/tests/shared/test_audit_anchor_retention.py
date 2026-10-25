@@ -163,8 +163,8 @@ async def _plant_tenant(owner_url: str, slug: str) -> uuid.UUID:
     async with _engine(owner_url) as engine, engine.begin() as conn:
         await conn.execute(
             text(
-                "INSERT INTO tenants (id, slug, name, residency, settings) "
-                "VALUES (:id, :slug, :name, 'eu', CAST(:settings AS jsonb))"
+                "INSERT INTO tenants (id, slug, name, settings) "
+                "VALUES (:id, :slug, :name, CAST(:settings AS jsonb))"
             ),
             {"id": tenant_id, "slug": slug, "name": f"Fake Tenant {slug}", "settings": "{}"},
         )

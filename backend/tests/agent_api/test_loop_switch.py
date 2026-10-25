@@ -96,7 +96,7 @@ class Env:
 async def _seed(db: AgentDb) -> Env:
     slug = f"switch-{uuid.uuid4().hex[:12]}"
     async with db.factory() as session:
-        tenant = Tenant(slug=slug, name="Fake Switch Tenant", residency="eu", settings={})
+        tenant = Tenant(slug=slug, name="Fake Switch Tenant", settings={})
         session.add(tenant)
         await session.commit()
         tenant_id = tenant.id

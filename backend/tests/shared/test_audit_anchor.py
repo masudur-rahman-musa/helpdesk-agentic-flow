@@ -172,8 +172,8 @@ def _tenant_with_events(owner_url: str, events: int) -> uuid.UUID:
             async with engine.begin() as conn:
                 await conn.execute(
                     text(
-                        "INSERT INTO tenants (id, slug, name, residency, settings) "
-                        "VALUES (:id, :slug, :name, 'eu', CAST(:settings AS jsonb))"
+                        "INSERT INTO tenants (id, slug, name, settings) "
+                        "VALUES (:id, :slug, :name, CAST(:settings AS jsonb))"
                     ),
                     {
                         "id": tenant_id,

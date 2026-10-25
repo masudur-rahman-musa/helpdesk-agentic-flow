@@ -119,7 +119,6 @@ class TenantSpec:
     key: str  # short handle used in natural keys and demo passwords
     slug: str
     name: str
-    residency: str
     locale: str
     email_domain: str
     departments: tuple[str, ...]
@@ -143,7 +142,6 @@ NORDLICHT = TenantSpec(
     key="nordlicht",
     slug="nordlicht",
     name="Nordlicht Maschinenbau GmbH",
-    residency="eu",
     locale="de_DE",
     email_domain="nordlicht.example",
     departments=("Engineering", "Production", "Procurement", "Finance", "Sales", "HR", "IT"),
@@ -338,7 +336,6 @@ CUAN = TenantSpec(
     key="cuan",
     slug="cuan",
     name="Cuan Financial Services Ltd",
-    residency="eu",
     locale="en_IE",
     email_domain="cuan.example",
     departments=(
@@ -948,7 +945,6 @@ async def _write_tenants_table(
                         id=rows.tenant_id,
                         slug=rows.spec.slug,
                         name=rows.spec.name,
-                        residency=rows.spec.residency,
                         settings={},
                     )
                 )

@@ -112,7 +112,6 @@ async def _bare_tenant(factory: async_sessionmaker[AsyncSession]) -> uuid.UUID:
         tenant = Tenant(
             slug=f"sodrules-empty-{uuid.uuid4().hex[:10]}",
             name="Fake Tenant (no rules)",
-            residency="eu",
             settings={},
         )
         session.add(tenant)

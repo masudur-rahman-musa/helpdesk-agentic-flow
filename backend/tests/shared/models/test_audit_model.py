@@ -57,8 +57,8 @@ GENESIS = "0" * 64
 FAKE_HASH = "a" * 64
 
 _INSERT_TENANT = text(
-    "INSERT INTO tenants (id, slug, name, residency, settings) "
-    "VALUES (:id, :slug, 'Fake Audit Tenant', 'eu', '{}'::jsonb)"
+    "INSERT INTO tenants (id, slug, name, settings) "
+    "VALUES (:id, :slug, 'Fake Audit Tenant', '{}'::jsonb)"
 )
 
 _INSERT_EVENT = text(

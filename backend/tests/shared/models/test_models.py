@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import Connection, Table, Uuid, inspect, select
+from sqlalchemy import Connection, Table, Uuid, inspect, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.shared.core.db import create_session_factory, tenant_session
@@ -93,6 +93,18 @@ def test_tenant_scoped_tables_have_tenant_id_and_composite_index(table_name: str
 
 def test_tenants_table_is_not_tenant_scoped() -> None:
     assert "tenant_id" not in Base.metadata.tables["tenants"].c
+
+
+def test_tenants_table_has_no_residency_column() -> None:
+    """Catches a model that still maps `Tenant.residency` (the column would then
+    be written on every insert and the drop migration would drift from the
+    metadata), and one that drops a neighbouring column by mistake.
+
+    The wanted columns are asserted too, so an emptied table cannot pass.
+    """
+    columns = Base.metadata.tables["tenants"].c
+    assert "residency" not in columns
+    assert {"slug", "name", "settings"} <= set(columns.keys())
 
 
 def test_schema_round_trip_one_row_per_table(temp_db_url: str) -> None:
@@ -187,3 +199,105 @@ def test_migrated_schema_matches_metadata_and_downgrades_clean(fresh_db_url: str
             await engine.dispose()
 
     asyncio.run(check_empty())
+
+
+_REVISION_BEFORE_DROP = "a9d3e5b17c40"
+
+
+def _alembic_to(args: list[str], database_url: str) -> None:
+    result = subprocess.run(
+        ["uv", "run", "alembic", *args],
+        cwd=REPO_ROOT / "backend",
+        env={**os.environ, "DATABASE_URL": database_url},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"alembic {args} failed:\n{result.stderr}"
+
+
+@pytest.mark.db
+def test_drop_residency_migration_keeps_tenant_rows_and_downgrades_back(
+    fresh_db_url: str,
+) -> None:
+    """Catches a migration that drops the table or rows instead of the column,
+    one that leaves `residency` in place, a downgrade that adds the column
+    nullable or without a fill (the `any` row must read `eu`), and a head that
+    is not one step past `a9d3e5b17c40`.
+
+    The tenant is inserted at the old revision with `residency = 'any'`, so a
+    downgrade that restored the old value (or no value) would fail on `eu`.
+    """
+    tenant_id = uuid.uuid4()
+    _alembic_to(["upgrade", _REVISION_BEFORE_DROP], fresh_db_url)
+
+    async def insert_old_row() -> None:
+        engine = create_async_engine(fresh_db_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        "INSERT INTO tenants (id, slug, name, residency, settings) "
+                        "VALUES (:id, 'fake-drop-res', 'Fake Drop Co', 'any', "
+                        "CAST('{\"k\": 1}' AS jsonb))"
+                    ),
+                    {"id": tenant_id},
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(insert_old_row())
+
+    _alembic_to(["upgrade", "head"], fresh_db_url)
+
+    async def read_row_and_columns() -> tuple[Any, set[str]]:
+        engine = create_async_engine(fresh_db_url)
+        try:
+            async with engine.connect() as conn:
+                row = (
+                    await conn.execute(
+                        text("SELECT id, slug, name, settings FROM tenants WHERE id = :id"),
+                        {"id": tenant_id},
+                    )
+                ).one()
+                cols = await conn.run_sync(
+                    lambda c: {col["name"] for col in inspect(c).get_columns("tenants")}
+                )
+                return row, cols
+        finally:
+            await engine.dispose()
+
+    row, cols = asyncio.run(read_row_and_columns())
+    assert "residency" not in cols
+    assert tuple(row) == (tenant_id, "fake-drop-res", "Fake Drop Co", {"k": 1})
+
+    _alembic_to(["downgrade", "-1"], fresh_db_url)
+
+    async def read_after_downgrade() -> tuple[Any, Any]:
+        engine = create_async_engine(fresh_db_url)
+        try:
+            async with engine.connect() as conn:
+                value = (
+                    await conn.execute(
+                        text("SELECT residency FROM tenants WHERE id = :id"), {"id": tenant_id}
+                    )
+                ).scalar_one()
+                column = await conn.run_sync(
+                    lambda c: next(
+                        col
+                        for col in inspect(c).get_columns("tenants")
+                        if col["name"] == "residency"
+                    )
+                )
+                version = (
+                    await conn.execute(text("SELECT version_num FROM alembic_version"))
+                ).scalar_one()
+                return (value, column), version
+        finally:
+            await engine.dispose()
+
+    (value, column), version = asyncio.run(read_after_downgrade())
+    assert value == "eu"
+    assert column["nullable"] is False
+    assert str(column["type"]) == "VARCHAR(16)"
+    assert version == _REVISION_BEFORE_DROP

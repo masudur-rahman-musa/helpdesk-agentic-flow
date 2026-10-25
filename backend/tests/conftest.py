@@ -195,7 +195,6 @@ def fresh_tenant(session_factory: async_sessionmaker[AsyncSession]) -> uuid.UUID
             tenant = Tenant(
                 slug=f"fresh-{uuid.uuid4().hex[:12]}",
                 name="Fake Fresh Tenant",
-                residency="eu",
                 settings={},
             )
             session.add(tenant)

@@ -124,7 +124,6 @@ async def _tenant(factory: async_sessionmaker[AsyncSession], label: str) -> uuid
         tenant = Tenant(
             slug=f"policydocs-{label}-{uuid.uuid4().hex[:10]}",
             name=f"Fake Tenant ({label})",
-            residency="eu",
             settings={},
         )
         session.add(tenant)

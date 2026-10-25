@@ -284,7 +284,7 @@ class ChatEnv:
 
 async def _seed(factory: async_sessionmaker[AsyncSession], slug: str) -> SeededTenant:
     async with factory() as session:
-        tenant = Tenant(slug=slug, name=f"Fake Tenant {slug}", residency="eu", settings={})
+        tenant = Tenant(slug=slug, name=f"Fake Tenant {slug}", settings={})
         session.add(tenant)
         await session.commit()
         tenant_id = tenant.id

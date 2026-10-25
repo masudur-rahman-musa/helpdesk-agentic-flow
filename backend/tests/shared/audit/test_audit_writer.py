@@ -61,7 +61,7 @@ def _event(index: int) -> AuditEventInput:
 
 async def _make_tenant(factory: async_sessionmaker[AsyncSession], slug: str) -> uuid.UUID:
     async with factory() as session:
-        tenant = Tenant(slug=slug, name=f"Fake Tenant {slug}", residency="eu", settings={})
+        tenant = Tenant(slug=slug, name=f"Fake Tenant {slug}", settings={})
         session.add(tenant)
         await session.commit()
         return tenant.id
