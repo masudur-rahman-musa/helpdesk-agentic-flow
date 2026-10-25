@@ -1,7 +1,8 @@
 # Two stacks in one file, separated by a profile.
 #
-#   docker compose up -d                  the three backing services alone
-#   docker compose --profile app up -d    those three plus the four containers
+#   docker compose up -d                  the backing services alone (and the
+#                                         test suite's own Postgres)
+#   docker compose --profile app up -d    those plus the four containers
 #
 # The bare command is the one every test suite, `make run` and `make migrate`
 # depend on, so postgres, redis and qdrant carry NO profile: a profile on any
@@ -47,6 +48,29 @@ services:
       - "./infra/local/postgres/init-app-role.sql:/etc/helpdesk/init-app-role.sql:ro"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The test suite's own server. Postgres roles belong to the whole server,
+  # so a test that changes `helpdesk_app`'s password on `postgres` would break
+  # the running app's login. Same image (the pinned image set does not move),
+  # loopback only, data in memory (a clean server on every start), no init
+  # script, plain test values no env file reads. `cluster_name` lets the suite
+  # check it reached this server, never the app's. Pinned by
+  # infra/tests/test_test_postgres.py.
+  postgres-test:
+    image: postgres:16.6-alpine
+    command: ["postgres", "-c", "cluster_name=helpdesk-test"]
+    environment:
+      POSTGRES_USER: helpdesk
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: helpdesk_test
+    ports: ["127.0.0.1:5433:5432"]
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helpdesk -d helpdesk_test"]
       interval: 5s
       timeout: 3s
       retries: 10

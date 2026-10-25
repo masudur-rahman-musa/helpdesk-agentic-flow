@@ -54,6 +54,9 @@ jobs:
     # publishes; the Postgres login is compose's own default.
     env:
       DATABASE_URL: postgresql+asyncpg://helpdesk:change-me@localhost:5432/helpdesk
+      # The suite's own server (compose `postgres-test`); the tests point
+      # DATABASE_URL here at import, so no test touches the app's roles.
+      TEST_DATABASE_URL: postgresql+asyncpg://helpdesk:change-me@localhost:5433/helpdesk_test
       REDIS_URL: redis://localhost:6379/0
       QDRANT_URL: http://localhost:6333
     strategy:
@@ -73,7 +76,7 @@ jobs:
       # here too, with compose's own default credentials.
       # Compose reads both backend env files as optional; CI writes neither.
       - name: Start the backing services
-        run: docker compose up -d --wait postgres redis qdrant
+        run: docker compose up -d --wait postgres postgres-test redis qdrant
       - name: Run this slice
         working-directory: backend
         env:

@@ -1,9 +1,10 @@
 """Shared backing-service fixtures: Postgres and Redis.
 
-These fixtures talk to the compose Postgres using the URL from
-``helpdesk.core.settings.load_settings()`` (env / .env). They create a
-throwaway database and drop it afterwards, so the real ``helpdesk``
-database is never touched.
+These fixtures talk to the suite's own compose Postgres (`postgres-test`,
+port 5433), never the app's: ``DATABASE_URL`` is set to the test URL at
+import, so ``load_settings()`` lands there. They create a throwaway database
+and drop it afterwards. The ``pg`` fixture refuses any server not named
+``helpdesk-test`` (``tests/support/db_server.py``).
 
 If Postgres is unreachable the ``pg`` fixture FAILS the tests loudly with
 an explicit message. There is no silent skip: a green run must mean the
@@ -45,6 +46,13 @@ from sqlalchemy.pool import NullPool
 from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import CONNECT_TIMEOUT_SECONDS, create_session_factory
 from helpdesk.shared.models import Base, Tenant
+from tests.support.db_server import check_server_name, test_database_url
+
+# Roles belong to the whole Postgres server, so the suite never shares the
+# app's: changing `helpdesk_app`'s password there breaks the running app's
+# login. Set at import, before any setting is read. Pinned by
+# tests/support/test_db_server.py::test_the_suite_settings_name_the_test_url.
+os.environ["DATABASE_URL"] = test_database_url(os.environ)
 
 # The repo root, used as the cwd for the Alembic subprocess below. The import
 # path for `scripts.seed` and `tests.support.*` is set once in
@@ -58,7 +66,7 @@ pytest_plugins = ["tests.support.mcp"]
 
 _UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
-    "Plan 03 tests require the compose stack: run `docker compose up -d` first.\n"
+    "The tests need the compose `postgres-test` service: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 
@@ -69,6 +77,17 @@ async def _admin_execute(admin_url: str, sql: str) -> None:
     try:
         async with engine.connect() as conn:
             await conn.execute(text(sql))
+    finally:
+        await engine.dispose()
+
+
+async def _server_name(admin_url: str) -> str:
+    """The `cluster_name` the server reports, empty on the app's server."""
+    engine = create_async_engine(admin_url, poolclass=NullPool)
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT current_setting('cluster_name')"))
+            return str(result.scalar())
     finally:
         await engine.dispose()
 
@@ -105,9 +124,13 @@ def pg() -> TempDatabaseFactory:
             pytrace=False,
         )
     try:
-        asyncio.run(_admin_execute(settings.database_url, "SELECT 1"))
+        name = asyncio.run(_server_name(settings.database_url))
     except Exception as exc:
         pytest.fail(_UNREACHABLE_MSG.format(error=exc), pytrace=False)
+    try:
+        check_server_name(name)
+    except RuntimeError as exc:
+        pytest.fail(str(exc), pytrace=False)
     return TempDatabaseFactory(settings.database_url)
 
 
