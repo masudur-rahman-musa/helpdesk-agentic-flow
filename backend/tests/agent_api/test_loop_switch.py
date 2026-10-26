@@ -358,7 +358,7 @@ def test_loop_is_the_only_engine(chat_settings_env: Env, monkeypatch: pytest.Mon
     assert response.outcome == TurnOutcome.DONE.value
     assert len(gateway.requests) == 1
     body = json.loads(gateway.requests[0].content)
-    assert body["model"] == "agent-strong"
+    assert body["model"] == "agent-default"
     assert "tools" in body
     assert "response_format" not in body
     assert stored_roles(env, response.chat_id) == [

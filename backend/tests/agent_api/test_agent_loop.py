@@ -383,7 +383,7 @@ def test_history_goes_as_real_roles() -> None:
     run(gateway, FakeTools(), store, message="The viewer one, please.")
 
     first = gateway.requests[0]
-    assert first["model"] == "agent-strong"
+    assert first["model"] == "agent-default"
     assert [(turn["role"], turn["content"]) for turn in first["messages"]] == [
         ("system", load_prompt("agent_loop").text),
         ("user", "Hi, I am new here."),
@@ -1097,7 +1097,7 @@ def test_yes_files_held_calls_with_stored_keys() -> None:
     assert store.held == []
     assert len(gateway.requests) == 1
     request = gateway.requests[0]
-    assert request["model"] == "agent-strong"
+    assert request["model"] == "agent-default"
     assert "tools" not in request
     assert "tool_choice" not in request
     assert "REQ-0001" in json.dumps(request["messages"])

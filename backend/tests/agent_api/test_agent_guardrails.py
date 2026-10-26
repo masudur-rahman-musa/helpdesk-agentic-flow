@@ -588,11 +588,12 @@ def test_note_request_saves_the_draft_and_it_shows_next_step() -> None:
 def test_the_draft_is_shown_at_the_start_of_the_next_turn() -> None:
     """Catches a loop that reads the draft only inside the turn that wrote it
     (the next message would start blank and the bot would ask again), that puts
-    the draft before the prompt or after the history, or that words it
+    the draft before the prompt or before the earlier messages, or that words it
     differently from the shared `draft_message`.
 
     The chat row already holds a draft. The very first request must carry it as
-    one system message right after the prompt and before the earlier messages.
+    one system message after the prompt and the earlier messages, just before
+    the person's newest message.
     """
     draft = RequestDraft(role="wiki viewer", days=7, saved_at=START)
     gateway = ScriptedGateway(answer_body("Welcome back."))
@@ -603,15 +604,15 @@ def test_the_draft_is_shown_at_the_start_of_the_next_turn() -> None:
     messages = gateway.requests[0]["messages"]
     assert [message["role"] for message in messages] == [
         "system",
-        "system",
         "user",
         "assistant",
+        "system",
         "user",
     ]
-    assert messages[1]["content"] == draft_message(draft)
-    assert messages[1]["content"].startswith(DRAFT_PREFIX)
-    assert _shown(messages[1])["role"] == "wiki viewer"
-    assert _shown(messages[1])["days"] == 7
+    assert messages[3]["content"] == draft_message(draft)
+    assert messages[3]["content"].startswith(DRAFT_PREFIX)
+    assert _shown(messages[3])["role"] == "wiki viewer"
+    assert _shown(messages[3])["days"] == 7
 
 
 @pytest.mark.parametrize(

@@ -573,18 +573,24 @@ class _Turn:
         return elapsed > gates.TURN_DEADLINE_SECONDS or self.tokens > gates.MAX_TURN_TOKENS
 
     async def _ask(self, *, tools: bool) -> ToolCallAnswer:
-        """One model step on the strong alias; no tools sends none. The draft,
-        when there is one, goes right after the prompt, rebuilt every step."""
+        """One model step on the default alias; no tools sends none. The draft,
+        when there is one, goes just before the person's newest message, so the
+        prompt and the earlier chat stay the same from step to step and the
+        gateway can cache them. Pinned by
+        `test_the_start_stays_the_same_when_the_draft_changes`."""
         messages = [dict(message) for message in self.messages]
         if self.state.request_draft is not None:
+            newest = max(
+                index for index, message in enumerate(messages) if message["role"] == "user"
+            )
             messages.insert(
-                1, {"role": "system", "content": draft_message(self.state.request_draft)}
+                newest, {"role": "system", "content": draft_message(self.state.request_draft)}
             )
         try:
             answer = await self.deps.model.complete_with_tools(
                 messages,
                 [tool.wire() for tool in self.offered.values()] if tools else [],
-                alias=ModelAlias.AGENT_STRONG,
+                alias=ModelAlias.AGENT_DEFAULT,
                 tenant_slug=self.state.tenant_slug,
                 session_id=str(self.state.session_id),
                 prompt_version=self.prompt.sha256,
