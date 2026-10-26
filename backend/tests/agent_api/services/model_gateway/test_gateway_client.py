@@ -58,6 +58,7 @@ Postgres, Redis or Qdrant.
 """
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -244,8 +245,12 @@ def _complete(
     tenant: str = TENANT,
     session_id: str | None = None,
     traceparent: str | None = None,
+    prompt_version: str | None = None,
 ) -> ModelAnswer:
     """Drive one `complete` call and close the client, in a single event loop."""
+
+    # Only passed when given, so the "left out" case calls exactly as before.
+    extra: dict[str, Any] = {} if prompt_version is None else {"prompt_version": prompt_version}
 
     async def scenario() -> ModelAnswer:
         try:
@@ -255,6 +260,7 @@ def _complete(
                 tenant_slug=tenant,
                 session_id=session_id,
                 traceparent=traceparent,
+                **extra,
             )
         finally:
             await client.aclose()
@@ -526,6 +532,82 @@ def test_no_gateway_wording_url_or_provider_name_reaches_the_message(row: _Row) 
     assert BASE_URL not in message
     assert "gateway.invalid" not in message
     assert "/chat/completions" not in message
+
+
+DIGEST = hashlib.sha256(b"x").hexdigest()
+
+
+def test_the_prompt_version_header_carries_the_given_digest() -> None:
+    """Catches a client that drops the prompt version, renames the header, or
+    sends some other value, so the console's ledger keeps showing "none sent"."""
+    recorder = _Recorder(_ok_response())
+
+    _complete(_client(recorder), prompt_version=DIGEST)
+
+    assert len(DIGEST) == 64
+    assert recorder.requests[0].headers["X-Prompt-Version"] == DIGEST
+
+
+def test_the_prompt_version_header_is_absent_when_none_is_given() -> None:
+    """Catches a client that always sets `X-Prompt-Version`, sending an empty
+    value when the caller has none: the console would then read a blank slug
+    instead of "not sent"."""
+    recorder = _Recorder(_ok_response())
+
+    _complete(_client(recorder))
+
+    assert "X-Prompt-Version" not in recorder.requests[0].headers
+
+
+def test_complete_json_and_complete_with_tools_send_the_prompt_version() -> None:
+    """Catches a client that wires the prompt version into `complete` only,
+    leaving the structured and the tool-calling paths, which the agent loop
+    uses, without it."""
+    recorder = _Recorder(_ok_response(_ok_body(text=json.dumps(VALID_DECISION))))
+    client = _client(recorder)
+
+    async def scenario() -> None:
+        try:
+            await client.complete_json(
+                Decision,
+                MESSAGES,
+                alias=ModelAlias.AGENT_DEFAULT,
+                tenant_slug=TENANT,
+                prompt_version=DIGEST,
+            )
+            await client.complete_with_tools(
+                MESSAGES,
+                [],
+                alias=ModelAlias.AGENT_DEFAULT,
+                tenant_slug=TENANT,
+                prompt_version=DIGEST,
+            )
+        finally:
+            await client.aclose()
+
+    asyncio.run(scenario())
+
+    assert len(recorder.requests) == 2
+    assert [r.headers.get("X-Prompt-Version") for r in recorder.requests] == [DIGEST, DIGEST]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [DIGEST[:63], DIGEST + "a", DIGEST.upper(), "", DIGEST + "\n"],
+    ids=["63-chars", "65-chars", "uppercase", "empty", "trailing-newline"],
+)
+def test_a_bad_prompt_version_is_refused_before_sending(value: str) -> None:
+    """Catches a client that sends a prompt version that is not exactly a
+    lowercase sha256 hex digest: a wrong length, uppercase, empty (treated as
+    "given" rather than absent) or one ending in a newline (`re.match` or
+    `$` instead of `fullmatch`). The transport fails the test if it is reached,
+    and every other argument is valid, so only the digest check can refuse."""
+    client = _client(_must_not_be_called)
+
+    with pytest.raises(ModelRequestError) as excinfo:
+        _complete(client, prompt_version=value)
+
+    assert excinfo.value.code is ErrorCode.VALIDATION
 
 
 # --- pre-checks, all before any request is built -------------------------------

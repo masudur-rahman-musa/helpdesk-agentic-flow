@@ -125,9 +125,12 @@ class ScriptedGateway:
     def __init__(self, *bodies: Mapping[str, Any]) -> None:
         self._bodies = list(bodies)
         self.requests: list[dict[str, Any]] = []
+        self.headers: list[httpx.Headers] = []
+        """The headers of each request, parallel to `requests`."""
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(json.loads(request.content))
+        self.headers.append(request.headers)
         index = len(self.requests) - 1
         if index >= len(self._bodies):
             raise AssertionError(
@@ -443,6 +446,29 @@ def test_lookup_then_answer() -> None:
     assert second[-1]["role"] == "tool"
     assert second[-1]["tool_call_id"] == "call_a"
     assert json.loads(second[-1]["content"]) == payload
+
+
+def test_every_model_step_sends_the_loop_prompt_version() -> None:
+    """Catches a loop that leaves the prompt version off its model calls, or
+    sends it on the first step only, so a ledger row shows "none sent"; and one
+    that sends a digest other than the loaded prompt's, which would not match
+    the `prompt_version` the turn records.
+
+    A lookup then an answer makes two model requests; each must carry the
+    header equal to the loaded prompt's digest and to the turn's own record.
+    """
+    gateway = ScriptedGateway(
+        answer_body(None, wire_call("call_a", "list_my_requests", {})),
+        answer_body("You have nothing open."),
+    )
+    tools = FakeTools({"list_my_requests": {"requests": []}})
+
+    state = run(gateway, tools, FakeStore())
+
+    digest = load_prompt("agent_loop").sha256
+    assert len(gateway.headers) == 2
+    assert [headers.get("X-Prompt-Version") for headers in gateway.headers] == [digest, digest]
+    assert state.prompt_version == digest
 
 
 # --- the tools offered ----------------------------------------------------------

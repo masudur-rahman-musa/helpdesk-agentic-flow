@@ -42,6 +42,9 @@ READ_TIMEOUT_SECONDS = 60.0
 STRUCTURED_OUTPUT_ATTEMPTS = 2
 """One call plus one retry, for bad model output only, never transport errors."""
 
+PROMPT_VERSION_PATTERN = re.compile(r"[0-9a-f]{64}")
+"""A prompt version is the sha256 hex digest of the prompt file, matched in full."""
+
 
 class ModelAlias(StrEnum):
     """The only model names this repo may send. The value is the wire name."""
@@ -158,11 +161,12 @@ class ModelClient:
         tenant_slug: str,
         session_id: str | None = None,
         traceparent: str | None = None,
+        prompt_version: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> ModelAnswer:
         """One non-streaming turn."""
-        headers = self._headers(tenant_slug, session_id, traceparent)
+        headers = self._headers(tenant_slug, session_id, traceparent, prompt_version)
         body = self._body(messages, alias, max_tokens, temperature)
         response = await self._post(body, headers)
         return self._parsed(response, alias)
@@ -176,6 +180,7 @@ class ModelClient:
         tenant_slug: str,
         session_id: str | None = None,
         traceparent: str | None = None,
+        prompt_version: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> StructuredAnswer[M]:
@@ -183,7 +188,7 @@ class ModelClient:
 
         A reply that does not fit is retried once, then raised.
         """
-        headers = self._headers(tenant_slug, session_id, traceparent)
+        headers = self._headers(tenant_slug, session_id, traceparent, prompt_version)
         body = self._body(messages, alias, max_tokens, temperature)
         body["response_format"] = {
             "type": "json_schema",
@@ -216,13 +221,14 @@ class ModelClient:
         tenant_slug: str,
         session_id: str | None = None,
         traceparent: str | None = None,
+        prompt_version: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> ToolCallAnswer:
         """One turn that may call tools. Messages go as given, assistant
         `tool_calls` and `tool` turns included. No tools sends neither `tools`
         nor `tool_choice`, so the model can only answer in text."""
-        headers = self._headers(tenant_slug, session_id, traceparent)
+        headers = self._headers(tenant_slug, session_id, traceparent, prompt_version)
         body = self._body(messages, alias, max_tokens, temperature)
         if tools:
             body["tools"] = [dict(tool) for tool in tools]
@@ -237,9 +243,14 @@ class ModelClient:
         )
 
     def _headers(
-        self, tenant_slug: str, session_id: str | None, traceparent: str | None
+        self,
+        tenant_slug: str,
+        session_id: str | None,
+        traceparent: str | None,
+        prompt_version: str | None,
     ) -> dict[str, str]:
-        """The headers, with caller parts checked. `X-Session` is left out, not sent empty."""
+        """The headers, with caller parts checked. `X-Session` and
+        `X-Prompt-Version` are left out, not sent empty."""
         try:
             slug, key = checked_tenant_key(tenant_slug, self._api_keys)
             checked_session = None if session_id is None else check_slug(session_id)
@@ -255,6 +266,10 @@ class ModelClient:
         }
         if checked_session is not None:
             headers["X-Session"] = checked_session
+        if prompt_version is not None:
+            if PROMPT_VERSION_PATTERN.fullmatch(prompt_version) is None:
+                raise ModelRequestError("a prompt version must be a lowercase sha256 hex digest")
+            headers["X-Prompt-Version"] = prompt_version
         return headers
 
     def _body(

@@ -587,6 +587,7 @@ class _Turn:
                 alias=ModelAlias.AGENT_STRONG,
                 tenant_slug=self.state.tenant_slug,
                 session_id=str(self.state.session_id),
+                prompt_version=self.prompt.sha256,
             )
         except ToolError as exc:
             raise _TurnFailed(exc.code) from exc
