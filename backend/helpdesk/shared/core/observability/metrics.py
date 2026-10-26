@@ -103,13 +103,13 @@ def build_metrics(registry: CollectorRegistry) -> Metrics:
         ),
         job_runs_total=Counter(
             JOB_RUNS_TOTAL,
-            "Scheduler job runs completed, by job name (plan 72, ADR 0029).",
+            "Scheduler job runs completed, by job name.",
             labelnames=("job",),
             registry=registry,
         ),
         job_failures_total=Counter(
             JOB_FAILURES_TOTAL,
-            "Scheduler job runs that raised an exception, by job name (plan 72, ADR 0029).",
+            "Scheduler job runs that raised an exception, by job name.",
             labelnames=("job",),
             registry=registry,
         ),
