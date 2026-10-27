@@ -43,10 +43,13 @@ import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
 from langfuse import Langfuse
+from langfuse._client.attributes import LangfuseOtelSpanAttributes
+from pydantic import ValidationError
 
 from helpdesk.agent_api.services.tracing import (
     TURN_TRACE_NAME,
@@ -93,6 +96,7 @@ class RecordedSpan:
     trace_id: str
     span_id: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    public: bool = False
     children: list["RecordedSpan"] = field(default_factory=list)
 
 
@@ -109,6 +113,8 @@ class FakeTraceClient:
     def __init__(self) -> None:
         self.roots: list[RecordedSpan] = []
         self.flushes = 0
+        self.mark_calls = 0
+        self.closed: list[str] = []
         self._stack: list[RecordedSpan] = []
 
     @contextmanager
@@ -131,10 +137,16 @@ class FakeTraceClient:
             yield recorded
         finally:
             self._stack.pop()
+            self.closed.append(name)
 
     def update_current_span(self, *, metadata: Mapping[str, Any] | None = None) -> None:
         if metadata is not None and self._stack:
             self._stack[-1].metadata.update(metadata)
+
+    def set_current_trace_as_public(self) -> None:
+        self.mark_calls += 1
+        if self._stack:
+            self._stack[-1].public = True
 
     def get_current_trace_id(self) -> str | None:
         return self._stack[-1].trace_id if self._stack else None
@@ -167,6 +179,10 @@ class RaisingTraceClient:
         raise RuntimeError("the trace client is broken")
 
     def update_current_span(self, *, metadata: Mapping[str, Any] | None = None) -> None:
+        self.calls += 1
+        raise RuntimeError("the trace client is broken")
+
+    def set_current_trace_as_public(self) -> None:
         self.calls += 1
         raise RuntimeError("the trace client is broken")
 
@@ -213,7 +229,7 @@ def _tracing_disabled_after_every_case() -> Iterator[None]:
     configure_tracing()
 
 
-def _settings(**langfuse: str | None) -> Settings:
+def _settings(**langfuse: str | bool | None) -> Settings:
     """Settings with the three Langfuse fields set exactly as the case says.
 
     `model_copy` rather than constructor arguments so an operator's own
@@ -513,3 +529,165 @@ def test_flush_is_forwarded_to_the_installed_client() -> None:
     flush()
 
     assert client.flushes == 1
+
+
+# --- public traces -------------------------------------------------
+
+_PUBLIC_ENV = "PUBLIC_TRACE_LANGFUSE"
+
+
+def _settings_from_env() -> Settings:
+    """Settings where the environment set by the case wins over any env file."""
+    return Settings(
+        database_url="postgresql+psycopg://fake:fake@localhost:5432/fake",
+        redis_url="redis://localhost:6379/0",
+        qdrant_url="http://localhost:6333",
+        jwt_secret=FAKE_JWT_SECRET,
+    )
+
+
+def _open_a_turn_of_four_spans() -> None:
+    """A root, two spans under it, and a third nested one: four in all."""
+    with turn_trace():
+        with span("first_node"), span("tool:search_policy"):
+            pass
+        with span("second_node"):
+            pass
+
+
+def test_the_public_trace_setting_is_off_when_missing() -> None:
+    """Catches a default of True (or a required field): a deployment that never
+    set the switch would publish every trace to anyone holding a link."""
+    assert Settings.model_fields["public_trace_langfuse"].default is False
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [pytest.param("true", True, id="true"), pytest.param("false", False, id="false")],
+)
+def test_the_public_trace_setting_reads_true_and_false(
+    raw: str, expected: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a field read from the wrong env name, or one that ignores the
+    value and always answers its default: the demo env would then not turn the
+    switch on, or the switch could never be turned off."""
+    monkeypatch.setenv(_PUBLIC_ENV, raw)
+
+    assert _settings_from_env().public_trace_langfuse is expected
+
+
+def test_a_public_trace_value_that_is_not_a_bool_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches a field typed as a plain string (or a loose parser that turns
+    any word into True): a typo like "maybe" would then publish traces instead
+    of stopping the service at start."""
+    monkeypatch.setenv(_PUBLIC_ENV, "maybe")
+
+    with pytest.raises(ValidationError):
+        _settings_from_env()
+
+
+def test_when_public_every_span_of_a_turn_is_marked_not_only_the_root() -> None:
+    """Catches an implementation that marks only the root span: Langfuse keeps
+    the value from the span that started last, so one unmarked later span
+    turns the trace private again. Also catches a double mark on a span."""
+    client = FakeTraceClient()
+    configure_tracing(client=client, public=True)
+
+    _open_a_turn_of_four_spans()
+
+    root = client.only_root
+    spans = [root, *root.children, *root.children[0].children]
+    assert len(spans) == 4
+    assert [s.public for s in spans] == [True, True, True, True]
+    assert client.mark_calls == 4
+
+
+def test_when_not_public_no_span_is_marked_at_all() -> None:
+    """Catches an implementation that sends a mark of false (or marks anyway)
+    when the switch is off: off must send nothing, since Langfuse keeps the
+    last value it was given."""
+    client = FakeTraceClient()
+    configure_tracing(client=client, public=False)
+
+    _open_a_turn_of_four_spans()
+
+    assert client.mark_calls == 0
+    assert client.only_root.public is False
+
+
+def test_settings_with_public_on_reach_the_client_built_from_keys(
+    constructions: list[ClientConstruction], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a `configure_tracing` that builds the client from settings but
+    drops the public switch (only honouring the `public` keyword): the demo env
+    would turn the setting on and still send private traces."""
+    marked: list[int] = []
+    opened: list[str] = []
+
+    @contextmanager
+    def _fake_observation(self: Langfuse, *, name: str, as_type: str = "span") -> Iterator[None]:
+        opened.append(name)
+        yield
+
+    def _fake_mark(self: Langfuse) -> None:
+        marked.append(1)
+
+    def _fake_update(self: Langfuse, *, metadata: Mapping[str, Any] | None = None) -> None:
+        return None
+
+    monkeypatch.setattr(Langfuse, "start_as_current_observation", _fake_observation)
+    monkeypatch.setattr(Langfuse, "update_current_span", _fake_update)
+    monkeypatch.setattr(Langfuse, "set_current_trace_as_public", _fake_mark)
+
+    configure_tracing(
+        settings=_settings(
+            langfuse_public_key=FAKE_PUBLIC_KEY,
+            langfuse_secret_key=FAKE_SECRET_KEY,
+            public_trace_langfuse=True,
+        )
+    )
+    with span("x"):
+        pass
+
+    assert len(constructions) == 1
+    assert opened == ["x"]
+    assert marked == [1]
+
+
+def test_a_failing_public_mark_never_reaches_the_caller() -> None:
+    """Catches a mark call left outside the swallow: a Langfuse hiccup would
+    fail the chat turn, or leave the span open because the exit was skipped."""
+
+    class FailingMarkClient(FakeTraceClient):
+        def set_current_trace_as_public(self) -> None:
+            self.mark_calls += 1
+            raise RuntimeError("the mark is broken")
+
+    client = FailingMarkClient()
+    configure_tracing(client=client, public=True)
+
+    with span("a-node"):
+        result = _body()
+
+    assert result == "the block ran"
+    # Premise: the mark really was tried, so the swallow is what kept it quiet.
+    assert client.mark_calls == 1
+    assert client.closed == ["a-node"]
+
+
+def test_the_sdk_span_still_offers_the_public_mark() -> None:
+    """Catches an SDK upgrade that renames the public-mark method or the
+    `langfuse.trace.public` attribute: the marks would then go nowhere and
+    every trace would turn private without any test failing."""
+    assert LangfuseOtelSpanAttributes.TRACE_PUBLIC == "langfuse.trace.public"
+    assert hasattr(Langfuse, "set_current_trace_as_public")
+
+
+def test_env_example_names_public_trace_langfuse_with_no_value() -> None:
+    """Catches a new setting missing from `.env.example` (the list an operator
+    fills when going live) or listed with a value in it."""
+    example = Path(__file__).resolve().parents[3] / ".env.example"
+
+    assert f"{_PUBLIC_ENV}=" in example.read_text().splitlines()

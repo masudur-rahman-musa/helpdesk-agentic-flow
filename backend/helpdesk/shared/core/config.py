@@ -87,6 +87,9 @@ class Settings(BaseSettings):
 
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    public_trace_langfuse: bool = False
+    """`True` marks every span public, so anyone with a trace's link can open it."""
+
     qdrant_timeout_seconds: float = 30.0
     """So a dead vector store cannot hang ingestion."""
 

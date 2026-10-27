@@ -33,18 +33,33 @@ class TraceClient(Protocol):
 
     def get_current_observation_id(self) -> str | None: ...
 
+    def set_current_trace_as_public(self) -> None: ...
+
     def flush(self) -> None: ...
 
 
 _CLIENT: TraceClient | None = None
 """The installed client, or `None` when tracing is off."""
 
+_PUBLIC = False
+"""Whether every span is marked public. Off sends no mark at all."""
+
 
 def configure_tracing(
-    *, client: TraceClient | None = None, settings: "Settings | None" = None
+    *,
+    client: TraceClient | None = None,
+    settings: "Settings | None" = None,
+    public: bool | None = None,
 ) -> None:
-    """Install `client`, or build one from `settings` with both keys, or turn tracing off."""
-    global _CLIENT
+    """Install `client`, or build one from `settings` with both keys, or turn tracing off.
+
+    `public` wins over `settings.public_trace_langfuse`; both missing means off.
+    """
+    global _CLIENT, _PUBLIC
+    if public is not None:
+        _PUBLIC = public
+    else:
+        _PUBLIC = settings.public_trace_langfuse if settings is not None else False
     if client is not None:
         _CLIENT = client
         return
@@ -77,6 +92,21 @@ def _clean(attributes: Mapping[str, Any] | None) -> dict[str, Any]:
     return {key: value for key, value in attributes.items() if value is not None}
 
 
+def _mark_public(client: TraceClient) -> None:
+    """Mark the span just opened public, when the switch is on.
+
+    Every span, not only the root: Langfuse keeps the flag of the span that
+    started last and reads a missing one as false. Pinned by
+    `test_when_public_every_span_of_a_turn_is_marked_not_only_the_root`.
+    """
+    if not _PUBLIC:
+        return
+    try:
+        client.set_current_trace_as_public()
+    except Exception:
+        return
+
+
 def _write(client: TraceClient, attributes: Mapping[str, Any] | None) -> None:
     """Put `attributes` on the currently active span, or do nothing."""
     metadata = _clean(attributes)
@@ -104,6 +134,7 @@ def span(name: str, *, attributes: Mapping[str, Any] | None = None) -> Iterator[
     except Exception:
         yield
         return
+    _mark_public(client)
     _write(client, attributes)
     try:
         yield
