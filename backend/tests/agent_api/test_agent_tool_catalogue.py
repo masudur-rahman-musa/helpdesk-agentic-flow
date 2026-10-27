@@ -409,7 +409,9 @@ def test_the_citation_fields_are_the_ones_the_server_returns(
 
     assert set(_properties(citation_schema)) == set(CITATION_FIELDS)
     assert _required(citation_schema) == CITATION_FIELDS
-    assert set(_properties(output)) == set(SearchPolicyResult.model_fields)
+    # `cache` (hit or miss) is for the console and Grafana; the agent's model
+    # ignores it on purpose, so it is the one server field the agent lacks.
+    assert set(_properties(output)) == set(SearchPolicyResult.model_fields) | {"cache"}
 
 
 def test_list_requestable_roles_args_match_the_server_input(

@@ -308,7 +308,7 @@ def _without_key(arguments: Mapping[str, Any]) -> dict[str, Any]:
 
 def _unfound_id(arguments: Mapping[str, Any], found: str) -> str | None:
     """The first id field whose value no ok result of this turn holds, or
-    `None`. Pinned by `test_ids_on_every_person_field_are_checked`."""
+    `None`."""
     for name in ID_FIELDS:
         value = arguments.get(name)
         if value is not None and str(value) not in found:
@@ -528,8 +528,7 @@ class _Turn:
     def _deny(self, question: OpenQuestion) -> None:
         """Give the model the held calls answered as denied, with the person's
         own words as the reason, right before their message, so it re-plans.
-        The calls are kept so this turn cannot hold one of them again.
-        Pinned by `test_a_bare_no_goes_to_the_model_as_a_denial`."""
+        The calls are kept so this turn cannot hold one of them again."""
         calls = [
             ToolCall(id=f"held_{index}", name=call.tool, arguments=call.arguments)
             for index, call in enumerate(question.calls)
@@ -554,8 +553,7 @@ class _Turn:
     async def _read_after_refused_cancel(self, ran: list[dict[str, Any]]) -> None:
         """A held cancel the server found already decided gets one fresh
         `list_my_requests`, since the reply step runs no tools. The reply then
-        reads the real status, and offers removal only when access was given.
-        Pinned by `test_a_cancel_refused_as_not_pending_runs_list_my_requests_once`."""
+        reads the real status, and offers removal only when access was given."""
         refused = any(
             step["tool"] == gates.CANCEL_REQUEST
             and step["error_code"] == ErrorCode.REQUEST_NOT_PENDING.value
@@ -593,12 +591,10 @@ class _Turn:
     async def _ask(self, *, answer_only: bool) -> ToolCallAnswer:
         """One model step on the default alias. Every step sends the same
         offered tools; an answer-only step adds `tool_choice: "none"`, and only
-        its text is read, so a tool call sent back anyway runs nothing. Pinned by
-        `test_every_step_of_a_turn_sends_the_same_tools`. The draft,
+        its text is read, so a tool call sent back anyway runs nothing. The draft,
         when there is one, goes just before the person's newest message, so the
         prompt and the earlier chat stay the same from step to step and the
-        gateway can cache them. Pinned by
-        `test_the_start_stays_the_same_when_the_draft_changes`."""
+        gateway can cache them."""
         messages = [dict(message) for message in self.messages]
         if self.state.request_draft is not None:
             newest = max(
@@ -885,8 +881,8 @@ class _NodeFn(Protocol):
 
 def _node(step: _Step) -> _NodeFn:
     """A `_Turn` step as a node: load the state, run the step, hand back the
-    update. A spent budget ends the turn on the gateway's message, pinned by
-    `test_a_budget_refusal_is_the_chat_reply_verbatim`. A failure no reply can
+    update. A spent budget ends the turn on the gateway's message, word for
+    word. A failure no reply can
     cover ends the turn on `FAILURE_REPLY`."""
 
     async def run(state: LoopState, *, runtime: Runtime[LoopContext]) -> LoopState:

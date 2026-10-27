@@ -81,8 +81,7 @@ class ModelBudgetExceededError(ModelUnavailableError):
     """The gateway refused the call because a budget is spent.
 
     `gateway_message` is the gateway's own words for the person, shown as the
-    reply. It stays off the log message, since the error message is for logs.
-    Pinned by `test_the_gateway_text_never_enters_the_error_log_message`."""
+    reply. It stays off the log message, since the error message is for logs."""
 
     def __init__(self, gateway_message: str) -> None:
         super().__init__("the model gateway refused this turn: budget spent")
@@ -251,8 +250,7 @@ class ModelClient:
         `tool_calls` and `tool` turns included. No tools sends neither `tools`
         nor `tool_choice`, so the model can only answer in text. `answer_only`
         sends the tools with `tool_choice: "none"`, so a text-only step keeps
-        the same tool part as every other call and the gateway can cache it.
-        Pinned by `test_answer_only_sends_the_tools_with_choice_none`."""
+        the same tool part as every other call and the gateway can cache it."""
         headers = self._headers(tenant_slug, session_id, user, traceparent, prompt_version)
         body = self._body(messages, alias, max_tokens, temperature)
         if tools:
@@ -389,8 +387,7 @@ class ModelClient:
 def _budget_message(response: httpx.Response) -> str | None:
     """The trimmed `error.message` of a budget refusal, or None when the body is
     not one or its text is not 1 to `MAX_BUDGET_MESSAGE_CHARACTERS` characters.
-    None falls back to the generic error. Pinned by
-    `test_an_unusable_budget_message_is_the_generic_error`."""
+    None falls back to the generic error."""
     try:
         error = response.json()["error"]
         code, message = error["code"], error["message"]

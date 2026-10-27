@@ -28,8 +28,7 @@ async def gateway_user_id_for(session: AsyncSession, user_id: uuid.UUID) -> str:
     """The user's random gateway id, made on first use and never changed.
 
     One `UPDATE ... WHERE gateway_user_id IS NULL` makes it, so two first
-    uses at once wait on the row lock and both read back the one stored id
-    (`test_two_first_uses_at_once_end_on_one_id`). Does not commit.
+    uses at once wait on the row lock and both read back the one stored id. Does not commit.
     """
     await session.execute(
         update(User)

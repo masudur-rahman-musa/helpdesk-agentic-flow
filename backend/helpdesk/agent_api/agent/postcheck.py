@@ -183,7 +183,7 @@ tool does them later."""
 
 def unbacked_promises(reply: str, results: Iterable[ToolResult]) -> list[str]:
     """Each promise in `reply` ("I'll check") that no ok tool result of this
-    turn backs, in reply order. Pinned by `test_which_tool_backs_which_promise`."""
+    turn backs, in reply order."""
     done = {result.tool for result in results if result.ok}
     unbacked: list[str] = []
     for found in PROMISE.finditer(reply):

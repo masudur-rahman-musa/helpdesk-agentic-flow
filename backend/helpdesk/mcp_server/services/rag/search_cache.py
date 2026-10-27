@@ -8,8 +8,7 @@ text is never stored, and neither is any answer.
 A marker point holds a random generation. A search stamps its entry with the
 generation it read before searching, and a lookup only matches the current
 one. A drop writes a new generation before deleting, so a search that started
-before a policy change can still save, but its page never hits
-(`test_an_entry_stamped_before_a_drop_never_hits`).
+before a policy change can still save, but its page never hits.
 """
 
 import uuid

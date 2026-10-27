@@ -17,12 +17,9 @@ down_revision: str | Sequence[str] | None = "a9d3e5b17c40"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# The old values are lost on upgrade; a downgrade fills every row with `eu`,
-# pinned by test_drop_residency_migration_keeps_tenant_rows_and_downgrades_back.
+# The old values are lost on upgrade; a downgrade fills every row with `eu`.
 # The `eu` default stays after a downgrade so code at the older revisions, which
-# no longer names the column, can still add a tenant; the anchor retention test
-# test_the_retention_migration_round_trips_and_its_downgrade_restores_the_refusal
-# does exactly that.
+# no longer names the column, can still add a tenant.
 
 
 def upgrade() -> None:

@@ -155,6 +155,9 @@ EXEMPT_BUILDERS: frozenset[str] = frozenset(
         "backend/tests/shared/test_access_revoke.py",
         "backend/tests/shared/test_audit_anchor.py",
         "backend/tests/shared/test_audit_anchor_retention.py",
+        # asks the server for its own name, so it must not go through the
+        # shared fixtures whose server it is checking.
+        "backend/tests/support/test_db_server.py",
     }
 )
 """The test files sanctioned to build their own backing service, as repo-relative paths.

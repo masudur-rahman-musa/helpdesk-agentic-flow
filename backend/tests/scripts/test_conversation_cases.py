@@ -420,7 +420,7 @@ def test_every_rubric_is_one_pass_or_fail_question() -> None:
     assert seen >= CASE_COUNT
 
 
-# --- the guardrail cases ---------------------------------------------
+# --- the guardrail cases -------------------------------------------------------
 
 GUARDRAIL_SLOTS: Mapping[str, tuple[str, ...]] = {
     "ids": ("conv-039", "conv-040"),

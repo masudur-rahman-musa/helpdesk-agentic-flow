@@ -202,6 +202,7 @@ def test_migrated_schema_matches_metadata_and_downgrades_clean(fresh_db_url: str
 
 
 _REVISION_BEFORE_DROP = "a9d3e5b17c40"
+_DROP_REVISION = "e2b7c4a91f06"
 
 
 def _alembic_to(args: list[str], database_url: str) -> None:
@@ -222,7 +223,7 @@ def test_drop_residency_migration_keeps_tenant_rows_and_downgrades_back(
 ) -> None:
     """Catches a migration that drops the table or rows instead of the column,
     one that leaves `residency` in place, a downgrade that adds the column
-    nullable or without a fill (the `any` row must read `eu`), and a head that
+    nullable or without a fill (the `any` row must read `eu`), and a drop that
     is not one step past `a9d3e5b17c40`.
 
     The tenant is inserted at the old revision with `residency = 'any'`, so a
@@ -248,7 +249,7 @@ def test_drop_residency_migration_keeps_tenant_rows_and_downgrades_back(
 
     asyncio.run(insert_old_row())
 
-    _alembic_to(["upgrade", "head"], fresh_db_url)
+    _alembic_to(["upgrade", _DROP_REVISION], fresh_db_url)
 
     async def read_row_and_columns() -> tuple[Any, set[str]]:
         engine = create_async_engine(fresh_db_url)

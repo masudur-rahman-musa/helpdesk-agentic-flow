@@ -96,8 +96,7 @@ def _mark_public(client: TraceClient) -> None:
     """Mark the span just opened public, when the switch is on.
 
     Every span, not only the root: Langfuse keeps the flag of the span that
-    started last and reads a missing one as false. Pinned by
-    `test_when_public_every_span_of_a_turn_is_marked_not_only_the_root`.
+    started last and reads a missing one as false.
     """
     if not _PUBLIC:
         return

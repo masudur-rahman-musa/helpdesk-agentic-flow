@@ -18,7 +18,6 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 # Empty on every old row; the chat fills it on a user's first model call.
-# The check is pinned by test_the_database_refuses_a_bad_id.
 
 
 def upgrade() -> None:

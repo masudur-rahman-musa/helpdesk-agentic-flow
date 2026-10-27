@@ -1,8 +1,7 @@
-"""An earlier change: the suite uses its own Postgres server, on port 5433.
+"""The suite uses its own Postgres server, on port 5433.
 
-``tests/support/db_server.py`` is not written yet, so this file is red until it
-exists. It must expose ``test_database_url(environ)``, ``check_server_name(name)``
-and ``DEFAULT_TEST_DATABASE_URL``.
+``tests/support/db_server.py`` exposes ``test_database_url(environ)``,
+``check_server_name(name)`` and ``DEFAULT_TEST_DATABASE_URL``.
 
 Only ``test_the_suite_talks_to_the_test_server`` reaches a service (`db`): only
 the real server can report its own ``cluster_name``. The rest read plain values.

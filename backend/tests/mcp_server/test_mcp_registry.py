@@ -283,6 +283,9 @@ MUTATING_TOOL_NAMES = frozenset(
         # already in the new department, and a re-run answers POLICY_BLOCKED
         # for a call the caller saw succeed).
         "transfer_user",
+        # It moves a waiting request to cancelled, so a retried call must
+        # replay rather than be refused as no longer waiting.
+        "cancel_request",
         # It ends live grants, so a retried call must replay rather
         # than re-read the live set and revoke whatever is there now.
         "revoke_access",

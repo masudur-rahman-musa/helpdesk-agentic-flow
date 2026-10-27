@@ -531,7 +531,7 @@ def test_flush_is_forwarded_to_the_installed_client() -> None:
     assert client.flushes == 1
 
 
-# --- public traces -------------------------------------------------
+# --- public traces -------------------------------------------------------------
 
 _PUBLIC_ENV = "PUBLIC_TRACE_LANGFUSE"
 

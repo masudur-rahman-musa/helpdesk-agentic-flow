@@ -446,7 +446,7 @@ removal with no reason cannot be audited."""
 SELF_REASON_PREFIX = "Removed by the user: "
 """Starts the stored reason when a person gives up their own access, so the
 audit reads it as their own choice. Outside the cap: the cap is on what they
-typed (`test_the_self_reason_boundary_is_inclusive_at_1_and_2000`)."""
+typed."""
 
 
 class RevokeAccessInput(MutatingToolInput):
