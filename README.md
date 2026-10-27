@@ -241,7 +241,11 @@ intended it as one.
 Three properties exist for that conversation.
 
 Telemetry carries the session and the tenant, never user identity. Traces,
-metrics and logs cannot be joined back to a person.
+metrics and logs cannot be joined back to a person. One part is different:
+each model call for a signed-in user sends the model gateway a random id
+(`X-User`), so cost can be counted per person. The id is made once, never
+changes and is never a name or an email. Only the help desk's own database
+can map it back to a person. That trade belongs in the same conversation.
 
 The audit log records decisions about access, not behaviour. It answers "who
 holds this, since when, approved by whom, until when", which is what an auditor

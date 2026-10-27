@@ -6,6 +6,7 @@ drift. Patterns use `fullmatch`, so a trailing newline is refused, not a second 
 
 import os
 import re
+import uuid
 
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 
@@ -52,6 +53,18 @@ SLUG_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 VERSION_PATTERN = re.compile(r"v[1-9][0-9]{0,3}")
 """The corpus folder name (`v1`), not the front-matter."""
+
+GATEWAY_USER_LENGTH = 34
+"""The width of `users.gateway_user_id`: `u_` and 32 hex characters."""
+
+GATEWAY_USER_PATTERN = re.compile(r"u_[0-9a-f]{32}")
+"""The random id the gateway gets in `X-User`, matched in full."""
+
+
+def new_gateway_user_id() -> str:
+    """A fresh random id for one user: `u_` and a uuid4 in lowercase hex.
+    Never built from a name, an email or the internal user id."""
+    return f"u_{uuid.uuid4().hex}"
 
 
 class InvalidPolicyNameError(ToolError):

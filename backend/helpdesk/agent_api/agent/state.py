@@ -240,6 +240,9 @@ class TurnState(BaseModel):
     user_id: uuid.UUID
     session_id: uuid.UUID
     tenant_slug: str
+    gateway_user: str | None = None
+    """The user's random gateway id, sent as `X-User`; `None` for a turn
+    with no signed-in user (an eval), which sends none."""
     user_message: str
     history: tuple[str, ...] = ()
     principals: tuple[str, ...] = ()

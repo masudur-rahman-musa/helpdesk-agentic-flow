@@ -853,3 +853,22 @@ def test_the_conversation_answer_carries_the_loop_prompt_version(
     assert conversation.status_code == 200
     assert conversation.headers["X-Prompt-Versions"] == f"loop={digest}"
     assert conversation.headers["X-Chat-Engine"] == "loop"
+
+
+def test_an_eval_conversation_sends_no_user_header(
+    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+) -> None:
+    """Catches an eval route that looks up or invents a gateway user id for the
+    seat and hands it to the turn, so eval traffic would show up as a real
+    person's cost on the gateway.
+
+    The turn is a recorder, so what the route passed is read straight off its
+    keyword arguments: none may name a gateway user.
+    """
+    _, turns = install_conversation([ConvStep(update=_plain()), ConvStep(update=_plain())])
+
+    response = _post_conversation(_conv_body(turns=("one", "two")))
+
+    assert response.status_code == 200
+    assert len(turns.calls) == 2
+    assert [call.get("gateway_user") for call in turns.calls] == [None, None]

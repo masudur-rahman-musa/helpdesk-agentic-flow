@@ -217,6 +217,7 @@ def _start(
     user_id: uuid.UUID,
     session_id: uuid.UUID,
     tenant_slug: str,
+    gateway_user: str | None,
     message: str,
 ) -> LoopState:
     """The state a turn starts from."""
@@ -226,6 +227,7 @@ def _start(
             user_id=user_id,
             session_id=session_id,
             tenant_slug=tenant_slug,
+            gateway_user=gateway_user,
             user_message=message,
             started_at=deps.now(),
         ),
@@ -243,6 +245,7 @@ async def run_loop_turn(
     message: str,
     store: LoopStore | None = None,
     turn_id: uuid.UUID | None = None,
+    gateway_user: str | None = None,
 ) -> TurnState:
     """One loop turn: the person's message in, the final state out."""
     check_message_content(message)
@@ -253,6 +256,7 @@ async def run_loop_turn(
         user_id=user_id,
         session_id=session_id,
         tenant_slug=tenant_slug,
+        gateway_user=gateway_user,
         message=message,
     )
     thread_id = turn_thread_id(session_id, turn_id or uuid.uuid4())
@@ -279,6 +283,7 @@ async def stream_loop_turn(
     message: str,
     store: LoopStore | None = None,
     turn_id: uuid.UUID | None = None,
+    gateway_user: str | None = None,
 ) -> AsyncIterator[TurnEvent]:
     """The same turn as `run_loop_turn`, streamed: one step event per model
     step that ran a tool, then one reply event with the keys `/chat` returns."""
@@ -290,6 +295,7 @@ async def stream_loop_turn(
         user_id=user_id,
         session_id=session_id,
         tenant_slug=tenant_slug,
+        gateway_user=gateway_user,
         message=message,
     )
     thread_id = turn_thread_id(session_id, turn_id or uuid.uuid4())

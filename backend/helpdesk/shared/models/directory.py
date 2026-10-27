@@ -10,10 +10,11 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from helpdesk.shared.core.naming import GATEWAY_USER_LENGTH
 from helpdesk.shared.models.base import Base, TenantScoped
 
 
@@ -35,7 +36,10 @@ class Department(TenantScoped):
 
 class User(TenantScoped):
     __tablename__ = "users"
-    __table_args__ = (Index("ix_users_tenant_id_email", "tenant_id", "email", unique=True),)
+    __table_args__ = (
+        Index("ix_users_tenant_id_email", "tenant_id", "email", unique=True),
+        CheckConstraint("gateway_user_id ~ '^u_[0-9a-f]{32}$'", name="gateway_user_id_shape"),
+    )
 
     department_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("departments.id"))
     email: Mapped[str] = mapped_column(String(320))
@@ -48,6 +52,9 @@ class User(TenantScoped):
     # Simulated self-service: the reset and unlock tools only stamp these.
     password_reset_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     account_unlocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The random id the gateway sees in `X-User`, made on first use and never
+    # changed. This row is the only link from it back to a person.
+    gateway_user_id: Mapped[str | None] = mapped_column(String(GATEWAY_USER_LENGTH), unique=True)
 
 
 class System(TenantScoped):

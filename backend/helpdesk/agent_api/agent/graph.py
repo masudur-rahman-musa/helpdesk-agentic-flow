@@ -593,6 +593,7 @@ class _Turn:
                 alias=ModelAlias.AGENT_DEFAULT,
                 tenant_slug=self.state.tenant_slug,
                 session_id=str(self.state.session_id),
+                user=self.state.gateway_user,
                 prompt_version=self.prompt.sha256,
             )
         except ToolError as exc:

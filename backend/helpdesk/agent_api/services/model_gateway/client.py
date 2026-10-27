@@ -18,7 +18,7 @@ from helpdesk.agent_api.services.model_gateway.strict_schema import strict_schem
 from helpdesk.agent_api.services.model_gateway.traceparent import traceparent_for
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.errors import ErrorCode, ToolError
-from helpdesk.shared.core.naming import check_slug
+from helpdesk.shared.core.naming import GATEWAY_USER_PATTERN, check_slug
 from helpdesk.shared.gateway.keys import checked_tenant_key
 
 CHAT_PATH = "/chat/completions"
@@ -160,13 +160,14 @@ class ModelClient:
         alias: ModelAlias,
         tenant_slug: str,
         session_id: str | None = None,
+        user: str | None = None,
         traceparent: str | None = None,
         prompt_version: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> ModelAnswer:
         """One non-streaming turn."""
-        headers = self._headers(tenant_slug, session_id, traceparent, prompt_version)
+        headers = self._headers(tenant_slug, session_id, user, traceparent, prompt_version)
         body = self._body(messages, alias, max_tokens, temperature)
         response = await self._post(body, headers)
         return self._parsed(response, alias)
@@ -179,6 +180,7 @@ class ModelClient:
         alias: ModelAlias,
         tenant_slug: str,
         session_id: str | None = None,
+        user: str | None = None,
         traceparent: str | None = None,
         prompt_version: str | None = None,
         max_tokens: int | None = None,
@@ -188,7 +190,7 @@ class ModelClient:
 
         A reply that does not fit is retried once, then raised.
         """
-        headers = self._headers(tenant_slug, session_id, traceparent, prompt_version)
+        headers = self._headers(tenant_slug, session_id, user, traceparent, prompt_version)
         body = self._body(messages, alias, max_tokens, temperature)
         body["response_format"] = {
             "type": "json_schema",
@@ -220,6 +222,7 @@ class ModelClient:
         alias: ModelAlias,
         tenant_slug: str,
         session_id: str | None = None,
+        user: str | None = None,
         traceparent: str | None = None,
         prompt_version: str | None = None,
         max_tokens: int | None = None,
@@ -228,7 +231,7 @@ class ModelClient:
         """One turn that may call tools. Messages go as given, assistant
         `tool_calls` and `tool` turns included. No tools sends neither `tools`
         nor `tool_choice`, so the model can only answer in text."""
-        headers = self._headers(tenant_slug, session_id, traceparent, prompt_version)
+        headers = self._headers(tenant_slug, session_id, user, traceparent, prompt_version)
         body = self._body(messages, alias, max_tokens, temperature)
         if tools:
             body["tools"] = [dict(tool) for tool in tools]
@@ -246,11 +249,14 @@ class ModelClient:
         self,
         tenant_slug: str,
         session_id: str | None,
+        user: str | None,
         traceparent: str | None,
         prompt_version: str | None,
     ) -> dict[str, str]:
-        """The headers, with caller parts checked. `X-Session` and
-        `X-Prompt-Version` are left out, not sent empty."""
+        """The headers, with caller parts checked. `X-Session`, `X-User` and
+        `X-Prompt-Version` are left out, not sent empty. `X-User` is the random
+        gateway id of a signed-in user; a call with no user, a job
+        or an eval, sends none."""
         try:
             slug, key = checked_tenant_key(tenant_slug, self._api_keys)
             checked_session = None if session_id is None else check_slug(session_id)
@@ -266,6 +272,10 @@ class ModelClient:
         }
         if checked_session is not None:
             headers["X-Session"] = checked_session
+        if user is not None:
+            if GATEWAY_USER_PATTERN.fullmatch(user) is None:
+                raise ModelRequestError("a gateway user id must be u_ and 32 lowercase hex")
+            headers["X-User"] = user
         if prompt_version is not None:
             if PROMPT_VERSION_PATTERN.fullmatch(prompt_version) is None:
                 raise ModelRequestError("a prompt version must be a lowercase sha256 hex digest")

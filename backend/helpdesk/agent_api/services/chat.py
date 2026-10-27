@@ -36,6 +36,7 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.crud.messages import list_recent_messages
 from helpdesk.shared.crud.sessions import get_owned_chat, list_user_chats
 from helpdesk.shared.crud.tenants import find_tenant_by_id
+from helpdesk.shared.crud.users import gateway_user_id_for
 from helpdesk.shared.models.conversation import check_message_content
 
 
@@ -165,6 +166,7 @@ async def _stream_frames(
                 session_id=identity.session_id,
                 tenant_slug=tenant.slug,
                 message=message,
+                gateway_user=await gateway_user_id_for(db, identity.user_id),
             ):
                 if isinstance(event, ReplyEvent):
                     event = dataclasses.replace(
@@ -219,6 +221,7 @@ async def chat_turn(
             session_id=identity.session_id,
             tenant_slug=tenant.slug,
             message=message,
+            gateway_user=await gateway_user_id_for(db, identity.user_id),
         )
     return _rendered(state)  # raises ToolError if FAILED, else returns ChatResponse
 

@@ -43,6 +43,7 @@ Fixtures live in this module rather than a conftest, because a second
 
 import asyncio
 import json
+import re
 import uuid
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -900,3 +901,60 @@ def test_an_unreachable_mcp_server_mid_stream_is_a_typed_error_event(
     assert _of(frames, REPLY) == []
     assert gateway.call_count == 0
     assert checked_out == 0, "the turn's database session outlived the stream"
+
+
+@pytest.mark.db
+def test_a_users_chat_sends_a_well_formed_user_header(
+    stream_env: StreamRouteEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a chat service that sends no `X-User` (or one on only one of the
+    two routes), sends the internal user id or a fresh random id per turn, or
+    sends an id that is not the one stored on the user's row.
+
+    Three turns for one person (`/chat`, `/chat/stream`, `/chat` again) make six
+    model requests; every one must carry the same well formed value, and that
+    value must be the one now stored in the column, read back by a new session.
+    """
+    gateway = StagedGateway([*_one_turn(), *_one_turn(), *_one_turn()])
+    page = _page()
+    tools = ScriptedToolCaller(page, page, page)
+
+    async def scenario(client: httpx.AsyncClient) -> list[httpx.Response]:
+        out: list[httpx.Response] = []
+        for path in ("/chat", "/chat/stream", "/chat"):
+            token = _token(stream_env.tenant_a, uuid.uuid4())
+            out.append(
+                await client.post(
+                    path,
+                    json={"message": MESSAGE},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            )
+        return out
+
+    responses = _drive(
+        monkeypatch=monkeypatch,
+        scenario=scenario,
+        gateway_handler=gateway.handler,
+        tools=tools,
+    )
+
+    assert [r.status_code for r in responses] == [200, 200, 200]
+    assert gateway.call_count == 6
+    sent = [request.headers.get("X-User") for request in gateway.requests]
+    assert all(value is not None and re.fullmatch(r"u_[0-9a-f]{32}", value) for value in sent)
+    assert len(set(sent)) == 1
+
+    async def stored() -> str | None:
+        engine = create_engine(stream_env.database_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, stream_env.tenant_a.tenant_id) as db:
+                user = await db.get(User, stream_env.tenant_a.user_id)
+                assert user is not None
+                return user.gateway_user_id
+        finally:
+            await engine.dispose()
+
+    assert asyncio.run(stored()) == sent[0]
+    assert sent[0] != "u_" + stream_env.tenant_a.user_id.hex

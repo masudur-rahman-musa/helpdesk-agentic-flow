@@ -610,6 +610,135 @@ def test_a_bad_prompt_version_is_refused_before_sending(value: str) -> None:
     assert excinfo.value.code is ErrorCode.VALIDATION
 
 
+GATEWAY_USER = "u_8f3a1c0e5b7d4a2f9e6c3b1a0d8f7e6c"
+
+
+def _all_three_calls(client: ModelClient, **extra: Any) -> None:
+    """Drive complete, complete_json and complete_with_tools in one event loop."""
+
+    async def scenario() -> None:
+        try:
+            await client.complete(
+                MESSAGES,
+                alias=ModelAlias.AGENT_DEFAULT,
+                tenant_slug=TENANT,
+                session_id="s1",
+                **extra,
+            )
+            await client.complete_json(
+                Decision,
+                MESSAGES,
+                alias=ModelAlias.AGENT_DEFAULT,
+                tenant_slug=TENANT,
+                session_id="s1",
+                **extra,
+            )
+            await client.complete_with_tools(
+                MESSAGES,
+                [],
+                alias=ModelAlias.AGENT_DEFAULT,
+                tenant_slug=TENANT,
+                session_id="s1",
+                **extra,
+            )
+        finally:
+            await client.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_the_user_header_carries_the_given_id() -> None:
+    """Catches a client that wires `user` into only some of the three call
+    paths, renames the header, or sends another value, so the gateway cannot
+    track cost per user on that path."""
+    recorder = _Recorder(_ok_response(_ok_body(text=json.dumps(VALID_DECISION))))
+
+    _all_three_calls(_client(recorder), user=GATEWAY_USER)
+
+    assert len(recorder.requests) == 3
+    assert [r.headers.get("X-User") for r in recorder.requests] == [GATEWAY_USER] * 3
+    assert [r.headers.get("X-Session") for r in recorder.requests] == ["s1"] * 3
+
+
+def test_the_user_header_is_absent_when_no_user_is_given() -> None:
+    """Catches a client that always sets `X-User`, sending an empty or "None"
+    value for a job with no signed-in user instead of leaving the key out."""
+    recorder = _Recorder(_ok_response(_ok_body(text=json.dumps(VALID_DECISION))))
+
+    _all_three_calls(_client(recorder))
+
+    assert len(recorder.requests) == 3
+    assert all("X-User" not in r.headers for r in recorder.requests)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "u_" + "a" * 31,
+        "u_" + "a" * 33,
+        "u_" + "A" * 32,
+        "a" * 32,
+        "U_" + "a" * 32,
+        "8f3a1c0e-5b7d-4a2f-9e6c-3b1a0d8f7e6c",
+        "someone@example.test",
+        "",
+        GATEWAY_USER + "\n",
+        GATEWAY_USER + "\r\n",
+        GATEWAY_USER + " ",
+    ],
+    ids=[
+        "31-hex",
+        "33-hex",
+        "uppercase-hex",
+        "no-prefix",
+        "upper-prefix",
+        "dashed-uuid",
+        "email",
+        "empty",
+        "trailing-newline",
+        "trailing-crlf",
+        "trailing-space",
+    ],
+)
+@pytest.mark.parametrize("path", ["complete", "complete_json", "complete_with_tools"])
+def test_a_bad_user_id_is_refused_before_sending(value: str, path: str) -> None:
+    """Catches a client that sends a user id which is not exactly `u_` plus 32
+    lowercase hex (wrong length, case, prefix, an email or internal uuid, empty
+    treated as "given", or a trailing newline/space through `match` or `$`). The
+    transport fails the test if reached, and every other argument is valid."""
+    client = _client(_must_not_be_called)
+
+    async def scenario() -> None:
+        try:
+            if path == "complete":
+                await client.complete(
+                    MESSAGES, alias=ModelAlias.AGENT_DEFAULT, tenant_slug=TENANT, user=value
+                )
+            elif path == "complete_json":
+                await client.complete_json(
+                    Decision,
+                    MESSAGES,
+                    alias=ModelAlias.AGENT_DEFAULT,
+                    tenant_slug=TENANT,
+                    user=value,
+                )
+            else:
+                await client.complete_with_tools(
+                    MESSAGES,
+                    [],
+                    alias=ModelAlias.AGENT_DEFAULT,
+                    tenant_slug=TENANT,
+                    user=value,
+                )
+        finally:
+            await client.aclose()
+
+    with pytest.raises(ModelRequestError) as excinfo:
+        asyncio.run(scenario())
+
+    assert excinfo.value.code is ErrorCode.VALIDATION
+
+
 # --- pre-checks, all before any request is built -------------------------------
 
 
