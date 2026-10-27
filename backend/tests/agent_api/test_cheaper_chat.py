@@ -91,7 +91,7 @@ def test_the_last_step_with_no_tools_asks_agent_default() -> None:
     leaves the last, tool-free request on `agent-strong`.
 
     Three lookup steps (below the six-call cap), so the fourth step is the
-    last and goes out with no tools; it must still name the cheap model.
+    last and goes out answer-only; it must still name the cheap model.
     """
     gateway = ScriptedGateway(
         answer_body(None, wire_call("call_1", "list_my_tickets", {})),
@@ -104,7 +104,8 @@ def test_the_last_step_with_no_tools_asks_agent_default() -> None:
     run(gateway, tools, FakeStore())
 
     assert len(gateway.requests) == 4
-    assert "tools" not in gateway.requests[3]
+    assert gateway.requests[3]["tools"]
+    assert gateway.requests[3]["tool_choice"] == "none"
     assert gateway.requests[3]["model"] == CHAT_ALIAS
 
 

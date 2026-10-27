@@ -7,7 +7,7 @@ keeps the state after every node, one thread per turn. Four nodes:
 
 - `held_answer`: reads the chat and, when a change is held, the person's
   answer to it, by code. A yes runs the stored calls, then the reply is
-  written with no tools. Anything else drops the change and goes to the model
+  written as an answer-only step. Anything else drops the change and goes to the model
   as the person's answer: each held call comes back denied, with their words.
 - `agent`: one model step under the `agent_loop` prompt. A step that asks for
   tools goes to `tools`; one that answers goes to `check_reply`.
@@ -27,7 +27,7 @@ keeps the state after every node, one thread per turn. Four nodes:
 
 Limits, the turn budget: at most `MAX_STEPS` model steps, 6 tool calls,
 40,000 tokens and 90 seconds a turn. A limit hit with tool results gets one
-last step with no tools; with none, the fixed `TIMEOUT_REPLY` and no model call.
+last answer-only step; with none, the fixed `TIMEOUT_REPLY` and no model call.
 
 The saved state is plain data. The session, the clients and the chat store
 travel in the run's context, so a saved step never holds a connection.
@@ -120,7 +120,7 @@ __all__ = [
 LOOP_PROMPT = "agent_loop"
 
 MAX_STEPS = 4
-"""Model steps a turn may take; the last is offered no tools, so it answers."""
+"""Model steps a turn may take; the last is answer-only, so it answers."""
 
 STEP_NODE = "agent_step"
 """The `node` a loop step streams as; the web shows it as one step."""
@@ -405,7 +405,7 @@ class _Turn:
         """Code reads the answer to a held change, never the model. The
         question is dropped either way, so it is answered once at most. A yes
         runs the stored calls as they were checked, keys included, then one
-        step with no tools writes the reply. Anything else, a bare no included,
+        answer-only step writes the reply. Anything else, a bare no included,
         runs nothing and goes to the model as the person's answer (`_deny`)."""
         await self.store.prepare(self.started)
         question = await self.store.open_question()
@@ -433,15 +433,15 @@ class _Turn:
         await self._clear_draft_once_filed()
         _emit(StepEvent(node=STEP_NODE, round=self.step, tools=ran))
         self.step += 1
-        self.pending = (await self._ask(tools=False)).text or ""
+        self.pending = (await self._ask(answer_only=True)).text or ""
 
     async def agent(self) -> None:
-        """One model step. After a send-back it only rewrites the reply, with no
-        tools. Otherwise a spent budget with no results ends on `TIMEOUT_REPLY`
-        and no model call, and the last step is offered no tools, so it answers."""
+        """One model step. After a send-back it only rewrites the reply, as an
+        answer-only step. Otherwise a spent budget with no results ends on `TIMEOUT_REPLY`
+        and no model call, and the last step is answer-only, so it answers."""
         if self.resend:
             self.resend = False
-            self.pending = (await self._ask(tools=False)).text or ""
+            self.pending = (await self._ask(answer_only=True)).text or ""
             return
         self.step += 1
         spent = self._spent()
@@ -449,7 +449,7 @@ class _Turn:
             self.final = await self._finish(TIMEOUT_REPLY)
             return
         last = spent or not self.tools_on or self.step >= MAX_STEPS
-        answer = await self._ask(tools=not last)
+        answer = await self._ask(answer_only=last)
         if last or not answer.calls:
             self.pending = answer.text or ""
             return
@@ -535,7 +535,7 @@ class _Turn:
 
     async def _read_after_refused_cancel(self, ran: list[dict[str, Any]]) -> None:
         """A held cancel the server found already decided gets one fresh
-        `list_my_requests`, since the reply step has no tools. The reply then
+        `list_my_requests`, since the reply step runs no tools. The reply then
         reads the real status, and offers removal only when access was given.
         Pinned by `test_a_cancel_refused_as_not_pending_runs_list_my_requests_once`."""
         refused = any(
@@ -572,8 +572,11 @@ class _Turn:
         elapsed = (self.deps.now() - self.started).total_seconds()
         return elapsed > gates.TURN_DEADLINE_SECONDS or self.tokens > gates.MAX_TURN_TOKENS
 
-    async def _ask(self, *, tools: bool) -> ToolCallAnswer:
-        """One model step on the default alias; no tools sends none. The draft,
+    async def _ask(self, *, answer_only: bool) -> ToolCallAnswer:
+        """One model step on the default alias. Every step sends the same
+        offered tools; an answer-only step adds `tool_choice: "none"`, and only
+        its text is read, so a tool call sent back anyway runs nothing. Pinned by
+        `test_every_step_of_a_turn_sends_the_same_tools`. The draft,
         when there is one, goes just before the person's newest message, so the
         prompt and the earlier chat stay the same from step to step and the
         gateway can cache them. Pinned by
@@ -589,12 +592,13 @@ class _Turn:
         try:
             answer = await self.deps.model.complete_with_tools(
                 messages,
-                [tool.wire() for tool in self.offered.values()] if tools else [],
+                [tool.wire() for tool in self.offered.values()],
                 alias=ModelAlias.AGENT_DEFAULT,
                 tenant_slug=self.state.tenant_slug,
                 session_id=str(self.state.session_id),
                 user=self.state.gateway_user,
                 prompt_version=self.prompt.sha256,
+                answer_only=answer_only,
             )
         except ToolError as exc:
             raise _TurnFailed(exc.code) from exc

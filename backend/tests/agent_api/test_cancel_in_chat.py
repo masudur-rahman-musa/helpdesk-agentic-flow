@@ -15,7 +15,7 @@ Surface under test (written before it exists):
 ``helpdesk.agent_api.agent.graph.held_answer``
     after a yes, a held ``cancel_request`` refused ``REQUEST_NOT_PENDING``
     makes the graph run ``list_my_requests`` once more, so the reply (which has
-    no tools) can read the real status. Any other outcome adds no call.
+    answer-only) can read the real status. Any other outcome adds no call.
 ``ErrorCode.REQUEST_NOT_PENDING`` is HTTP 409 in ``core.deps.STATUS_FOR_CODE``
 and has its own ``RemoteRequestNotPendingError`` in the MCP client.
 
@@ -185,7 +185,8 @@ def test_a_cancel_refused_as_not_pending_runs_list_my_requests_once() -> None:
 
     assert tools.names == [CANCEL, LIST_MY_REQUESTS]
     assert len(gateway.requests) == 1
-    assert "tools" not in gateway.requests[0]
+    assert gateway.requests[0]["tools"]
+    assert gateway.requests[0]["tool_choice"] == "none"
     turns = tool_turns(gateway.requests[0])
     assert len(turns) == 2
     assert json.loads(turns[0]["content"]) == {"error": "REQUEST_NOT_PENDING"}

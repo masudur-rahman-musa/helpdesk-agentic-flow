@@ -406,7 +406,9 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
 
     assert tools.arguments_of(CREATE) == [stored_arguments]
     assert filed.reply == FILED_SAYS
-    assert "tools" not in json.loads(gateway.requests[2].content)
+    answer_only = json.loads(gateway.requests[2].content)
+    assert answer_only["tools"]
+    assert answer_only["tool_choice"] == "none"
     assert stored_question(env, asked.chat_id) is None
 
     again = say(env, gateway, tools, YES, chat_id=asked.chat_id)

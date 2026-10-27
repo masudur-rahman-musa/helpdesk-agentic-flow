@@ -227,15 +227,19 @@ class ModelClient:
         prompt_version: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        answer_only: bool = False,
     ) -> ToolCallAnswer:
         """One turn that may call tools. Messages go as given, assistant
         `tool_calls` and `tool` turns included. No tools sends neither `tools`
-        nor `tool_choice`, so the model can only answer in text."""
+        nor `tool_choice`, so the model can only answer in text. `answer_only`
+        sends the tools with `tool_choice: "none"`, so a text-only step keeps
+        the same tool part as every other call and the gateway can cache it.
+        Pinned by `test_answer_only_sends_the_tools_with_choice_none`."""
         headers = self._headers(tenant_slug, session_id, user, traceparent, prompt_version)
         body = self._body(messages, alias, max_tokens, temperature)
         if tools:
             body["tools"] = [dict(tool) for tool in tools]
-            body["tool_choice"] = "auto"
+            body["tool_choice"] = "none" if answer_only else "auto"
         response = await self._post(body, headers)
         message, usage = self._read(response, alias)
         text = message.get("content")

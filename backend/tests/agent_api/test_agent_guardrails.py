@@ -786,7 +786,7 @@ def test_a_promise_with_no_backing_tool_is_sent_back(reply: str, promise: str) -
     that misses the curly apostrophe or one of the listed verbs.
 
     No tool runs. The first reply promises; the second request must carry that
-    reply, then a "Check failed:" message that names the promise, with no tools.
+    reply, then a "Check failed:" message that names the promise, answer-only.
     """
     good = "Tell me which system and role you need."
     gateway = ScriptedGateway(answer_body(reply), answer_body(good))
@@ -799,7 +799,8 @@ def test_a_promise_with_no_backing_tool_is_sent_back(reply: str, promise: str) -
     assert sent[-1]["role"] == "user"
     assert sent[-1]["content"].startswith("Check failed:")
     assert promise in _flat(sent[-1]["content"])
-    assert "tools" not in gateway.requests[1]
+    assert gateway.requests[1]["tools"]
+    assert gateway.requests[1]["tool_choice"] == "none"
     assert state.postcheck is PostCheckOutcome.REGENERATED
     assert state.reply == good
 

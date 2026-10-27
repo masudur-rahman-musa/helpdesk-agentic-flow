@@ -214,3 +214,42 @@ def test_tool_call_bad_arguments_json_is_a_typed_error(arguments: str) -> None:
 
     assert excinfo.value.code is ErrorCode.INTERNAL
     assert isinstance(excinfo.value, ToolError)
+
+
+def test_answer_only_sends_the_tools_with_choice_none() -> None:
+    """Catches a client that drops the tools when `answer_only` is set (the tool
+    part of the request would differ from every other call), that still says
+    `tool_choice: "auto"`, or that sends `tool_choice` with no tools (the
+    gateway rejects that).
+
+    With tools, the body holds the same tools and "none". With no tools, even
+    with `answer_only`, neither key is sent.
+    """
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=_text_body("fine"))
+
+    async def scenario() -> None:
+        client = ModelClient(
+            base_url=BASE_URL, api_keys=API_KEYS, transport=httpx.MockTransport(handler)
+        )
+        try:
+            await client.complete_with_tools(
+                MESSAGES, TOOLS, alias=ModelAlias.AGENT_STRONG, tenant_slug=TENANT, answer_only=True
+            )
+            await client.complete_with_tools(
+                MESSAGES, [], alias=ModelAlias.AGENT_STRONG, tenant_slug=TENANT, answer_only=True
+            )
+        finally:
+            await client.aclose()
+
+    asyncio.run(scenario())
+
+    with_tools = json.loads(seen[0].content)
+    assert with_tools["tools"] == TOOLS
+    assert with_tools["tool_choice"] == "none"
+    without_tools = json.loads(seen[1].content)
+    assert "tools" not in without_tools
+    assert "tool_choice" not in without_tools

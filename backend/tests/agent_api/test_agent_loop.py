@@ -658,8 +658,8 @@ def test_step_cap_ends_with_one_answer_step() -> None:
     assert len(tools.calls) == 3
     for earlier in gateway.requests[:3]:
         assert "tools" in earlier
-    assert "tools" not in gateway.requests[3]
-    assert "tool_choice" not in gateway.requests[3]
+    assert gateway.requests[3]["tools"]
+    assert gateway.requests[3]["tool_choice"] == "none"
     assert state.reply == "Here is what I found."
 
 
@@ -669,7 +669,7 @@ def test_tool_call_cap_is_six() -> None:
     `tool` turn), and one that offers tools again after the cap was hit.
 
     One step carries seven calls, so the cap, not the step count, ends it: the
-    next step is only the second and must still go out with no tools.
+    next step is only the second and must still go out answer-only.
     """
     calls = [wire_call(f"call_{n}", "list_my_requests", {}) for n in range(1, 8)]
     gateway = ScriptedGateway(answer_body(None, *calls), answer_body("That is all I could do."))
@@ -683,7 +683,8 @@ def test_tool_call_cap_is_six() -> None:
     turns = tool_turns(gateway.requests[1])
     assert [turn["tool_call_id"] for turn in turns] == [f"call_{n}" for n in range(1, 8)]
     assert "error" in turns[6]["content"].lower()
-    assert "tools" not in gateway.requests[1]
+    assert gateway.requests[1]["tools"]
+    assert gateway.requests[1]["tool_choice"] == "none"
     assert state.reply == "That is all I could do."
 
 
@@ -729,7 +730,7 @@ def test_deadline_with_no_results_gives_the_fixed_line(delay: timedelta, timed_o
 def test_decision_word_breach_is_sent_back_once() -> None:
     """Catches a loop that lets "granted" through when no tool result says so,
     that sends the breach back only once (it goes back twice), that gives the model
-    no way to fix it (the reason, with no tools), that sends a third breach
+    no way to fix it (the reason, answer-only), that sends a third breach
     back too, or that ends the third breach on the model's own words instead of
     the fixed fallback line.
 
@@ -757,7 +758,8 @@ def test_decision_word_breach_is_sent_back_once() -> None:
     assert reason["role"] == "user"
     assert reason["content"]
     assert reason["content"] != MESSAGE
-    assert "tools" not in second
+    assert second["tools"]
+    assert second["tool_choice"] == "none"
     assert fixed_store.messages == [
         (MessageRole.USER, MESSAGE),
         (MessageRole.ASSISTANT, "I could not check that. Tell me what you need."),
@@ -775,7 +777,8 @@ def test_decision_word_breach_is_sent_back_once() -> None:
     third_messages = stubborn_gateway.requests[2]["messages"]
     assert third_messages[-2] == {"role": "assistant", "content": "It is granted now."}
     assert third_messages[-1]["role"] == "user"
-    assert "tools" not in stubborn_gateway.requests[2]
+    assert stubborn_gateway.requests[2]["tools"]
+    assert stubborn_gateway.requests[2]["tool_choice"] == "none"
     assert stubborn.postcheck is PostCheckOutcome.FALLBACK
     assert stubborn.reply == outcome_reply(stubborn)
     assert stubborn.reply is not None
@@ -1098,8 +1101,8 @@ def test_yes_files_held_calls_with_stored_keys() -> None:
     assert len(gateway.requests) == 1
     request = gateway.requests[0]
     assert request["model"] == "agent-default"
-    assert "tools" not in request
-    assert "tool_choice" not in request
+    assert request["tools"]
+    assert request["tool_choice"] == "none"
     assert "REQ-0001" in json.dumps(request["messages"])
     assert state.reply == FILED_REPLY
     assert state.outcome not in (TurnOutcome.CONFIRM, TurnOutcome.FAILED)
@@ -1129,7 +1132,8 @@ def test_stream_yes_files_held_calls_with_stored_keys() -> None:
     assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
     assert store.question is None
     assert len(gateway.requests) == 1
-    assert "tools" not in gateway.requests[0]
+    assert gateway.requests[0]["tools"]
+    assert gateway.requests[0]["tool_choice"] == "none"
 
 
 @pytest.mark.parametrize("message", ["no", "No.", "nope"])
@@ -1247,7 +1251,7 @@ def test_unknown_request_number_is_sent_back(message: str, bad_reply: str, offen
 
     The listing holds only REQ-0001 and "pending" is allowed by it, so the number
     is the only breach. The second model request must carry the bad reply and a
-    reason naming the number, with no tools.
+    reason naming the number, answer-only.
     """
     good = "You have one request, REQ-0001, and it is pending."
     gateway = _listing_then(bad_reply, good)
@@ -1257,7 +1261,8 @@ def test_unknown_request_number_is_sent_back(message: str, bad_reply: str, offen
 
     assert len(gateway.requests) == 3
     assert offender in _sent_back(gateway.requests[2], bad_reply)
-    assert "tools" not in gateway.requests[2]
+    assert gateway.requests[2]["tools"]
+    assert gateway.requests[2]["tool_choice"] == "none"
     assert state.reply == good
     assert state.postcheck is PostCheckOutcome.REGENERATED
 
