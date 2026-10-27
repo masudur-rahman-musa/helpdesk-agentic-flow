@@ -393,6 +393,10 @@ os.environ["QDRANT_COLLECTION_PREFIX"] = "ptests_"
 # checkpoint tables. `test_loop_graph.py` saves steps with its own saver.
 os.environ["SAVE_TURN_STEPS"] = "false"
 
+# The policy search cache is off for the suite: tests share tenant collections,
+# so one test's saved page would answer another's question. Cache tests turn it on.
+os.environ["POLICY_SEARCH_CACHE"] = "false"
+
 
 @pytest.fixture(scope="session")
 def restricted_db_password() -> str:

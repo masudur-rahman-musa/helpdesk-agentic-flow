@@ -44,16 +44,16 @@ No pytest-asyncio: each case is a sync function driving one `asyncio.run`.
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable, Iterator, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-from qdrant_client import AsyncQdrantClient
+from qdrant_client import AsyncQdrantClient, models
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from helpdesk.mcp_server.services.rag import pipeline
+from helpdesk.mcp_server.services.rag import pipeline, search_cache
 from helpdesk.mcp_server.services.rag.embedding import DENSE_DIMENSION, SparseVector
 from helpdesk.mcp_server.services.rag.pipeline import (
     CorpusDocumentNotFoundError,
@@ -62,6 +62,7 @@ from helpdesk.mcp_server.services.rag.pipeline import (
     ingest_version,
 )
 from helpdesk.mcp_server.services.rag.redaction_client import RedactedDocument
+from helpdesk.mcp_server.services.rag.retrieval import SearchHit
 from helpdesk.mcp_server.services.rag.vectors import (
     VectorStoreUnavailableError,
     collection_name,
@@ -1179,3 +1180,191 @@ def test_re_ingesting_a_changed_source_makes_the_new_row_current(
         ("v2", False),
         ("v1", True),
     ]
+
+
+# --- the search cache is dropped when a policy document changes ---------------
+
+CACHE_NOW = datetime(2026, 7, 3, 9, 0, tzinfo=UTC)
+CACHE_VECTOR = (1.0,) + (0.0,) * (DENSE_DIMENSION - 1)
+CACHE_HITS = [
+    SearchHit(
+        chunk_id=uuid.UUID("44444444-4444-4444-8444-444444444444"),
+        document_id=uuid.UUID("55555555-5555-4555-8555-555555555555"),
+        document_slug="fake-cached-policy",
+        version="v1",
+        heading_path=("1. Purpose",),
+        text="Fake cached chunk.",
+        score=0.0327,
+        dense_score=0.8,
+    )
+]
+
+
+@pytest.fixture
+def tenant_a_cache(qdrant_url: str) -> Iterator[str]:  # noqa: F811
+    """Tenant A's cache collection, deleted at both ends of the case."""
+    name = search_cache.cache_collection_name(TENANT_A_SLUG)
+    httpx.delete(f"{qdrant_url}/collections/{name}", timeout=30.0)
+    yield name
+    httpx.delete(f"{qdrant_url}/collections/{name}", timeout=30.0)
+
+
+async def _ingest(
+    factory: async_sessionmaker[AsyncSession],
+    client: AsyncQdrantClient,
+    tenant_id: uuid.UUID,
+    document_slug: str,
+    source: bytes,
+) -> bool:
+    """Ingest one version-1 source for tenant A; return `created`."""
+    async with tenant_session(factory, tenant_id) as session:
+        result = await ingest_document(
+            session,
+            client,
+            tenant_slug=TENANT_A_SLUG,
+            slug=document_slug,
+            title="Fake Access Control Policy",
+            version="v1",
+            source_path=f"policies/{TENANT_A_SLUG}/v1/{document_slug}.md",
+            source=source,
+            redactor=FakeRedactor(),
+            embedder=FakeEmbedder(),
+            ingested_at=INGESTED_AT,
+        )
+    return result.created
+
+
+async def _seed_cache(client: AsyncQdrantClient, tenant_id: uuid.UUID) -> str:
+    """One cached entry for tenant A; returns the generation it carries."""
+    generation = await search_cache.current_generation(client, TENANT_A_SLUG)
+    await search_cache.save(
+        client,
+        TENANT_A_SLUG,
+        tenant_id=tenant_id,
+        vector=CACHE_VECTOR,
+        top_k=6,
+        generation=generation,
+        now=CACHE_NOW,
+        hits=CACHE_HITS,
+    )
+    return generation
+
+
+async def _cache_entries(client: AsyncQdrantClient) -> int:
+    counted = await client.count(
+        search_cache.cache_collection_name(TENANT_A_SLUG),
+        count_filter=models.Filter(
+            must=[models.FieldCondition(key="kind", match=models.MatchValue(value="entry"))]
+        ),
+        exact=True,
+    )
+    return int(counted.count)
+
+
+async def _cache_lookup(
+    client: AsyncQdrantClient, tenant_id: uuid.UUID, generation: str
+) -> list[SearchHit] | None:
+    return await search_cache.lookup(
+        client,
+        TENANT_A_SLUG,
+        tenant_id=tenant_id,
+        vector=CACHE_VECTOR,
+        top_k=6,
+        generation=generation,
+        now=CACHE_NOW + timedelta(minutes=1),
+    )
+
+
+@pytest.mark.db
+def test_changing_a_policy_document_empties_that_tenants_cache(
+    policy_db_url: str,  # noqa: F811
+    pipeline_collection: str,
+    tenant_a_cache: str,
+) -> None:
+    """Catches an ingest that never touches the cache, so a changed policy is
+    answered from the old page for a day. The entry is first shown to hit (the
+    control), then a changed source is ingested: the tenant must hold 0
+    entries and the same lookup, on the generation read now, must miss."""
+    document_slug = _namespace_slug()
+
+    async def work(
+        factory: async_sessionmaker[AsyncSession], client: AsyncQdrantClient
+    ) -> tuple[bool, list[SearchHit] | None, int, list[SearchHit] | None]:
+        tenant_id = await _tenant_id(factory, TENANT_A_SLUG)
+        assert await _ingest(factory, client, tenant_id, document_slug, SOURCE_V1) is True
+        generation = await _seed_cache(client, tenant_id)
+        before = await _cache_lookup(client, tenant_id, generation)
+
+        created = await _ingest(factory, client, tenant_id, document_slug, SOURCE_V1_CHANGED)
+
+        entries = await _cache_entries(client)
+        fresh = await search_cache.current_generation(client, TENANT_A_SLUG)
+        return created, before, entries, await _cache_lookup(client, tenant_id, fresh)
+
+    created, before, entries, after = _drive(policy_db_url, work)
+    assert created is True
+    assert before == CACHE_HITS
+    assert entries == 0
+    assert after is None
+
+
+@pytest.mark.db
+def test_re_ingesting_an_unchanged_document_keeps_the_cache(
+    policy_db_url: str,  # noqa: F811
+    pipeline_collection: str,
+    tenant_a_cache: str,
+) -> None:
+    """Catches an ingest that drops the cache on every call, even when the
+    source is byte for byte the same: a scheduled re-ingest of the whole corpus
+    would then empty every tenant's cache for nothing. No new version means the
+    entry stays and still hits under its generation."""
+    document_slug = _namespace_slug()
+
+    async def work(
+        factory: async_sessionmaker[AsyncSession], client: AsyncQdrantClient
+    ) -> tuple[bool, int, list[SearchHit] | None]:
+        tenant_id = await _tenant_id(factory, TENANT_A_SLUG)
+        assert await _ingest(factory, client, tenant_id, document_slug, SOURCE_V1) is True
+        generation = await _seed_cache(client, tenant_id)
+
+        created = await _ingest(factory, client, tenant_id, document_slug, SOURCE_V1)
+
+        return (
+            created,
+            await _cache_entries(client),
+            await _cache_lookup(client, tenant_id, generation),
+        )
+
+    created, entries, after = _drive(policy_db_url, work)
+    assert created is False
+    assert entries == 1
+    assert after == CACHE_HITS
+
+
+@pytest.mark.db
+def test_a_failing_cache_drop_fails_the_ingest(
+    policy_db_url: str,  # noqa: F811
+    pipeline_collection: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Catches an ingest that swallows a failed drop: the new policy would be
+    live while the old cached page keeps serving, and nobody would be told. The
+    drop must be reached exactly once and its error must come out of the
+    ingest unchanged (typed, `INTERNAL`)."""
+    document_slug = _namespace_slug()
+    dropped: list[str] = []
+
+    async def failing_drop(client: AsyncQdrantClient, tenant_slug: str) -> None:
+        dropped.append(tenant_slug)
+        raise VectorStoreUnavailableError("the policy vector store is unavailable")
+
+    monkeypatch.setattr(search_cache, "drop", failing_drop)
+
+    async def work(factory: async_sessionmaker[AsyncSession], client: AsyncQdrantClient) -> None:
+        tenant_id = await _tenant_id(factory, TENANT_A_SLUG)
+        with pytest.raises(VectorStoreUnavailableError) as excinfo:
+            await _ingest(factory, client, tenant_id, document_slug, SOURCE_V1)
+        assert excinfo.value.code is ErrorCode.INTERNAL
+
+    _drive(policy_db_url, work)
+    assert dropped == [TENANT_A_SLUG]

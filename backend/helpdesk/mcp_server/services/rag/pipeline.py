@@ -14,6 +14,7 @@ from typing import Protocol
 from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from helpdesk.mcp_server.services.rag import search_cache
 from helpdesk.mcp_server.services.rag.chunking import chunk_document
 from helpdesk.mcp_server.services.rag.chunks import write_chunks
 from helpdesk.mcp_server.services.rag.embedding import Embedder
@@ -109,6 +110,10 @@ async def ingest_document(
     )
     await write_chunks(session, document_id=document.id, chunks=chunks, point_ids=point_ids)
     await supersede_points(client, tenant_slug, document_slug=slug, keep_document_id=document.id)
+    # Last, so no search between the upsert and the supersede can save an old
+    # page under the new generation. A failure here fails the ingest: a silent
+    # one would serve the old policy for a day.
+    await search_cache.drop(client, tenant_slug)
     return IngestResult(document=document, created=True, chunk_count=len(chunks))
 
 

@@ -121,14 +121,17 @@ async def search_hits(
     query: str,
     embedder: Embedder,
     top_k: int = TOP_K_DEFAULT,
+    dense_vector: Sequence[float] | None = None,
 ) -> list[SearchHit]:
     """Both arms against this tenant's collection, fused and cut to `top_k`.
-    Reads no titles, so a caller that refuses pays nothing extra."""
+    Reads no titles, so a caller that refuses pays nothing extra. A caller that
+    already embedded the question passes `dense_vector`, so it is not made twice."""
     check_top_k(top_k)
     check_query(query)
     name = collection_name(tenant_slug)
 
-    dense_vector = embedder.embed_dense([query])[0]
+    if dense_vector is None:
+        dense_vector = embedder.embed_dense([query])[0]
     sparse_vector = embedder.embed_sparse([query])[0]
 
     with _translated():

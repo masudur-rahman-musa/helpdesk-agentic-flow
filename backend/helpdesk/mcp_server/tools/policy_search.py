@@ -9,16 +9,30 @@ isolation, with no second guard behind it, so no argument may name a tenant.
 The tool decides the refusal, not its caller. A refused page carries no
 citations, so nothing downstream can answer from chunks the threshold
 rejected. Titles are looked up only when the page is not refused.
+
+The search cache sits in front of the search. It holds fused pages
+only, so a hit still runs the refusal and the title lookup. Any cache failure
+is a miss and is logged without the question; the search answers either way.
 """
 
+import logging
 import uuid
+from collections.abc import Sequence
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from helpdesk.mcp_server.services.rag import retrieval
+from helpdesk.mcp_server.services.rag import retrieval, search_cache
+from helpdesk.mcp_server.services.rag.retrieval import SearchHit
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.naming import check_query, check_top_k
+from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.crud.tenants import find_tenant_by_id
+
+logger = logging.getLogger(__name__)
+
+CacheResult = Literal["hit", "miss"]
 
 _IGNORE_EXTRAS = ConfigDict(extra="ignore")
 """Extra arguments are dropped, never refused: the tenant comes from the token."""
@@ -67,34 +81,31 @@ class PolicyCitation(BaseModel):
 
 
 class SearchPolicyOutput(BaseModel):
-    """The page, and whether the tool refused to answer from it.
+    """The page, whether the tool refused to answer from it, and whether the
+    page came from the search cache.
 
     `citations` is always empty when `refused` is true.
     """
 
     citations: list[PolicyCitation]
     refused: bool
+    cache: CacheResult
 
 
 async def search_policy(ctx: ToolContext, args: SearchPolicyInput) -> SearchPolicyOutput:
     """Search this tenant's policy corpus; refuse when nothing matches well.
 
-    Order: search, judge, then look up titles only for a page worth answering
-    from.
+    Order: the cache, else the search; then judge, then look up titles only for
+    a page worth answering from. Counted once as a cache hit or miss.
     """
     tenant = await find_tenant_by_id(ctx.session, ctx.identity.tenant_id)
     if tenant is None:
         raise UnknownTenantError("the token's tenant no longer exists")
 
-    hits = await retrieval.search_hits(
-        ctx.clients.qdrant(),
-        tenant_slug=tenant.slug,
-        query=args.query,
-        embedder=ctx.clients.embedder(),
-        top_k=args.top_k,
-    )
+    hits, cache = await _cached_or_searched(ctx, args, tenant.slug)
+    metrics.record_policy_cache(tenant=str(ctx.identity.tenant_id), result=cache)
     if retrieval.should_refuse(hits, floor=ctx.settings.policy_refusal_floor):
-        return SearchPolicyOutput(citations=[], refused=True)
+        return SearchPolicyOutput(citations=[], refused=True, cache=cache)
 
     citations = await retrieval.resolve_citations(ctx.session, hits)
     return SearchPolicyOutput(
@@ -111,4 +122,90 @@ async def search_policy(ctx: ToolContext, args: SearchPolicyInput) -> SearchPoli
             for citation in citations
         ],
         refused=False,
+        cache=cache,
     )
+
+
+async def _cached_or_searched(
+    ctx: ToolContext, args: SearchPolicyInput, tenant_slug: str
+) -> tuple[list[SearchHit], CacheResult]:
+    """The saved page of a near-identical question, or a fresh search, saved.
+
+    The bounds are checked first, so a refused argument reaches neither the
+    cache nor the store. Short questions and a switched-off cache skip it.
+    """
+    check_top_k(args.top_k)
+    check_query(args.query)
+    client = ctx.clients.qdrant()
+    embedder = ctx.clients.embedder()
+    use_cache = (
+        ctx.settings.policy_search_cache
+        and len(args.query.strip()) >= search_cache.MIN_QUESTION_CHARS
+    )
+    if not use_cache:
+        hits = await retrieval.search_hits(
+            client, tenant_slug=tenant_slug, query=args.query, embedder=embedder, top_k=args.top_k
+        )
+        return hits, "miss"
+
+    vector = embedder.embed_dense([args.query])[0]
+    generation: str | None = None
+    try:
+        generation = await search_cache.current_generation(client, tenant_slug)
+        found = await search_cache.lookup(
+            client,
+            tenant_slug,
+            tenant_id=ctx.identity.tenant_id,
+            vector=vector,
+            top_k=args.top_k,
+            generation=generation,
+            now=ctx.now,
+        )
+    except Exception:
+        logger.warning("policy search cache lookup failed, searching instead", exc_info=True)
+        found = None
+    if found is not None:
+        return found, "hit"
+
+    hits = await retrieval.search_hits(
+        client,
+        tenant_slug=tenant_slug,
+        query=args.query,
+        embedder=embedder,
+        top_k=args.top_k,
+        dense_vector=vector,
+    )
+    if generation is not None:
+        await _save(
+            ctx, tenant_slug, vector=vector, top_k=args.top_k, generation=generation, hits=hits
+        )
+    return hits, "miss"
+
+
+async def _save(
+    ctx: ToolContext,
+    tenant_slug: str,
+    *,
+    vector: Sequence[float],
+    top_k: int,
+    generation: str,
+    hits: Sequence[SearchHit],
+) -> None:
+    """Save a fresh page; a failure is logged and never fails the search.
+
+    Only under the generation read BEFORE the search: one read after it could
+    stamp an old page with a newer generation.
+    """
+    try:
+        await search_cache.save(
+            ctx.clients.qdrant(),
+            tenant_slug,
+            tenant_id=ctx.identity.tenant_id,
+            vector=vector,
+            top_k=top_k,
+            generation=generation,
+            now=ctx.now,
+            hits=hits,
+        )
+    except Exception:
+        logger.warning("policy search cache write failed", exc_info=True)

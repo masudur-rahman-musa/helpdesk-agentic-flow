@@ -69,6 +69,8 @@ SPEC_METRICS: Mapping[str, str] = {
     # How each turn ended, and how many turns it took to file a request.
     "helpdesk_turn_endings_total": "counter",
     "helpdesk_turns_to_file": "histogram",
+    # Policy search cache hits and misses, per tenant.
+    "helpdesk_policy_cache_total": "counter",
 }
 
 # The label sets, as a literal. The field name is how the test reaches
@@ -85,6 +87,7 @@ LABEL_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("job_failures_total", "helpdesk_job_failures_total", ("job",)),
     ("turn_endings_total", "helpdesk_turn_endings_total", ("tenant", "outcome")),
     ("turns_to_file", "helpdesk_turns_to_file", ("tenant",)),
+    ("policy_cache_total", "helpdesk_policy_cache_total", ("tenant", "result")),
 )
 
 # The two remaining gauges, installed by a SEPARATE factory
@@ -139,7 +142,7 @@ def fresh_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
     yield registry
 
 
-def test_build_metrics_registers_exactly_the_ten_metrics() -> None:
+def test_build_metrics_registers_exactly_the_eleven_metrics() -> None:
     """Catches a `build_metrics` that registers fewer or more than eight
     metrics on the caller's registry, or that misspells one of the expected
     names (including the two per-job counters),
@@ -165,7 +168,7 @@ def test_build_metrics_registers_exactly_the_ten_metrics() -> None:
 
     assert _type_lines(generate_latest(registry).decode()) == dict(SPEC_METRICS)
 
-    # Ten distinct objects: a `Metrics` whose fields alias one counter would
+    # Eleven distinct objects: a `Metrics` whose fields alias one counter would
     # satisfy the exposition above and then count every refusal as a turn.
     fields = [getattr(built, field) for field, _name, _labels in LABEL_CASES]
     assert len({id(metric) for metric in fields}) == len(LABEL_CASES)

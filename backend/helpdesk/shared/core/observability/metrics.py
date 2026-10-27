@@ -37,6 +37,7 @@ JOB_RUNS_TOTAL = "helpdesk_job_runs_total"
 JOB_FAILURES_TOTAL = "helpdesk_job_failures_total"
 TURN_ENDINGS_TOTAL = "helpdesk_turn_endings_total"
 TURNS_TO_FILE = "helpdesk_turns_to_file"
+POLICY_CACHE_TOTAL = "helpdesk_policy_cache_total"
 
 TURNS_TO_FILE_BUCKETS = (1, 2, 3, 4, 5, 6, 8, 10, 15)
 """A chat that needs more than fifteen messages to file lands in `+Inf`."""
@@ -62,6 +63,7 @@ class Metrics:
     job_failures_total: Counter
     turn_endings_total: Counter
     turns_to_file: Histogram
+    policy_cache_total: Counter
 
 
 def build_metrics(registry: CollectorRegistry) -> Metrics:
@@ -127,6 +129,12 @@ def build_metrics(registry: CollectorRegistry) -> Metrics:
             buckets=TURNS_TO_FILE_BUCKETS,
             registry=registry,
         ),
+        policy_cache_total=Counter(
+            POLICY_CACHE_TOTAL,
+            "Policy searches answered from the search cache or not, by tenant.",
+            labelnames=("tenant", "result"),
+            registry=registry,
+        ),
     )
 
 
@@ -184,6 +192,11 @@ def record_expiries(count: int) -> None:
 def record_sod_block() -> None:
     """Counted where the refusal is answered, so the policy code stays pure."""
     METRICS.sod_blocks_total.inc()
+
+
+def record_policy_cache(*, tenant: str, result: str) -> None:
+    """`result` is `hit` or `miss`, never client text."""
+    METRICS.policy_cache_total.labels(tenant=tenant, result=result).inc()
 
 
 def record_job_run(*, job: str) -> None:

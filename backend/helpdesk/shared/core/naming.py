@@ -28,6 +28,9 @@ MAX_COLLECTION_PREFIX_LENGTH = len(COLLECTION_NAME_PREFIX)
 
 COLLECTION_NAME_LENGTH = MAX_COLLECTION_PREFIX_LENGTH + SLUG_LENGTH
 
+CACHE_COLLECTION_NAME_LENGTH = COLLECTION_NAME_LENGTH + len("cache_")
+"""A search cache name is the policy name with `cache_` before the slug."""
+
 
 def collection_prefix() -> str:
     """The prefix of every policy collection, read on each call.
@@ -108,6 +111,13 @@ def check_source_path(value: str) -> str:
 def check_collection_name(value: str) -> str:
     """Empty is refused: Qdrant would read it as the collections index."""
     return _checked(value, cap=COLLECTION_NAME_LENGTH, pattern=None, what="collection name")
+
+
+def check_cache_collection_name(value: str) -> str:
+    """The same check, with room for the `cache_` part."""
+    return _checked(
+        value, cap=CACHE_COLLECTION_NAME_LENGTH, pattern=None, what="cache collection name"
+    )
 
 
 def check_query(value: str) -> str:
