@@ -98,7 +98,12 @@ from helpdesk.agent_api.agent.tool_args import (
     SearchPolicyResult,
 )
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ToolCall, ToolCallAnswer
+from helpdesk.agent_api.services.model_gateway.client import (
+    ModelAlias,
+    ModelBudgetExceededError,
+    ToolCall,
+    ToolCallAnswer,
+)
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models.conversation import MessageRole
 
@@ -261,6 +266,15 @@ class _TurnFailed(Exception):
     def __init__(self, code: ErrorCode) -> None:
         super().__init__(code.value)
         self.code = code
+
+
+class _BudgetSpent(Exception):
+    """The gateway refused the step because a budget is spent. The turn ends on
+    its message, word for word, as a finished reply."""
+
+    def __init__(self, reply: str) -> None:
+        super().__init__("budget spent")
+        self.reply = reply
 
 
 def _tool_turn(call_id: str, content: Any) -> dict[str, Any]:
@@ -507,6 +521,10 @@ class _Turn:
         """End the turn on `FAILURE_REPLY`; none of the model's output is shown."""
         self.final = await self._finish(FAILURE_REPLY, outcome=TurnOutcome.FAILED, error_code=code)
 
+    async def budget_spent(self, reply: str) -> None:
+        """End the turn on the gateway's budget message as a finished reply."""
+        self.final = await self._finish(reply)
+
     def _deny(self, question: OpenQuestion) -> None:
         """Give the model the held calls answered as denied, with the person's
         own words as the reason, right before their message, so it re-plans.
@@ -600,6 +618,8 @@ class _Turn:
                 prompt_version=self.prompt.sha256,
                 answer_only=answer_only,
             )
+        except ModelBudgetExceededError as exc:
+            raise _BudgetSpent(exc.gateway_message) from exc
         except ToolError as exc:
             raise _TurnFailed(exc.code) from exc
         self.tokens += answer.usage.total_tokens
@@ -865,12 +885,16 @@ class _NodeFn(Protocol):
 
 def _node(step: _Step) -> _NodeFn:
     """A `_Turn` step as a node: load the state, run the step, hand back the
-    update. A failure no reply can cover ends the turn on `FAILURE_REPLY`."""
+    update. A spent budget ends the turn on the gateway's message, pinned by
+    `test_a_budget_refusal_is_the_chat_reply_verbatim`. A failure no reply can
+    cover ends the turn on `FAILURE_REPLY`."""
 
     async def run(state: LoopState, *, runtime: Runtime[LoopContext]) -> LoopState:
         turn = _Turn(state, runtime.context)
         try:
             await step(turn)
+        except _BudgetSpent as spent:
+            await turn.budget_spent(spent.reply)
         except _TurnFailed as failed:
             await turn.fail(failed.code)
         return turn.saved()

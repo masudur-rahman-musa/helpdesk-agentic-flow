@@ -45,6 +45,12 @@ STRUCTURED_OUTPUT_ATTEMPTS = 2
 PROMPT_VERSION_PATTERN = re.compile(r"[0-9a-f]{64}")
 """A prompt version is the sha256 hex digest of the prompt file, matched in full."""
 
+BUDGET_EXCEEDED_CODE = "BUDGET_EXCEEDED"
+"""The gateway's `error.code` on a 429 when a tenant's or a person's budget is spent."""
+
+MAX_BUDGET_MESSAGE_CHARACTERS = 1_000
+"""The longest gateway budget message shown to the person, counted after trimming."""
+
 
 class ModelAlias(StrEnum):
     """The only model names this repo may send. The value is the wire name."""
@@ -69,6 +75,18 @@ class ModelUnavailableError(ToolError):
     """The gateway failed or its answer was unusable. The same turn may work again."""
 
     code = ErrorCode.INTERNAL
+
+
+class ModelBudgetExceededError(ModelUnavailableError):
+    """The gateway refused the call because a budget is spent.
+
+    `gateway_message` is the gateway's own words for the person, shown as the
+    reply. It stays off the log message, since the error message is for logs.
+    Pinned by `test_the_gateway_text_never_enters_the_error_log_message`."""
+
+    def __init__(self, gateway_message: str) -> None:
+        super().__init__("the model gateway refused this turn: budget spent")
+        self.gateway_message = gateway_message
 
 
 @dataclass(frozen=True)
@@ -331,6 +349,8 @@ class ModelClient:
             raise ModelForbiddenError("the model gateway refused this tenant's API key")
         if response.status_code == 422:
             raise ModelRequestError("the model gateway refused this request")
+        if response.status_code == 429 and (message := _budget_message(response)) is not None:
+            raise ModelBudgetExceededError(message)
         if response.status_code != 200:
             raise ModelUnavailableError("the model gateway failed to complete this turn")
 
@@ -364,6 +384,24 @@ class ModelClient:
             )
 
         return message, answer
+
+
+def _budget_message(response: httpx.Response) -> str | None:
+    """The trimmed `error.message` of a budget refusal, or None when the body is
+    not one or its text is not 1 to `MAX_BUDGET_MESSAGE_CHARACTERS` characters.
+    None falls back to the generic error. Pinned by
+    `test_an_unusable_budget_message_is_the_generic_error`."""
+    try:
+        error = response.json()["error"]
+        code, message = error["code"], error["message"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if code != BUDGET_EXCEEDED_CODE or not isinstance(message, str):
+        return None
+    message = message.strip()
+    if not 1 <= len(message) <= MAX_BUDGET_MESSAGE_CHARACTERS:
+        return None
+    return message
 
 
 def _tool_calls(raw: object) -> tuple[ToolCall, ...]:
