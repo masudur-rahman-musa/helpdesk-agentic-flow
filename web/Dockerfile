@@ -8,8 +8,8 @@
 # nothing with the three Python services: no uv install, a different package
 # manager, and a compile step none of them has.
 #
-# The runtime stage copies Next's standalone output rather than node_modules
-# (decision E1). `output: "standalone"` in next.config.ts makes Next trace the
+# The runtime stage copies Next's standalone output rather than node_modules.
+# `output: "standalone"` in next.config.ts makes Next trace the
 # files the server actually imports and emit a self-contained tree; without it
 # this image carries the whole dependency tree for a server that needs a
 # fraction of it. The two halves are pinned together by

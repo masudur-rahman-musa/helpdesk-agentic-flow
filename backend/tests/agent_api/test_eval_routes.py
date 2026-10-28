@@ -423,8 +423,8 @@ def test_the_eval_modules_hold_only_the_conversation_names() -> None:
 
 def test_reset_answers_204_when_switched_on(install: Callable[..., Harness]) -> None:
     """Catches a reset that wants a body or a token (the console sends neither),
-    or that answers 200 with a body: the console accepts any 2xx, but the plan
-    fixes 204, an empty answer, because the route clears nothing.
+    or that answers 200 with a body: the console accepts any 2xx, but the contract
+    is 204, an empty answer, because the route clears nothing.
 
     No bearer is sent, so an implementation that left the path off the open
     list would answer 401 here.

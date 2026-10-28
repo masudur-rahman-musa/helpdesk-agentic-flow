@@ -185,7 +185,7 @@ describe("the three review routes — the bearer", () => {
   });
 });
 
-describe("the queue route — its own query parameters (decision D)", () => {
+describe("the queue route — its own query parameters ", () => {
   it("forwards status and limit from its own request url", async () => {
     // The one place this surface breaks the zero-argument
     // precedent. Catches a proxy that drops the query — the tool puts the status

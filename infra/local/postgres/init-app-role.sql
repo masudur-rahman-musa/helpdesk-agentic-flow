@@ -1,5 +1,5 @@
 -- The restricted application role, created with the password the environment
--- supplies (plan 30ba decision A). Run by init-app-role.sh on a fresh pgdata
+-- supplies. Run by init-app-role.sh on a fresh pgdata
 -- volume only; the Alembic migration c7f4a1d2e8b3 owns every grant.
 --
 -- Mounted OUTSIDE /docker-entrypoint-initdb.d on purpose. The postgres
@@ -12,6 +12,6 @@
 -- The init directory runs only when the data directory is empty, and roles are
 -- created with the cluster, so the role cannot already exist here.
 --
--- The role name is the literal `helpdesk_app` and never a variable: plan 30ba
--- decision C keeps it a constant so there is no identifier to interpolate.
+-- The role name is the literal `helpdesk_app` and never a variable: it stays a
+-- constant so there is no identifier to interpolate.
 CREATE ROLE "helpdesk_app" LOGIN PASSWORD :'app_password';

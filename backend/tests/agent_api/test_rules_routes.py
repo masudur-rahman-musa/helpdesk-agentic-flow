@@ -12,7 +12,7 @@ these names until step 1 lands):
     case here patches ``deps.build_tool_caller``, enters no lifespan and opens
     no socket.
 
-Shapes this file fixes that the plan left open:
+Shapes this file fixes:
 - the tool name is ``list_sod_rules``, its own registry name, and the path is
   ``/admin/rules``, held here as ``RULES_PATH``.
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``.
@@ -20,8 +20,7 @@ Shapes this file fixes that the plan left open:
   which is what ``deps.unauthenticated()`` answers, the
   shape unchanged. The expected body is written as
   ``{"code": "UNAUTHENTICATED"}``; ``helpdesk.errors.ErrorCode`` has no such
-  member, so the code's own value is asserted here and the
-  plan's sentence is the deviation.
+  member, so the code's own value is asserted here.
 - the arguments are an EXACTLY empty dict, the zero-argument form
   ``me_routes.ListMyAccessArgs`` and ``killswitch_routes``' board already use;
   ``ListSodRulesInput`` declares no field and forbids extras, so any key at

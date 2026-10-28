@@ -19,7 +19,7 @@ bodies ``/chat`` already answers with (19a, copied rather than invented):
 Each of those answers is ``application/json`` and opens NO stream at all,
 which every refusal case below asserts on the content type as well as on the
 body: a refusal a client has to parse out of a 200 stream is the thing
-decision E1 exists to keep rare.
+the route exists to keep rare.
 
 A failure AFTER the stream has opened is the other half: one ``error`` event
 carrying ``ErrorCode.INTERNAL`` — ``{"code": "INTERNAL"}``, the body ``/chat``
@@ -119,12 +119,12 @@ _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 
 _UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
-    "Plan 19c stream route tests require the compose stack: run `docker compose up -d` first.\n"
+    "Stream route tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 _REDIS_UNREACHABLE_MSG = (
     "Redis is unreachable at the configured REDIS_URL.\n"
-    "Plan 19c stream route tests require the compose stack: run `docker compose up -d` first.\n"
+    "Stream route tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 
@@ -638,7 +638,7 @@ def test_one_message_streams_its_steps_its_tokens_and_its_reply(
 def test_both_routes_store_the_same_rows_for_one_message(
     stream_env: StreamRouteEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Catches the plan's fourth risk: two routes driving one turn, where
+    """Catches two routes driving one turn, where
     `/chat/stream` runs a turn of its own — a second invocation, a different
     pre-check order, or a composition it stores twice — so the stream becomes a
     SECOND turn rather than a second view of one.
@@ -861,11 +861,11 @@ def test_an_unreachable_mcp_server_mid_stream_is_a_typed_error_event(
 ) -> None:
     """Catches a `ToolError` escaping the streaming route unmapped: the MCP
     handshake fails inside the generator, where a raise cannot become a status
-    line any more — the response is already 200 — so without decision E1 the
+    line any more — the response is already 200 — so without a mapped error the
     client gets a truncated body, or Starlette's own error, with nothing typed
     in it at all.
 
-    The DATABASE session is the route's half of the plan's first risk: it is
+    The DATABASE session is the route's half of the connection-leak risk: it is
     opened around a response BODY now, so an engine still holding a checked-out
     connection after the response completed is the leak nothing else would see.
     Read off the engine the LIFESPAN built, which nothing in this case replaced.

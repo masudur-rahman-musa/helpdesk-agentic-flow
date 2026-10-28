@@ -678,7 +678,7 @@ def test_a_delete_of_the_head_as_the_restricted_role_is_refused_by_the_trigger(
         assert sqlstate == TRIGGER_RAISED, (
             f"expected {TRIGGER_RAISED} for a DELETE of the head as {ROLE_NAME}, got {sqlstate}"
             + (
-                f" ({INSUFFICIENT_PRIVILEGE} means the DELETE grant this plan adds "
+                f" ({INSUFFICIENT_PRIVILEGE} means the DELETE grant this change adds "
                 "never landed, so the job cannot run either)"
                 if sqlstate == INSUFFICIENT_PRIVILEGE
                 else ""
@@ -912,7 +912,7 @@ def test_the_retention_migration_round_trips_and_its_downgrade_restores_the_refu
         granted = await _role_table_privileges(fresh_db_url)
         assert granted.get(ANCHOR_TABLE, frozenset()) == frozenset({"SELECT", "INSERT"}), (
             "the downgrade must revoke exactly the DELETE this revision granted, "
-            "leaving plan 30bb's two"
+            "leaving the two it had before"
         )
         tenant_id = await _plant_tenant(fresh_db_url, f"retention-down-{uuid.uuid4().hex[:8]}")
         old_id = await _insert_anchor(fresh_db_url, tenant_id, 1, PAST_WINDOW)
@@ -921,7 +921,7 @@ def test_the_retention_migration_round_trips_and_its_downgrade_restores_the_refu
             fresh_db_url, f"DELETE FROM {ANCHOR_TABLE} WHERE id = :id", {"id": old_id}
         )
         assert sqlstate == TRIGGER_RAISED, (
-            "after the downgrade plan 30bb's blanket refusal must be back: an old "
+            "after the downgrade the earlier blanket refusal must be back: an old "
             f"non-head row is refused again, got {sqlstate}"
         )
 

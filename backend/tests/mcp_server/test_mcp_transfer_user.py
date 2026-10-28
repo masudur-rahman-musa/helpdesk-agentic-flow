@@ -420,7 +420,7 @@ def test_the_audit_sequence_is_revoked_then_executed_then_transferred_then_succe
     mcp_env: SeededMcp,
 ) -> None:
     """An exact ordered list, which is also the only place
-       decisions B and C are observable together.
+       the transfer's events are observable together.
 
        Catches the registry declaring `user.transferred` as this tool's event
        instead of the generic `tool.succeeded`: the pipeline writes its event

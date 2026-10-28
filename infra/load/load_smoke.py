@@ -2,7 +2,7 @@
 
 A locustfile, run by `make load-smoke`. It answers one question - what a chat
 turn costs under a load one demo machine can actually produce - and it answers
-it against the REAL gateway under the `agent-default` alias (decision D). A p95
+it against the REAL gateway under the `agent-default` alias. A p95
 measured against `backend/scripts/e2e/gateway_stub.py` would measure this repo's own
 overhead and nothing a reader would care about, so this target and `make e2e`
 deliberately do not share a model.
@@ -12,9 +12,9 @@ gateway key that costs money, and its number belongs in the README beside the
 machine it was measured on rather than in a pass/fail gate that would go red on
 somebody else's laptop.
 
-locust rather than k6 (decision B). k6 is the better load tool and is a
-Homebrew binary, which a project rule turns into an ask on every machine that
-ever runs this repo; locust rides the lockfile that is already there.
+locust rather than k6. k6 is the better load tool and is a
+Homebrew binary, which would mean installing software outside the project on
+every machine that ever runs this repo; locust rides the lockfile that is already there.
 
 Every user signs in as a seeded demo account and sends the same short ask
 `POST /chat`, not `/chat/stream`: the streaming route's duration is dominated

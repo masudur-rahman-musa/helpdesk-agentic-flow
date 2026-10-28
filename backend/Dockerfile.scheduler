@@ -1,13 +1,12 @@
 # syntax=docker/dockerfile:1
 
-# The scheduler service of the design. Restructure an earlier change split the one build-arg
-# Dockerfile into three, one per app: the build context is `backend/` and each
-# image carries only the shared library plus its own app package and its own
-# dependency group.
+# The scheduler service. Each app has its own Dockerfile: the build context is
+# `backend/` and each image carries only the shared library plus its own app
+# package and its own dependency group.
 #
 #   docker build -f backend/Dockerfile.scheduler -t helpdesk-scheduler:local backend
 #
-# No migration runs in this image (decision D1). The policy corpus is NOT
+# No migration runs in this image. The policy corpus is NOT
 # copied in: it arrives as a read-only runtime mount. Pinned by
 # backend/tests/shared/test_container_build.py.
 

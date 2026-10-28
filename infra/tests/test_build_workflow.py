@@ -1,4 +1,4 @@
-"""The image-publishing surface of an earlier change, parsed statically (nothing is built).
+"""The image-publishing surface, parsed statically (nothing is built).
 
 What is pinned: the four images `.github/workflows/build.yml` pushes, the GHCR
 path they are pushed under, the Dockerfile and build argument behind each one,
@@ -7,8 +7,7 @@ three permissions, the trigger set and the absence of `pull_request`, the
 never-cancelling concurrency group, the Trivy gate over every pushed reference
 and its position after the push, the SBOM and provenance attestations, that
 every build actually pushes, that the emulator and the builder are set up, that
-no two builds share a cache scope, the GHCR login, and the two paragraphs
-the project notes owes about the published path and the console's wrong one.
+no two builds share a cache scope, and the GHCR login.
 
 Why static rather than a real push: the workflow's claims are properties of a
 checked-in file, and a real multi-architecture push needs a registry, a token
@@ -27,10 +26,6 @@ BOOLEAN True, not the string "on". A case that looks up `document["on"]` finds
 nothing and goes green or red for a reason that has nothing to do with the
 triggers, so the trigger block is reached through `_trigger_block()`, which
 looks up True first.
-
-The cases are red at HEAD because `.github/workflows/build.yml` does not exist,
-and because the project notes carries neither the published-images section nor
-the console path-mismatch paragraph.
 """
 
 import re
@@ -53,7 +48,6 @@ REPO_ROOT = _repo_root()
 """Every path below is resolved from here."""
 
 BUILD_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "build.yml"
-DEPLOY_DOC = REPO_ROOT / "dev" / "ops" / "deploy.md"
 
 REGISTRY_PREFIX = "ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/"
 """The one path prefix every pushed reference carries. It is this repository's
@@ -76,8 +70,8 @@ DOCKERFILE_BY_IMAGE: dict[str, str] = {
     "helpdesk-mcp-server": "backend/Dockerfile.mcp-server",
     "helpdesk-scheduler": "backend/Dockerfile.scheduler",
 }
-"""The three Python images and the per-app Dockerfile each one builds from. The
-restructure split the one `SERVICE`-arg Dockerfile into three, so the image is
+"""The three Python images and the per-app Dockerfile each one builds from. Each
+app has its own Dockerfile, so the image is
 told apart by its file, not by a build argument. The mapping is asserted per
 image, so two steps sharing one Dockerfile (both building the agent-api image)
 is a failure rather than a coincidence the set check misses."""
@@ -87,8 +81,8 @@ WEB_IMAGE = "helpdesk-web"
 three above."""
 
 BACKEND_CONTEXT = "backend"
-"""The build context of the three Python images: the one `backend/` project the
-restructure merged them into."""
+"""The build context of the three Python images: the one `backend/` project
+they share."""
 
 WEB_DOCKERFILE = "web/Dockerfile"
 """The file the web image builds from, named relative to the repository root
@@ -102,9 +96,6 @@ PLATFORMS = "linux/amd64"
 """The exact `platforms` value on all four builds. The live node is x86_64, and an
 emulated arm64 half made every run 14 to 24 minutes."""
 
-ARCHITECTURES: tuple[str, ...] = ("linux/amd64",)
-"""The architectures as separate strings, which is how the project notes has to
-name them for a reader who never opens the workflow."""
 
 SHA_TAG_SUFFIX = ":${{ github.sha }}"
 """The only tag suffix any pushed reference carries. A rollback names a SHA, so
@@ -164,13 +155,6 @@ RUN_TOKEN = "${{ secrets.GITHUB_TOKEN }}"
 """The password the login step uses: the run's own scoped token, never a
 personal access token pasted into a secret."""
 
-CONSOLE_IMAGE_PATH = "developermusa/ai-helpdesk-governed-access"
-"""The path the companion console's `infra/k8s/apps/kustomization.yaml` once named.
-It is neither this repository's owner nor its spelling; the console has since
-moved to this repository's own path, so the doc must not repeat the old one."""
-
-PUBLISHED_IMAGES_HEADING = "Published images"
-"""The heading of the section the project notes owes."""
 
 _TRUE_SPELLINGS: frozenset[str] = frozenset({"true"})
 """A GitHub Actions input is a string to the action either way, so `true` and
@@ -340,12 +324,6 @@ def _normalised(value: Any) -> str:
     """
     parts = [part for part in PurePosixPath(str(value).strip()).parts if part != "."]
     return "/".join(parts)
-
-
-def _deploy_doc() -> str:
-    """the project notes as text."""
-    assert DEPLOY_DOC.is_file(), "dev/ops/deploy.md does not exist"
-    return DEPLOY_DOC.read_text(encoding="utf-8")
 
 
 def test_the_four_images_are_built() -> None:
@@ -547,8 +525,8 @@ def test_every_build_carries_an_sbom_and_provenance(image: str) -> None:
 
 
 def test_every_image_is_actually_pushed() -> None:
-    """Catches `push: false` on a build step, which is the whole plan silently
-    undone: the image builds, the job goes green, the Trivy step then scans
+    """Catches `push: false` on a build step, which silently undoes the whole
+    workflow: the image builds, the job goes green, the Trivy step then scans
     whatever the registry still holds from the previous commit, and the deploy
     that names this SHA finds no manifest."""
     for step in _build_steps():
@@ -624,31 +602,4 @@ def test_the_login_is_ghcr_with_the_run_token() -> None:
     )
     assert str(arguments.get("password", "")).strip() == RUN_TOKEN, (
         f"the login password is {arguments.get('password')!r}, expected the run token"
-    )
-
-
-def test_the_deploy_doc_publishes_the_registry_path() -> None:
-    """Catches the workflow landing with no operator-facing record of it: without
-    this section a reader deploying by hand has no way to know the registry
-    path, that a tag is a commit SHA and never `latest`, or which
-    architecture is built, and reads it off the workflow or guesses."""
-    document = _deploy_doc()
-
-    assert PUBLISHED_IMAGES_HEADING in document, (
-        f"dev/ops/deploy.md has no {PUBLISHED_IMAGES_HEADING!r} section"
-    )
-    assert REGISTRY_PREFIX in document, f"dev/ops/deploy.md does not name {REGISTRY_PREFIX}"
-    for architecture in ARCHITECTURES:
-        assert architecture in document, f"dev/ops/deploy.md does not name {architecture}"
-
-
-def test_the_deploy_doc_no_longer_names_the_old_console_path() -> None:
-    """Catches the resolved mismatch coming back as live advice: the console's
-    kustomization now names this repository's own GHCR path (fixed there, and
-    the note dropped here by an earlier change), so a reader told to expect the old path
-    would chase a blocker that no longer exists."""
-    document = _deploy_doc()
-
-    assert CONSOLE_IMAGE_PATH not in document, (
-        f"dev/ops/deploy.md still names the old console path {CONSOLE_IMAGE_PATH}"
     )

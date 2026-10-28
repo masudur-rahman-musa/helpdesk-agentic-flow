@@ -63,7 +63,7 @@ const OLD_FILES: readonly string[] = [
   "src/features/admin/killswitch/components/kill-switch-toggle.tsx",
 ];
 
-describe("component size guard (plan 78)", () => {
+describe("component size guard", () => {
   it("test_every_component_is_at_most_250_lines", () => {
     /** Catches a split that leaves any .tsx file over 250 lines (today five are). */
     const over = tsxFiles(SRC_ROOT)

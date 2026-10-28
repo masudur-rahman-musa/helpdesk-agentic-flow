@@ -260,7 +260,7 @@ def _worker_redis_index(base: int, fallback: int, configured: int) -> int:
 
 _REDIS_UNREACHABLE_MSG = (
     "Redis is unreachable at the configured REDIS_URL.\n"
-    "Plan 09b tests require the compose stack: run `docker compose up -d` first.\n"
+    "Tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 

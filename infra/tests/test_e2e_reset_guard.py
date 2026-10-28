@@ -1,4 +1,4 @@
-"""An earlier change's input-validation criterion: the e2e reset refuses a non-local
+"""Input-validation criterion: the e2e reset refuses a non-local
 database and an oversize tenant slug BEFORE it drops anything.
 
 Expected implementation surface (`backend/scripts/e2e_reset.py`, importable as
@@ -27,7 +27,8 @@ strings and a recording runner, and what is asserted is that the runner was
 not reached.
 
 The two constants are pinned to their exact values by
-`::test_the_local_hosts_and_the_slug_cap_are_exactly_the_planned_values`, and `TENANT_SLUG_CAP` is pinned against the column itself
+`::test_the_local_hosts_and_the_slug_cap_are_exactly_the_planned_values`, and
+`TENANT_SLUG_CAP` is pinned against the column itself
 by `::test_the_slug_cap_is_the_tenants_slug_column_length`. The inclusive
 boundary is `::test_a_slug_of_exactly_the_cap_is_accepted` against
 `::test_a_slug_one_character_over_the_cap_is_refused`.
@@ -137,7 +138,7 @@ def test_a_database_url_that_is_not_local_is_refused(name: str, url: str) -> Non
     address is not `localhost` and not a public name, and the hostless URL
     resolves to the driver's default socket, which is a real database on the
     machine running this. All three answer `VALIDATION`, never a bare
-    `ValueError`, so the boundary keeps SPEC section 8.1's vocabulary.
+    `ValueError`, so the boundary keeps the typed error vocabulary.
     """
     del name
     with pytest.raises(InvalidResetTargetError) as caught:

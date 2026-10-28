@@ -520,11 +520,11 @@ def test_the_chat_and_audit_routes_hold_no_db_or_login_logic() -> None:
 
     for name in _FORBIDDEN_NAMES:
         assert name not in chat_source, (
-            f"api/routes/chat.py must not contain {name!r} after plan 65b — "
+            f"api/routes/chat.py must not contain {name!r} after the service split — "
             f"DB and login logic belongs in the service layer"
         )
         assert name not in audit_source, (
-            f"api/routes/admin/audit.py must not contain {name!r} after plan 65b — "
+            f"api/routes/admin/audit.py must not contain {name!r} after the service split — "
             f"DB and login logic belongs in the service layer"
         )
 
@@ -572,7 +572,7 @@ def test_the_composed_routes_declare_their_response_model(
     }
     for name in expected_components:
         assert name in component_names, (
-            f"{name!r} must appear in components.schemas after plan 65b — "
+            f"{name!r} must appear in components.schemas after the service split — "
             f"a route returning JSONResponse without response_model= produces no component entry"
         )
 
@@ -628,13 +628,13 @@ def test_a_service_returns_a_result_not_a_response(
     # until then, which is the correct RED state.
     chat_turn_fn = getattr(chat_service, "chat_turn", None)
     assert chat_turn_fn is not None, (
-        "chat_service.chat_turn must exist after plan 65b; "
+        "chat_service.chat_turn must exist after the service split; "
         "missing means the service refactoring has not landed"
     )
 
     # --- tool_proxy.proxy_tool ---
     proxy_tool_fn = getattr(tool_proxy_module, "proxy_tool", None)
     assert proxy_tool_fn is not None, (
-        "tool_proxy_module.proxy_tool must exist after plan 65b; "
+        "tool_proxy_module.proxy_tool must exist after the service split; "
         "missing means the service refactoring has not landed"
     )

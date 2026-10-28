@@ -977,7 +977,7 @@ def test_a_traversing_slug_is_refused_before_the_filesystem_is_touched(
     tmp_path: Path,
     slug: str,
 ) -> None:
-    """The plan's second risk: the slug is the one argument that shapes a
+    """The slug is the one argument that shapes a
     filesystem PATH, and `check_slug` is what keeps it inside the corpus.
 
     KILL: deleting the `check_slug` call from `ingest_one_document`. Every row

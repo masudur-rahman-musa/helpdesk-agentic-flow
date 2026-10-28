@@ -611,7 +611,7 @@ def test_the_pending_and_approved_requests_targeting_the_user_are_rejected(
     assert _request_status(access_db_url, pending) == RequestStatus.REJECTED.value
     assert _request_status(access_db_url, approved) == RequestStatus.REJECTED.value
     assert _request_status(access_db_url, filed_for_somebody_else) == RequestStatus.PENDING.value, (
-        "a request the leaver FILED for somebody else stays open (decision A)"
+        "a request the leaver FILED for somebody else stays open"
     )
 
     assert _event_count(access_db_url, REQUEST_REJECTED_EVENT_TYPE) == rejected_before + 2
@@ -619,7 +619,7 @@ def test_the_pending_and_approved_requests_targeting_the_user_are_rejected(
     subjects = {subject_id for _, subject_id, _ in events}
     assert subjects == {str(pending), str(approved)}
     for subject_type, subject_id, payload in events:
-        assert subject_type == "access_request", "the subject is the REQUEST (decision C)"
+        assert subject_type == "access_request", "the subject is the REQUEST"
         assert payload["request_id"] == subject_id
         assert payload["reason"] == OFFBOARD_REVOKE_REASON
 

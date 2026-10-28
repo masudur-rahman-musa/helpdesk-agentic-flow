@@ -13,7 +13,7 @@ import { isTypedCode, readWire, WireRefusedError } from "@/lib/wire-read";
  * `RulesBoard` as its only caller; the other pages are migrated later, so
  * nothing in this file knows any page's payload — the schema is a parameter.
  *
- * Shapes the plan left open that this file fixes:
+ * Shapes this file fixes:
  * - `readWire(path, schema)` is called with a PATH string and a zod schema and
  *   answers `Promise<T | null>`; the `null` is the redirect and nothing else.
  * - a failed read (a body the schema refuses, a body that is not JSON, a code
@@ -216,7 +216,7 @@ describe("readWire — reads that failed", () => {
   });
 });
 
-describe("isTypedCode — the SPEC §8.1 vocabulary and nothing else", () => {
+describe("isTypedCode — the typed-code vocabulary and nothing else", () => {
   const CODES: ReadonlyArray<{ name: string; value: unknown; typed: boolean }> = [
     { name: "the fallback key default", value: "default", typed: false },
     { name: "a code outside the map", value: "UPSTREAM_UNAVAILABLE", typed: false },

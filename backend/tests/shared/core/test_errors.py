@@ -140,7 +140,9 @@ def test_typed_errors_carry_their_spec_code(
 ) -> None:
     instance = error_type("fake detail")
     assert instance.code == expected_code
-    assert instance.code in set(ErrorCode), f"{error_type.__name__} carries a non-SPEC code"
+    assert instance.code in set(ErrorCode), (
+        f"{error_type.__name__} carries a code outside ErrorCode"
+    )
 
 
 # --- the RBAC rebase (no behaviour change) ------------------------------------

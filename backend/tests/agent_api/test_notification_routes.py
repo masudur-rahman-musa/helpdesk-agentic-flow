@@ -25,7 +25,7 @@ of these names until steps 1 and 2 land):
     patches ``deps.build_tool_caller`` and none of them opens a socket.
 
 Shapes this file asserts against, all of them named
-by the plan except where noted:
+by the requirements except where noted:
 - the two tool names are exactly ``list_notifications`` and
   ``mark_notification_read``, and the read stamp's key material is the reader
   and the notification and NOTHING else (one verb is a constant
@@ -43,7 +43,7 @@ by the plan except where noted:
 - ``KEY_LENGTH`` is read from ``helpdesk.models.idempotency`` rather than
   written as a literal, because the requirements name the constant and not
   its value; the two
-  bounds the plan DOES state, ``LIMIT_MIN = 1`` and ``LIMIT_MAX = 200``, are
+  bounds the requirements DO state, ``LIMIT_MIN = 1`` and ``LIMIT_MAX = 200``, are
   written out below as the literals they are.
 - a non-uuid ``notification_id`` and an unparseable ``unread_only`` are both
   FastAPI's own ``422``: the first is a ``uuid.UUID`` path
@@ -482,7 +482,7 @@ def test_the_page_route_sends_each_query_parameter_only_when_it_is_asked_for(
     `model_dump` sends every declared field, so asking for the unread set alone
     would put `limit: null` on the wire (refused by a 1..200 bound) and asking
     for a limit alone would put `unread_only: null` into a `bool` (refused
-    too). Only the per-shape construction the plan names -- four models, one
+    too). Only the per-shape construction the requirements name -- four models, one
     per shape -- can make both rows pass.
     """
     caller = ScriptedToolCaller(PAGE_PAYLOAD)
@@ -730,7 +730,7 @@ def test_a_forged_bearer_is_a_typed_401_and_opens_no_session(
     verification can refuse it. A route that parsed the claims and trusted them
     would hand somebody else's messages to a token anybody can write.
 
-    Same standing-rule-20 split as the row above: a kill claim on the page
+    Same split as the row above: a kill claim on the page
     route, the ANSWER alone on the stamp route.
     """
     caller = ScriptedToolCaller()
@@ -763,7 +763,7 @@ def test_an_expired_bearer_is_a_typed_401_and_opens_no_session(
     expiry comparison is the only thing that can refuse it. A stale token left
     reading somebody's bell is a session that never ends.
 
-    Same standing-rule-20 split as the two rows above: a kill claim on the page
+    Same split as the two rows above: a kill claim on the page
     route, the ANSWER alone on the stamp route, where the same check runs
     twice.
     """

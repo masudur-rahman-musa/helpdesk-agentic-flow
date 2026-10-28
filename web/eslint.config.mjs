@@ -11,7 +11,7 @@ export default [
   prettier,
   {
     rules: {
-      // A bearer in a template string is the mistake this plan is built to
+      // A bearer in a template string is the mistake this rule is built to
       // make impossible; an unused catch binding is how it gets swallowed.
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
     },

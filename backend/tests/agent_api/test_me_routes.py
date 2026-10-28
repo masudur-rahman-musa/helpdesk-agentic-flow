@@ -22,7 +22,7 @@ of these names until steps 2 and 3 land):
 ``agent_api.main``
     the router registered beside the other three.
 
-Shapes this file fixes that the plan left open:
+Shapes this file fixes:
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``, agent-api's own
   shape from ``deps.typed_refusal``, and never free text.
 - ``core.deps.STATUS_FOR_CODE[ErrorCode.FORBIDDEN]`` is **403**: on this router a
@@ -612,7 +612,7 @@ def test_an_unreachable_mcp_server_is_one_typed_internal_naming_neither_host_nor
 
 # `GET /me` calls the `get_me` tool through the same seam and
 # adds `tabs`, computed by `helpdesk.auth.rbac.tabs_for` from the TOKEN's
-# principals. Shapes fixed here that the plan left open:
+# principals. Shapes fixed here:
 # - the body carries `display_name`, `principals` and `tabs` (a list of the ten
 #   stable keys, universal four included); other keys the tool answers may ride
 #   along and are not asserted.

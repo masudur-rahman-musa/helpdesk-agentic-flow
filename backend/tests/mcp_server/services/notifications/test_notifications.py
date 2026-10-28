@@ -37,7 +37,7 @@ same fixtures (no new fixture):
     -> NotificationPage`` — one person's own rows, newest ``created_at``
     first with the notification id breaking a tie (the direction is
     DESCENDING on both columns, the repo's `(time, id)` convention read
-    backwards; the plan leaves it open, so this file fixes it). ``limit``
+    backwards; the requirements leave it open, so this file fixes it). ``limit``
     bounds the ROWS only: ``unread_count`` is every unread row of that user,
     which is what the bell counts, so a page-derived count is a bell that
     goes quiet at fifty-one.
@@ -302,7 +302,7 @@ def test_a_body_of_exactly_the_cap_is_accepted(
 ) -> None:
     """The inclusive half for the second cap: catches one check written
     against the title's constant for both fields, which would refuse every
-    body over 200 characters while the plan allows 2000."""
+    body over 200 characters while the requirements allow 2000."""
     factory, _ = notification_db
     tenant = _own_tenant(factory)
     at_cap = "b" * NOTIFICATION_BODY_MAX_LENGTH
@@ -556,8 +556,7 @@ def test_list_for_user_answers_one_users_rows_and_not_a_colleagues(
     already gives for free — which would show every colleague's messages in
     one person's bell. The COUNT is asserted too, not only the row set,
     because the unread total is a separate aggregate and a `func.count` over a
-    hand-written query is exactly where the user filter goes missing (plan
-    the contract).
+    hand-written query is exactly where the user filter goes missing.
     """
     factory, _ = notification_db
     tenant = _own_tenant(factory)

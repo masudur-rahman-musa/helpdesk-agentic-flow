@@ -1,31 +1,22 @@
-"""Static checks that prove an earlier change's last folder-restructure move.
+"""Static checks that prove the folder layout.
 
 This file does not touch Postgres, Redis, Qdrant, any fixture or the network.
 It only scans files on disk by their path and reads a few config files' text.
 
-An earlier change (restructure An earlier change) finishes the move: `k8s/` goes to `infra/k8s/`;
-`docker/postgres/` goes to `infra/local/postgres/`; `scripts/load_smoke.py`
-goes to `infra/load/`; the dev-only scripts (`build_images.py`,
-`select_tests.py`, `test_shard.py`, `test_durations.json`, `e2e_reset.py`,
-`e2e_accounts.py`, `git-pre-push-guard.sh`, and the e2e stub plus its four
-fixtures) go to `dev/scripts/`. A later move took the public ones on by kind:
-`build_images.py` to `infra/scripts/`, `test_shard.py` and its timings to
-`.github/scripts/`, and the e2e scripts and stub to `backend/scripts/`. The
-ADRs `docs/adr/*` go to the project notes;
-`docs/runbook.md`, `telemetry.md`, `threat-model.md` and `deploy.md` go to
-the project notes; `docs/architecture.md` becomes root `ARCHITECTURE.md`;
-`CUSTOMIZING.md` becomes `docs/customizing.md`; a new root `SECURITY.md` is
-added. Last, the TEMPORARY block of the root allowlist (now
-`.github/root-allowlist`) is deleted and the root check (now
+What is pinned: `k8s/` lives in `infra/k8s/`; `docker/postgres/` in
+`infra/local/postgres/`; `scripts/load_smoke.py` in `infra/load/`;
+`build_images.py` in `infra/scripts/`, `test_shard.py` and its timings in
+`.github/scripts/`, and the e2e scripts and stub in `backend/scripts/`;
+`docs/architecture.md` is root `ARCHITECTURE.md`; `CUSTOMIZING.md` is
+`docs/customizing.md`; a root `SECURITY.md` exists. The root allowlist (now
+`.github/root-allowlist`) has no TEMPORARY block and the root check (now
 `.github/scripts/check_root.py`) is wired into `.pre-commit-config.yaml` and
 `.github/workflows/ci.yml`.
 
-The happy paths prove the NEW locations are present; the unhappy paths prove
-the OLD `k8s/`, `docker/`, `scripts/`, root `CUSTOMIZING.md` and the old
+The happy paths prove the locations are present; the unhappy paths prove
+the old `k8s/`, `docker/`, `scripts/`, root `CUSTOMIZING.md` and the old
 `docs/` files are GONE (no shim left behind), the allowlist's TEMPORARY block
-is removed, and compose and the CI config follow the move.
-
-While the move is still pending every "present" case is red on purpose.
+is absent, and compose and the CI config follow the layout.
 """
 
 from __future__ import annotations
@@ -60,13 +51,8 @@ def test_dev_scripts_moved() -> None:
 
 
 def test_docs_relocated() -> None:
-    """Kills a move that leaves an ADR, an ops doc or architecture at its old path."""
+    """Kills a move that leaves the customizing guide or architecture at its old path."""
     present = [
-        REPO_ROOT / "dev" / "adr" / "0001-langgraph-orchestration-only.md",
-        REPO_ROOT / "dev" / "ops" / "runbook.md",
-        REPO_ROOT / "dev" / "ops" / "telemetry.md",
-        REPO_ROOT / "dev" / "ops" / "threat-model.md",
-        REPO_ROOT / "dev" / "ops" / "deploy.md",
         REPO_ROOT / "docs" / "customizing.md",
         REPO_ROOT / "ARCHITECTURE.md",
     ]

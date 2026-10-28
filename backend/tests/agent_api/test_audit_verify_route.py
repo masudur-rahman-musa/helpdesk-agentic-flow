@@ -62,7 +62,7 @@ DENIED_PRINCIPALS = ("employee", "manager", "system_owner", "hr")
 
 _UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
-    "Plan 07 audit tests require the compose stack: run `docker compose up -d` first.\n"
+    "Audit tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 
@@ -383,7 +383,7 @@ def test_a_truncated_chain_is_reported_as_truncated_not_as_broken(audit_env: str
 
     Catches the whole detection being absent end to end: without it this same
     request answers `{"ok": true, ...}`, which is what every other case in
-    this file asserted before the plan. The seq is read back from the anchor
+    this file asserted before. The seq is read back from the anchor
     that was actually written, never a literal.
     """
     tenant_id = _seed_tenant_with_events(audit_env, "verify-truncated", 5)

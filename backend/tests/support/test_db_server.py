@@ -23,7 +23,7 @@ check_server_name = db_server.check_server_name
 url_for = db_server.test_database_url
 
 DEFAULT_URL = "postgresql+asyncpg://helpdesk:change-me@localhost:5433/helpdesk_test"
-"""The exact fallback the plan names. Written out here so a changed port or
+"""The exact fallback the requirements name. Written out here so a changed port or
 password in the module cannot slide past by being compared with itself."""
 
 
@@ -41,7 +41,7 @@ def test_an_unset_test_url_means_port_5433() -> None:
 
 
 def test_the_default_constant_is_the_5433_url() -> None:
-    """Catches a DEFAULT_TEST_DATABASE_URL that drifts from the plan's value
+    """Catches a DEFAULT_TEST_DATABASE_URL that drifts from the requirements' value
     while the function still returns it, which the two tests above cannot tell
     apart from a matching change in both."""
     assert db_server.DEFAULT_TEST_DATABASE_URL == DEFAULT_URL

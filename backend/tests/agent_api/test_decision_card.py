@@ -136,7 +136,7 @@ def _create_payload(**overrides: Any) -> dict[str, Any]:
         "approver_user_ids": [str(MANAGER_ID)],
         "effective_expiry_days": EXPIRY_DAYS,
         "sod_conflicts": [],
-        "policy_refs": ["FAKE-POL-001 §4"],
+        "policy_refs": ["FAKE-POL-001 section 4"],
         "grant_id": str(GRANT_ID),
         "expires_at": EXPIRES_AT,
     }
@@ -153,7 +153,7 @@ def _classify_payload(**overrides: Any) -> dict[str, Any]:
         "required_approvers": [dict(row) for row in RESOLVED_APPROVERS],
         "effective_expiry_days": 7,
         "sod_conflicts": [],
-        "policy_refs": ["FAKE-POL-001 §9"],
+        "policy_refs": ["FAKE-POL-001 section 9"],
     }
     payload.update(overrides)
     return payload

@@ -24,8 +24,8 @@ dependencies = [
     # SDK, so the design's separate `opentelemetry-sdk` pin is not needed
     #.
     "langfuse>=3",
-    # the design and §5: the agent reaches the MCP server over streamable HTTP
-    # with the official SDK's client, and the server speaks the same SDK.
+    # The agent reaches the MCP server over streamable HTTP with the official
+    # SDK's client, and the server speaks the same SDK.
     "mcp>=2.2",
     # the design fixes prometheus as the metrics choice; the client owns the text
     # exposition format a hand-rolled writer gets wrong.
@@ -78,10 +78,10 @@ dev = [
     # environment installs every app group, not just one image's.
     {include-group = "agent-api"},
     {include-group = "mcp-server"},
-    # The load smoke of an earlier change (decision B). locust rides this lockfile.
+    # The load smoke. locust rides this lockfile.
     "locust>=2.32",
     "pytest-xdist>=3.8.0",
-    # The shared-only import rule of the restructure is a CI check: apps import
+    # The shared-only import rule is a CI check: apps import
     # only helpdesk.shared, never each other. Config in backend/.importlinter.
     "import-linter>=2.0",
 ]
@@ -89,14 +89,12 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-# `dev/` holds the owner's own working scripts, which never ship, so no check reads them.
-extend-exclude = ["dev"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # Report unused imports but never auto-delete them: the format hook runs after
 # every edit, and autofix kept stripping imports added one edit before their
-# first usage (the project notes 2026-09-03 and 2026-09-04).
+# first usage.
 unfixable = ["F401"]
 
 # make lint runs ruff from the repo root, where ruff cannot tell which top-level
@@ -124,12 +122,12 @@ testpaths = ["tests"]
 # --strict-markers so a misspelt marker fails collection instead of running
 # the test unmarked in the fast set. Registered markers below.
 addopts = "-q --strict-markers --import-mode=importlib"
-# A `slow` test's setup plus call took 2 seconds or more in an earlier change's first
+# A `slow` test's setup plus call took 2 seconds or more in the first
 # `make test-slowest` reading. `make test-fast` runs `-m "not slow"` as the
 # everyday set; `make test`, `make verify` and CI carry no filter and run all.
 markers = [
     "db: reaches a real Postgres to check something only it can show (a query, a constraint)",
-    "slow: a test at or over 2s setup-plus-call in plan 56's reading; skipped by `make test-fast`",
+    "slow: a test at or over 2s setup-plus-call in the slowest-tests reading; skipped by `make test-fast`",
 ]
 # The repo root (`..`) and `backend/` (`.`) are on the path for the whole suite,
 # set once here instead of a `sys.path.insert` in each test file. The

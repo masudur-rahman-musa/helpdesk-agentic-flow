@@ -277,7 +277,7 @@ def test_a_tripped_tool_answers_tool_disabled_with_the_admins_reason(
         detail = str(dict(last.payload)["detail"])
         assert reason in detail, detail
         assert str(mcp_env.tenant_a.user_id) in detail, detail
-        assert mcp_env.tenant_a.email not in detail, "decision I: the actor is an id, not an email"
+        assert mcp_env.tenant_a.email not in detail, "the actor is an id, not an email"
     finally:
         _delete_key(mcp_redis_url, key)
 

@@ -556,7 +556,7 @@ def test_a_user_with_no_requests_gets_an_empty_list(
 #     ``approvals``, ``grant_id`` and ``expires_at``: NINETEEN, asserted as an
 #     exact set.
 #
-# Shapes this file fixes that the plan left open:
+# Shapes this file fixes:
 # - ``approvals`` renders each stored ``SlotState`` as an OBJECT carrying at
 #   least ``slot`` and ``user_id``; the tool is slot-only, so no display name
 #   is resolved. The case below reads those two keys and nothing else, because
@@ -777,7 +777,7 @@ def test_the_names_come_from_the_directory_and_not_from_the_request_row(
     """
     caller = mcp_env.tenant_a
     target = mcp_env.probe
-    assert caller.tenant_id == target.tenant_id, "the point of this test (standing rule 9)"
+    assert caller.tenant_id == target.tenant_id, "the point of this test"
     assert caller.display_name != target.display_name
     role_id = _role_in_callers_tenant(caller)
     role_slug, role_name, system_slug, system_name = _directory_names(mcp_env.database_url, role_id)

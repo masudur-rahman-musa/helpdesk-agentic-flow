@@ -214,7 +214,7 @@ def test_the_matching_module_imports_no_framework_and_no_io() -> None:
 
     forbidden = {"langgraph", "sqlalchemy", "httpx", "redis", "qdrant_client", "rapidfuzz"}
     assert imported & forbidden == set()
-    assert "difflib" in imported, "decision C: the fuzzy tier is stdlib difflib"
+    assert "difflib" in imported, "the fuzzy tier is stdlib difflib"
 
 
 # --- filler words in a typed name ----------------------------------------

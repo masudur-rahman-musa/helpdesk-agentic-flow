@@ -1000,7 +1000,7 @@ def test_the_anchor_migration_round_trips_and_its_downgrade_takes_the_grants(
                 await conn.execute(text("SELECT to_regclass('public.audit_events')"))
             ).scalar_one()
         assert events is not None, (
-            "one step down must be THIS plan's revision only; audit_events is gone, "
+            "one step down must be THIS change's revision only; audit_events is gone, "
             "so the new revision does not revise c7f4a1d2e8b3"
         )
         assert anchors is None, "the downgrade must drop the anchor table"

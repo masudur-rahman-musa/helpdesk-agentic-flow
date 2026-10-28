@@ -305,7 +305,7 @@ def test_the_three_permitted_principals_each_onboard_a_joiner(
     assert uuid.UUID(str(row.tenant_id)) == caller.tenant_id
     assert uuid.UUID(str(row.department_id)) == department_id
     assert row.display_name == "Fake Joiner Allowed"
-    assert list(row.principals) == ["employee"], "never the caller's principals (decision D)"
+    assert list(row.principals) == ["employee"], "never the caller's principals"
     assert row.status == "active"
     assert row.end_date is None
     assert str(row.start_date) == START_DATE

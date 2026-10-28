@@ -991,7 +991,7 @@ describe("KillSwitchToggle — the four sentences this surface owns", () => {
   });
 });
 
-describe("KillSwitchToggle — the vocabulary check decision A swaps out (plan 24ib §6)", () => {
+describe("KillSwitchToggle — the vocabulary check", () => {
   it("renders the shared TOOL_DISABLED sentence for a typed refusal", async () => {
     // The half that must stay TRUE when this file's
     // private `isTypedCode` becomes `lib/wire-read.ts`'s import: a code that IS

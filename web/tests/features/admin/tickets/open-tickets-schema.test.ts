@@ -6,7 +6,7 @@ import { openTicketsSchema, solveTicketResultSchema } from "@/features/admin/tic
  * `open-tickets-schema.test.ts`: the zod shape of `/api/admin/tickets`. No DOM,
  * no fetch.
  *
- * Shapes this file fixes (the plan left them open): the export is
+ * Shapes this file fixes: the export is
  * `openTicketsSchema` in `web/src/features/admin/tickets/schema.ts`, wrapping
  * `{ tickets: [...] }`, each row holding exactly the tool's six fields:
  * `ticket_id`, `ticket_number`, `kind`, `title`, `opened_by`, `created_at`.

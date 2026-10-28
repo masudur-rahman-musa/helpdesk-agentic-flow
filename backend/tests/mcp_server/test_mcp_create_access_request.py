@@ -155,7 +155,7 @@ def _citation(index: int) -> dict[str, str]:
         "document_slug": "fake-access-policy",
         "title": "Fake Access Policy",
         "version": "v1",
-        "heading_path": f"§{index}",
+        "heading_path": f"Section {index}",
         "chunk_id": f"fake-chunk-{index}",
     }
 

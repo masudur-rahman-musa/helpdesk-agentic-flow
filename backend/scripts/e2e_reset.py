@@ -15,7 +15,7 @@ DDL second, because migrations only ever run against the local database:
 * `check_tenant_slug` refuses a slug the `tenants.slug` column could not store,
   against the column's own length rather than a copy of it.
 
-Both refuse with `InvalidResetTargetError`, a SPEC section 8.1 `VALIDATION`,
+Both refuse with `InvalidResetTargetError`, a typed `VALIDATION` error,
 so nothing free-text crosses the boundary. That the checks run BEFORE the drop
 is the claim that matters, and the guard tests pin it: move either check
 below `run_statements` and they go red. Another test checks that an accepted
@@ -91,7 +91,7 @@ class InvalidResetTargetError(ToolError):
     """The reset was pointed at something it refuses to destroy.
 
     `VALIDATION` rather than `FORBIDDEN`: the caller's argument is wrong and
-    the caller can fix it, which is exactly what SPEC section 8.1 reserves this
+    the caller can fix it, which is exactly what the typed error codes reserve this
     code for.
     """
 
@@ -176,7 +176,7 @@ async def _open_this_quarters_reviews(database_url: str) -> None:
 
     Flow 5 revokes a stale grant on an OPEN review item, and nothing else in
     the harness plants one: the seed writes no reviews, and the scheduler is
-    not one of the four processes Playwright starts (plan section 3). Rather
+    not one of the four processes Playwright starts. Rather
     than inventing a review here, this runs
     `helpdesk.scheduler.jobs.review_schedule.generate_reviews` exactly as
     `helpdesk.scheduler.jobs.run_review_generation` does, so the row flow 5 opens is

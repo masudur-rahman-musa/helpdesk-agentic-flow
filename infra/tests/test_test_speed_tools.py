@@ -194,7 +194,8 @@ def test_full_runs_keep_slow_tests() -> None:
 
 
 def test_verify_is_unchanged() -> None:
-    """Catches a plan that reorders or drops a `verify` dependency while adding the new targets."""
+    """Catches a change that reorders or drops a `verify` dependency while adding
+    new targets."""
     header = _target_header("verify")
     after_colon = header.split(":", 1)[1]
     deps = after_colon.split("##", 1)[0].split()
@@ -202,7 +203,7 @@ def test_verify_is_unchanged() -> None:
 
 
 def test_some_backend_tests_are_marked_slow() -> None:
-    """Catches a plan that adds the marker but marks no test, so the fast set drops nothing."""
+    """Catches a change that adds the marker but marks no test, so the fast set drops nothing."""
     marked = [
         path
         for path in (BACKEND_DIR / "tests").rglob("test_*.py")

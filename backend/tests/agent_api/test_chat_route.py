@@ -126,12 +126,12 @@ _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 
 _UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
-    "Plan 19a chat route tests require the compose stack: run `docker compose up -d` first.\n"
+    "Chat route tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 _REDIS_UNREACHABLE_MSG = (
     "Redis is unreachable at the configured REDIS_URL.\n"
-    "Plan 19a chat route tests require the compose stack: run `docker compose up -d` first.\n"
+    "Chat route tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 
@@ -481,7 +481,7 @@ def _card_payload() -> dict[str, Any]:
         "approver_user_ids": [str(CARD_APPROVER_ID)],
         "effective_expiry_days": CARD_EXPIRY_DAYS,
         "sod_conflicts": [],
-        "policy_refs": ["FAKE-POL-001 §4"],
+        "policy_refs": ["FAKE-POL-001 section 4"],
         "grant_id": None,
         "expires_at": CARD_EXPIRES_AT,
     }
@@ -1187,7 +1187,7 @@ def test_an_unreachable_mcp_server_answers_a_typed_code(
 def test_an_unreachable_redis_refuses_the_turn_and_starts_none(
     chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Catches decision C2 shipped by accident — a limiter that fails OPEN, so
+    """Catches a limiter that fails OPEN, so
     the one control bounding a runaway client disappears exactly when Redis is
     down — and a limiter checked AFTER the turn, which would bill a model call
     and store two rows for a message it then refuses.

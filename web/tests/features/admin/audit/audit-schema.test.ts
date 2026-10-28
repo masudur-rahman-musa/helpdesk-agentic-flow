@@ -199,7 +199,7 @@ const VERIFY_ANSWER: Record<string, unknown> = {
 const VERIFY_FIELDS = ["ok", "broken_at", "truncated_at", "anchored_seq"] as const;
 
 describe("auditVerifySchema", () => {
-  it("accepts both answers plan 07's route can give", () => {
+  it("accepts both answers the route can give", () => {
     // Over the THREE verdicts the `verify_chain` can
     // now answer. An intact chain answers both seqs null, a tampered one names
     // `broken_at`, and a shortened one names `truncated_at` while `broken_at`

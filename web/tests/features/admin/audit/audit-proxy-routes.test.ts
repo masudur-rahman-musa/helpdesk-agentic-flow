@@ -155,7 +155,7 @@ describe("the two audit routes — the bearer", () => {
   });
 });
 
-describe("the search route — its own query parameters (decision D)", () => {
+describe("the search route — its own query parameters", () => {
   it("forwards all eight filters from its own request url", async () => {
     // Catches a proxy that drops the query. The tool takes these eight
     // filters because an audit log is unusable without them, and

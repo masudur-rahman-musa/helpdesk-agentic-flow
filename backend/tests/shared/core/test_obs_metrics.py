@@ -3,7 +3,7 @@
 `build_metrics` registers a SIXTH metric,
 `helpdesk_expiries_total`, the counter the scheduler's expiry sweep moves.
 This file is the schema-literal for the exposition in the
-same sense `test_models.py` is for the table list, so the plan that adds a
+same sense `test_models.py` is for the table list, so a change that adds a
 metric extends the literal here — the expectation below is a snapshot of a
 deferred set. Nothing is weakened: the assertion is still an equality over the whole
 exposition, and one more name has to be spelled exactly right for it to hold.

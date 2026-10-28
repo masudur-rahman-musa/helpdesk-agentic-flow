@@ -164,8 +164,7 @@ def test_a_preflight_from_a_foreign_origin_is_refused() -> None:
     ids=["a simple request", "a preflight"],
 )
 def test_no_response_carries_allow_credentials(preflight: bool) -> None:
-    """Catches a middleware built with `allow_credentials=True` (decision C1
-    says False).
+    """Catches a middleware built with `allow_credentials=True` (it must be False).
 
     Nothing else in the tree would notice: the browser talks only to the Next
     origin and the bearer is attached server-side by the proxy, so no browser

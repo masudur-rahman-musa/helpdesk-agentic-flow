@@ -569,7 +569,7 @@ def test_one_event_per_revoked_row_names_the_grant_and_the_reason(
     assert {facts.grant_id for facts in revoked} == {with_request, without_request}
 
     events = _revoked_events(access_db_url)
-    assert len(events) == events_before + 2, "one event per revoked row (decision D)"
+    assert len(events) == events_before + 2, "one event per revoked row"
     written = events[events_before:]
     assert {subject_type for subject_type, _, _ in written} == {"grant"}
     assert {subject_id for _, subject_id, _ in written} == {
@@ -689,7 +689,7 @@ def test_the_revoked_set_comes_back_oldest_first(
 ) -> None:
     """Catches the `order_by` being dropped from the locked read.
 
-    Without it Postgres returns the rows in whatever order the plan produces,
+    Without it Postgres returns the rows in whatever order the requirements produce,
     so the `grant.revoked` sequence for one revocation becomes run-dependent
     and an auditor reading the chain cannot tell a stable record from a
     reordered one. The two rows are planted NEWEST FIRST, so an unordered read

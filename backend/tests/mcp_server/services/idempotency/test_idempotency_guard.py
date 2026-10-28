@@ -183,7 +183,7 @@ def test_first_call_runs_the_effect_and_stores_the_response(
         assert row.request_fingerprint == fingerprint(TOOL, ARGS)
         assert row.response == RESPONSE
         assert before + timedelta(days=6) < row.expires_at < before + timedelta(days=8), (
-            f"keys are kept 7 days (SPEC §13.2), got {row.expires_at}"
+            f"keys are kept 7 days, got {row.expires_at}"
         )
 
     asyncio.run(scenario())

@@ -132,7 +132,7 @@ def test_both_policy_tables_are_in_the_metadata() -> None:
 def test_both_tables_are_in_the_tenant_scoped_allowlist() -> None:
     """Catches the risk directly: models added without extending
     `_seed.py::TENANT_SCOPED_TABLES`, which leaves `test_models.py`'s
-    schema-literal sweep red for a later plan to discover."""
+    schema-literal sweep red for a later change to discover."""
     assert "policy_documents" in TENANT_SCOPED_TABLES
     assert "policy_chunks" in TENANT_SCOPED_TABLES
 

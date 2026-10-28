@@ -160,7 +160,7 @@ describe("an unknown value in any of the four maps", () => {
   });
 });
 
-describe("principalLabel (plan 42 decision D)", () => {
+describe("principalLabel", () => {
   const principals = [
     { value: "employee", label: "Employee" },
     { value: "manager", label: "Manager" },

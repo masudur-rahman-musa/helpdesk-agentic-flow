@@ -1,4 +1,4 @@
-"""The shared-only rule the restructure adds is enforced by import-linter.
+"""The shared-only rule is enforced by import-linter.
 `backend/.importlinter` declares two contracts: the three apps are
 independent of each other, and the shared library imports no app.
 

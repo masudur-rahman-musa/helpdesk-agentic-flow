@@ -214,5 +214,5 @@ class Classification(BaseModel):
     def _reasons_are_machine_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         bad = [reason for reason in value if not is_valid_reason(reason)]
         if bad:
-            raise ValueError(f"not SPEC §9.6 reason codes: {bad}")
+            raise ValueError(f"not valid reason codes: {bad}")
         return value

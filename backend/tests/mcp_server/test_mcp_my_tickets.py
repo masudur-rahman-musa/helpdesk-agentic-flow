@@ -45,7 +45,7 @@ from tests.support.mcp import (
 LIST_MY_TICKETS = "list_my_tickets"
 CREATE_TICKET = "create_ticket"
 
-# The exact bounds the plan names; pinned as values, not as a band.
+# The exact bounds the requirements name; pinned as values, not as a band.
 LIMIT_MIN = 1
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200

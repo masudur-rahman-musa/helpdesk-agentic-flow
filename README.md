@@ -107,8 +107,7 @@ each named test.
 - **The refusal threshold refused everything.** The number was written against
   a similarity score and measured against a fused rank score on a completely
   different scale, so almost no answer cleared it. The fix was to measure the
-  threshold on the dense cosine while the fused score keeps ordering the page,
-  recorded in the project notes
+  threshold on the dense cosine while the fused score keeps ordering the page.
 - **An approval could have granted twice.** Approval executes the grant in
   the same transaction as the last filled seat, so the waiting conversation had
   nothing left to execute when it picked up again. Fixed by having that follow-up
@@ -131,8 +130,7 @@ each named test.
 
 ## Design decisions
 
-Non-obvious choices are recorded as decision records in
-the project notes Twenty-three of them so far; these are the ones that
+Non-obvious choices were made on purpose. These are the ones that
 shape the product.
 
 - **The chat is an agent loop in LangGraph, with locked writes.** The loop is

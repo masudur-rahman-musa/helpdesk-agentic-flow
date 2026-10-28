@@ -8,7 +8,7 @@ refuses a root `.env` even when `.gitignore` hides it from git; `.editorconfig`
 is gone; and the config scan in `make security` names the moved
 `infra/.trivyignore`.
 
-An earlier change: `backend/.env.demo` is gitignored and untracked, so it is never in a
+`backend/.env.demo` is gitignored and untracked, so it is never in a
 CI checkout and no case here reads it. The CI `tests` job sets the URLs the
 app needs itself, pointed at the ports and Postgres defaults compose
 publishes, and makes `JWT_SECRET` fresh on every run with `openssl rand`.
@@ -57,13 +57,13 @@ MAKEFILE = REPO_ROOT / "Makefile"
 CHECK_ROOT = REPO_ROOT / ".github" / "scripts" / "check_root.py"
 
 APP_SERVICES = ("helpdesk-agent-api", "helpdesk-mcp-server", "helpdesk-scheduler")
-"""The three services that read `env_file: [.env]` before this plan."""
+"""The three app services that read the env files below."""
 
 EXPECTED_ENV_FILES = [("backend/.env.demo", False), ("backend/.env", False)]
 """Demo values first, then the real keys over them, both optional, in this order."""
 
 POSTGRES_NAMES = ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "APP_DB_PASSWORD")
-"""The four values that were required `${...:?}` lookups before this plan."""
+"""The four Postgres values compose gives a default, so none is a required `${...:?}` lookup."""
 
 # `${NAME}`, `${NAME:-x}`, `${NAME-x}`, `${NAME:?x}`, `${NAME?x}`; never `$${...}`.
 _BRACED = re.compile(r"(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?+])([^}]*))?\}")
@@ -274,7 +274,7 @@ def _security_recipe() -> list[str]:
 def test_ci_scan_names_the_moved_ignore_file() -> None:
     """Catches the scan passing the old root `.trivyignore`, or a move that copied or lost the file.
 
-    An earlier change: the config scan moved from `ci.yml` into `make security`,
+    The config scan runs from `make security` rather than `ci.yml`,
     so the `--ignorefile` paths are read from that target's recipe.
     """
     found = [m for run in _security_recipe() for m in re.findall(r"--ignorefile\s+(\S+)", run)]
@@ -284,7 +284,7 @@ def test_ci_scan_names_the_moved_ignore_file() -> None:
     assert not (REPO_ROOT / ".trivyignore").exists()
 
 
-# --- an earlier change: backend/.env.demo out of git, CI sets its own values ---
+# --- backend/.env.demo out of git, CI sets its own values ---
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:

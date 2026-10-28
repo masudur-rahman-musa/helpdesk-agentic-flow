@@ -107,7 +107,7 @@ _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 
 _PG_UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
-    "Plan 10a mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
+    "Mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 # The Qdrant this suite drives. A literal rather than `load_settings()` because
@@ -118,13 +118,13 @@ TEST_QDRANT_URL = "http://localhost:6333"
 
 _QDRANT_UNREACHABLE_MSG = (
     "Qdrant is unreachable at " + TEST_QDRANT_URL + ".\n"
-    "Plan 15b mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
+    "Mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 
 _REDIS_UNREACHABLE_MSG = (
     "Redis is unreachable at the configured REDIS_URL.\n"
-    "Plan 10a mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
+    "Mcp-server tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 

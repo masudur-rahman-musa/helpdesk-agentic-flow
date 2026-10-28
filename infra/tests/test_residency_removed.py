@@ -1,6 +1,6 @@
 """Residency, the gateway region header and any local chat model are gone.
 
-What is pinned: no tracked file outside the history paths and the tests names
+What is pinned: no tracked file outside the excluded paths names
 residency, the region header or field, or a local chat model, and no code or
 doc file there holds the status 451; and both gateway calls still send
 `X-Data-Class` (the gateway uses it to decide redaction).
@@ -27,16 +27,12 @@ def _repo_root() -> Path:
 
 REPO_ROOT = _repo_root()
 
-# Tests may name the old things (they check they are gone); history files
-# record what happened, not what exists; the policy documents are content the
-# agent searches; migrations and the lock file are frozen records.
+# Tests may name the old things (they check they are gone); the policy
+# documents are content the agent searches; migrations and the lock file are
+# frozen records.
 EXCLUDED_PREFIXES = (
     "backend/tests/",
     "infra/tests/",
-    "dev/plans/",
-    "dev/adr/",
-    "dev/docs/log.md",
-    "dev/docs/placeholders.md",
     "backend/data/policies/",
     "backend/migrations/versions/",
     "backend/uv.lock",
@@ -79,7 +75,7 @@ def test_no_live_file_names_residency_a_region_header_or_a_local_chat_model() ->
     residency, the region header or field, a local chat model, or the 451 the
     gateway no longer returns.
 
-    The scan reads every tracked file outside the history paths, so a stale
+    The scan reads every tracked file outside the excluded paths, so a stale
     mention anywhere live is reported with its file and line.
     """
     assert scan_for_residency(REPO_ROOT, _tracked_files()) == []

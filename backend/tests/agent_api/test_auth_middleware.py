@@ -466,10 +466,10 @@ def test_a_valid_token_reaches_the_route_and_its_bearer_is_forwarded(
     bearer the seam was handed is the SAME token the request carried (the
     identity rule). The status filter from the query still reaches the tool, proving the
     route actually ran rather than being short-circuited. The kill fires once
-    the plan strips the route's own header read and the route forwards the
+    the route's own header read is stripped and the route forwards the
     bearer the middleware put on `request.state`: a middleware that refused a
     good token, or stashed a bearer other than the caller's own, flips the
-    status or the forwarded-token assertion. Green before the plan lands (the
+    status or the forwarded-token assertion. Green before that change lands (the
     route still reads the header itself); this is the acceptance guard that the
     good-token path survives the move to `request.state`.
     """

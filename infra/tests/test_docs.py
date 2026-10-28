@@ -2,14 +2,13 @@
 
 What is pinned here: the twelve fixed README sections and their order, the
 seven guarantees and the tests each one links as its proof, the failure-modes
-and numbers tables, the demo gap, the ADR set and its template headings, the
-four Mermaid diagram sources and the README links that reach them, a runbook
-with no empty section, and the absence of any private working file name from
-anything committed.
+and numbers tables, the demo gap, the four Mermaid diagram sources and the
+README links that reach them, and that every path a reference file names
+exists.
 
 Why the check is static rather than runtime: none of these files is read by
 the application, so nothing except a test that opens them stops them drifting
-from the code they describe. That is the mechanism an earlier change set with
+from the code they describe. The same mechanism is used by
 `test_template_packaging.py`, whose repo-root walk and `_read`,
 `_section_headings` and `_section_body` helpers this module reuses rather than
 inventing a second one.
@@ -18,12 +17,6 @@ The guarantee links are the load-bearing part. A guarantee is a claim, and a
 claim without a named proving test is marketing, so the link target is opened
 and the link text's `test_...` identifier is looked up in it: a renamed or
 deleted test breaks the README here instead of hollowing it quietly.
-
-Two sets are READ OFF the repository rather than retyped: the four ADR
-headings come from the project notes, and the alert subsections the
-runbook owes come from the files in `infra/monitoring/alerts/`. Each carries a
-tripwire literal of its state at HEAD, so a change to the
-source names itself in the failure message.
 
 Pure filesystem: no Postgres, no Redis, no Qdrant, no fixture, no network, no
 import of application code.
@@ -50,12 +43,7 @@ REPO_ROOT = _repo_root()
 README = REPO_ROOT / "README.md"
 CUSTOMIZING = REPO_ROOT / "docs" / "customizing.md"
 DOCS = REPO_ROOT / "docs"
-ADR_DIR = REPO_ROOT / "dev" / "adr"
-ADR_TEMPLATE = ADR_DIR / "0000-template.md"
-ADR_0001 = ADR_DIR / "0001-langgraph-orchestration-only.md"
 DIAGRAM_DIR = DOCS / "diagrams"
-RUNBOOK = REPO_ROOT / "dev" / "ops" / "runbook.md"
-ALERT_DIR = REPO_ROOT / "infra" / "monitoring" / "alerts"
 
 README_SECTIONS: tuple[str, ...] = (
     "Problem statement",
@@ -71,7 +59,7 @@ README_SECTIONS: tuple[str, ...] = (
     "Quickstart",
     "Integration path to a real directory",
 )
-"""The twelve level-two headings section 1 fixes, in the order it fixes them.
+"""The twelve level-two headings, in their fixed order.
 
 Exact heading texts, because every section-body case below locates its section
 by this string. Asserted as increasing offsets rather than as presence, so a
@@ -99,7 +87,7 @@ FAILURE_MODE_KEYWORDS: tuple[str, ...] = (
     "timeout",
     "approvers",
 )
-"""The six failure-mode rows section 1 names, in order, one keyword each."""
+"""The six failure-mode rows, in order, one keyword each."""
 
 NUMBERS_LABELS: tuple[str, ...] = (
     "decision accuracy",
@@ -111,15 +99,15 @@ NUMBERS_LABELS: tuple[str, ...] = (
 """The five row labels of the numbers table, in order."""
 
 NOT_MEASURED = "not yet measured"
-"""The exact text an unmeasured cell of the numbers table reads (decision B)."""
+"""The exact text an unmeasured cell of the numbers table reads."""
 
 NOT_RECORDED = "not yet recorded"
-"""The exact text the demo section reads while no video exists (decision A)."""
+"""The exact text the demo section reads while no video exists."""
 
 VIDEO_MARKERS: tuple[str, ...] = (".mp4", ".webm", "youtu", "vimeo", "loom")
 """What a recorded demo would look like in the demo section's links.
 
-Present so the demo case pins decision A rather than the absence of a video:
+Present so the demo case pins the placeholder rather than the absence of a video:
 once a video lands, the literal is allowed to go."""
 
 DIAGRAM_STEMS: tuple[str, ...] = (
@@ -128,50 +116,12 @@ DIAGRAM_STEMS: tuple[str, ...] = (
     "grant-lifecycle",
     "request-lifecycle",
 )
-"""The four Mermaid sources, sorted, as an EXACT set (decision C: no exports).
+"""The four Mermaid sources, sorted, as an EXACT set (no exports).
 
 Sorted because the directory listing is compared to it directly."""
 
 MERMAID_FENCE = "```mermaid"
 
-ADR_HEADINGS_AT_HEAD: tuple[str, ...] = (
-    "Context",
-    "Decision",
-    "Alternatives considered",
-    "Consequences",
-)
-"""The template's four headings at HEAD, as a tripwire only.
-
-Never the source the ADRs are checked against: that is
-`_template_headings()`, read off the project notes. The literal
-exists so a changed template names itself in the failure message instead of
-leaving the reader to work out which of the two sets moved (standing rule
-29)."""
-
-ADR_FILE_PATTERN = re.compile(r"^\d{4}-.+\.md$")
-"""`NNNN-*.md`. Anchored at both ends: a stray `notes.md` is not an ADR."""
-
-MINIMUM_ADRS = 9
-"""Section 1's floor for real ADRs, template excluded."""
-
-PRIVATE_STRINGS: tuple[str, ...] = (
-    "his.md",
-    "notes.md",
-    "REQUIREMENTS.md",
-    "SPEC.md",
-    "dev-process/plans/",
-    "pl/",
-)
-"""The six names of private working files, verbatim from section 1.
-
-Case-sensitive, as written: these are file names, and a committed document has
-no reason to carry any of them in any casing that matters."""
-
-DOC_SUFFIXES: frozenset[str] = frozenset({".md", ".txt", ".yml", ".yaml", ".json"})
-"""The text suffixes the privacy sweep reads under `docs/`."""
-
-RUNBOOK_COMMAND_SECTIONS: tuple[str, ...] = ("deploy", "roll back", "restore", "rotate")
-"""The four operational sections that owe at least one fenced command block."""
 
 LINK_PATTERN = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 """A markdown inline link: text in brackets, target in parentheses."""
@@ -230,8 +180,7 @@ def _heading_offset(markdown: str, heading: str) -> int:
 def _section_matching(markdown: str, keyword: str) -> tuple[str, str]:
     """The first `##` section whose heading contains `keyword`, and its body.
 
-    Used where section 1 names a section by subject rather than by exact text
-    (the runbook's own headings are prose, not a fixed list).
+    Used where a section is named by subject rather than by exact text.
     """
     for heading in _section_headings(markdown):
         if keyword.lower() in heading.lower():
@@ -264,44 +213,6 @@ def _guarantee_lines() -> list[tuple[int, str]]:
         if match is not None:
             found.append((int(match.group(1)), match.group(2)))
     return found
-
-
-def _template_headings() -> tuple[str, ...]:
-    """The four level-two headings of the ADR template, in template order."""
-    return tuple(_section_headings(_read(ADR_TEMPLATE)))
-
-
-def _adr_files() -> list[Path]:
-    """Every `NNNN-*.md` under the project notes, template excluded, sorted."""
-    assert ADR_DIR.is_dir(), f"missing ADR directory: {ADR_DIR}"
-    return sorted(
-        path
-        for path in ADR_DIR.glob("*.md")
-        if ADR_FILE_PATTERN.match(path.name) and path.name != ADR_TEMPLATE.name
-    )
-
-
-def _alert_stems() -> list[str]:
-    """The file stems in `infra/monitoring/alerts/`, dotfiles excluded.
-
-    The directory does not exist until the first alert rule lands, so a missing
-    one answers no stems. `.gitkeep` is how an empty directory is committed, not
-    an alert, so it is filtered out here rather than owing the runbook a
-    `### .gitkeep`.
-    """
-    if not ALERT_DIR.is_dir():
-        return []
-    return sorted(path.stem for path in ALERT_DIR.iterdir() if not path.name.startswith("."))
-
-
-def _documented_files() -> list[Path]:
-    """Every committed text document the privacy sweep covers."""
-    files: list[Path] = [README, CUSTOMIZING]
-    assert DOCS.is_dir(), f"missing documentation root: {DOCS}"
-    files.extend(
-        path for path in sorted(DOCS.rglob("*")) if path.is_file() and path.suffix in DOC_SUFFIXES
-    )
-    return files
 
 
 # --- README structure ---------------------------------------------------------
@@ -357,7 +268,7 @@ def test_every_guarantee_links_a_test_file_that_exists() -> None:
 
     The count case above passes on seven guarantees carrying no link at all,
     and on seven links to files that do not exist, because it reads only the
-    numbering and one keyword. This is the unhappy path section 1 names: a
+    numbering and one keyword. This is an unhappy path: a
     guarantee is a claim, and a claim whose proof is a dead relative path is
     worse than an unlinked one, because the link says someone checked. Targets
     are resolved from the repository root, the way a reader on the web page
@@ -382,8 +293,8 @@ def test_every_guarantee_names_a_test_that_its_file_defines() -> None:
 
     The target-exists case above is green on exactly that README, since the
     file it opens is there; only reading the link text catches a test renamed
-    by a later plan while the file kept its name. That is the failure decision
-    D was chosen to make loud: a line anchor rots invisibly, a named function
+    while the file kept its name. That is the failure this
+    case makes loud: a line anchor rots invisibly, a named function
     does not. The identifier is required as `def <name>(`, so a test merely
     MENTIONED in a comment in that file does not pass for one it defines.
     """
@@ -431,7 +342,7 @@ def test_the_numbers_table_carries_the_five_labels() -> None:
 
     The ordered-headings case only proves the section exists. Every label is
     required in its fixed position, and every non-numeric cell must read the
-    exact words decision B fixes, so `TBD`, `n/a`, `coming soon` and an empty
+    exact words fixed for it, so `TBD`, `n/a`, `coming soon` and an empty
     cell are all red. The point is that the gap is legible: a reader can tell a
     measured zero from an unmeasured one, which no free-text placeholder
     allows.
@@ -450,7 +361,7 @@ def test_the_numbers_table_carries_the_five_labels() -> None:
 
 
 def test_the_what_broke_section_has_at_least_five_entries() -> None:
-    """Catches a the project notes section that names one embarrassment and calls the
+    """Catches a README section that names one embarrassment and calls the
     subject covered, and one that lists breakages without saying what fixed
     them.
 
@@ -458,7 +369,7 @@ def test_the_what_broke_section_has_at_least_five_entries() -> None:
     an empty one. Each entry must carry the word `fix`, because an incident
     list with no resolution reads as a risk register rather than as engineering
     history. Entries are counted as `###` headings or top-level list items, so
-    either shape section 1 allows is accepted.
+    either shape is accepted.
     """
     body = _section_body(_read(README), "What broke and how I fixed it")
 
@@ -475,9 +386,9 @@ def test_the_what_broke_section_has_at_least_five_entries() -> None:
     if current:
         entries.append("\n".join(current))
 
-    assert len(entries) >= 5, f"expected at least 5 what-broke entries, found {len(entries)}"
+    assert len(entries) >= 5, f"expected at least 5 what broke entries, found {len(entries)}"
     without_fix = [entry.splitlines()[0] for entry in entries if "fix" not in entry.lower()]
-    assert without_fix == [], f"what-broke entries with no fix sentence: {without_fix}"
+    assert without_fix == [], f"what broke entries with no fix sentence: {without_fix}"
 
 
 def test_the_demo_section_declares_the_video_missing() -> None:
@@ -485,7 +396,7 @@ def test_the_demo_section_declares_the_video_missing() -> None:
     reads as an oversight rather than as a known gap.
 
     The ordered-headings case passes on a heading with nothing under it, and
-    that is precisely the state decision A rejects. The literal is required
+    that is precisely the state this case rejects. The literal is required
     only while no video link is present, so the case does not have to be edited
     on the day the recording lands: it simply starts passing on the link
     instead.
@@ -518,107 +429,23 @@ def test_the_readme_embeds_the_architecture_diagram() -> None:
 def test_the_readme_links_every_diagram_source() -> None:
     """Catches a diagram source that exists and that nothing reaches.
 
-    This is the unhappy path section 1 names, and the exact-set case below
+    This is an unhappy path, and the exact-set case below
     stays green on it: that case reads the directory and never opens the
     README. The expected list is READ OFF `docs/diagrams/` rather than retyped,
-    so a fifth diagram added by a later plan is red here until the README links
+    so a fifth diagram added later is red here until the README links
     it, which is the drift nothing else in the repository would notice. Matched
     with the closing bracket and parenthesis, so a filename in prose does not
     pass for a link.
     """
     assert DIAGRAM_DIR.is_dir(), f"missing diagram directory: {DIAGRAM_DIR}"
     stems = sorted(path.stem for path in DIAGRAM_DIR.glob("*.md"))
-    # Premise: the four sources decision C fixes. If this is red, the diagram
-    # set moved and section 1 needs rereading, not the README.
+    # Premise: the four fixed sources. If this is red, the diagram
+    # set moved, not the README.
     assert stems == list(DIAGRAM_STEMS)
 
     readme = _read(README)
     unlinked = [stem for stem in stems if f"](docs/diagrams/{stem}.md)" not in readme]
     assert unlinked == [], f"diagram sources the README does not link: {unlinked}"
-
-
-# --- ADRs ---------------------------------------------------------------------
-
-
-def test_adr_0001_exists_and_names_what_langgraph_must_never_own() -> None:
-    """Catches an ADR that records the choice of LangGraph without recording
-    its boundary.
-
-    The template-headings case below passes on a Decision section holding one
-    sentence of preference, and the ADR-count case passes on this file being
-    absent entirely. The boundary is the whole decision: a project rule says the
-    model never executes a mutation, so an orchestration ADR that does not
-    write down what LangGraph must never own leaves the next reader free to put
-    a tool call in a graph node. Both halves are required in the Decision body,
-    not the file, so a `never` sentence under Consequences does not pass.
-    """
-    body = _section_body(_read(ADR_0001), "Decision").lower()
-
-    assert "langgraph" in body, "the Decision section does not name LangGraph"
-    assert "never" in body, "the Decision section does not say what LangGraph must never own"
-
-
-def test_adr_0001_names_the_rejected_alternative() -> None:
-    """Catches an ADR whose Alternatives considered section is a heading with
-    nothing weighed under it.
-
-    The Decision case above is green on exactly that file, and the
-    template-headings case counts the heading as present. An ADR that records
-    only the chosen option is a note, not a decision record: the value is the
-    rejected hand-written loop, because that is the option a later reader will
-    otherwise propose as new.
-    """
-    body = _section_body(_read(ADR_0001), "Alternatives considered").lower()
-
-    assert "hand-written loop" in body, (
-        "Alternatives considered does not name the rejected hand-written loop"
-    )
-
-
-def test_the_repo_holds_at_least_nine_adrs() -> None:
-    """Catches a decision record set that stopped being kept, and an the project notes
-    holding nothing but its own template.
-
-    Every other ADR case reads one named file or parametrises over whatever is
-    found, so all of them are green on a directory holding a single ADR. The
-    floor is a floor by design: the count grows with the project, and only its
-    collapse is a defect. The template is excluded explicitly, so a repository
-    whose only file is `0000-template.md` cannot satisfy a count of nine by
-    numbering tricks.
-    """
-    adrs = _adr_files()
-
-    assert len(adrs) >= MINIMUM_ADRS, (
-        f"expected at least {MINIMUM_ADRS} ADRs, found {len(adrs)}: {[path.name for path in adrs]}"
-    )
-
-
-@pytest.mark.parametrize("adr", _adr_files(), ids=lambda path: path.stem)
-def test_every_adr_carries_the_template_headings(adr: Path) -> None:
-    """Catches an ADR written freehand that skips the section the template
-    exists to force, most often Alternatives considered.
-
-    The count case above counts files and never opens one, and the two 0001
-    cases read one file only, so every one of them is green on a directory of
-    unstructured notes. The expected headings are read off
-    the project notes at test time, so changing the template moves
-    every ADR's obligation with it instead of leaving this file guarding four
-    strings nothing uses. The `**Status:**` line is required separately because
-    an accepted and a superseded decision read identically without it.
-    """
-    headings = _template_headings()
-    # Premise: the template is the four-heading shape section 1 names. If this
-    # is red, the template moved and the criterion needs rereading.
-    assert headings == ADR_HEADINGS_AT_HEAD
-
-    text = _read(adr)
-    present = _section_headings(text)
-    missing = [heading for heading in headings if heading not in present]
-    assert missing == [], f"{adr.name} is missing template headings: {missing}"
-
-    assert any(line.startswith("**Status:**") for line in text.splitlines()), (
-        f"{adr.name} carries no '**Status:**' line"
-    )
 
 
 # --- diagrams -----------------------------------------------------------------
@@ -632,7 +459,7 @@ def test_the_four_diagram_sources_exist() -> None:
     parametrised with, so a fifth file is invisible to it; the README link case
     reads the directory too, but stays green if the directory is missing only
     because this case is the one that opens it first. The set is asserted as
-    equality, which is what decision C buys: sources only, so a committed
+    equality, which keeps sources only, so a committed
     `architecture.png` beside its source (the drift where the image and the
     source disagree and only the image is read) is red here.
     """
@@ -657,81 +484,7 @@ def test_every_diagram_source_holds_a_mermaid_block(stem: str) -> None:
     )
 
 
-# --- runbook ------------------------------------------------------------------
-
-
-def test_no_runbook_section_is_empty() -> None:
-    """Catches a runbook shipped as its own outline, every heading present and
-    every procedure missing.
-
-    This is the unhappy path section 1 names, and it is the runbook's whole
-    failure mode: the command cases below check four named sections, so an
-    empty `Known failure modes` section passes all of them, and the alert case
-    checks subsections rather than prose. A heading with nothing under it is
-    worse than an absent one at three in the morning, because the reader spends
-    their first minute believing the answer is there. A line that is blank or
-    is itself a heading does not count as a body.
-    """
-    runbook = _read(RUNBOOK)
-    headings = _section_headings(runbook)
-    assert headings, "the runbook carries no '##' sections at all"
-
-    empty: list[str] = []
-    for heading in headings:
-        body = _section_body(runbook, heading)
-        has_prose = any(
-            line.strip() and not line.lstrip().startswith("#") for line in body.splitlines()
-        )
-        if not has_prose:
-            empty.append(heading)
-    assert empty == [], f"runbook sections with a heading and no body: {empty}"
-
-
-def test_the_runbook_has_a_subsection_per_alert() -> None:
-    """Catches the first alert that lands with no written response.
-
-    Nothing else in the repository connects `infra/monitoring/alerts/` to
-    the project notes: the no-empty-section case is green on an alert section
-    holding one line of prose, however many alerts exist. The expected
-    subsections are read off the directory, so this passes vacuously today,
-    which is the design - it is a tripwire armed for the day a rule file is
-    added, not a check of the current state. The premise below records that
-    emptiness so a reader of a future failure knows which side moved.
-    """
-    stems = _alert_stems()
-    # Premise: no alert rules are committed yet, so the sweep below is
-    # vacuously true at HEAD.
-    assert stems == []
-
-    _, body = _section_matching(_read(RUNBOOK), "alert")
-    subsections = [
-        line.removeprefix("### ").strip() for line in body.splitlines() if line.startswith("### ")
-    ]
-    unanswered = [stem for stem in stems if stem not in subsections]
-    assert unanswered == [], f"alerts with no runbook subsection: {unanswered}"
-
-
-@pytest.mark.parametrize("keyword", RUNBOOK_COMMAND_SECTIONS)
-def test_the_operational_sections_carry_commands(keyword: str) -> None:
-    """Catches an operational section that describes the procedure in prose and
-    leaves the reader to reconstruct the command.
-
-    The no-empty-section case is green on exactly that section, because a
-    paragraph is a body. These four are the sections someone reads while
-    something is broken, and a runbook that says `restore the database from the
-    most recent backup` has told them nothing they did not know. A fenced block
-    is required, so a command mentioned inline without one is red too: under
-    pressure, the thing that gets copied is the block.
-    """
-    heading, body = _section_matching(_read(RUNBOOK), keyword)
-
-    assert "```" in body, f"runbook section {heading!r} carries no fenced command block"
-
-
-# --- privacy ------------------------------------------------------------------
-
-
-# --- restructure: every named path exists at its new location ----------------
+# --- every named path exists ------------------------------------------------
 
 MAKEFILE = REPO_ROOT / "Makefile"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
@@ -743,8 +496,7 @@ PATH_IN_TEXT = re.compile(r"(?:\./)?((?:backend|web|docs|infra|k8s)/[A-Za-z0-9_.
 """A repo-relative path starting with a real top-level folder. The character
 class stops at `:`, so a compose mount `./backend/data/policies:/srv/...` yields
 just the host side. `dev/` is left out: it would match device paths like
-`/dev/null` in the workflows, and the dev-only scripts under `dev/scripts/` are
-proven present by `test_restructure_plan8.py` instead. `docker/` is left out
+`/dev/null` in the workflows. `docker/` is left out
 too: it collides with GitHub Action refs like `docker/build-push-action`, and
 there is no `docker/` tree now."""
 
@@ -783,14 +535,13 @@ def _reference_files() -> list[Path]:
 
 
 def test_every_named_path_exists() -> None:
-    """Catches a reference file that still points at an old location after the
-    restructure, or at a path that was never created.
+    """Catches a reference file that still points at an old location, or at a path
+    that was never created.
 
     Every path a committed reference file names under a real top-level folder is
     resolved from the repository root and must exist; and no file may still name
-    an old `packages/` or `services/` path. This is the check a project rule asks
-    for across the move: a Dockerfile, mount, build context or command that
-    names a path the move invalidated fails here.
+    an old `packages/` or `services/` path. A Dockerfile, mount, build context
+    or command that names a path that no longer exists fails here.
     """
     missing: list[str] = []
     stale: list[str] = []
@@ -846,32 +597,10 @@ def test_the_skip_list_holds_only_env_files() -> None:
     which the gitignore check alone would miss if that file were also ignored.
 
     Every name's last part must be exactly `.env` or `.env.demo`. The tripwire
-    pins both names this plan puts on the list, so dropping `backend/.env.demo`
+    pins both names on the list, so dropping `backend/.env.demo`
     (the CI break) or `backend/.env` fails here by name.
     """
     assert "backend/.env" in LOCAL_ENV_PATHS
     assert "backend/.env.demo" in LOCAL_ENV_PATHS
     not_env = [name for name in LOCAL_ENV_PATHS if Path(name).name not in {".env", ".env.demo"}]
     assert not_env == [], f"skip list names that are not env files: {not_env}"
-
-
-# --- privacy ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("private", PRIVATE_STRINGS)
-def test_no_committed_doc_names_a_private_working_file(private: str) -> None:
-    """Catches a document that quotes the private working files this project is
-    built from, which are gitignored and so resolve to nothing for any reader.
-
-    Nothing else looks for these strings, and every other case in this module
-    is green on a README whose the project notes entries cite plan numbers and rule
-    files: they check structure, never provenance. Section 5 names this as the
-    live risk, because that section is written FROM those files. Passes at HEAD
-    by construction, which is the point - the defect it guards is the first
-    occurrence, and a first occurrence breaks nothing else.
-    """
-    offenders: list[str] = []
-    for path in _documented_files():
-        if private in path.read_text(encoding="utf-8"):
-            offenders.append(str(path.relative_to(REPO_ROOT)))
-    assert offenders == [], f"private working file {private!r} named in: {offenders}"

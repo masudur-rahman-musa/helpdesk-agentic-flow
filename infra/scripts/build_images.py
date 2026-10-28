@@ -8,8 +8,8 @@ outside the accepted set reaches `--build-arg SERVICE=` and fails minutes later
 as an unreadable build error instead of one refusal naming the four values that
 would have worked.
 
-a project rule wants the typed pre-check before any effect runs, and standing
-rule 4 wants the pattern applied with `re.fullmatch` so a trailing newline
+the typed pre-check runs before any effect, and the pattern is applied with
+`re.fullmatch` so a trailing newline
 cannot ride along behind an otherwise valid tag. Both are pinned by
 `backend/tests/shared/test_build_images_args.py`; the ordering specifically
 by `test_the_checks_run_before_any_docker_process_starts`, which patches this
@@ -51,7 +51,7 @@ WEB_SERVICE = "web"
 `backend/Dockerfile.<service>`."""
 
 TAG_MAX_LENGTH = 128
-"""The inclusive upper bound on a tag, pinned as a value by a project rule and
+"""The inclusive upper bound on a tag, pinned as a value and
 asserted from both sides by the two boundary cases in the test module."""
 
 TAG_PATTERN: re.Pattern[str] = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")

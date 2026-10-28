@@ -2,8 +2,8 @@
 
 What is pinned: the golden set, its checker test and the split script no
 longer exist; the 45 conversation cases do; the Makefile has no `eval` target
-but still has `eval-chat`; and no tracked file outside the history paths and
-the tests names the old route, files, models or command.
+but still has `eval-chat`; and no tracked file outside the tests
+names the old route, files, models or command.
 
 The name scan is a function that takes a root and a list of files, so the
 planted-line case can feed it a fake tree. Pure filesystem and `git ls-files`:
@@ -30,24 +30,16 @@ REPO_ROOT = _repo_root()
 GONE_FILES = (
     "backend/evals/golden/helpdesk-v1.jsonl",
     "backend/evals/golden/example.jsonl",
-    "dev/scripts/eval_sets.py",
     "backend/tests/scripts/test_eval_golden_set.py",
     "backend/tests/scripts/test_eval_sets.py",
 )
 
 CONVERSATION_CASES = "backend/evals/conversations/cases.jsonl"
 
-# Tests may name the old things (they check they are gone); history files
-# record what happened, not what exists.
+# Tests may name the old things (they check they are gone).
 EXCLUDED_PREFIXES = (
     "backend/tests/",
     "infra/tests/",
-    "dev/plans/",
-    "dev/adr/",
-    "dev/notes/",
-    "dev/docs/log.md",
-    "dev/docs/placeholders.md",
-    "dev/docs/restructure.md",
 )
 
 OLD_NAMES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -118,11 +110,10 @@ def test_the_makefile_has_no_eval_target() -> None:
 def test_no_live_file_names_the_old_eval() -> None:
     """Catches a doc, config, script, duration list or status line that still
     names the old route, files, models or command (the listed test names in
-    `.github/scripts/test_durations.json` and the carry-forward lines in
-    the project notes included).
+    `.github/scripts/test_durations.json` included).
 
-    The scan reads every tracked file outside the tests and the history
-    paths, so a stale mention anywhere live is reported with its file.
+    The scan reads every tracked file outside the tests,
+    so a stale mention anywhere live is reported with its file.
     """
     assert scan_for_old_names(REPO_ROOT, _tracked_files()) == []
 
@@ -143,13 +134,13 @@ def test_the_name_scan_reports_a_planted_line(
     never fail), one that matches `make eval-chat` as `make eval`, and one that
     misses `make eval` at the end of a line.
 
-    A fake tree holds one file with the planted line; an excluded history file
+    A fake tree holds one file with the planted line; an excluded test file
     holding the same line must not be reported.
     """
     (tmp_path / "note.md").write_text(line, encoding="utf-8")
-    (tmp_path / "dev" / "plans").mkdir(parents=True)
-    (tmp_path / "dev" / "plans" / "old.md").write_text(line, encoding="utf-8")
+    (tmp_path / "backend" / "tests").mkdir(parents=True)
+    (tmp_path / "backend" / "tests" / "old.md").write_text(line, encoding="utf-8")
 
-    found = scan_for_old_names(tmp_path, ["note.md", "dev/plans/old.md"])
+    found = scan_for_old_names(tmp_path, ["note.md", "backend/tests/old.md"])
 
     assert found == expected

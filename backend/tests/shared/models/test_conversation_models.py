@@ -129,7 +129,7 @@ def test_both_conversation_tables_are_in_the_metadata() -> None:
 def test_both_tables_are_in_the_tenant_scoped_allowlist() -> None:
     """Catches a forgotten allowlist entry: two tables added to the metadata
     without extending `_seed.py::TENANT_SCOPED_TABLES`, which leaves
-    `test_models.py`'s schema-literal sweep red for a later plan to find."""
+    `test_models.py`'s schema-literal sweep red for a later change to find."""
     assert "sessions" in TENANT_SCOPED_TABLES
     assert "messages" in TENANT_SCOPED_TABLES
 

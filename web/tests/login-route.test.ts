@@ -12,7 +12,7 @@ import { SESSION_COOKIE_NAME, clearSessionCookie, setSessionCookie } from "@/lib
  * process, no backing service. Every case names the wrong
  * handler it kills.
  *
- * Values the plan left open:
+ * Values fixed here:
  * the refusal body is `{ message: SIGN_IN_FAILED_MESSAGE }` — one key, named
  * `message` — and both schema refusals (a field failing the pre-check, and an
  * unparseable body) answer 400.
@@ -94,7 +94,7 @@ describe("POST /api/login — agent-api answers 200", () => {
     expect(cookie).toContain("HttpOnly");
     // Next 15 serialises the attribute lowercase (`SameSite=lax`); the value is
     // case-insensitive per RFC 6265bis, so the library's own casing is what is
-    // pinned here rather than the spelling the plan used.
+    // pinned here rather than the spelling the requirements used.
     expect(cookie).toContain("SameSite=lax");
     expect(cookie).toContain("Path=/");
   });
@@ -216,7 +216,7 @@ describe("lib/session cookie helpers", () => {
     expect(cookie).toContain("HttpOnly");
     // Next 15 serialises the attribute lowercase (`SameSite=lax`); the value is
     // case-insensitive per RFC 6265bis, so the library's own casing is what is
-    // pinned here rather than the spelling the plan used.
+    // pinned here rather than the spelling the requirements used.
     expect(cookie).toContain("SameSite=lax");
     expect(cookie).toContain("Path=/");
   });

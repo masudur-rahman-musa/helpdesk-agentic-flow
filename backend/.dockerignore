@@ -36,8 +36,7 @@ infra
 .gitleaks.toml
 Makefile
 
-# our working process and documentation
-dev-process
+# documentation
 docs
 README.md
 LICENSE
@@ -64,11 +63,3 @@ data/policies
 # the images' own recipes
 Dockerfile.*
 .dockerignore
-
-# private working files (never in an image either)
-notes.md
-his.md
-REQUIREMENTS.md
-pl
-dev
-switches.md

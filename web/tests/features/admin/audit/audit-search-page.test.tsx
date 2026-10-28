@@ -48,7 +48,7 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
  *   sentence. Both sentences are fixed but the way to tell them apart is not, and
  *   only one reading lets the two cases hold together.
  * - `Page size` is a NATIVE select: `role="combobox"` named `Page size`
- *   with `role="option"` children, the deviation. The option VALUES are never
+ *   with `role="option"` children. The option VALUES are never
  *   asserted; what an option MEANS is the `limit` it sends, which is asserted
  *   on the request.
  * - dates are typed with `fireEvent.change`, the way `approvals-page.test.tsx`
@@ -851,7 +851,7 @@ describe("AuditSearch — an expired session", () => {
   });
 });
 
-describe("AuditSearch — the call the migration must not reshape (plan 24ib §6)", () => {
+describe("AuditSearch — the call the migration must not reshape", () => {
   it("asks for the filtered, paged read as one exact path and query string", async () => {
     // The first case, on the one read no case pins as a STRING:
     // `::reads the search proxy with limit=50 and nothing else` fixes the
@@ -888,7 +888,7 @@ describe("AuditSearch — the call the migration must not reshape (plan 24ib §6
   });
 });
 
-describe("AuditSearch — two failed reads the existing rows do not cover (plan 24ib §6)", () => {
+describe("AuditSearch — two failed reads the existing rows do not cover", () => {
   it("renders the read alert for a 500 carrying no body at all", async () => {
     // A risk the existing `a 500 carrying no JSON at
     // all` row does not reach: that row hands back an HTML BODY, so a reader

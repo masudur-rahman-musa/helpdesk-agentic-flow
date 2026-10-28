@@ -249,7 +249,7 @@ def test_the_default_web_origin_is_exactly_the_planned_value(
     the browser reports as a CORS failure with no server-side error at all.
 
     Also catches a `web_origin_from_env` that does not share the field's
-    default (decision A1's whole point): the second assertion reads the helper
+    default (the whole point): the second assertion reads the helper
     with `WEB_ORIGIN` unset, so a helper defaulting to `""` or to its own
     literal is red here even though `DEFAULT_WEB_ORIGIN` is right.
     """
@@ -564,7 +564,7 @@ def test_the_default_mcp_allowed_hosts_are_exactly_the_planned_values(
 
     The second assertion reads `mcp_allowed_hosts_from_env` with the variable
     unset, so it also catches a helper that does not share the field's default
-    (decision A1's point): a helper defaulting to `[]` or to its own literal is
+    (the point): a helper defaulting to `[]` or to its own literal is
     red here even though `DEFAULT_MCP_ALLOWED_HOSTS` is right, and an empty
     allow-list refuses every host including the loopback ones.
     """

@@ -30,11 +30,6 @@ build/
 
 # local working files
 docker-compose.override.yml
-switches.md
-notes.md
-REQUIREMENTS.md
-his.md
-pl/
 # AI
 backend/evals/reports/
 # Service
@@ -45,8 +40,6 @@ crash.log
 
 # Written by `make security` for pip-audit.
 backend/requirements-audit.txt
-dev/temp.md
 
 # Local design tool settings
 .impeccable/
-dev/notes/

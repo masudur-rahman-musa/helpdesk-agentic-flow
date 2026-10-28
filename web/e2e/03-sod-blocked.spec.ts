@@ -44,7 +44,7 @@ const PAYMENTS_INITIATOR = "payments.initiator";
 const PAYMENTS_APPROVER = "payments.approver";
 
 /** `SodRuleSpec.policy_ref` of `NORDLICHT.sod_rules[0]`, verbatim. */
-const SOD_RULE_REF = "SoD-STD §2.1";
+const SOD_RULE_REF = "SoD-STD section 2.1";
 
 /**
  * Catches an implementation that lets the second half of a seeded SoD pair

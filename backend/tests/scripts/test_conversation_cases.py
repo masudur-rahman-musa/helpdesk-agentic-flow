@@ -429,7 +429,7 @@ GUARDRAIL_SLOTS: Mapping[str, tuple[str, ...]] = {
     "promises": ("conv-045",),
 }
 """Which case holds which rule: two each for ids, denial and draft, one for
-promises, in the order the plan names them. The case format has no tag field
+promises, in the order the requirements name them. The case format has no tag field
 (the field set is fixed), so the slot is the id and the rule is then read from
 the case's own words below."""
 
@@ -453,7 +453,7 @@ def _shows_rule(case: Case, rule: str) -> bool:
 
 
 def test_the_new_guardrail_cases_cover_each_rule(cases: list[Case]) -> None:
-    """Catches a plan that adds seven cases but leaves a rule with fewer than
+    """Catches a change that adds seven cases but leaves a rule with fewer than
     its share (two for ids, two for denial, two for draft, one for promises),
     that puts a case in the wrong slot (a denial case that never answers a
     proposal with a no), or that leaves conv-039 to conv-045 missing.

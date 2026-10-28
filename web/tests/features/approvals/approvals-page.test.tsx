@@ -738,7 +738,7 @@ describe("ApprovalQueue — an expired session", () => {
  * Cases added to the file, rewriting none of it: the three
  * cases that hold the QUEUE read still, after its four private lines become
  * `readWire("/api/me/approvals", pendingApprovalsSchema)`. The two POSTs are
- * not reads and are untouched by that plan, which is why no case here stages a
+ * not reads and are untouched by that change, which is why no case here stages a
  * decision: `DecisionRefusedError` and its per-code sentences stay exactly as
  * the cases above pin them.
  */

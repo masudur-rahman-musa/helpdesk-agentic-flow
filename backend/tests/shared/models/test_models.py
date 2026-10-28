@@ -45,7 +45,7 @@ def test_metadata_contains_exactly_the_declared_tables() -> None:
 
     The count is asserted beside the set (19 tenant-scoped tables
     with `audit_chain_anchors`, plus `tenants`). The allowlist
-    is not derived from the code, so a plan that adds a table to BOTH
+    is not derived from the code, so a change that adds a table to BOTH
     `Base.metadata` and `_seed.py` still has to say so here; without the
     count, extending the allowlist is the whole of what it takes to keep this
     file green, and the one file meant to notice a new table never notices

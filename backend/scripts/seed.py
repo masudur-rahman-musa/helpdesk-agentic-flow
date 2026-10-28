@@ -268,37 +268,37 @@ NORDLICHT = TenantSpec(
             ("payments", "initiator"),
             ("payments", "approver"),
             "Initiating and approving the same payment must be two people.",
-            "SoD-STD §2.1",
+            "SoD-STD section 2.1",
         ),
         SodRuleSpec(
             ("vendor-master", "editor"),
             ("payments", "approver"),
             "Editing supplier bank data and approving payments enables invoice fraud.",
-            "SoD-STD §2.2",
+            "SoD-STD section 2.2",
         ),
         SodRuleSpec(
             ("erp", "buyer"),
             ("erp", "goods-receipt"),
             "Ordering and confirming receipt of the same goods hides phantom purchases.",
-            "SoD-STD §2.3",
+            "SoD-STD section 2.3",
         ),
         SodRuleSpec(
             ("prod-k8s", "deployer"),
             ("prod-k8s", "auditor"),
             "Deploying to production and auditing those deployments must be separated.",
-            "SoD-STD §2.4",
+            "SoD-STD section 2.4",
         ),
         SodRuleSpec(
             ("hris", "admin"),
             ("hris", "payroll-approver"),
             "Administering HR records and approving payroll enables ghost employees.",
-            "SoD-STD §2.5",
+            "SoD-STD section 2.5",
         ),
         SodRuleSpec(
             ("erp", "admin"),
             ("payments", "initiator"),
             "ERP administrators can alter controls and must not initiate payments.",
-            "SoD-STD §2.6",
+            "SoD-STD section 2.6",
         ),
     ),
     planted_conflicts=(
@@ -459,37 +459,37 @@ CUAN = TenantSpec(
             ("kyc", "analyst"),
             ("kyc", "approver"),
             "The analyst who prepares a KYC case must not approve it.",
-            "SoD-STD §2.1",
+            "SoD-STD section 2.1",
         ),
         SodRuleSpec(
             ("payments-gateway", "initiator"),
             ("payments-gateway", "approver"),
             "Initiating and approving the same payment must be two people.",
-            "SoD-STD §2.2",
+            "SoD-STD section 2.2",
         ),
         SodRuleSpec(
             ("hris", "admin"),
             ("hris", "payroll-approver"),
             "Administering HR records and approving payroll enables ghost employees.",
-            "SoD-STD §2.3",
+            "SoD-STD section 2.3",
         ),
         SodRuleSpec(
             ("prod-aws", "deployer"),
             ("prod-aws", "auditor"),
             "Deploying to production and auditing those deployments must be separated.",
-            "SoD-STD §2.4",
+            "SoD-STD section 2.4",
         ),
         SodRuleSpec(
             ("core-banking", "admin"),
             ("payments-gateway", "approver"),
             "Core banking administrators can alter controls and must not approve payments.",
-            "SoD-STD §2.5",
+            "SoD-STD section 2.5",
         ),
         SodRuleSpec(
             ("ledger", "editor"),
             ("payments-gateway", "initiator"),
             "Editing the ledger and initiating payments hides misdirected funds.",
-            "SoD-STD §2.6",
+            "SoD-STD section 2.6",
         ),
     ),
     planted_conflicts=(
@@ -815,10 +815,10 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
         }
     )
     for slug, _name, _sensitivity, category in spec.systems:
-        # Backfill for rows seeded before the category column existed (plan
-        # 11a): the migration server-defaults `other` and must not name
-        # system slugs, so the seed is the only place real categories can
-        # come from. Idempotent — a second run finds the value equal.
+        # Backfill for rows seeded before the category column existed: the
+        # migration server-defaults `other` and must not name system slugs, so
+        # the seed is the only place real categories can come from. Idempotent
+        # — a second run finds the value equal.
         system = written_systems[rows.system_ids[slug]]
         if system.category != category:
             system.category = category

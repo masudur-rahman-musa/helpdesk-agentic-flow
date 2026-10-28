@@ -60,7 +60,7 @@ async def _chat(
 def test_pinned_values() -> None:
     """Catches a list that quietly changes how many chats or characters it shows.
 
-    The exact numbers are the plan's; a range check would admit a wrong one.
+    The exact numbers are the requirements'; a range check would admit a wrong one.
     """
     assert CHAT_LIST_LIMIT == 100
     assert CHAT_TITLE_CHARS == 60

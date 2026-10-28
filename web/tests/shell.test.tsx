@@ -11,7 +11,7 @@ import { THEME_STORAGE_KEY } from "@/components/layout/theme-toggle";
  * The authenticated shell: demo banner, keyboard reachability and the dark-mode
  * toggle that persists (last criterion).
  *
- * Value the plan left open:
+ * Value fixed here:
  * the theme control is located as a button whose accessible name matches
  * /theme/i, so the implementation owes it a name containing that word.
  *

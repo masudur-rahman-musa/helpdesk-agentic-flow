@@ -263,7 +263,7 @@ def test_each_login_gets_a_fresh_sid(login_env: SeededLogin) -> None:
     assert first.status_code == 200 and second.status_code == 200
     sid_a = verify_token(first.json()["access_token"], TEST_JWT_SIGNING_PHRASE, now).sid
     sid_b = verify_token(second.json()["access_token"], TEST_JWT_SIGNING_PHRASE, now).sid
-    assert sid_a != sid_b, "sid must be a fresh UUID per login (plan 05 decision B)"
+    assert sid_a != sid_b, "sid must be a fresh UUID per login"
 
 
 # --- the four 401 paths: one indistinguishable typed body ---------------------

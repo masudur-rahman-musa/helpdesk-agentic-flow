@@ -1,5 +1,5 @@
 [importlinter]
-# The one rule the restructure adds: the three apps lean on the shared library
+# The one rule: the three apps lean on the shared library
 # and never on each other, and the shared library never reaches back into an
 # app. `lint-imports` is run from backend/ in CI and by
 # tests/shared/test_import_contracts.py.

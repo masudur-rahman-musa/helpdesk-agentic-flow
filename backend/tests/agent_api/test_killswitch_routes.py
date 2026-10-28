@@ -18,7 +18,7 @@ of these names until steps 1 and 2 land):
     to all eight codes, incl
     ``INTERNAL`` 500).
 
-Shapes this file fixes that the plan left open:
+Shapes this file fixes:
 - the tool names are ``list_kill_switches`` and ``set_kill_switch``
 , their own registry names.
 - the refusal envelope is ``{"code": "<ErrorCode value>"}`` and the bearer
@@ -1065,7 +1065,7 @@ def test_the_shared_status_map_answers_all_eight_codes_with_an_internal_row() ->
     stays because this router once needed a fifth row of its own.
 
     Asserted as the exact mapping rather than key by key, so a ninth row added
-    by a later plan goes red here, where the behaviour lives, rather than on a
+    later goes red here, where the behaviour lives, rather than on a
     page that renders one sentence per code.
     """
     assert dict(deps.STATUS_FOR_CODE) == {

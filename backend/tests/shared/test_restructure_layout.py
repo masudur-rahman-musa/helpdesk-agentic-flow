@@ -1,4 +1,4 @@
-"""The restructure landed: one `backend/` project, one `helpdesk` package with
+"""The layout holds: one `backend/` project, one `helpdesk` package with
 the four subpackages, and nothing left at the old roots.
 
 Pure import and filesystem checks: no Postgres, Redis, Qdrant, fixture or

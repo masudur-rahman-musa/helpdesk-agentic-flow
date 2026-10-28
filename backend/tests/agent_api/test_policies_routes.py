@@ -15,7 +15,7 @@ these names until step 4 lands):
     ``LIST_POLICY_DOCUMENTS_TOOL = "list_policy_documents"`` and
     ``ListPolicyDocumentsArgs`` (no fields).
 
-Shapes this file fixes that the plan left open:
+Shapes this file fixes:
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``, and the bearer
   refusal is a literal ``401`` carrying ``{"code": "FORBIDDEN"}`` - what
   ``deps.unauthenticated()`` answers, the usual shape unchanged.

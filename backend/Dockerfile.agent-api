@@ -1,14 +1,13 @@
 # syntax=docker/dockerfile:1
 
-# The agent-api service of the design. Restructure an earlier change split the one
-# build-arg Dockerfile into three, one per app: the build context is `backend/`
-# and each image carries only the shared library plus its own app package and
-# its own dependency group.
+# The agent-api service. Each app has its own Dockerfile: the build context is
+# `backend/` and each image carries only the shared library plus its own app
+# package and its own dependency group.
 #
 #   docker build -f backend/Dockerfile.agent-api -t helpdesk-agent-api:local backend
 #
-# No migration runs in this image (decision D1): a project rule keeps Alembic
-# against the local compose database, and an entrypoint that upgraded on start
+# No migration runs in this image (migrations run only against
+# the local compose database), and an entrypoint that upgraded on start
 # would have every replica of a rollout racing the same migration.
 #
 # The policy corpus is NOT copied in: it arrives as a read-only runtime mount,

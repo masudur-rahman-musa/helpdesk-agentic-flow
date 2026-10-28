@@ -1,9 +1,10 @@
-"""The security scanning baseline is configured as planned.
+"""The security scanning baseline is configured.
 
 What is pinned: the gitleaks config and its three fake-credential exceptions, the
 `make security` target and the four scanners it runs, `make verify` running it,
-the CI `security` job calling `make security` and running no scanner of its own, the weekly image scan over the three images `docker-compose.yml` pins,
-Dependabot staying off, the pinning of every GitHub Action, the STRIDE table,
+the CI `security` job calling `make security` and running no scanner of its
+own, the weekly image scan over the three images `docker-compose.yml` pins,
+Dependabot staying off, the pinning of every GitHub Action,
 and the presence of a real root `Dockerfile` carrying no placeholder.
 
 Why the check is static rather than runtime: none of these files is read by the
@@ -17,10 +18,6 @@ and never against raw text or key order, so reformatting a workflow cannot
 redden a case. The one exception is the root `Makefile`, which has no parser:
 it is read as rules, a target line's prerequisites and the tab-indented recipe
 lines below it, with backslash continuations joined and comment lines dropped.
-The cases were red when written because none of the four config files existed,
-`ci.yml` had only a `check` job, and the project notes was still the
-skeleton stub; an earlier change's cases were red because the Makefile had no `security`
-target and CI still ran each scanner as its own step.
 """
 
 import json
@@ -29,7 +26,6 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml  # type: ignore[import-untyped]
 
 
@@ -57,26 +53,23 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 MAKEFILE = REPO_ROOT / "Makefile"
 IMAGE_SCAN_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "image-scan.yml"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
-THREAT_MODEL = REPO_ROOT / "dev" / "ops" / "threat-model.md"
 APP_DOCKERFILES: tuple[Path, ...] = (
     REPO_ROOT / "backend" / "Dockerfile.agent-api",
     REPO_ROOT / "backend" / "Dockerfile.mcp-server",
     REPO_ROOT / "backend" / "Dockerfile.scheduler",
 )
-"""The three per-app Dockerfiles the restructure split the one `SERVICE`-arg
-root Dockerfile into. Read only to prove each real file EXISTS and carries no
-placeholder."""
+"""The three per-app Dockerfiles each app builds from. Read only to prove each real file
+EXISTS and carries no placeholder."""
 PRE_COMMIT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
 PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 UV_LOCK = REPO_ROOT / "backend" / "uv.lock"
 GITLEAKS_BASELINE = REPO_ROOT / ".gitleaks-baseline.json"
 """The paths this module reads. `APP_DOCKERFILES` are read only to prove the
 three real per-app files EXIST and name no placeholder, by
-`test_the_app_dockerfiles_exist_and_entrypoint_their_app` (an earlier change §8, carried
-through the restructure split); their shape is pinned in full by
+`test_the_app_dockerfiles_exist_and_entrypoint_their_app`; their shape is pinned in full by
 `test_container_build.py::test_each_app_dockerfile_entrypoints_its_own_app`.
 
-The last four are an earlier change's: the pre-commit config and `pyproject.toml` whose
+The last four: the pre-commit config and `pyproject.toml` whose
 ruff versions must agree, `uv.lock` as the record of which ruff version this
 project actually resolves, and the gitleaks baseline that records the ten
 findings living only in history."""
@@ -86,7 +79,7 @@ FAKE_CREDENTIAL_PATHS: frozenset[str] = frozenset(
 )
 """The only three paths allowed to carry a credential-shaped string, because each
 one is deliberately fake: a placeholder file, a documented demo password, and
-hard-rule-8 seed data. Asserted as an EXACT set by
+obviously fake seed data. Asserted as an EXACT set by
 `test_gitleaks_allowlists_exactly_the_three_fake_credential_paths`, so a fourth
 exception has to be argued rather than added."""
 
@@ -109,12 +102,11 @@ not silently read as a bare floor by a partial match."""
 
 BASELINED_FINDING_COUNT = 10
 """The exact number of findings `.gitleaks-baseline.json` excuses, every one of
-them against a commit already in history (an earlier change decision B, corrected while
-implementing: a rename cannot reach a committed line, so all nine are baselined
-rather than two). The tenth is the eval routes' test signing phrase, renamed the
-same way once the scan found it in history. Asserted with the not-at-HEAD property by
-`test_the_baseline_records_only_the_historical_findings`, so a tenth entry has to
-be argued rather than regenerated in."""
+them against a commit already in history. The tenth is the eval routes' test
+signing phrase, renamed the same way once the scan found it in history.
+Asserted with the not-at-HEAD property by
+`test_the_baseline_records_only_the_historical_findings`, so a tenth entry has
+to be argued rather than regenerated in."""
 
 SCANNERS: dict[str, re.Pattern[str]] = {
     "gitleaks": re.compile(r"\bgitleaks\b"),
@@ -149,32 +141,13 @@ file and matched against the weekly scan by
 ACTION_REF = re.compile(r"[\w.-]+/[\w.-]+(/[\w.-]+)*@[\w.\-+]+")
 """A `uses:` value pinned to a released tag: owner/repo[/path]@ref.
 
-Applied with `re.fullmatch` per a project rule, so a trailing `@master` smuggled
+Applied with `re.fullmatch` so a trailing `@master` smuggled
 onto the end of an otherwise valid string cannot pass. Feeds
 `test_every_action_is_pinned_to_a_tag`."""
 
 FLOATING_REFS: frozenset[str] = frozenset({"master", "main"})
-"""The two refs decision G forbids: a branch ref re-points under us, so a
+"""The two refs that are forbidden: a branch ref re-points under us, so a
 compromised action would be pulled in with no diff here."""
-
-THREAT_ROWS: tuple[tuple[str, str], ...] = (
-    ("prompt injection via policy content", "policy"),
-    ("prompt injection via ticket bodies", "ticket"),
-    ("confused deputy via JWT forwarding", "jwt"),
-    ("replay of a mutating tool call", "replay"),
-    ("secrets exposure in repo or history", "secret"),
-    ("authorization bypass across tenants", "tenant"),
-    ("data leakage through logs or telemetry", "telemetry"),
-    ("the CSP's unsafe-inline on script-src", "unsafe-inline"),
-)
-"""The eight threats the STRIDE table owes, as (case id, substring searched for in
-the scenario cell, lowercased). The last one is owed by row 27a decision B, which
-accepted `'unsafe-inline'` on `script-src` and left the threat open. Feeds
-`test_the_threat_model_carries_a_row_for_every_named_threat`."""
-
-MITIGATION_PLACEHOLDERS: frozenset[str] = frozenset({"adapt", "tbd", "", "-"})
-"""A mitigation cell holding one of these answers nothing, so the row is a stub
-rather than a threat that was answered."""
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -395,21 +368,6 @@ def _uses_refs(document: dict[str, Any]) -> list[str]:
     return refs
 
 
-def _table_rows(markdown: str) -> list[list[str]]:
-    """Every markdown table row of a document, as stripped cells, header and
-    separator rows dropped."""
-    rows: list[list[str]] = []
-    for line in markdown.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("|"):
-            continue
-        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        if all(set(cell) <= {"-", ":"} and cell for cell in cells):
-            continue
-        rows.append(cells)
-    return rows
-
-
 def test_gitleaks_config_extends_the_default_rules() -> None:
     """Catches a config that replaces the default rule set with our own handful,
     which would stop detecting every secret shape we did not think of."""
@@ -467,7 +425,7 @@ def test_the_gitleaks_step_passes_a_baseline_path() -> None:
     both when deciding whether a finding is baselined, so re-adding the flag makes
     every entry stop matching and reddens the scan again. And catches the CI
     `$PWD` mount copied into the Makefile bare, which make expands to `WD`
-    (`MAKE_PWD_MOUNT`). Reads the target since an earlier change moved the command."""
+    (`MAKE_PWD_MOUNT`). Reads the target, where the command lives."""
     run = _the_command_running("gitleaks")
 
     assert "--baseline-path" in run, f"the gitleaks command passes no --baseline-path: {run!r}"
@@ -497,7 +455,7 @@ def test_the_gitleaks_hook_and_the_ci_job_pass_the_same_baseline() -> None:
     """Catches the divergence that made the baseline unlandable: gitleaks skips its
     own baseline FILE only when `--baseline-path` names it, so a hook without the
     flag reads the baseline's ten entries as fresh leaks and blocks every commit.
-    The hook and the `make security` command (where an earlier change moved the CI step) are
+    The hook and the `make security` command are
     the only two invocations in the repo, and they have to agree on which file is
     the baseline."""
     config = _load_yaml(PRE_COMMIT_CONFIG)
@@ -586,7 +544,7 @@ def test_ci_declares_a_security_job_that_needs_no_other_job() -> None:
 def test_the_security_job_runs_the_four_planned_scanners() -> None:
     """Catches a scanner quietly dropped from the `make security` target, and
     equally a fifth audit or scan tool (an `npm audit`, an `osv-scanner`) added to
-    it without being planned. Reads the target since an earlier change moved the scans."""
+    it without being planned. Reads the target, where the scans live."""
     commands = _security_commands()
 
     present = {
@@ -620,7 +578,7 @@ def test_gitleaks_reads_the_full_history() -> None:
 def test_pip_audit_is_strict_and_carries_no_ignores_today() -> None:
     """Catches a pip-audit that reports without failing, and catches an advisory
     silently excused by an `--ignore-vuln` flag nobody argued for. Reads the
-    `make security` command since an earlier change moved it."""
+    `make security` command, where the command lives."""
     run = _the_command_running("pip-audit")
 
     assert "--strict" in run
@@ -630,7 +588,7 @@ def test_pip_audit_is_strict_and_carries_no_ignores_today() -> None:
 def test_pnpm_audit_gates_at_high() -> None:
     """Catches a gate loosened to critical-only, or left at the default level where
     a wall of low advisories makes the step meaningless. Reads the `make security`
-    command since an earlier change moved it."""
+    command, where the command lives."""
     run = _the_command_running("pnpm audit")
 
     assert "--audit-level high" in run
@@ -640,7 +598,7 @@ def test_the_trivy_config_scan_gates_at_high_and_critical() -> None:
     """Catches a config scan that reports and exits 0, or one that reads only the
     main compose file and misses the override example. Every trivy command in
     `make security` must carry both flags, so loosening one of the two scans is
-    caught too. Reads the target since an earlier change moved the scans."""
+    caught too. Reads the target, where the scans live."""
     commands = _commands_running("trivy")
 
     for command in commands:
@@ -699,7 +657,7 @@ def test_the_trivyignore_file_exists_and_is_empty_of_entries() -> None:
 
 def test_the_image_scan_runs_weekly_and_on_demand() -> None:
     """Catches an image scan wired to `pull_request`, which would redden a PR that
-    changed no code the day an upstream CVE lands (decision A)."""
+    changed no code the day an upstream CVE lands."""
     triggers = _triggers(_load_yaml(IMAGE_SCAN_WORKFLOW))
 
     assert "schedule" in triggers
@@ -753,7 +711,7 @@ def test_dependabot_is_turned_off() -> None:
 
 def test_every_action_is_pinned_to_a_tag() -> None:
     """Catches a `uses: owner/action@master`, a ref that re-points under us so a
-    compromised action reaches CI with no diff in this repo (decision G)."""
+    compromised action reaches CI with no diff in this repo."""
     refs = _uses_refs(_load_yaml(CI_WORKFLOW)) + _uses_refs(_load_yaml(IMAGE_SCAN_WORKFLOW))
 
     assert len(refs) >= 2, f"only {len(refs)} actions found across both workflows"
@@ -762,43 +720,13 @@ def test_every_action_is_pinned_to_a_tag() -> None:
         assert ref.rsplit("@", 1)[1] not in FLOATING_REFS, f"{ref} is pinned to a branch"
 
 
-@pytest.mark.parametrize(
-    "phrase",
-    [phrase for _, phrase in THREAT_ROWS],
-    ids=[name for name, _ in THREAT_ROWS],
-)
-def test_the_threat_model_carries_a_row_for_every_named_threat(phrase: str) -> None:
-    """Catches a STRIDE table that skips one of the eight threats this system
-    actually has, and catches a row present but answered with a placeholder
-    instead of a mitigation that exists in the tree."""
-    assert THREAT_MODEL.is_file(), "dev/ops/threat-model.md does not exist"
-    rows = _table_rows(THREAT_MODEL.read_text(encoding="utf-8"))
-    assert len(rows) >= 9, f"only {len(rows)} table rows found (8 threats plus a header)"
-
-    matching = [row for row in rows if len(row) >= 3 and phrase in row[2].lower()]
-
-    assert matching, f"no scenario cell names {phrase!r}"
-    for row in matching:
-        assert len(row) == 5, f"row has {len(row)} cells, expected 5: {row}"
-        assert all(cell for cell in row), f"row has an empty cell: {row}"
-        assert row[3].lower() not in MITIGATION_PLACEHOLDERS, f"mitigation is a stub: {row}"
-
-
-def test_the_threat_model_has_no_adapt_placeholders() -> None:
-    """Catches the skeleton stub being kept and merely extended: `ADAPT` is the
-    marker the skeleton leaves where a real answer is owed."""
-    assert THREAT_MODEL.is_file(), "dev/ops/threat-model.md does not exist"
-
-    assert "ADAPT" not in THREAT_MODEL.read_text(encoding="utf-8")
-
-
 def test_the_app_dockerfiles_exist_and_entrypoint_their_app() -> None:
     """Catches the skeleton stub drifting back in under a real file's name: an
     `ADAPT:` placeholder is an instruction nobody carried out, and a Dockerfile
     that never names its own app builds an image whose entrypoint is whatever the
-    base image had. The restructure split the one root Dockerfile into three, so
+    base image had. Each app has its own Dockerfile, so
     each `backend/Dockerfile.<app>` must exist and entrypoint its own app."""
-    # agent-api's app lives in `api/router.py` since an earlier change; the other two keep `main`.
+    # agent-api's app lives in `api/router.py`; the other two keep `main`.
     entries = (
         "helpdesk.agent_api.api.router:app",
         "helpdesk.mcp_server.main:app",

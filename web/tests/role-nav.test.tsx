@@ -25,9 +25,9 @@ import { ApprovalQueue } from "@/features/approvals/components/approval-queue";
  * - the strip is the proof the read RESOLVED: every "four links" row that could
  *   also be satisfied by a pending read first waits for the strip.
  * - the page the hidden-URL row renders is `ApprovalQueue`, whose refused read
- *   is the region alert its own tests pin. The plan calls that
+ *   is the region alert its own tests pin. The requirements call that
  *   "the tool's forbidden sentence"; the page's sentence is the read alert,
- *   so that is what is asserted and it is recorded as a deviation.
+ *   so that is what is asserted.
  *
  * `next/navigation` is mocked as `tests/shell.test.tsx` mocks it.
  */
@@ -215,7 +215,7 @@ describe("the shell by profile", () => {
     "shows $who the links and the name and account type the read returned",
     async ({ principals, tabs, labels, absent, links }) => {
       // Catches a nav that still lists all ten for everyone (the comment this
-      // plan rewrites records exactly that decision), one that lists fewer than
+      // a later change rewrites records exactly that decision), one that lists fewer than
       // the read returned, and a strip that omits the name or the account type.
       // Names AND hrefs are asserted in order, so a link filtered by position
       // instead of by key is red as well. The strip is awaited first: a pending

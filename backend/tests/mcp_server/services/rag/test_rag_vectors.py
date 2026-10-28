@@ -104,7 +104,7 @@ CLOSED_PORT_URL = "http://127.0.0.1:1"
 
 _UNREACHABLE_MSG = (
     "Qdrant is unreachable at the configured QDRANT_URL.\n"
-    "Plan 14c tests require the compose stack: run `docker compose up -d` first.\n"
+    "Tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 

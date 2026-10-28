@@ -117,12 +117,12 @@ _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 
 _PG_UNREACHABLE_MSG = (
     "Postgres is unreachable at the configured DATABASE_URL.\n"
-    "Plan 21a scheduler tests require the compose stack: run `docker compose up -d` first.\n"
+    "Scheduler tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 _REDIS_UNREACHABLE_MSG = (
     "Redis is unreachable at the configured REDIS_URL.\n"
-    "Plan 21a scheduler tests require the compose stack: run `docker compose up -d` first.\n"
+    "Scheduler tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 
@@ -555,7 +555,7 @@ def test_a_job_that_raises_has_its_key_deleted_and_leaves_the_other_job_running(
     for tenant in tenants:
         raiser_key = tenant_lock_key(raiser, tenant.tenant_id)
         assert _get_key_ttl(scheduler_redis_url, raiser_key) is None, (
-            f"decision C: failed job's per-tenant key must be deleted, got TTL for {raiser_key}"
+            f"failed job's per-tenant key must be deleted, got TTL for {raiser_key}"
         )
         healthy_key = tenant_lock_key(job_name, tenant.tenant_id)
         assert _get_key_ttl(scheduler_redis_url, healthy_key) == EXPIRE_GRANTS_CADENCE_SECONDS, (

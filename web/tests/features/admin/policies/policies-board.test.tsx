@@ -380,7 +380,7 @@ describe("PoliciesBoard — the shape of the board", () => {
       // are in neither alphabetical direction. The order on the wire is the
       // tool's own (`slug` ascending), and this component is not
       // the place that decides what the board contains or in what order: a
-      // document ingested by a later plan must not be able to land somewhere an
+      // document ingested later must not be able to land somewhere an
       // admin does not look.
       boardAnswer = () => board(documents);
       renderBoard();
@@ -828,7 +828,7 @@ describe("PoliciesBoard — an expired session", () => {
   });
 });
 
-describe("PoliciesBoard — the re-ingest control it carries (plan 31b §6)", () => {
+describe("PoliciesBoard — the re-ingest control it carries", () => {
   /**
    * A third fake digest, so the document below holds TWO `v1` rows that differ
    * only in their bytes — the state `register_document_version` writes when an

@@ -485,7 +485,7 @@ def test_a_rolled_back_row_writes_grant_revoked_and_grant_rolled_back(
     ]
     revoked_payload = written[0][2]
     assert written[0][1] == ROLLED_BACK_SUBJECT_TYPE
-    assert revoked_payload["reason"] == ROLLBACK_REVOKE_REASON, "decision B, in the event too"
+    assert revoked_payload["reason"] == ROLLBACK_REVOKE_REASON, "in the event too"
     assert revoked_payload["revoked_count"] == 1
 
     subject_type, payload = written[1][1], written[1][2]

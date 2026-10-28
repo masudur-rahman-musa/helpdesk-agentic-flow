@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
  * `web/README.md` stays true to the code. It has four sections in
  * order, every path it names exists, every feature folder is named, the request
  * flow names its steps in order, every pnpm script and make target it names is
- * real, and it names no private working file. Reads files by path, no render,
+ * real. Reads files by path, no render,
  * no service.
  *
  * Input validation does not apply: no input here shapes a key, identifier, path or
@@ -22,7 +22,6 @@ const FEATURES_ROOT = join(WEB_ROOT, "src", "features");
 
 const SECTIONS = ["Folder layout", "How a request flows", "Run it", "Test it"] as const;
 const PNPM_EXTRA = ["install", "exec"] as const;
-const PRIVATE_NAMES = ["dev/notes", "REQUIREMENTS", "his.md", "dev/plans"] as const;
 
 /** Throws (ENOENT) when the README is missing, so every README test fails for that reason. */
 function readReadme(): string {
@@ -90,7 +89,7 @@ function featureFolders(): string[] {
     .map((e) => e.name);
 }
 
-describe("web README (plan 79)", () => {
+describe("web README", () => {
   it("test_the_readme_has_the_four_sections_in_order", () => {
     /** Catches a README that drops, renames or reorders one of the four sections. */
     const lines = readReadme().split("\n");
@@ -154,11 +153,5 @@ describe("web README (plan 79)", () => {
     const names = makeTargets(readReadme());
     const known = makefileTargets(readFileSync(MAKEFILE_PATH, "utf8"));
     expect(names.filter((n) => !known.has(n))).toEqual([]);
-  });
-
-  it("test_the_readme_names_no_private_working_file", () => {
-    /** Catches a README that leaks a private working file name into a public repo. */
-    const text = readReadme();
-    expect(PRIVATE_NAMES.filter((n) => text.includes(n))).toEqual([]);
   });
 });

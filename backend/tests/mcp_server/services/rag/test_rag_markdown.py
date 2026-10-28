@@ -110,7 +110,7 @@ def test_every_section_of_every_corpus_file_round_trips(path: Path) -> None:
 )
 def test_the_sections_of_every_corpus_file_partition_the_source(path: Path) -> None:
     """Catches a splitter that drops or duplicates bytes at a heading
-    boundary (plan the named risk): dropping a heading line, starting a
+    boundary: dropping a heading line, starting a
     section after its heading, or overlapping two sections all leave every
     per-section round-trip above green."""
     source = path.read_text(encoding="utf-8")

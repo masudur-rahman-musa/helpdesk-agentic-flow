@@ -1103,7 +1103,7 @@ def test_no_provider_model_name_appears_in_the_repo() -> None:
     """Catches the exact regression the no-provider-names rule forbids: a provider model id
     pasted into a call, a constant or a docstring under
     `packages/helpdesk/helpdesk/` or `services/`, which is how "we only use
-    aliases" quietly stops being true. Scoped to those two trees, so a test fixture or a design note
+    aliases" quietly stops being true. Scoped to those two trees, so a test fixture or a doc
     discussing a provider is not swept."""
     offenders = [
         (path, prefix)

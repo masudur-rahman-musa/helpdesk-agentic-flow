@@ -11,8 +11,8 @@ name: image-scan
 # Two jobs, because the images come from two places. `base` scans the three
 # images docker-compose.yml pins: the demo stack ships them, so a fixable
 # critical in the postgres we pin is our finding. `built` builds this
-# repository's own four images and scans those, which an earlier change added with the
-# Dockerfiles that make them buildable.
+# repository's own four images and scans those, which the
+# Dockerfiles make buildable.
 #
 # Pinned by infra/tests/test_security_config.py::
 # test_the_image_scan_covers_exactly_the_three_pinned_compose_images and by

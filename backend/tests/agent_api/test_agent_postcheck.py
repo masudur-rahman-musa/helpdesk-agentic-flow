@@ -89,7 +89,7 @@ def test_decision_words_is_exactly_the_four_the_check_polices() -> None:
     """On the set the check is about: asserted by
     equality and not by length, so a fifth word or a misspelt one is caught.
 
-    Catches a module that policed a wider vocabulary than the plan fixed —
+    Catches a module that policed a wider vocabulary than intended —
     every extra word is a reply regenerated for prose the engine never
     contradicted — and one missing a word, which is a decision word that can
     never be caught at all."""

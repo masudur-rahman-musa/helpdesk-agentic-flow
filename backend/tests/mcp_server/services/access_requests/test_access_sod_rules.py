@@ -22,11 +22,10 @@ rows and the guard in ``helpdesk/core/db.py`` is the only filter.
 MODULE on purpose: both import paths exist, and importing one of
 each pins the re-export without a case that asserts nothing else.
 
-The plan names the two field sets but not the carrier (a frozen dataclass, as
+The two field sets are fixed but not the carrier (a frozen dataclass, as
 `PendingWithContext` and `ReviewItemWithContext` are, or a Pydantic model, as
 `ActiveGrant` is). `_field_names` below reads either, so the exact field set is
-still asserted while the choice stays the implementer's - a value the plan left
-open, recorded here rather than invented.
+still asserted while the choice stays the implementer's.
 
 The engine and session factory are the shared ones from
 `conftest.py` - one engine for the whole run, schema created once. Per-test

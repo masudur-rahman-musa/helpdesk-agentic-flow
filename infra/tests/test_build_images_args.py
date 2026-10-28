@@ -9,9 +9,9 @@ spawned.
 Why the checks are worth a suite of their own: both values are interpolated into
 a `docker build` command line, so an unchecked tag is an argument the build
 tool reads as something else (a `/` turns `local` into a registry path and the
-push target changes silently). a project rule wants the typed pre-check before
-any effect runs, and a project rule wants the pattern applied with
-`re.fullmatch` so a trailing newline cannot ride along behind a valid tag.
+push target changes silently). The typed pre-check runs before any effect, and
+the pattern is applied with `re.fullmatch` so a trailing newline cannot ride
+along behind a valid tag.
 
 Pure: no Postgres, Redis, Qdrant or Docker daemon. The only seam is
 `subprocess.run`, monkeypatched in the one case that asserts nothing is spawned.
@@ -38,8 +38,8 @@ EXPECTED_SERVICES: frozenset[str] = frozenset({"agent-api", "mcp-server", "sched
 accepted name is a build target nothing else in this repo knows how to make."""
 
 EXPECTED_TAG_MAX_LENGTH = 128
-"""The inclusive upper bound of the tag pattern, pinned as a value per standing
-rule 2 and asserted from both sides by the two boundary cases below."""
+"""The inclusive upper bound of the tag pattern, pinned as a value and asserted
+from both sides by the two boundary cases below."""
 
 VALID_TAG = "local"
 """The tag `make images` uses, held constant wherever a case varies the other
@@ -55,7 +55,7 @@ REFUSED_TAG_CHARACTERS: tuple[tuple[str, str], ...] = (
     ("crlf", "local\r\n"),
     ("colon", "local:1"),
 )
-"""The rejection table a project rule asks for. The slash is the one that
+"""The rejection table. The slash is the one that
 matters most: `docker build -t helpdesk/local` names a different repository and
 a later push goes somewhere nobody chose. The newline and CRLF rows are what
 separate `re.fullmatch` from a `re.match` whose `$` is happy to stop before a

@@ -143,7 +143,7 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
           # The reserve's own per-pod row: the one Helpdesk workload sized for
-          # real traffic (decision A).
+          # real traffic.
           resources:
             requests:
               memory: 192Mi
@@ -366,7 +366,7 @@ spec:
       containers:
         - name: helpdesk-scheduler
           image: helpdesk-scheduler
-          # No `ports`, no Service and no probes (decision F). It serves
+          # No `ports`, no Service and no probes. It serves
           # nothing, so a Service in front of it would be an address with no
           # listener behind it.
           envFrom:

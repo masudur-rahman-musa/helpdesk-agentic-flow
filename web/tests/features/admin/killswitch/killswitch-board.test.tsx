@@ -19,7 +19,7 @@ import { KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
  * renders. Everything on this surface is a READ: no case posts anything,
  * because nothing here may — the toggle is tested apart.
  *
- * The accessible names are the plan's own: the region `Kill switches`, the
+ * The accessible names are the requirements' own: the region `Kill switches`, the
  * table `Tool kill switches`, and the four column headers `Tool`, `Status`,
  * `Platform-wide`, `This tenant`. The implementation owes the `<section>` and
  * the `<table>` an `aria-label` each, because neither role takes its name from
@@ -301,7 +301,7 @@ describe("KillSwitchBoard — the shape of the board", () => {
     // one and any "stopped tools first" grouping — its three tools are in
     // neither alphabetical direction. The order on the wire is the registry's, and this component
     // is not the place that decides what the board
-    // contains or in what order: a tool added by a later plan must not be able
+    // contains or in what order: a tool added later must not be able
     // to land somewhere an operator does not look.
     boardAnswer = () => board(tools.map((tool) => row({ tool })));
     renderBoard();
@@ -628,7 +628,7 @@ describe("KillSwitchBoard — an expired session", () => {
   });
 });
 
-describe("KillSwitchBoard — two failed reads the existing rows do not cover (plan 24ib §6)", () => {
+describe("KillSwitchBoard — two failed reads the existing rows do not cover", () => {
   it("renders the read message for a 500 carrying no body at all", async () => {
     // A risk for this board: `readWire` reads the
     // body of a non-ok response to look for a typed code, and the existing

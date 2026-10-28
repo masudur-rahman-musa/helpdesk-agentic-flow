@@ -19,7 +19,7 @@ of these names until steps 1, 2 and 4 land):
     ``call_tool_route`` and ``STATUS_FOR_CODE`` — which is why every case here
     patches ``deps.build_tool_caller`` and none of them opens a socket.
 
-Shapes this file fixes that the plan left open:
+Shapes this file fixes:
 - the three tool names are ``list_reviews``, ``list_review_items`` and
   ``decide_review_item``, and the decision's key material is taken over the
   decision WORD itself (``"keep"`` / ``"revoke"``, the tool's own
@@ -502,7 +502,7 @@ def test_the_queue_route_sends_each_query_parameter_only_when_it_is_asked_for(
     `model_dump` sends every declared field, so asking for a status alone would
     put `limit: null` on the wire (refused by a 1..200 bound) and asking for a
     limit alone would put `status: null` where the tool's absent-status meaning
-    is "every status". Only the per-shape construction the plan names can make
+    is "every status". Only the per-shape construction the requirements name can make
     both rows pass.
     """
     caller = ScriptedToolCaller(QUEUE_PAYLOAD)

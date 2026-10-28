@@ -89,7 +89,7 @@ test("a stopped create_access_request refuses the turn and writes no request row
   const employee = who(all, "employee");
 
   await openBoard(page, admin);
-  await page.getByRole("textbox", { name: `Reason for ${TOOL}` }).fill("Plan 25 unhappy path.");
+  await page.getByRole("textbox", { name: `Reason for ${TOOL}` }).fill("Unhappy path.");
   await page.getByRole("button", { name: `Stop for this tenant for ${TOOL}` }).click();
   // The board re-reads after the change, and a row holding a tenant switch
   // offers the Release rather than the Stop. Waiting on that is what makes the

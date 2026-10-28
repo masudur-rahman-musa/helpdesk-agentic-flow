@@ -21,7 +21,7 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
  *
  * The unit under test is `AuditVerify` from
  * `web/src/features/admin/audit/components/audit-verify.tsx`, taking NO props and firing on a
- * CLICK through `useMutation` (decisions D and E). It is its own component
+ * CLICK through `useMutation`. It is its own component
  * because it shares no state with the search, so nothing here renders
  * `AuditSearch` and the cases are untouched.
  *
@@ -34,7 +34,7 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
  * Shapes this file fixes:
  * - "GET" is asserted as `init?.method ?? "GET"`, so an omitted method — what
  *   `fetch` defaults to and what the search fetcher relies on — passes, and
- *   a POST does not. The plan fixes the verb, not whether it is spelled out.
+ *   a POST does not. The requirements fix the verb, not whether it is spelled out.
  * - the FOUR verdict sentences and the TWO anchor lines are
  *   found by TEXT inside the region named `Chain integrity` (each a `<p>`),
  *   never as exported constants, and the refusal and failure sentences inside
@@ -587,7 +587,7 @@ describe("AuditVerify — an expired session", () => {
   });
 });
 
-describe("AuditVerify — the failures and the sentence the migration must keep (plan 24ib §6)", () => {
+describe("AuditVerify — the failures and the sentence the migration must keep", () => {
   it("renders the read failure for a 500 carrying no body at all", async () => {
     // A risk for this panel: `readWire` reads the
     // body of a non-ok response to look for a typed code, and the existing

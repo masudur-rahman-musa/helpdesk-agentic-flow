@@ -24,6 +24,6 @@ paths = [
   ".env.example",
   # Demo logins printed for a reader of the demo. No account they open exists.
   "docs/demo-accounts.md",
-  # Seed data, obviously fake by a project rule: no real name, company or address.
+  # Seed data, obviously fake: no real name, company or address.
   "backend/scripts/seed.py",
 ]

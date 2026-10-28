@@ -9,14 +9,14 @@ import { TicketList } from "@/features/tickets/components/ticket-list";
  * `ticket-list.test.tsx`: the small My tickets list against a stubbed `fetch`.
  * jsdom, no agent-api, no backing service.
  *
- * Shapes this file fixes (the plan left them open):
+ * Shapes this file fixes:
  * - the unit is `TicketList` from `features/tickets/components/ticket-list.tsx`,
  *   taking no props and reading `/api/me/tickets` itself, like `RequestList`.
  * - accessible names: region `My tickets`, row list `Tickets`.
  * - status words are `Open` and `Solved`; a kind is shown in plain words, so
  *   `password_reset` reads as "Password reset" (matched ignoring case, with no
  *   underscore).
- * - the empty sentence and the alert sentence are the plan's, byte for byte.
+ * - the empty sentence and the alert sentence are the requirements', byte for byte.
  */
 
 const EMPTY_TICKETS = "You have not opened any tickets.";

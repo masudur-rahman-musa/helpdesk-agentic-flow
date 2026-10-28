@@ -4,7 +4,6 @@ Expected implementation surface (the implementer must provide exactly this):
 
 ``agent_api.ratelimit``
     ``RATE_LIMIT_MESSAGES = 30`` — messages one session may send per window
-        (the contract, plan decision C1).
     ``RATE_LIMIT_WINDOW_SECONDS = 600`` — the fixed window's length, and the
         ``EXPIRE`` argument the first hit of a window sets.
     ``def key_for(*, tenant_id: uuid.UUID, session_id: str, now: datetime) -> str``
@@ -16,14 +15,13 @@ Expected implementation surface (the implementer must provide exactly this):
     ``class RateLimitExceededError(ToolError)`` — ``code = ErrorCode.POLICY_BLOCKED``,
         what the 31st message in one window raises.
     ``class RateLimitUnavailableError(ToolError)`` — ``code = ErrorCode.INTERNAL``,
-        what an unreachable Redis raises (decision C1, fail CLOSED).
+        what an unreachable Redis raises (fail CLOSED).
     ``async def check_rate_limit(client: Redis, *, tenant_id: uuid.UUID,
         session_id: str, now: datetime) -> None`` — one ``INCR`` on the key,
         one ``EXPIRE`` at ``RATE_LIMIT_WINDOW_SECONDS`` on the FIRST hit of a
         window and on no later one, and a typed refusal past the cap.
 
-Two values the requirements left open and this file fixes, for the implementer to
-record in the plan's Deviations: the code carried by the over-limit refusal
+Two values this file fixes: the code carried by the over-limit refusal
 (``POLICY_BLOCKED`` — a platform rule blocked a request the caller may retry
 later; ``FORBIDDEN`` would read as a permission decision that can never
 succeed, and ``TOOL_DISABLED`` is the kill switch's) and the code carried by
@@ -83,7 +81,7 @@ KEY_TENANT_ID = uuid.UUID("11111111-1111-5111-8111-111111111111")
 KEY_SESSION_ID = "5f7b1c2a-0000-4000-8000-000000000001"
 
 EXPECTED_KEY = f"ratelimit:{KEY_TENANT_ID}:{KEY_SESSION_ID}:{WINDOW_INDEX}"
-"""The exact key string decision C1 fixes, spelled out rather than built."""
+"""The exact key string, spelled out rather than built."""
 
 TEST_REDIS_DB = 15
 _FALLBACK_TEST_REDIS_DB = 14
@@ -113,7 +111,7 @@ _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 
 _REDIS_UNREACHABLE_MSG = (
     "Redis is unreachable at the configured REDIS_URL.\n"
-    "Plan 19a rate limit tests require the compose stack: run `docker compose up -d` first.\n"
+    "Rate limit tests require the compose stack: run `docker compose up -d` first.\n"
     "Original error: {error!r}"
 )
 
@@ -229,8 +227,8 @@ class RecordingRedis:
 
     def __getattr__(self, name: str) -> Any:
         raise AssertionError(
-            f"the limiter sent Redis an unexpected command {name!r}; decision C1 fixes the "
-            "counter as one INCR plus one EXPIRE on the first hit of a window"
+            f"the limiter sent Redis an unexpected command {name!r}; the "
+            "counter is one INCR plus one EXPIRE on the first hit of a window"
         )
 
     @property
@@ -409,8 +407,8 @@ def test_the_window_expires_after_exactly_six_hundred_seconds(
 
 
 def test_an_unreachable_redis_refuses(tenant_id: uuid.UUID, session_id: str) -> None:
-    """Catches decision C2 shipped by accident: a limiter that swallowed the
-    `RedisError` and returned would let every session through unmetered for the
+    """Catches a limiter that swallows the
+    `RedisError` and returns, which would let every session through unmetered for the
     length of a Redis outage, which is exactly when a runaway client is least
     visible.
 

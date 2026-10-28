@@ -19,7 +19,7 @@ Expected implementation surface (the implementer must provide exactly this):
 
 Seed data is obviously fake (example.test emails, "Fake" names, fake hashes).
 ``grants.request_id`` stays ``None``: its FK target (``access_requests``)
-lands in a later plan row, so the column must be a nullable UUID for now.
+lands later, so the column must be a nullable UUID for now.
 """
 
 import uuid

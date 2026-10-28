@@ -1,4 +1,4 @@
-"""An earlier change: the compose `postgres-test` service and the CI job that starts it.
+"""The compose `postgres-test` service and the CI job that starts it.
 
 Static reads of ``docker-compose.yml`` and ``.github/workflows/ci.yml`` through
 ``yaml.safe_load``, so reformatting cannot redden a case. No service is needed.

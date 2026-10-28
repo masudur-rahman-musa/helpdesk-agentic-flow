@@ -9,6 +9,7 @@ from `ast`. The finder is one function, driven by one table.
 import ast
 import io
 import re
+import subprocess
 import tokenize
 from dataclasses import dataclass
 from pathlib import Path
@@ -297,3 +298,117 @@ def test_backend_comment_share_is_at_most_25_percent() -> None:
         f"{comment_total} of {line_total} lines are comments "
         f"({comment_total / line_total:.1%}); highest ten: {worst}"
     )
+
+
+REPO_ROOT = BACKEND.parent
+TS_GUARD = REPO_ROOT / "web" / "tests" / "plain-comments.test.ts"
+UNSCANNED_NAMES = frozenset({"pnpm-lock.yaml", "uv.lock", ".gitleaks-baseline.json"})
+UNSCANNED_SUFFIXES = (".lock", ".lockb")
+
+# The phrases are built from halves so this file does not contain them itself.
+_PLACEHOLDERS = (
+    "an earlier" + r"\s+change",
+    "a design" + r"\s+note",
+    "the project" + r"\s+notes",
+    "a project" + r"\s+rule",
+)
+
+# (kind, pattern, ignore case). Each is a trace of notes kept outside this repo.
+REPO_WIDE_KINDS: tuple[tuple[str, str, bool], ...] = (
+    ("plan number", r"\bplans?\s+\d", True),
+    ("adr number", r"\bADR[\s-]?\d", False),
+    ("section sign", "\u00a7", False),
+    ("spec section", r"\bSPEC\s+\d", False),
+    ("numbered rule", r"\b(?:standing|hard)\s+rule\s+\d", True),
+    ("status file", r"\bSTATUS\.md\b", False),
+    ("what-broke", "what" + r"-broke", True),
+    ("test mode", "test" + r"-mode", True),
+    ("auto mode", "auto" + "mode", True),
+    ("dev path", r"(?<![\w/.])dev/(?:adr|plans|docs|ops|notes|disputes)\b", True),
+    *(("placeholder phrase", phrase, True) for phrase in _PLACEHOLDERS),
+)
+
+
+def tracked_text_files() -> list[tuple[str, str]]:
+    """(relative path, text) of every tracked text file, minus lockfiles, the
+    gitleaks baseline, binary files and the two guard files themselves."""
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, check=True
+    ).stdout.decode()
+    found: list[tuple[str, str]] = []
+    for name in sorted(filter(None, listing.split("\0"))):
+        path = REPO_ROOT / name
+        if (
+            path.name in UNSCANNED_NAMES
+            or name.endswith(UNSCANNED_SUFFIXES)
+            or path.resolve() in (SELF, TS_GUARD.resolve())
+            or not path.is_file()
+        ):
+            continue
+        data = path.read_bytes()
+        if b"\0" in data:
+            continue
+        try:
+            found.append((name, data.decode("utf-8")))
+        except UnicodeDecodeError:
+            continue
+    return found
+
+
+def repo_wide_hits(text: str) -> list[tuple[str, int]]:
+    """Every (kind, line number) in `text` for the repo-wide kinds."""
+    hits: list[tuple[str, int]] = []
+    for kind, pattern, ignore_case in REPO_WIDE_KINDS:
+        flags = re.IGNORECASE if ignore_case else 0
+        hits.extend(
+            (kind, text.count("\n", 0, match.start()) + 1)
+            for match in re.finditer(pattern, text, flags)
+        )
+    return hits
+
+
+REPO_WIDE_FLAGGED: list[tuple[str, str]] = [
+    ("plans 80 to 119", "plan number"),
+    ("plan 30ca", "plan number"),
+    ("ADR 0031", "adr number"),
+    ("see SPEC 4.2", "spec section"),
+    ("hard rule 4", "numbered rule"),
+    ("standing rule 38", "numbered rule"),
+    ("update STATUS.md", "status file"),
+    ("a what-broke note", "what-broke"),
+    ("the test-mode switch", "test mode"),
+    ("under automode", "auto mode"),
+    ("see dev/adr/0001.md", "dev path"),
+    ("An earlier change did it", "placeholder phrase"),
+    ("per a design note", "placeholder phrase"),
+    ("in the project notes", "placeholder phrase"),
+    ("by a project rule", "placeholder phrase"),
+]
+
+
+@pytest.mark.parametrize(("text", "kind"), REPO_WIDE_FLAGGED)
+def test_repo_wide_finder_flags_each_kind(text: str, kind: str) -> None:
+    """Catches a repo-wide pattern that stopped matching its own kind."""
+    assert kind in {name for name, _ in repo_wide_hits(text)}
+
+
+@pytest.mark.parametrize(
+    "text", ["the plan is fine", "plan_tools", "/dev/null", "a row of 3", "ADRESS 4"]
+)
+def test_repo_wide_finder_passes_plain_text(text: str) -> None:
+    """Catches a repo-wide pattern so greedy it flags ordinary words."""
+    assert repo_wide_hits(text) == []
+
+
+def test_tracked_files_carry_no_trace_of_outside_notes() -> None:
+    """Catches any tracked text file (code, tests, configs, docs, workflows)
+    that names a plan, a decision record, a spec section, a numbered rule or
+    the notes kept outside this repo. Lists every `file:line` at once."""
+    hits = sorted(
+        {
+            f"{name}:{line} ({kind})"
+            for name, text in tracked_text_files()
+            for kind, line in repo_wide_hits(text)
+        }
+    )
+    assert hits == [], f"{len(hits)} traces of outside notes: {hits}"

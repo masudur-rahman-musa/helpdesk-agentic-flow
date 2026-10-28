@@ -11,7 +11,7 @@
 # infra/tests/test_container_build.py::
 # test_the_backing_services_carry_no_profile.
 #
-# The four app services carry `build:` and no `image:` on purpose. An earlier change's
+# The four app services carry `build:` and no `image:` on purpose. The
 # weekly scan is pinned to the exact set of `image:` values here, and a built
 # image that named one would add a fourth name to that set for an image no
 # registry holds.
@@ -186,8 +186,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
       MCP_URL: http://helpdesk-mcp-server:8081/mcp
-    # Published because the loop's counters can only be scraped here (an earlier change
-    # decision H): a metric nothing can reach is not a metric.
+    # Published because the loop's counters can only be scraped here (a metric
+    # nothing can reach is not a metric).
     ports: ["8082:8082"]
     depends_on:
       postgres: {condition: service_healthy}

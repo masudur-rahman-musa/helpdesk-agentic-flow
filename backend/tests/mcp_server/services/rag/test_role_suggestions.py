@@ -108,7 +108,7 @@ def _embedder_for(scored: Mapping[RoleRow, Vector]) -> FakeEmbedder:
 
 def test_the_planned_values_are_exactly_these() -> None:
     """Catches a floor, cap or length of any other size: each is a number the
-    plan fixes, and a range check would admit a wrong one."""
+    the requirements fix, and a range check would admit a wrong one."""
     assert SUGGESTION_FLOOR == 0.70
     assert MAX_SUGGESTIONS == 3
     assert SUGGEST_QUERY_MAX_CHARS == 200

@@ -106,7 +106,7 @@ def test_audit_event_is_tenant_scoped_on_the_spec_table() -> None:
 def test_audit_event_has_every_spec_column() -> None:
     columns = set(AuditEvent.__table__.c.keys())
     missing = set(SPEC_COLUMNS) - columns
-    assert not missing, f"audit_events is missing SPEC §6 columns: {sorted(missing)}"
+    assert not missing, f"audit_events is missing columns: {sorted(missing)}"
 
 
 def test_seq_is_a_db_assigned_bigint() -> None:

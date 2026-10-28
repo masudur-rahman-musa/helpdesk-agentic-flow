@@ -108,7 +108,7 @@ def test_unknown_principals_give_nothing() -> None:
 
 def test_an_employee_is_told_they_can_see_their_tickets() -> None:
     """Catches a new tool with no sentence, or a sentence worded differently
-    from the one the plan names: the employee's lines must hold exactly this
+    from the one the requirements name: the employee's lines must hold exactly this
     text, and it must be the sentence of the new tool."""
     sentence = "Show the tickets you have opened and whether each is open or solved."
 
@@ -118,7 +118,7 @@ def test_an_employee_is_told_they_can_see_their_tickets() -> None:
 
 def test_an_it_admin_is_told_they_can_see_open_tickets() -> None:
     """Catches a new tool with no sentence, a sentence worded differently from
-    the one the plan names, and a sentence that also reaches the employee, who
+    the one the requirements name, and a sentence that also reaches the employee, who
     is refused the tool."""
     sentence = "Show every open ticket in your company."
 
@@ -129,7 +129,7 @@ def test_an_it_admin_is_told_they_can_see_open_tickets() -> None:
 
 def test_an_it_admin_is_told_they_can_solve_tickets() -> None:
     """Catches a new tool with no sentence, a sentence worded differently from
-    the one the plan names, and a sentence that also reaches the employee, who
+    the one the requirements name, and a sentence that also reaches the employee, who
     is refused the tool."""
     sentence = "Mark an open ticket solved."
 

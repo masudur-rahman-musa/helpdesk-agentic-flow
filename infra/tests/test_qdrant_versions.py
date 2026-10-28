@@ -40,7 +40,6 @@ REPO_ROOT = _repo_root()
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 IMAGE_SCAN_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "image-scan.yml"
-DEPLOY_DOC = REPO_ROOT / "dev" / "ops" / "deploy.md"
 SECURITY_TEST = REPO_ROOT / "infra" / "tests" / "test_security_config.py"
 
 EXPECTED_SERVER_IMAGE = "qdrant/qdrant:v1.19.1"
@@ -60,15 +59,14 @@ QDRANT_CLIENT_FLOOR = re.compile(r"^qdrant-client>=(\d+)\.(\d+)$")
 upper bound or an extra marker is not read as a bare floor by a partial match."""
 
 NO_LONGER_PINNED = "1.12.4"
-"""The old qdrant patch. No file this plan touches may still carry it."""
+"""The old qdrant patch. No file below may still carry it."""
 
 FILES_WITH_NO_OLD_PIN: tuple[Path, ...] = (
     COMPOSE,
     IMAGE_SCAN_WORKFLOW,
-    DEPLOY_DOC,
     SECURITY_TEST,
 )
-"""The four files the old pin lived in; each must drop it in the same change."""
+"""The three files the old pin lived in; each must drop it in the same change."""
 
 
 def _qdrant_server_image() -> str:
@@ -118,7 +116,7 @@ def _server_minor(image: str) -> int:
 
 def test_compose_pins_a_1_19_server() -> None:
     """Catches a compose file left on the old server tag (or any tag but v1.19.1),
-    which is the mismatch this plan closes: the client resolves to 1.19.0 while the
+    which is the mismatch this change closes: the client resolves to 1.19.0 while the
     server stays behind."""
     assert _qdrant_server_image() == EXPECTED_SERVER_IMAGE
 
@@ -141,9 +139,9 @@ def test_client_floor_and_server_share_the_minor() -> None:
 
 
 def test_no_v1_12_4_pin_remains() -> None:
-    """Catches the old patch being left behind in any one of the four files it lived
-    in, so compose, the image scan, the accepted-red deploy note and the security
-    test's pinned-image set all move together. A single stray `1.12.4` reddens this."""
+    """Catches the old patch being left behind in any one of the three files it lived
+    in, so compose, the image scan and the security test's pinned-image set all
+    move together. A single stray `1.12.4` reddens this."""
     for path in FILES_WITH_NO_OLD_PIN:
         assert path.is_file(), f"{path.relative_to(REPO_ROOT)} does not exist"
         text = path.read_text(encoding="utf-8")

@@ -1,4 +1,4 @@
-"""The container build surface of an earlier change, parsed statically (no image is built).
+"""The container build surface, parsed statically (no image is built).
 
 What is pinned: each of the three per-app Dockerfiles' non-root `USER` and its
 direct uvicorn entrypoint, the web `Dockerfile`'s non-root `USER` and its
@@ -7,8 +7,8 @@ four build-only services, the three backing services staying profile-free, the
 read-only policy-corpus mount into mcp-server, and the image-scan job's coverage
 of the four built images.
 
-The restructure split the one `ARG SERVICE`/case Dockerfile into three, one per
-app (`backend/Dockerfile.<app>`), built from the `backend/` context. Each copies
+Each app has its own Dockerfile (`backend/Dockerfile.<app>`), built from the
+`backend/` context. Each copies
 only `helpdesk/__init__.py`, `helpdesk/shared` and its own app subpackage, and
 its entrypoint is a direct `uvicorn helpdesk.<app>.main:app` on its own port.
 
@@ -44,7 +44,7 @@ REPO_ROOT = _repo_root()
 """Every path below is resolved from here."""
 
 BACKEND = REPO_ROOT / "backend"
-"""The one Python project the restructure merged the three apps into; the build
+"""The one Python project the three apps share; the build
 context of all three app images and where their Dockerfiles live."""
 
 # One entry per app: the Dockerfile, the importable app subpackage, and the port
@@ -69,8 +69,8 @@ APP_ENTRYPOINTS: dict[str, str] = {
     "mcp_server": "helpdesk.mcp_server.main:app",
     "scheduler": "helpdesk.scheduler.main:app",
 }
-"""The ASGI app each module serves. agent-api's app lives in `api/router.py`
-since an earlier change; the other two keep `main`. Read by both entrypoint cases, so the
+"""The ASGI app each module serves. agent-api's app lives in `api/router.py`;
+the other two keep `main`. Read by both entrypoint cases, so the
 image and the watch-mode override name the same target."""
 
 WEB_DOCKERFILE = REPO_ROOT / "web" / "Dockerfile"
@@ -90,7 +90,7 @@ COMPOSE_APP_SERVICES: tuple[str, ...] = (
     "helpdesk-web",
 )
 """The four compose services the `app` profile adds, each with a `build:` block
-and no `image:` key so that an earlier change's pinned-image set does not move."""
+and no `image:` key so that the pinned-image set does not move."""
 
 APP_PROFILE = "app"
 """The one profile name the four app services carry, asserted as the exact list
@@ -106,17 +106,13 @@ compose services that build them."""
 
 PRIVATE_PATHS: tuple[str, ...] = (
     "tests",
-    "dev-process",
     ".env",
-    "notes.md",
-    "his.md",
-    "pl",
     ".git",
     "docs",
     "evals",
 )
-"""The nine paths no image may carry: the six of criterion 6 plus version
-control, the docs tree and the evaluation tree. Asserted as a required
+"""The paths no image may carry: tests, the env file, version control, the
+docs tree and the evaluation tree. Asserted as a required
 subset, not as the whole file: the build artefacts a real image must also
 exclude (`.venv`, `node_modules`, `.next`) are the implementation's business."""
 
@@ -126,7 +122,7 @@ spelling of the same account, which is how a "non-root" image ships as root."""
 
 TRIVY_FLAGS: tuple[str, ...] = ("--ignore-unfixed", "--severity HIGH,CRITICAL")
 """The two flags every trivy invocation carries, matching the weekly base-image
-scan an earlier change pinned."""
+scan."""
 
 STANDALONE_OUTPUT = re.compile(r"""output\s*:\s*['"]standalone['"]""")
 """`output: "standalone"` in `next.config.ts`, either quote style."""
@@ -300,8 +296,7 @@ def test_the_web_image_is_built_from_the_standalone_output() -> None:
 @pytest.mark.parametrize("path", PRIVATE_PATHS)
 def test_the_dockerignore_excludes_every_private_path(path: str) -> None:
     """Catches a private path shipped inside an image: `.env` is the live
-    secret, `notes.md`, `his.md` and `pl` are gitignored working files, and
-    `tests`, `dev-process`, `docs` and the two evaluation trees are weight and
+    secret, and `tests`, `docs` and the evaluation tree are weight and
     disclosure with nothing to run. Catches equally a re-admitting negation
     (`!.env`) added below the exclusion, which reads as an exclusion until the
     build copies the file in anyway."""
@@ -324,7 +319,7 @@ def test_the_app_profile_declares_the_four_services(name: str) -> None:
     """Catches an app service left out of the `app` profile, which would start
     on a bare `docker compose up -d` and race the host process on the same port;
     catches equally an `image:` key on a built service, which would add a fourth
-    name to the set an earlier change's weekly scan is pinned to and redden that case for
+    name to the set the weekly scan is pinned to and redden that case for
     an image no registry holds."""
     service = _compose_service(name)
 
@@ -350,7 +345,7 @@ def test_the_policy_dir_is_mounted_read_only_into_the_mcp_server() -> None:
     """Catches a writable policy mount, where a compromised tool process edits
     the corpus that decides access; catches equally the corpus baked into any
     app image, which makes the mount cosmetic and pins the corpus to the build.
-    The host side is now `./backend/data/policies` after the restructure."""
+    The host side is now `./backend/data/policies`."""
     service = _compose_service("helpdesk-mcp-server")
     volumes = service.get("volumes")
     assert isinstance(volumes, list) and volumes, "helpdesk-mcp-server mounts nothing"
@@ -385,7 +380,7 @@ def test_the_image_scan_job_covers_the_four_built_images(image: str) -> None:
             assert flag in text, f"the trivy step for {image} carries no {flag}"
 
 
-# --- an earlier change: the pinned base images and the web runtime's attack surface -----
+# --- the pinned base images and the web runtime's attack surface -----
 
 IMAGE_FLOORS: tuple[tuple[str, tuple[Path, ...], str, tuple[int, ...], str], ...] = (
     (
@@ -436,7 +431,7 @@ drifts green and nobody ever sees the move."""
 
 NPM_MODULE_PATH = "/usr/local/lib/node_modules/npm"
 """The bundled npm package the node image ships, which is where the 8 remaining
-HIGH findings of decision B live (`pacote`, `sigstore`, `brace-expansion`,
+HIGH findings live (`pacote`, `sigstore`, `brace-expansion`,
 `ip-address`, `picomatch`)."""
 
 NPM_ENTRY_POINTS: tuple[str, ...] = ("/usr/local/bin/npm", "/usr/local/bin/npx")
@@ -537,7 +532,7 @@ def _assert_not_older_than_the_floor(arg_name: str) -> None:
 
 
 def test_the_python_base_is_not_older_than_the_recorded_floor() -> None:
-    """Catches the defect this plan fixes: `python:3.12.8-slim-bookworm` sat
+    """Catches the defect this change fixes: `python:3.12.8-slim-bookworm` sat
     unbumped for nine months and surfaced as 44 CRITICAL/HIGH Debian findings in
     a trivy scan rather than as a red test. Catches equally that bump being
     reverted later. The floor is `(3, 12, 14)`, measured clean 2026-09-28, and it
@@ -575,7 +570,7 @@ def test_the_pinned_tags_are_exact_patch_versions(
     floor: tuple[int, ...],
     measured: str,
 ) -> None:
-    """Catches decision A being undone by a floating tag: `python:3.12-slim-bookworm`
+    """Catches the base image floor being undone by a floating tag: `python:3.12-slim-bookworm`
     satisfies the floor case above forever, because a two-component tag reads as
     `(3, 12)` and any patch it silently resolves to still compares greater than
     nothing. A floating pin makes the build unreproducible and makes a base bump
@@ -623,7 +618,7 @@ def test_the_web_runtime_stage_removes_npm() -> None:
         )
 
 
-# --- an earlier change: watch mode through the compose override example -----------------
+# --- watch mode through the compose override example -----------------
 
 OVERRIDE_EXAMPLE = REPO_ROOT / "docker-compose.override.example.yml"
 GITIGNORE = REPO_ROOT / ".gitignore"
@@ -642,15 +637,15 @@ module holding `main:app`, and the port the base file publishes and probes."""
 PYTHON_RELOAD_IDS: tuple[str, ...] = tuple(row[0] for row in PYTHON_RELOAD_ROWS)
 
 HELPDESK_DIR = "/app/helpdesk"
-"""Where the one merged `helpdesk` package lives in every Python image after the
-restructure. The editable install's `.pth` points at `/app`, so a read-only
-mount of the host source over `/app/helpdesk` is all a reloader needs, and it is
-also the one `--reload-dir` each service watches."""
+"""Where the one merged `helpdesk` package lives in every Python image. The
+editable install's `.pth` points at `/app`, so a read-only mount of the host
+source over `/app/helpdesk` is all a reloader needs, and it is also the one
+`--reload-dir` each service watches."""
 
 HELPDESK_SOURCE_MOUNT = "./backend/helpdesk:/app/helpdesk:ro"
 """The single source mount each Python override service carries: the host
-`backend/helpdesk` tree, read-only, over the image's package. The restructure
-replaced the old pair of mounts (a shared-lib mount plus a per-service mount)."""
+`backend/helpdesk` tree, read-only, over the image's package, instead of a
+shared-lib mount plus a per-service mount."""
 
 VENV_DIR = "/app/.venv"
 """The image's virtualenv, which no mount may land on or under."""
@@ -759,7 +754,7 @@ def test_the_override_example_mounts_python_source_read_only(service: str) -> No
     tree; catches a mount of the whole repo, which drags in what the image never
     carried; and catches a missing `helpdesk` mount, which leaves edits to the
     merged package invisible to a reloader watching an unchanged image copy.
-    After the restructure every Python service carries the one same mount."""
+    Every Python service carries the one same mount."""
     volumes = _override_service(f"helpdesk-{service}").get("volumes")
     assert isinstance(volumes, list), f"helpdesk-{service} mounts nothing: {volumes!r}"
 

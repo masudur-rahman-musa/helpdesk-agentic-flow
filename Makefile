@@ -1,7 +1,7 @@
 .PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify infra-check e2e load-smoke eval-chat images app-up app-down
 # Where `backend/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
-# the seed's demo passwords in plaintext: fake by a project rule, and still not
+# the seed's demo passwords in plaintext: fake, and still not
 # something to leave in the working tree.
 # Absolute so it means the same file to the reset/accounts scripts (run from
 # backend/, where they find backend/.env) and to Playwright (run from web/).
@@ -20,7 +20,7 @@ setup:      ## Install dependencies and pre-commit hooks
 	uv sync --project backend && uv run --project backend pre-commit install
 run:        ## Run the project locally
 	docker compose up -d && cd backend && uv run uvicorn helpdesk.agent_api.api.router:app --reload
-migrate:    ## Apply both schemas to the local compose database (hard rule 3)
+migrate:    ## Apply both schemas to the local compose database
 	cd backend && uv run alembic upgrade head && uv run python -m helpdesk.agent_api.cli
 ingest:     ## Ingest one tenant's corpus version from POLICY_DIR: make ingest TENANT=acme VERSION=v1
 	cd backend && uv run python -m helpdesk.mcp_server.cli --tenant $(TENANT) --version $(VERSION)
@@ -37,14 +37,14 @@ test:       ## Run tests with the coverage gate (needs the compose Postgres: doc
 # The everyday run: everything NOT marked slow, on 3 parallel workers. 3 is the
 # cap each worker's own Redis indexes allow. Slow tests, the whole
 # suite and the coverage gate are `make test`, `make verify` and CI.
-test-fast:  ## Everyday run: tests not marked slow, on 3 workers (plan 56)
+test-fast:  ## Everyday run: tests not marked slow, on 3 workers
 	cd backend && uv run pytest -q -m "not slow" -n 3
 # One serial run that prints the 30 slowest tests and their fixture setup. No
 # -n and no --cov, so workers and coverage tracing do not bend the numbers
 #. This is the reading that decides which tests get the slow marker.
-test-slowest: ## Print the 30 slowest tests and fixtures, serial, no coverage (plan 56)
+test-slowest: ## Print the 30 slowest tests and fixtures, serial, no coverage
 	cd backend && uv run pytest --durations=30
-test-policy: ## Policy engine alone: 100% line AND branch coverage (SPEC §9)
+test-policy: ## Policy engine alone: 100% line AND branch coverage
 	cd backend && uv run pytest -q \
 	  tests/shared/test_policy_risk.py \
 	  tests/shared/test_policy_decision.py \
@@ -105,7 +105,7 @@ security:   ## Secret scan, Python and web advisories, compose config scan (need
 	  config --severity HIGH,CRITICAL --exit-code 1 --ignorefile infra/.trivyignore \
 	  docker-compose.override.example.yml
 verify: format lint typecheck test test-policy web-verify security   ## The full gate, in order
-e2e:        ## The five SPEC 16 flows in a real browser (manual; needs docker compose up -d)
+e2e:        ## The five end-to-end flows in a real browser (manual; needs docker compose up -d)
 	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright pnpm -C web exec playwright install chromium
 	mkdir -p .cache
 	cd backend && uv run python scripts/e2e_reset.py

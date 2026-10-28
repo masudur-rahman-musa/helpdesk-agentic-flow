@@ -533,7 +533,7 @@ def test_an_it_admin_rolls_back_an_executed_request(
         row = _grant_row(mcp_env.database_url, grant_id)
         assert row.status == REVOKED_STATUS, grant_id
         assert row.revoked_at is not None
-        assert row.revoke_reason == ROLLBACK_REVOKE_REASON, "decision B: the literal, not the text"
+        assert row.revoke_reason == ROLLBACK_REVOKE_REASON, "the literal, not the text"
         written = _events_for(mcp_env.database_url, grant_id)
         assert [str(event.event_type) for event in written] == [
             GRANT_REVOKED_EVENT,

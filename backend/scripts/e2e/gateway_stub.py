@@ -57,8 +57,7 @@ answering:
   uses. Only the offboard flow needs it: `Intent.OFFBOARD`'s allowed tools are
   `offboard_user` and `create_ticket` with no directory search among them, so
   a turn naming a leaver by name has no in-turn way to reach their id. That is
-  a product gap this stub papers over deliberately and visibly, recorded in
-  the plan's Deviations.
+  a product gap this stub papers over deliberately and visibly.
 * `{today+N}` - an ISO date N days from today, for `end_date` arguments that
   would otherwise go stale the day after they were written.
 
@@ -284,7 +283,7 @@ def build_app() -> FastAPI:
 
 
 def _no_answer(schema: str, message: str, fixture: Fixture | None) -> JSONResponse:
-    """The loud 400 (plan step 5), naming what could not be placed."""
+    """The loud 400 (step 5), naming what could not be placed."""
     reason = (
         f"no fixture matches {message!r}"
         if fixture is None

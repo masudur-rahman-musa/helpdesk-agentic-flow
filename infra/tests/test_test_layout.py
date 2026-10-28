@@ -1,4 +1,4 @@
-"""Static checks that prove an earlier change's target test layout.
+"""Static checks that prove the target test layout.
 
 This file does not touch Postgres, Redis, Qdrant, any fixture or the network.
 It only looks at files on disk and imports a few modules by their package path.

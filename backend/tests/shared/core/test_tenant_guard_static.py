@@ -389,7 +389,7 @@ def test_the_scan_covers_shared_except_crud() -> None:
 
     assert shared_non_crud, (
         "SERVICE_FILES contains no file from shared/ outside shared/crud/; "
-        "the scan must be widened to cover shared/ after plan 70"
+        "the scan must be widened to cover shared/"
     )
     assert not shared_crud, (
         f"SERVICE_FILES contains shared/crud/ files {[str(p) for p in shared_crud]}; "
@@ -403,7 +403,7 @@ def test_the_store_allowlist_is_empty() -> None:
     clean, so no allowlist entry is needed.
     """
     assert frozenset() == STORE_ALLOWLIST, (
-        f"STORE_ALLOWLIST must be empty after plan 70 but still contains: {sorted(STORE_ALLOWLIST)}"
+        f"STORE_ALLOWLIST must be empty but still contains: {sorted(STORE_ALLOWLIST)}"
     )
 
 

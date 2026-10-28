@@ -37,7 +37,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
  *   and whose `url` is empty. The status and the `location` header are the only
  *   things there are to assert, and no `window.location` is touched by any case
  *   here -- this file runs in the node environment and stubs only `fetch`,
- *   through `vi.stubGlobal`. This conflict belongs in the Deviations.
+ *   through `vi.stubGlobal`.
  *
  * No backing service and no page: the only seam is `fetch`.
  */
@@ -169,7 +169,7 @@ describe("the two notification routes - the bearer", () => {
   });
 });
 
-describe("the page route - its own query parameters (decision D)", () => {
+describe("the page route - its own query parameters ", () => {
   it("forwards unread_only and limit from its own request url", async () => {
     // Catches a proxy that drops the query -- the tool puts the unread
     // filter on the tool because the bell's own view is the unread set, so a

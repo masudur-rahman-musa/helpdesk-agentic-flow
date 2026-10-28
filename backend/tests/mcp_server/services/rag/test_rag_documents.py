@@ -23,7 +23,7 @@ The session is tenant-bound (``helpdesk.core.db.tenant_session``), so the
 helper takes no tenant argument at all: the corpus is the token's tenant's own
 rows and the guard in ``helpdesk/core/db.py`` is the only filter.
 
-Shapes the plan left open, fixed here and owed to 24g's Deviations:
+Shapes fixed here:
 - the VERSION tie-break direction. The contract fixes ``ingested_at``
   descending "tiebroken by `version`" and states no direction for the second
   column, which a total order is only assertable with. This file fixes it as
@@ -32,7 +32,7 @@ Shapes the plan left open, fixed here and owed to 24g's Deviations:
   reverse=True)``) reverses both columns together. An implementation that
   tie-breaks ascending is red on
   `::test_two_versions_ingested_at_one_instant_are_tiebroken_by_version_descending`
-  and the plan's Deviations is where that choice is recorded.
+  and this file records that choice.
 - the CARRIER of both field sets (a frozen slotted dataclass, as
   `SodRuleDetail` is, or a Pydantic model, as `ActiveGrant` is).
   `_field_names` below reads either, so the exact field set is still asserted

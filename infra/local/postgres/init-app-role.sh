@@ -1,7 +1,7 @@
 #!/bin/sh
 # Give the restricted application role a password, on a fresh pgdata volume.
 #
-# An earlier change decision A splits this in two. The Alembic migration owns the
+# This is split in two. The Alembic migration owns the
 # role's EXISTENCE and every grant, because grants are schema and because an
 # init script runs only when the data directory is empty -- grants written here
 # would silently skip every database that already exists. The password is the
@@ -28,7 +28,7 @@ fi
 
 # -v plus :'app_password' is what quotes the value. Interpolating it into the
 # SQL text directly would make any quote in the password a syntax error at
-# best, and a project rule keeps the literal out of this file either way.
+# best, and the literal is kept out of this file either way.
 psql -v ON_ERROR_STOP=1 \
 	--username "$POSTGRES_USER" \
 	--dbname "$POSTGRES_DB" \

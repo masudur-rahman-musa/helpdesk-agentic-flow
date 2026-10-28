@@ -241,7 +241,7 @@ describe("the policies proxy — the refusals", () => {
   });
 });
 
-describe("the reingest proxy — the bearer, the body and the bound (plan 31b §6)", () => {
+describe("the reingest proxy — the bearer, the body and the bound", () => {
   /** agent-api's own path, which matches the browser's. */
   const REINGEST_UPSTREAM_PATH = "/admin/policies/reingest";
 

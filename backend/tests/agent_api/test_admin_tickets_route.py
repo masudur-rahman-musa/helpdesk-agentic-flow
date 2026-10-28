@@ -15,7 +15,7 @@ these names until the route lands):
     seam, so every case here patches ``tool_proxy.build_tool_caller``, enters no
     lifespan and opens no socket. Registered in ``api.router``.
 
-Shapes this file fixes that the plan left open:
+Shapes this file fixes:
 - the refusal envelope is ``{"code": "<ErrorCode value>"}``; a missing bearer is
   a literal 401 carrying ``{"code": "FORBIDDEN"}`` (what the shared middleware
   answers), a refusal from the tool is a 403.

@@ -997,17 +997,17 @@ def test_matrix_expectation_holds_through_the_transport(
         assert error_code(result) in {"FORBIDDEN", "NOT_FOUND"}, result.content
     elif MATRIX[tool_name][principal] and tool_name in ALLOW_ANSWERS_NOT_FOUND:
         assert error_code(result) == "NOT_FOUND", (
-            f"{principal} is permitted to call {tool_name} by SPEC §7, so the refusal "
+            f"{principal} is permitted to call {tool_name} per the RBAC matrix, so the refusal "
             f"must come from the lookup, not the matrix: {result.content!r}"
         )
     elif MATRIX[tool_name][principal]:
         assert result.is_error is False, (
-            f"{principal} is permitted to call {tool_name} by SPEC §7, "
+            f"{principal} is permitted to call {tool_name} per the RBAC matrix, "
             f"but the transport refused: {result.content!r}"
         )
     else:
         assert error_code(result) == "FORBIDDEN", (
-            f"{principal} is denied {tool_name} by SPEC §7 and must be refused FORBIDDEN"
+            f"{principal} is denied {tool_name} per the RBAC matrix and must be refused FORBIDDEN"
         )
 
 

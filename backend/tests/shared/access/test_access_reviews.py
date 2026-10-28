@@ -252,7 +252,7 @@ def plant_scope(url: str, *, members: int = 1) -> Scope:
             role_a_id=conflict_role_id,
             role_b_id=partner_role_id,
             rationale="fake pairing planted by the review tests",
-            policy_ref="SoD-FAKE §1",
+            policy_ref="SoD-FAKE section 1",
         )
 
         member_ids = tuple([await _add_user(session, department.id) for _ in range(members)])
@@ -1017,7 +1017,7 @@ def test_review_opened_names_the_review_and_carries_exactly_seven_keys(
     assert payload["system_id"] is None
     assert payload["period"] == used_period
     assert payload["reviewer_user_id"] == str(scope.manager_id)
-    assert review.reviewer_user_id == scope.manager_id, "decision F: the scope's own manager"
+    assert review.reviewer_user_id == scope.manager_id, "the scope's own manager"
     assert opener != scope.manager_id, "premise: the caller is not the manager"
     assert payload["item_count"] == 4
     assert {flag: count for flag, count in dict(payload["flag_counts"]).items() if count} == {
@@ -1474,7 +1474,7 @@ def test_a_stale_items_grant_is_revoked_although_no_live_set_holds_it(
     stopped producing the case cannot leave this green.
     """
     _scope, review, items = open_with_grants(access_db_url, expires_at=PAST_EXPIRY, count=1)
-    assert items[0].flag == ReviewFlag.STALE.value, "premise: this is decision A's row"
+    assert items[0].flag == ReviewFlag.STALE.value, "premise: this is the stale row"
     revocations_before = len(revoked_events(access_db_url))
 
     facts = decide_one(access_db_url, item_id=items[0].item_id, decision=ReviewDecision.REVOKE)

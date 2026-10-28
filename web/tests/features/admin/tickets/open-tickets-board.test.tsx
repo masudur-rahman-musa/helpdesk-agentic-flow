@@ -10,7 +10,7 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
  * `open-tickets-board.test.tsx`: the read-only `/admin/tickets` board against a
  * stubbed `fetch`. jsdom, no agent-api, no backing service.
  *
- * Shapes this file fixes (the plan left them open):
+ * Shapes this file fixes:
  * - the unit is `OpenTicketsBoard` from
  *   `features/admin/tickets/components/open-tickets-board.tsx`, taking no props
  *   and reading `/api/admin/tickets` itself, like `RulesBoard`.
@@ -19,7 +19,7 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
  * - a kind is shown in plain words (`password_reset` reads "Password reset",
  *   through `features/tickets/labels.ts`); the date is the ISO date of
  *   `created_at` (`2026-06-02`), through `lib/date-format`.
- * - the empty sentence and the alert sentence are the plan's, byte for byte;
+ * - the empty sentence and the alert sentence are the requirements', byte for byte;
  *   a typed refusal shows the shared `FAILURE_MESSAGES` sentence.
  */
 

@@ -2,13 +2,13 @@
 
 What is pinned here: the shape of `docs/customizing.md`, the shape of
 `docs/directory-adapter.md`, the two README entry points, the `.env.example`
-line for `POLICY_DIR`, the `make ingest` target decision B settles, and the
+line for `POLICY_DIR`, the `make ingest` target, and the
 absence of any invented seed name from Python application source.
 
 Why the check is static rather than runtime: nothing in this list is read by
 the application at all. `docs/customizing.md` and `docs/directory-adapter.md` are
 read by a human adopting the template, and a document nobody checks drifts
-from the code it describes within two plans. A green suite proves the code
+from the code it describes within a few changes. A green suite proves the code
 works; only parsing the document proves the document still describes it.
 
 The adapter guide's method list is READ OFF the Protocols in
@@ -63,7 +63,7 @@ file a manual rather than a checklist, and a reordering buries the one change
 ENV_EXAMPLE_LINE = "POLICY_DIR=policies"
 """The exact line `.env.example` must carry, value included.
 
-a project rule: the default is a value, so it is pinned as a value, in both
+The default is a value, so it is pinned as a value, in both
 this file and `test_settings.py`'s `POLICY_DIR_DEFAULT`. An `.env.example`
 whose placeholder disagrees with the field's default teaches the adopter the
 wrong default."""
@@ -84,7 +84,7 @@ PORT_METHODS_AT_HEAD: frozenset[str] = frozenset(
 This literal is never the source the guide is checked against: that is
 `_port_method_names()`, read off the Protocols. The literal exists so a
 changed port names itself in the failure message instead of leaving the reader
-to work out which of the two sets moved (a project rule: the premise is
+to work out which of the two sets moved (the premise is
 asserted, and it is the property the case depends on)."""
 
 
@@ -147,7 +147,7 @@ def test_customizing_lists_exactly_the_five_things_an_adopter_changes_first() ->
     no headings, or that grew a sixth section.
 
     The file's whole value is that it is scannable in a minute, which is also
-    why decision C keeps the adapter walkthrough in its own file. An adopter
+    why the adapter walkthrough lives in its own file. An adopter
     who cannot see the five things in one screen reads the source instead, and
     the template stops being a template. Asserted as an ordered list rather
     than a set, so a file that names all five in a different order (burying
@@ -164,7 +164,7 @@ def test_the_customizing_policies_section_names_the_variable_and_the_command() -
     headings and never opens a body. Two literals are required, because each
     answers a different half and one without the other leaves the adopter
     stuck: `POLICY_DIR` says where to point the repository, and `make ingest`
-    (decision B) says how to load what is now there. Read from this section's
+    says how to load what is now there. Read from this section's
     body rather than the whole file, so a `POLICY_DIR` mentioned only under
     `Branding` cannot satisfy it.
     """
@@ -185,7 +185,7 @@ def test_the_adapter_guide_names_every_directory_provider_method() -> None:
     Protocol implementation right up to the first offboarding, where the
     missing method is a runtime failure in the one path nobody demos. The
     expected set is read off `DirectoryProvider` and `DirectoryReader` at test
-    time, so an eighth method added by a later plan is red here until the guide
+    time, so an eighth method added later is red here until the guide
     names it - the failure this case exists for, since nothing else in the
     repository connects the two files.
     """
@@ -276,7 +276,7 @@ def test_the_env_example_declares_policy_dir_with_the_default_value() -> None:
 
 
 def test_the_makefile_declares_a_phony_ingest_target() -> None:
-    """Catches decision B being documented but not implemented.
+    """Catches the ingest target being documented but not implemented.
 
     Both README cases and the `docs/customizing.md` body case assert the string
     `make ingest` in prose; none of them proves the target exists, so a
@@ -296,7 +296,7 @@ def test_the_makefile_declares_a_phony_ingest_target() -> None:
     assert "ingest" in phony_tokens, f"`ingest` is not in .PHONY: {sorted(phony_tokens)}"
 
 
-# --- no invented name in application source (decision D) -----------------------
+# --- no invented name in application source ------------------------------
 
 SOURCE_ROOTS: tuple[Path, ...] = (
     REPO_ROOT / "backend" / "helpdesk" / "shared",
@@ -304,7 +304,7 @@ SOURCE_ROOTS: tuple[Path, ...] = (
     REPO_ROOT / "backend" / "helpdesk" / "mcp_server",
     REPO_ROOT / "backend" / "helpdesk" / "scheduler",
 )
-"""The Python application packages decision D scopes this check to.
+"""The Python application packages this check is scoped to.
 
 Not `scripts/` (it holds `seed.py`, which owns the values), not any `tests/`
 directory (a test naming a seeded tenant is naming its own fixture), and not
@@ -329,13 +329,13 @@ def _application_source_files() -> list[Path]:
     ids=[spec.key for spec in TENANTS],
 )
 def test_no_invented_name_appears_in_python_application_source(slug: str, name: str) -> None:
-    """Catches a later plan hardcoding a seeded tenant into shipped code.
+    """Catches a later change hardcoding a seeded tenant into shipped code.
 
     This is the template criterion with the longest reach: an adopter who
     deletes the seed data must get a system that still runs, and a slug or a
     company name compiled into a policy default, a prompt, a metric label or a
     conditional makes the demo data load-bearing. The values are read from
-    `scripts.seed.TENANTS` rather than retyped (decision D), so renaming a
+    `scripts.seed.TENANTS` rather than retyped, so renaming a
     seeded tenant moves this check with it instead of leaving it guarding a
     string nothing uses.
 

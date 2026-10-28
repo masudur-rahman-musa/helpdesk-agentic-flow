@@ -218,7 +218,7 @@ def test_a_text_ending_without_punctuation_still_yields_its_last_sentence() -> N
 def test_empty_text_yields_no_sentences() -> None:
     """Catches a splitter that returns one empty-text sentence for an empty
     section: that sentence would embed to a zero vector and pollute
-    retrieval (plan the named risk)."""
+    retrieval."""
     assert split_sentences("") == []
 
 

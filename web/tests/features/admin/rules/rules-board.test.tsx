@@ -19,7 +19,7 @@ import { RULES_READ_MESSAGE, UNRESOLVED_ROLE_TEXT } from "@/features/admin/rules
  * surface is a READ: v1 is read-only, so no case clicks anything and
  * no case posts anything.
  *
- * The accessible names are the plan's own: the region `Rules`, the table
+ * The accessible names are the requirements' own: the region `Rules`, the table
  * `Separation of duties rules`, and the four column headers `Role A`, `Role B`,
  * `Rationale`, `Policy`. The implementation owes the `<section>` and the
  * `<table>` an `aria-label` each, because neither role takes its name from its
@@ -282,7 +282,7 @@ describe("RulesBoard — the shape of the board", () => {
     // neither alphabetical direction. The order on the wire is the tool's
     // total order (`policy_ref` ascending then `rule_id` ascending), and this component is not the
     // place that decides what the
-    // board contains or in what order: a rule added by a later plan must not be
+    // board contains or in what order: a rule added later must not be
     // able to land somewhere an admin does not look.
     boardAnswer = () =>
       board(refs.map((ref, index) => rule({ policy_ref: ref, rule_id: `rule-${index}` })));

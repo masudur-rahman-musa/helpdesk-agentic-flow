@@ -19,7 +19,7 @@ DEAD_RAG_PATH = "helpdesk.rag."
 
 
 def test_shared_rag_package_is_gone() -> None:
-    """Catches a plan that empties `shared/rag/` but leaves its `__init__.py`
+    """Catches a change that empties `shared/rag/` but leaves its `__init__.py`
     behind: the empty package would keep importing, so only the import error
     proves the folder was deleted."""
     with pytest.raises(ModuleNotFoundError):

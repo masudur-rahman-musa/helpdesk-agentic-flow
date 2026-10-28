@@ -9,7 +9,7 @@ must provide exactly this):
     ``class NotificationKind(StrEnum)`` — exactly two members at first,
         ``GRANT_EXPIRED = "grant_expired"`` and
         ``GRANT_EXPIRING = "grant_expiring"`` (a member
-        nothing writes is a value no test can reach, so each plan adds its
+        nothing writes is a value no test can reach, so each change adds its
         own when the code that writes it lands; the review kinds come later).
     ``class Notification(TenantScoped)`` — ``__tablename__ = "notifications"``;
         columns ``user_id`` (FK ``users.id``), ``kind``, ``title``, ``body``,
@@ -61,7 +61,7 @@ def test_the_notifications_table_is_in_the_metadata() -> None:
 
 
 def test_the_notifications_table_is_in_the_tenant_scoped_allowlist() -> None:
-    """Catches the standing-rule-27 miss: a table added to the metadata
+    """Catches a table added to the metadata
     without extending `_seed.py::TENANT_SCOPED_TABLES`, which leaves
     `test_models.py`'s schema-literal sweep (and its per-table tenant_id and
     composite-index checks) never applied to this table at all."""

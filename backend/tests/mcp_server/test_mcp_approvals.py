@@ -917,7 +917,7 @@ def test_a_conflict_planted_while_the_request_waits_fails_the_row_without_a_gran
     assert row.status == RequestStatus.FAILED.value
     assert _slots(row.approvals) == [
         (ApproverSlot.DEPARTMENT_MANAGER.value, SlotDecision.APPROVE.value)
-    ], "the approval that happened must stay in the record (decision E)"
+    ], "the approval that happened must stay in the record"
     events_after = _audit_event_types(mcp_env.database_url, manager.tenant_id)
     assert events_after == [*events_before, REQUEST_APPROVED_EVENT, SUCCEEDED_EVENT], (
         "a completing approval that FAILED execution differs from one that granted "
@@ -1599,7 +1599,7 @@ def test_the_decision_event_names_the_request_and_the_seat(
 #     the same read, joined to role, system, target and requester, so the
 #     names arrive WITH each request row rather than being looked up per row.
 #
-# Shapes this file fixes that the plan left open:
+# Shapes this file fixes:
 # - the five name fields are STRINGS, and ``decision_reasons`` / ``citations``
 #   come back as the JSONB columns hold them (a list of strings and a list of
 #   objects), exactly as the widening of ``AccessRequestSummary`` renders
@@ -1784,7 +1784,7 @@ def test_the_queue_names_come_from_the_directory_rows_the_ids_point_at(
     target_name = _display_name(mcp_env.database_url, WIDE_TARGET.id)
     assert requester_name != target_name, "premise: the two people are two people"
     assert approver.display_name not in {requester_name, target_name}, (
-        "premise: neither name can be the caller's own (standing rule 9: same tenant)"
+        "premise: neither name can be the caller's own: same tenant"
     )
     role_slug, role_name, system_slug, system_name = _directory_names(
         mcp_env.database_url, GRANTABLE_ROLE
