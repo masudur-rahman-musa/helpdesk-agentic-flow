@@ -5,8 +5,8 @@ What is pinned: the backend pytest config registers a `slow` marker and turns on
 `-m "not slow" -n 3` from `backend/`; `make test-slowest` prints `--durations=30`
 with no workers and no coverage; the full `test` recipe and every ci.yml pytest
 line carry no `-m` filter; `verify` still depends on the same six targets in
-order; at least one backend test is marked slow; CLAUDE.md's Fast tests part holds
-the 2-minute target; and both new targets are `.PHONY`, self-documented and named in the docs.
+order; at least one backend test is marked slow; and both new targets are `.PHONY`,
+self-documented and named in the README.
 
 Why: `--strict-markers` is what makes a typo fail collection instead of quietly
 running the test in the fast set, and the full runs must keep the slow tests or
@@ -38,7 +38,6 @@ MAKEFILE = REPO_ROOT / "Makefile"
 BACKEND_DIR = REPO_ROOT / "backend"
 BACKEND_PYPROJECT = BACKEND_DIR / "pyproject.toml"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
 README = REPO_ROOT / "README.md"
 
 VERIFY_DEPENDS = ["format", "lint", "typecheck", "test", "test-policy", "web-verify", "security"]
@@ -212,31 +211,12 @@ def test_some_backend_tests_are_marked_slow() -> None:
     assert marked, "no file under backend/tests carries pytest.mark.slow"
 
 
-def test_claude_md_holds_the_fast_set_target() -> None:
-    """Catches a CLAUDE.md that no longer names `make test-fast` or the
-    2-minute target, so the fast-set goal is nowhere written down."""
-    text = CLAUDE_MD.read_text(encoding="utf-8")
-    assert "make test-fast" in text, "CLAUDE.md does not name `make test-fast`"
-    lines = text.splitlines()
-    starts = [index for index, line in enumerate(lines) if line.startswith("- Fast tests.")]
-    assert len(starts) == 1, f"expected one Fast tests part in CLAUDE.md, found {len(starts)}"
-    body_lines = [lines[starts[0]]]
-    for line in lines[starts[0] + 1 :]:
-        if line.strip() and not line.startswith((" ", "\t")):
-            break
-        body_lines.append(line)
-    body = "\n".join(body_lines)
-    assert "2 minutes" in body or "2-minute" in body, f"Fast tests does not name 2 minutes:\n{body}"
-
-
 def test_new_targets_are_phony_and_documented() -> None:
-    """Catches a new target left off .PHONY, with no help text, or missing from the docs."""
+    """Catches a new target left off .PHONY, with no help text, or missing from the README."""
     phony = _phony_names()
-    claude_text = CLAUDE_MD.read_text(encoding="utf-8")
     readme_text = README.read_text(encoding="utf-8")
     for target in ("test-fast", "test-slowest"):
         assert target in phony, f"{target} is not in .PHONY: {phony}"
         header = _target_header(target)
         assert "##" in header, f"{target} has no ## help text: {header!r}"
-        assert target in claude_text, f"{target} is not named in CLAUDE.md"
         assert target in readme_text, f"{target} is not named in README.md"

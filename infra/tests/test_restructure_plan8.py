@@ -14,10 +14,11 @@ fixtures) go to `dev/scripts/`. A later move took the public ones on by kind:
 ADRs `docs/adr/*` go to the project notes;
 `docs/runbook.md`, `telemetry.md`, `threat-model.md` and `deploy.md` go to
 the project notes; `docs/architecture.md` becomes root `ARCHITECTURE.md`;
-`CUSTOMIZING.md` becomes `docs/customizing.md`; new root `AGENTS.md` and
-`SECURITY.md` are added. Last, the TEMPORARY block of `.claude/root-allowlist`
-is deleted and the root check (now `.github/scripts/check_root.py`) is wired into
-`.pre-commit-config.yaml` and `.github/workflows/ci.yml`.
+`CUSTOMIZING.md` becomes `docs/customizing.md`; a new root `SECURITY.md` is
+added. Last, the TEMPORARY block of the root allowlist (now
+`.github/root-allowlist`) is deleted and the root check (now
+`.github/scripts/check_root.py`) is wired into `.pre-commit-config.yaml` and
+`.github/workflows/ci.yml`.
 
 The happy paths prove the NEW locations are present; the unhappy paths prove
 the OLD `k8s/`, `docker/`, `scripts/`, root `CUSTOMIZING.md` and the old
@@ -74,9 +75,8 @@ def test_docs_relocated() -> None:
 
 
 def test_root_placeholders_added() -> None:
-    """Kills a move that forgets the new root AGENTS.md and SECURITY.md."""
+    """Kills a move that forgets the new root SECURITY.md."""
     present = [
-        REPO_ROOT / "AGENTS.md",
         REPO_ROOT / "SECURITY.md",
     ]
     for path in present:
@@ -103,7 +103,7 @@ def test_old_locations_gone() -> None:
 
 def test_temporary_allowlist_removed() -> None:
     """Kills an allowlist that still carries the TEMPORARY block or the old roots."""
-    text = (REPO_ROOT / ".claude" / "root-allowlist").read_text(encoding="utf-8")
+    text = (REPO_ROOT / ".github" / "root-allowlist").read_text(encoding="utf-8")
     assert "TEMPORARY" not in text, "root-allowlist still has a TEMPORARY marker"
     # Match whole allowlist ENTRIES, not substrings: the header comment names
     # `.github/scripts/check_root.py`, which must not read as a stray `scripts/`.

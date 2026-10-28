@@ -285,7 +285,7 @@ def test_no_service_module_builds_a_sqlalchemy_statement(source_file: Path) -> N
 @pytest.mark.parametrize("source_file", SERVICE_FILES, ids=SERVICE_IDS)
 def test_no_service_module_calls_execute(source_file: Path) -> None:
     """Catches a service calling `session.execute(...)` directly -- the rule
-    CLAUDE.md states in prose and nothing has enforced -- which runs a statement
+    the project states in prose and nothing has enforced -- which runs a statement
     the repository helpers never saw and never tenant-filtered."""
     relative = str(source_file.relative_to(REPO_ROOT))
     findings = _execute_findings(source_file.read_text(encoding="utf-8"), relative)

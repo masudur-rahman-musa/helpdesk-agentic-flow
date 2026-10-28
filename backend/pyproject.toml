@@ -90,7 +90,7 @@ dev = [
 target-version = "py312"
 line-length = 100
 # `dev/` holds the owner's own working scripts, which never ship, so no check reads them.
-extend-exclude = [".claude", "dev"]
+extend-exclude = ["dev"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

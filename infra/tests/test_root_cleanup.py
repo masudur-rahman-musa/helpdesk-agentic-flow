@@ -216,11 +216,9 @@ def test_compose_config_without_any_env(tmp_path: Path) -> None:
 
 
 def _check_root(project: Path) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(project)}
     return subprocess.run(
         [sys.executable, str(CHECK_ROOT)],
         cwd=project,
-        env=env,
         capture_output=True,
         text=True,
         timeout=60,
@@ -234,8 +232,8 @@ def test_root_check_refuses_root_env(tmp_path: Path) -> None:
     The clean run first also catches a check that refuses every root.
     """
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, timeout=60)
-    (tmp_path / ".claude").mkdir()
-    shutil.copy(REPO_ROOT / ".claude" / "root-allowlist", tmp_path / ".claude" / "root-allowlist")
+    (tmp_path / ".github").mkdir()
+    shutil.copy(REPO_ROOT / ".github" / "root-allowlist", tmp_path / ".github" / "root-allowlist")
     (tmp_path / "README.md").write_text("fake\n", encoding="utf-8")
     (tmp_path / ".gitignore").write_text(".env\n", encoding="utf-8")
 

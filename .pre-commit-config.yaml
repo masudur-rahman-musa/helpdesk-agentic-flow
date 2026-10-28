@@ -36,9 +36,9 @@ repos:
         args: [--config, backend/pyproject.toml]
   - repo: local
     hooks:
-      # Keep the repo root to the names in .claude/root-allowlist. Runs the full
+      # Keep the repo root to the names in .github/root-allowlist. Runs the full
       # scan (git ls-files) once per commit, so a stray top-level file is caught
-      # here as well as by the Claude write hook and the CI lint job.
+      # here as well as by the CI lint job.
       - id: check-root
         name: root allowlist
         entry: python3 .github/scripts/check_root.py

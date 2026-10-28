@@ -26,11 +26,6 @@
 !.env.example
 .cache
 
-# the coding agent and its tooling
-.claude
-CLAUDE.md
-.mcp.json
-
 # verification, CI, and dev tooling
 tests
 **/tests

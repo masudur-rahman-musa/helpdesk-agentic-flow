@@ -11,19 +11,15 @@ a body no run reaches is invisible at runtime, but its source still carries the
 builder call. Scanning the text reads the code that exists, not the code that
 ran. It is the same shape as `test_tenant_guard_static.py`.
 
-The scan uses six patterns: the four BUILDER patterns are held identical to the
-editor hook `.claude/hooks/test_speed.py`, pinned by
-`test_the_builder_patterns_match_the_editor_hook`; the two SCHEMA patterns are
-owned here. `test_a_planted_engine_builder_off_the_list_is_caught` proves the
+The scan uses six patterns: four BUILDER patterns and two SCHEMA patterns.
+`test_a_planted_engine_builder_off_the_list_is_caught` proves the
 scan can fail, and `test_the_scanned_test_set_is_not_empty` proves it is not
 reading an empty file set. `test_a_shared_fixture_user_is_not_a_finding` proves
 reaching a service through a shared fixture is not itself a finding.
 """
 
-import importlib.util
 import re
 from pathlib import Path
-from types import ModuleType
 
 
 def _repo_root() -> Path:
@@ -64,17 +60,13 @@ BUILDER_PATTERNS: tuple[str, ...] = (
     r"(?<![\w])(Async)?QdrantClient\(",
     r"(?<![\w])(asyncpg|psycopg)\.connect\(",
 )
-"""The four patterns that match a test building its own backing service.
-
-Held identical to the editor hook's four BUILDING patterns so the warning and
-the guard never drift; that equality is pinned by
-`test_the_builder_patterns_match_the_editor_hook`."""
+"""The four patterns that match a test building its own backing service."""
 
 SCHEMA_PATTERNS: tuple[str, ...] = (
     r"Base\.metadata\.create_all",
     r"CREATE DATABASE",
 )
-"""The two patterns the guard owns and the editor hook does not carry.
+"""The two patterns that match a test building its own schema or database.
 
 A test that creates its own schema or database is building its own backing
 service just as much as one that builds an engine. Scanned together with
@@ -187,9 +179,9 @@ def _scanned_test_sources() -> list[tuple[str, str]]:
 def _builds_backing_service(source: str) -> bool:
     """True when a non-comment line of `source` matches any of the six patterns.
 
-    Mirrors the editor hook's line handling exactly: split into lines, skip any
-    line whose `lstrip()` starts with `#`, apply `re.search`. A comment mentioning
-    `create_async_engine` is therefore not a finding."""
+    Split into lines, skip any line whose `lstrip()` starts with `#`, apply
+    `re.search`. A comment mentioning `create_async_engine` is therefore not a
+    finding."""
     for line in source.splitlines():
         if line.lstrip().startswith("#"):
             continue
@@ -206,21 +198,6 @@ def _builder_files(sources: list[tuple[str, str]]) -> set[str]:
     `test_a_planted_engine_builder_off_the_list_is_caught` can feed one synthetic
     module in without a file ever being written to the tree."""
     return {path for path, source in sources if _builds_backing_service(source)}
-
-
-def _load_hook() -> ModuleType:
-    """Load `.claude/hooks/test_speed.py` so its `PATTERNS` are reachable.
-
-    Loaded from the file by path, not imported by name, because the hooks
-    directory is not on `sys.path`. Feeds
-    `test_the_builder_patterns_match_the_editor_hook`."""
-    hook_path = REPO_ROOT / ".claude" / "hooks" / "test_speed.py"
-    spec = importlib.util.spec_from_file_location("test_speed_hook", hook_path)
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"could not load hook at {hook_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 PLANTED_ENGINE_SOURCE = (
@@ -279,18 +256,6 @@ def test_a_shared_fixture_user_is_not_a_finding() -> None:
     while building nothing itself."""
     pair = ("backend/tests/shared/test_fixture_user.py", SHARED_FIXTURE_SOURCE)
     assert _builder_files([pair]) == set()
-
-
-def test_the_builder_patterns_match_the_editor_hook() -> None:
-    """Catches the guard's builder patterns drifting from the editor hook's, so a
-    file the warning flags and the guard misses (or the other way) cannot exist.
-
-    The discriminator is the why-text: the hook tags each building pattern with a
-    reason containing `build` or `open`, while its sleep and network patterns do
-    not, so matching on that text selects exactly the four building patterns."""
-    hook = _load_hook()
-    building = {pat for pat, why in hook.PATTERNS if "build" in why or "open" in why}
-    assert set(BUILDER_PATTERNS) == building
 
 
 def test_the_scanned_test_set_is_not_empty() -> None:

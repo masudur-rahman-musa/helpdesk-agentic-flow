@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-import json
-import os
 import re
 import subprocess
 import sys
@@ -137,7 +135,7 @@ def test_the_old_path_finder_flags_a_planted_reference(text: str, expected: list
 
 
 def test_every_tool_file_names_the_new_paths() -> None:
-    """Catches a tool file (Makefile, CI, pre-commit, hooks, Playwright) that was not
+    """Catches a tool file (Makefile, CI, pre-commit, Playwright) that was not
     pointed at the new home, or that names a path that does not exist."""
     # (file, pattern that must match, path that must exist). Patterns refuse a
     # leading `dev/`, so the old path cannot satisfy them.
@@ -172,20 +170,6 @@ def test_every_tool_file_names_the_new_paths() -> None:
             problems.append(f"{rel} does not match {pattern}")
         if not (REPO_ROOT / target).is_file():
             problems.append(f"{target} does not exist")
-    settings = json.loads(_read(".claude/settings.json"))
-    commands = [
-        hook["command"]
-        for group in settings["hooks"]["PreToolUse"]
-        for hook in group["hooks"]
-        if "check_root.py" in hook.get("command", "")
-    ]
-    if len(commands) != 2:
-        problems.append(f"expected 2 root hook commands, found {len(commands)}")
-    problems.extend(
-        f"hook does not name .github/scripts/check_root.py: {c}"
-        for c in commands
-        if ".github/scripts/check_root.py" not in c
-    )
     assert problems == []
 
 
@@ -199,24 +183,6 @@ def test_moved_scripts_still_find_the_repo_root() -> None:
     assert build.REPO_ROOT == REPO_ROOT
     assert reset._REPO_ROOT == REPO_ROOT
     assert shard.DURATIONS == REPO_ROOT / ".github" / "scripts" / "test_durations.json"
-
-
-def test_the_root_hook_blocks_a_stray_root_file_from_its_new_home() -> None:
-    """Catches a root hook that was moved but not working (wrong root, or a message
-    still naming the old dev/scripts path), so strays reach the repo root unblocked."""
-    payload = {"tool_name": "Write", "tool_input": {"file_path": str(REPO_ROOT / "stray.txt")}}
-    result = subprocess.run(
-        ["python3", ".github/scripts/check_root.py", "--claude-hook"],
-        cwd=REPO_ROOT,
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        env={**os.environ, "CLAUDE_PROJECT_DIR": str(REPO_ROOT)},
-        check=False,
-    )
-    assert result.returncode == 2, result.stderr
-    # A missing script also exits 2 and names its path, so the hook's own words are pinned.
-    assert "BLOCKED by .github/scripts/check_root.py" in result.stderr
 
 
 def test_moved_backend_scripts_carry_no_internal_references() -> None:
