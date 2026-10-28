@@ -20,14 +20,14 @@ resources:
 # `ghcr-pull` Secret every pod spec names.
 images:
   - name: helpdesk-agent-api
-    newName: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api
+    newName: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-agent-api
     newTag: 0.0.0-unbuilt
   - name: helpdesk-mcp-server
-    newName: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server
+    newName: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-mcp-server
     newTag: 0.0.0-unbuilt
   - name: helpdesk-scheduler
-    newName: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler
+    newName: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-scheduler
     newTag: 0.0.0-unbuilt
   - name: helpdesk-web
-    newName: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-web
+    newName: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-web
     newTag: 0.0.0-unbuilt

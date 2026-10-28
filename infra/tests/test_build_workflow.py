@@ -55,7 +55,7 @@ REPO_ROOT = _repo_root()
 BUILD_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "build.yml"
 DEPLOY_DOC = REPO_ROOT / "dev" / "ops" / "deploy.md"
 
-REGISTRY_PREFIX = "ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/"
+REGISTRY_PREFIX = "ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/"
 """The one path prefix every pushed reference carries. It is this repository's
 real remote, spelled owner-first; publishing anywhere else publishes to a
 namespace we do not own."""

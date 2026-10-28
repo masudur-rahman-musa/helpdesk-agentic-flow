@@ -84,7 +84,7 @@ jobs:
           file: backend/Dockerfile.agent-api
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api:${{ github.sha }}
+          tags: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-agent-api:${{ github.sha }}
           sbom: true
           provenance: true
           cache-from: type=gha,scope=agent-api
@@ -97,7 +97,7 @@ jobs:
           file: backend/Dockerfile.mcp-server
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server:${{ github.sha }}
+          tags: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-mcp-server:${{ github.sha }}
           sbom: true
           provenance: true
           cache-from: type=gha,scope=mcp-server
@@ -110,7 +110,7 @@ jobs:
           file: backend/Dockerfile.scheduler
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler:${{ github.sha }}
+          tags: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-scheduler:${{ github.sha }}
           sbom: true
           provenance: true
           cache-from: type=gha,scope=scheduler
@@ -126,7 +126,7 @@ jobs:
           file: web/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-web:${{ github.sha }}
+          tags: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-web:${{ github.sha }}
           sbom: true
           provenance: true
           cache-from: type=gha,scope=web
@@ -151,7 +151,7 @@ jobs:
       - name: Scan the agent API image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-agent-api:${{ github.sha }}
+          image-ref: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-agent-api:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
@@ -159,7 +159,7 @@ jobs:
       - name: Scan the MCP server image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-mcp-server:${{ github.sha }}
+          image-ref: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-mcp-server:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
@@ -167,7 +167,7 @@ jobs:
       - name: Scan the scheduler image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-scheduler:${{ github.sha }}
+          image-ref: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-scheduler:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
@@ -175,7 +175,7 @@ jobs:
       - name: Scan the web image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ghcr.io/masudur-rahman-musa/ai-help-desk-governed-access/helpdesk-web:${{ github.sha }}
+          image-ref: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-web:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
