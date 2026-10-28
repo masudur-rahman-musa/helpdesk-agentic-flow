@@ -27,7 +27,7 @@ import { formatSwitchInstant } from "@/lib/date-format";
  * - 16 characters is the INCLUSIVE boundary of "formatted": a string
  *   SHORTER than 16 is returned unchanged, so `"2026-09-13T14:05"` (exactly 16)
  *   is formatted and `"2026-09-13T14:0"` (15) is not. Both rows are here; the
- *   the requirements state only the short case, and either direction of an off-by-one
+ *   spec states only the short case, and either direction of an off-by-one
  *   satisfies its prose.
  * - "unchanged" is the INPUT string identically, asserted with `toBe`, not a
  *   trimmed or re-padded variant.

@@ -21,7 +21,7 @@ must provide exactly this):
         (``ErrorCode.NOT_FOUND``), never "created for nobody".
 
 The refusal type is asserted as ``ToolError`` + the typed code rather than as
-a class name: the requirements write "ValidationError", which is not a name
+a class name: the tool contract writes "ValidationError", which is not a name
 `helpdesk.errors` defines, and the repo's error contract is the contract
 code carried by a `ToolError` subclass (the shape
 `models/conversation.py::MessageTooLongError` already uses). Whatever the
@@ -37,7 +37,7 @@ same fixtures (no new fixture):
     -> NotificationPage`` — one person's own rows, newest ``created_at``
     first with the notification id breaking a tie (the direction is
     DESCENDING on both columns, the repo's `(time, id)` convention read
-    backwards; the requirements leave it open, so this file fixes it). ``limit``
+    backwards; the contract leaves it open, so this file fixes it). ``limit``
     bounds the ROWS only: ``unread_count`` is every unread row of that user,
     which is what the bell counts, so a page-derived count is a bell that
     goes quiet at fifty-one.
@@ -302,7 +302,7 @@ def test_a_body_of_exactly_the_cap_is_accepted(
 ) -> None:
     """The inclusive half for the second cap: catches one check written
     against the title's constant for both fields, which would refuse every
-    body over 200 characters while the requirements allow 2000."""
+    body over 200 characters while the body allows 2000."""
     factory, _ = notification_db
     tenant = _own_tenant(factory)
     at_cap = "b" * NOTIFICATION_BODY_MAX_LENGTH

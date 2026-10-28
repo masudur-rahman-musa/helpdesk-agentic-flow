@@ -16,7 +16,7 @@ import { TicketList } from "@/features/tickets/components/ticket-list";
  * - status words are `Open` and `Solved`; a kind is shown in plain words, so
  *   `password_reset` reads as "Password reset" (matched ignoring case, with no
  *   underscore).
- * - the empty sentence and the alert sentence are the requirements', byte for byte.
+ * - the empty sentence and the alert sentence are fixed, byte for byte.
  */
 
 const EMPTY_TICKETS = "You have not opened any tickets.";

@@ -924,7 +924,7 @@ def test_several_requests_come_back_once_each_despite_the_grant_join(
     assert [item["grant_id"] for item in mine].count(None) == 2
 
 
-def test_the_request_limit_constants_are_exactly_their_planned_values() -> None:
+def test_the_request_limit_constants_are_exactly_their_expected_values() -> None:
     """Catches a widened `limit` (an unbounded response over a table that only
     grows), a drifted default (every caller who omits `limit` silently gets a
     different page), and a lower bound of 0 (an empty page a client would read

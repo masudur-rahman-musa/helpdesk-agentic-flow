@@ -502,7 +502,7 @@ def test_the_queue_route_sends_each_query_parameter_only_when_it_is_asked_for(
     `model_dump` sends every declared field, so asking for a status alone would
     put `limit: null` on the wire (refused by a 1..200 bound) and asking for a
     limit alone would put `status: null` where the tool's absent-status meaning
-    is "every status". Only the per-shape construction the requirements name can make
+    is "every status". Only the per-shape construction the contract names can make
     both rows pass.
     """
     caller = ScriptedToolCaller(QUEUE_PAYLOAD)
@@ -1213,7 +1213,7 @@ def test_the_key_check_is_inclusive_at_the_column_length_and_refuses_one_over() 
     guard, already pinned by `test_agent_planning.py`, and whether
     `derive_review_decision_key` routes THROUGH it is unobservable — every
     derived key is a 36-character uuid, so the check can never fire from that
-    caller. This row is here because the requirements state the bound and want the value written
+    caller. This row is here because the contract states the bound and wants the value written
     out;
     the case above is what pins the derivation returning a uuid at all.
     """

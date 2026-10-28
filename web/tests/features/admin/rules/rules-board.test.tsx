@@ -19,7 +19,7 @@ import { RULES_READ_MESSAGE, UNRESOLVED_ROLE_TEXT } from "@/features/admin/rules
  * surface is a READ: v1 is read-only, so no case clicks anything and
  * no case posts anything.
  *
- * The accessible names are the requirements' own: the region `Rules`, the table
+ * The accessible names are fixed: the region `Rules`, the table
  * `Separation of duties rules`, and the four column headers `Role A`, `Role B`,
  * `Rationale`, `Policy`. The implementation owes the `<section>` and the
  * `<table>` an `aria-label` each, because neither role takes its name from its

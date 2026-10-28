@@ -98,8 +98,8 @@ describe("formatDigest — the digests it returns whole", () => {
     // not truncate, telling an admin comparing against an ingest log that there
     // are characters the cell is hiding when there are none. A bare
     // `slice(0, 12)` with no guard at all is GREEN for these three rows, since
-    // `slice` cannot lengthen a short string; that is the requirements' "returned
-    // UNCHANGED rather than sliced" being weaker than it reads, and the first row above
+    // `slice` cannot lengthen a short string; that is the "returned
+    // UNCHANGED rather than sliced" rule being weaker than it reads, and the first row above
     // is where the prefix length itself is killed.
     expect(formatDigest(sha256)).toBe(sha256);
   });

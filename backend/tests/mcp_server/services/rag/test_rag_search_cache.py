@@ -207,7 +207,7 @@ async def _entries(client: AsyncQdrantClient, slug: str) -> int:
 # --- the constants ------------------------------------------------------------
 
 
-def test_the_cache_limits_are_exactly_their_planned_values() -> None:
+def test_the_cache_limits_are_exactly_their_expected_values() -> None:
     """Catches a floor, an age or a question length of any other size: each
     decides whether a stale or unrelated page is served, so a range test would
     admit the wrong number."""

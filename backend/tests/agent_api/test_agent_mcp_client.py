@@ -148,7 +148,7 @@ def _drive[T](
 # --- the constants -------------------------------
 
 
-def test_the_client_timeouts_are_exactly_the_planned_values() -> None:
+def test_the_client_timeouts_are_exactly_the_expected_values() -> None:
     """Catches a client built on httpx2's own five-second default for both
     halves: a `search_policy` call embeds a query and searches a vector store,
     so a five-second READ deadline would fail turns the server was about to

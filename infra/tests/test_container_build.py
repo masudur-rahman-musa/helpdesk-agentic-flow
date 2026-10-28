@@ -437,7 +437,7 @@ HIGH findings live (`pacote`, `sigstore`, `brace-expansion`,
 NPM_ENTRY_POINTS: tuple[str, ...] = ("/usr/local/bin/npm", "/usr/local/bin/npx")
 """The two symlinks that keep `npm` on PATH after its package tree is gone.
 Deleting the tree alone leaves dangling links and `command -v npm` still
-succeeds, which is what criterion 6 of section 1 measures."""
+succeeds, which is what the npm-removal check measures."""
 
 _ARG_ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\S+)$")
 """An `ARG NAME=value` argument, split into the name and the pinned reference.

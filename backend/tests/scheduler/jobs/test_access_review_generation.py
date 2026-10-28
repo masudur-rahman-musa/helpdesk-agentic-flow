@@ -992,7 +992,7 @@ def test_a_failure_other_than_already_open_propagates_out_of_generate_reviews(
 # --- the constants and the exports --------------------------
 
 
-def test_the_review_generation_constants_are_exactly_the_planned_values() -> None:
+def test_the_review_generation_constants_are_exactly_the_expected_values() -> None:
     """The constants this half introduces, pinned as literals.
 
     Catches a due horizon quietly moved: every case above is written against

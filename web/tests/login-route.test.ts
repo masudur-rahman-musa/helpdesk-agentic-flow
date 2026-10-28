@@ -94,7 +94,7 @@ describe("POST /api/login — agent-api answers 200", () => {
     expect(cookie).toContain("HttpOnly");
     // Next 15 serialises the attribute lowercase (`SameSite=lax`); the value is
     // case-insensitive per RFC 6265bis, so the library's own casing is what is
-    // pinned here rather than the spelling the requirements used.
+    // pinned here rather than another spelling.
     expect(cookie).toContain("SameSite=lax");
     expect(cookie).toContain("Path=/");
   });
@@ -216,7 +216,7 @@ describe("lib/session cookie helpers", () => {
     expect(cookie).toContain("HttpOnly");
     // Next 15 serialises the attribute lowercase (`SameSite=lax`); the value is
     // case-insensitive per RFC 6265bis, so the library's own casing is what is
-    // pinned here rather than the spelling the requirements used.
+    // pinned here rather than another spelling.
     expect(cookie).toContain("SameSite=lax");
     expect(cookie).toContain("Path=/");
   });

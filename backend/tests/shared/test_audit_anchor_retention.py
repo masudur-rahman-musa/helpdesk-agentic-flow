@@ -368,7 +368,7 @@ def _retention_revision_text() -> str:
 # --- the window ---------------------------------------------
 
 
-def test_the_retention_constants_are_exactly_the_planned_values() -> None:
+def test_the_retention_constants_are_exactly_the_expected_values() -> None:
     """The window, and the cutoff it produces.
 
     Catches the number written in the wrong UNIT — `timedelta(days=90)` typed

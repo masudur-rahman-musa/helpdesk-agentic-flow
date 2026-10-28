@@ -21,7 +21,7 @@ import { UserMenu } from "@/components/layout/user-menu";
  * - an outside click is a `pointerdown` on `document.body`, fired with
  *   `fireEvent` so focus does NOT move; the focus-leaves case moves focus on
  *   its own. Each dismissal path is therefore decided by its own handler.
- * - `UserMenu` and `orderedLabels` are imported to pin the requirements' export names
+ * - `UserMenu` and `orderedLabels` are imported to pin the export names
  *   (`components/user-menu.tsx`, `components/role-header.tsx`).
  *
  * `next/navigation` is mocked as `tests/shell.test.tsx` mocks it, with the

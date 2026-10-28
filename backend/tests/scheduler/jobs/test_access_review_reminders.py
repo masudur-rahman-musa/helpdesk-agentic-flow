@@ -699,7 +699,7 @@ def test_a_review_that_is_not_yet_due_writes_nothing(
 # --- the constants ------------------------------------------
 
 
-def test_the_review_reminder_constants_are_exactly_the_planned_values() -> None:
+def test_the_review_reminder_constants_are_exactly_the_expected_values() -> None:
     """The constants this half introduces, pinned as literals.
 
     Catches the escalation window quietly moved: every boundary case above is

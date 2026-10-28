@@ -796,7 +796,7 @@ def _sweep_with_a_concurrent_departure(
 # --- the constants and the exports --------------------------
 
 
-def test_the_leaver_sweep_constants_are_exactly_the_planned_values() -> None:
+def test_the_leaver_sweep_constants_are_exactly_the_expected_values() -> None:
     """The constants this half introduces, pinned as literals.
 
     `LEAVER_SWEEP_ACTOR_REF` is the string an auditor greps `actor_ref` for to

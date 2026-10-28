@@ -492,7 +492,7 @@ def test_the_anchor_table_carries_the_planned_columns() -> None:
 # --- the input model (input-validation criterion) -------------------
 
 
-def test_the_anchor_validation_constants_are_exactly_the_planned_values() -> None:
+def test_the_anchor_validation_constants_are_exactly_the_expected_values() -> None:
     """The two values that decide what may be stored.
 
     A pattern widened to `[0-9a-fA-F]{64}` or a floor dropped to 0 would let

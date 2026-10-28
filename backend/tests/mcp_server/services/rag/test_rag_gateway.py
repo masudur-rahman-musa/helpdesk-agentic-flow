@@ -133,7 +133,7 @@ def _redact(client: RedactionClient, text: str, tenant: str = TENANT) -> Redacte
 # --- constants ----------------------------------------------------------------
 
 
-def test_the_gateway_constants_are_exactly_the_planned_values() -> None:
+def test_the_gateway_constants_are_exactly_the_expected_values() -> None:
     """Catches a cap, a timeout or a data class set to any other number or
     string — in particular a MAX_REDACTION_CHARS that drifts from the
     console's MAX_REDACTION_INPUT_CHARS, which would present as a puzzling

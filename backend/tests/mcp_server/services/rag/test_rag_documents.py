@@ -370,8 +370,8 @@ def test_two_versions_ingested_at_one_instant_are_tiebroken_by_version_descendin
     of the expected sequence, so the case flips. Nothing else in this file can
     see it: every other planted version carries a distinct instant.
 
-    DIRECTION: the requirements name
-    `version` as the tie-break column and no direction. Fixed here as
+    DIRECTION: `version` is the tie-break column
+    and no direction is given. Fixed here as
     DESCENDING - the order reads newest-first end to end, and the single
     `sorted(key=(ingested_at, version), reverse=True)` that produces it
     reverses both columns together. `v10` before `v2` at one instant is also

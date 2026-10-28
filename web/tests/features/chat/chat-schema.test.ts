@@ -20,8 +20,8 @@ import { MAX_MESSAGE_CHARS, chatMessageSchema } from "@/features/chat/schema";
  * - `FAILURE_MESSAGES` is a plain object keyed by the `ErrorCode` VALUE plus a
  *   `default` key. Three of its entries are literals and the page test
  *   reads `FAILURE_MESSAGES.INTERNAL`, so the map is TOTAL over the eight codes
- *   in `helpdesk/errors.py::ErrorCode`; only the three sentences the requirements wrote
- *   down are pinned as literals here, because the other five are the
+ *   in `helpdesk/errors.py::ErrorCode`; only the three sentences that are fixed
+ *   are pinned as literals here, because the other five are the
  *   implementer's wording and pinning invented prose would be a test nobody can
  *   satisfy without reading this file.
  *
@@ -79,7 +79,7 @@ describe("chatMessageSchema", () => {
 });
 
 describe("FAILURE_MESSAGES", () => {
-  it("carries the three sentences the requirements fixed, verbatim", () => {
+  it("carries the three fixed sentences, verbatim", () => {
     // Catches an implementation that renders agent-api's own typed CODE to the
     // user ("POLICY_BLOCKED") or invents a sentence per call site, which is how
     // two places end up telling a user two different things about one refusal.

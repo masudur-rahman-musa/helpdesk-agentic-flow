@@ -71,7 +71,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 CONVERSATION_METADATA_PARENT = "d8b2f6c41a97"
 """The revision BELOW `f1a7c0d4e2b9`, the one the downgrade case undoes.
 
-Written out rather than reached with a relative `-1`: that step names whatever
+Written out rather than reached with a relative `-1`, which names whatever
 sits under the CURRENT head, so it stops pointing at this revision the moment
 a new one lands, and the case then asserts the wrong migration's effect."""
 

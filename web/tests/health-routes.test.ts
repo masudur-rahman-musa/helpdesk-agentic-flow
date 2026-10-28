@@ -82,7 +82,7 @@ describe("web health routes", () => {
   });
 
   it("answers readyz with 503 when agent-api refuses the connection", async () => {
-    // Kills the static 200 decision C2 rejected, and kills an unguarded fetch
+    // Kills a static 200, and kills an unguarded fetch
     // whose rejection escapes as a 500: a readiness probe must read the refusal
     // as not-ready, which is the one signal that stops traffic reaching a web
     // pod whose only upstream is down.

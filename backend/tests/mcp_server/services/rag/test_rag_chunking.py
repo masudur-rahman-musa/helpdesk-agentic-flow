@@ -153,7 +153,7 @@ HEADING_ONLY = "## 2 The four classes\n\n"
 # --- premises and constants -----------------------------------------------------
 
 
-def test_the_chunking_constants_are_exactly_the_planned_values() -> None:
+def test_the_chunking_constants_are_exactly_the_expected_values() -> None:
     """Catches a threshold, cap or overlap set to any other number — a cap
     above the dense model's 512-token input limit in particular, which would
     silently truncate what the model actually sees while every merge case

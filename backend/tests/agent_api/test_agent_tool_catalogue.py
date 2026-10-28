@@ -193,7 +193,7 @@ def _required(schema: dict[str, Any]) -> frozenset[str]:
 # --- the constants ------------------------------------------------------------
 
 
-def test_the_catalogue_constants_are_exactly_the_planned_values() -> None:
+def test_the_catalogue_constants_are_exactly_the_expected_values() -> None:
     """And the one that bites hardest: catches a `top_k`
     default written as 5 or 10 on the agent side. A page size differing from
     the corpus default silently changes how much policy every answer is

@@ -429,7 +429,7 @@ GUARDRAIL_SLOTS: Mapping[str, tuple[str, ...]] = {
     "promises": ("conv-045",),
 }
 """Which case holds which rule: two each for ids, denial and draft, one for
-promises, in the order the requirements name them. The case format has no tag field
+promises, in the order listed above. The case format has no tag field
 (the field set is fixed), so the slot is the id and the rule is then read from
 the case's own words below."""
 

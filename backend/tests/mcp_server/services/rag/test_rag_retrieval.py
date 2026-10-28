@@ -283,7 +283,7 @@ def _drive_db[T](
 # --- the caps, pure -----------------------------------------------------------
 
 
-def test_the_query_and_page_caps_are_exactly_the_planned_values() -> None:
+def test_the_query_and_page_caps_are_exactly_the_expected_values() -> None:
     """Catches a cap of any other size: both bound a value that reaches a
     service with no backstop of its own — a 512-token model input and a
     Qdrant `limit` — so a band would admit the wrong one."""

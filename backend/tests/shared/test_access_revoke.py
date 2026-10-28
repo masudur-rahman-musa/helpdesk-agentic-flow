@@ -689,7 +689,7 @@ def test_the_revoked_set_comes_back_oldest_first(
 ) -> None:
     """Catches the `order_by` being dropped from the locked read.
 
-    Without it Postgres returns the rows in whatever order the requirements produce,
+    Without it Postgres returns the rows in whatever order the query happens to produce,
     so the `grant.revoked` sequence for one revocation becomes run-dependent
     and an auditor reading the chain cannot tell a stable record from a
     reordered one. The two rows are planted NEWEST FIRST, so an unordered read

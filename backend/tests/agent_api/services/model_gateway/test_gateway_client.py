@@ -291,7 +291,7 @@ def _complete_json(
 # --- constants and the closed alias set ---------------------
 
 
-def test_the_model_client_constants_are_exactly_the_planned_values() -> None:
+def test_the_model_client_constants_are_exactly_the_expected_values() -> None:
     """Catches a cap, a timeout or a data class set to any other number or
     string — in particular a `DATA_CLASS` copied from the redaction client's
     `"internal"`, which would route chat under a wider class than the policy

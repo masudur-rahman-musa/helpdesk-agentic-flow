@@ -109,7 +109,7 @@ def _anchor_recorder(calls: list[object]) -> Callable[..., Awaitable[None]]:
 # --- the constants -----------------------------------------
 
 
-def test_the_chain_anchor_job_constants_are_exactly_the_planned_values() -> None:
+def test_the_chain_anchor_job_constants_are_exactly_the_expected_values() -> None:
     """Catches this change's two new literals drifting.
 
     `CHAIN_ANCHOR_CADENCE_SECONDS` is the lock TTL by construction,

@@ -54,7 +54,7 @@ EXPECTED_SECTIONS: tuple[str, ...] = (
     "SoD rules",
     "Branding",
 )
-"""The five things an adopter changes first, in the order section 1 fixes.
+"""The five things an adopter changes first, in the order the guide fixes.
 
 Asserted as an exact ordered list, not as a subset: a sixth section makes the
 file a manual rather than a checklist, and a reordering buries the one change
@@ -190,8 +190,8 @@ def test_the_adapter_guide_names_every_directory_provider_method() -> None:
     repository connects the two files.
     """
     port_methods = _port_method_names()
-    # Premise: the port is the seven-method shape section 1 lists. If this is
-    # red, the port moved and the criterion needs rereading, not the guide.
+    # Premise: the port is the seven-method shape the guide lists. If this is
+    # red, the port moved and the test needs rereading, not the guide.
     assert port_methods == PORT_METHODS_AT_HEAD
 
     guide = _read(ADAPTER_GUIDE)

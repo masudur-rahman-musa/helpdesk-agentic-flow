@@ -109,7 +109,7 @@ def _recorder(
 # --- the constants -----------------------------------------
 
 
-def test_the_review_job_constants_are_exactly_the_planned_values() -> None:
+def test_the_review_job_constants_are_exactly_the_expected_values() -> None:
     """Catches every one of this change's new key-shaping literals drifting.
 
     The two names are asserted with the keys they produce, because the name is

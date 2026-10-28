@@ -345,7 +345,7 @@ def test_the_settings_field_and_the_helper_share_one_validator(
     """Catches a diff that validates only in `web_origin_from_env` and leaves
     `Settings.web_origin` as a plain `str` field.
 
-    Decision A1 says one rule in one place; without a `field_validator` on the
+    The origin rule lives in one place; without a `field_validator` on the
     field, every service that builds full `Settings` (rather than calling the
     import-time helper) accepts a malformed origin, and the malformed value
     reaches whatever reads `settings.web_origin` later. The kwarg is passed
@@ -545,7 +545,7 @@ def _set_env_without_mcp_allowed_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
 
 
-def test_the_default_mcp_allowed_hosts_are_exactly_the_planned_values(
+def test_the_default_mcp_allowed_hosts_are_exactly_the_expected_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches an implementation whose unconfigured default is the SDK's own

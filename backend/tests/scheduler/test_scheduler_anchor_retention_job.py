@@ -109,7 +109,7 @@ def _purge_recorder(calls: list[tuple[object, object]]) -> Callable[..., Awaitab
 # --- the constants -----------------------------------------
 
 
-def test_the_anchor_retention_job_constants_are_exactly_the_planned_values() -> None:
+def test_the_anchor_retention_job_constants_are_exactly_the_expected_values() -> None:
     """Catches this change's one new literal drifting, and the key it shapes.
 
     The name is asserted together with the key it produces, because the name is

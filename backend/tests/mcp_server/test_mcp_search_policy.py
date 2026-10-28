@@ -390,7 +390,7 @@ def test_the_collection_searched_is_the_tokens_and_an_extra_tenant_id_is_dropped
 # --- input validation --------------------
 
 
-def test_the_search_bounds_are_exactly_their_planned_values() -> None:
+def test_the_search_bounds_are_exactly_their_expected_values() -> None:
     """Catches a cap or a floor of any other size. Each bounds a value that
     reaches a service with no backstop of its own — a Qdrant `limit`, a model
     input truncated at 512 tokens — and the threshold decides whether an

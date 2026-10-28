@@ -4,7 +4,7 @@ Cost and isolation. Nothing backing: no Postgres, no gateway, no tools. Every
 case calls one pure function in `helpdesk.agent_api.agent.confirmation` on plain
 values, so the file runs in milliseconds and shares no state.
 
-Surface the implementer must provide (names fixed by the requirements):
+Surface the implementation provides (these names are fixed):
 `Answer` (YES, NO, OTHER), `read_answer`, `OPEN_QUESTION_LIFE`, `OpenQuestion`,
 `parse_open_question`, `summary_reply` (it replaces `question_reply`;
 `summary_reply(resolved, results, held_calls)`), `next_step`, and
@@ -357,7 +357,7 @@ def test_a_create_result_alone_does_not_count_as_a_classification() -> None:
 
 
 def test_an_open_question_lives_exactly_24_hours() -> None:
-    """Catches a changed life: the requirements fix it at 24
+    """Catches a changed life: the life is fixed at 24
     hours, and the boundary tests below are measured against this value."""
     assert timedelta(hours=24) == OPEN_QUESTION_LIFE
 

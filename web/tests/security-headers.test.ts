@@ -65,7 +65,7 @@ describe("web security headers", () => {
     expect(onlyBlock(blocks).source).toBe(EVERY_ROUTE);
   });
 
-  it("answers the six planned security headers with exactly the planned values", async () => {
+  it("answers the six security headers with exactly the expected values", async () => {
     // Kills every weakened value, one by one: a CSP with
     // default-src * or without frame-ancestors, X-Frame-Options SAMEORIGIN
     // instead of DENY, a Referrer-Policy of unsafe-url, a Permissions-Policy

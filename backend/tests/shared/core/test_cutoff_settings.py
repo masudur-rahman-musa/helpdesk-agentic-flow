@@ -61,7 +61,7 @@ def _settings(**values: Any) -> Settings:
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
 
 
-def test_the_cutoffs_default_to_the_planned_values() -> None:
+def test_the_cutoffs_default_to_the_expected_values() -> None:
     """Catches a default that drifted from the numbers the golden set was written
     against: role suggestion 0.70, policy refusal 0.35, and the eval
     routes OFF (an eval route that defaults on would answer in production).

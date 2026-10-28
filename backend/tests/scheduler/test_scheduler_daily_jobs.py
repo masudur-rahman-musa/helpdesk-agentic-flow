@@ -105,7 +105,7 @@ def _recorder(
 # --- the constants -----------------------------------------
 
 
-def test_the_daily_job_constants_are_exactly_the_planned_values() -> None:
+def test_the_daily_job_constants_are_exactly_the_expected_values() -> None:
     """Catches every one of this change's new literals drifting.
 
     The cadence IS the lock TTL by construction, so a

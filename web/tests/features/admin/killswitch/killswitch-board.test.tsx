@@ -19,7 +19,7 @@ import { KILL_SWITCH_READ_MESSAGE } from "@/features/admin/killswitch/format";
  * renders. Everything on this surface is a READ: no case posts anything,
  * because nothing here may — the toggle is tested apart.
  *
- * The accessible names are the requirements' own: the region `Kill switches`, the
+ * The accessible names are fixed: the region `Kill switches`, the
  * table `Tool kill switches`, and the four column headers `Tool`, `Status`,
  * `Platform-wide`, `This tenant`. The implementation owes the `<section>` and
  * the `<table>` an `aria-label` each, because neither role takes its name from

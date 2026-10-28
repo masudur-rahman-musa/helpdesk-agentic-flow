@@ -48,7 +48,7 @@ jobs:
     # input is a BuildKit attestation assembled from the Actions environment
     # and mints no OIDC token. The scope is deliberate headroom for a signing
     # step (actions/attest-build-provenance, cosign) that would need it, and it
-    # is pinned as required so that step does not have to argue for it later.
+    # is pinned as required so a signing step does not have to argue for it later.
     # A fourth entry is a scope every third-party action in this job runs
     # inside.
     permissions:

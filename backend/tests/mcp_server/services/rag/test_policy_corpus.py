@@ -25,7 +25,7 @@ VERSIONS: tuple[str, str] = ("v1", "v2")
 
 # The 10 documents from the corpus spec, kebab-cased. Document 1's slug is the
 # one the spec uses verbatim (``access-control-policy``); documents 3 and 5 use
-# the short forms the requirements name (``joiner-mover-leaver``, ``access-review``).
+# the short forms the corpus uses (``joiner-mover-leaver``, ``access-review``).
 SLUGS: tuple[str, ...] = (
     "access-control-policy",  # 1. Access Control Policy
     "segregation-of-duties",  # 2. Segregation of Duties Standard

@@ -630,7 +630,7 @@ def test_two_holders_in_the_band_are_each_warned_on_their_own_grant(
 # --- the constants ------------------------------------------
 
 
-def test_the_expiry_warning_constants_are_exactly_the_planned_values() -> None:
+def test_the_expiry_warning_constants_are_exactly_the_expected_values() -> None:
     """The constants this half introduces, pinned as literals.
 
     Catches a horizon quietly moved — every boundary case above is written

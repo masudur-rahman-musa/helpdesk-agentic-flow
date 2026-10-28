@@ -148,7 +148,7 @@ def test_the_notification_kind_enum_has_exactly_the_eleven_planned_members() -> 
     assert NotificationKind.REVIEW_ESCALATED.value == "review_escalated"
 
 
-def test_the_length_caps_are_exactly_the_planned_values() -> None:
+def test_the_length_caps_are_exactly_the_expected_values() -> None:
     """Catches a cap quietly widened or narrowed, which
     moves the boundary every case in `test_notifications.py` asserts against
     and, being the only gate on a string that reaches a store, decides what

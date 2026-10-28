@@ -24,8 +24,8 @@ of these names until steps 1 and 2 land):
     ``call_tool_route`` and ``STATUS_FOR_CODE`` -- which is why every case here
     patches ``deps.build_tool_caller`` and none of them opens a socket.
 
-Shapes this file asserts against, all of them named
-by the requirements except where noted:
+Shapes this file asserts against, all of them fixed by
+the tool contract except where noted:
 - the two tool names are exactly ``list_notifications`` and
   ``mark_notification_read``, and the read stamp's key material is the reader
   and the notification and NOTHING else (one verb is a constant
@@ -41,9 +41,9 @@ by the requirements except where noted:
   "idempotency_key": ...}``, and the route takes NO body at all,
   so the cases send none.
 - ``KEY_LENGTH`` is read from ``helpdesk.models.idempotency`` rather than
-  written as a literal, because the requirements name the constant and not
+  written as a literal, because the contract names the constant and not
   its value; the two
-  bounds the requirements DO state, ``LIMIT_MIN = 1`` and ``LIMIT_MAX = 200``, are
+  bounds it DOES state, ``LIMIT_MIN = 1`` and ``LIMIT_MAX = 200``, are
   written out below as the literals they are.
 - a non-uuid ``notification_id`` and an unparseable ``unread_only`` are both
   FastAPI's own ``422``: the first is a ``uuid.UUID`` path
@@ -482,7 +482,7 @@ def test_the_page_route_sends_each_query_parameter_only_when_it_is_asked_for(
     `model_dump` sends every declared field, so asking for the unread set alone
     would put `limit: null` on the wire (refused by a 1..200 bound) and asking
     for a limit alone would put `unread_only: null` into a `bool` (refused
-    too). Only the per-shape construction the requirements name -- four models, one
+    too). Only the per-shape construction the contract names -- four models, one
     per shape -- can make both rows pass.
     """
     caller = ScriptedToolCaller(PAGE_PAYLOAD)
@@ -1109,7 +1109,7 @@ def test_the_key_check_is_inclusive_at_the_column_length_and_refuses_one_over() 
     guard, already pinned by `test_agent_planning.py`, and whether
     `derive_notification_read_key` routes THROUGH it is unobservable -- every
     derived key is a 36-character uuid, so the check can never fire from that
-    caller. This row is here because the requirements state the bound and want the value written
+    caller. This row is here because the contract states the bound and wants the value written
     out;
     the case above is what pins the derivation returning a uuid at all.
     """

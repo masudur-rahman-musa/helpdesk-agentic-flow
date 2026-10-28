@@ -50,7 +50,7 @@ from tests.support.mcp import (
 
 LIST_OPEN_TICKETS = "list_open_tickets"
 
-# The exact bounds the requirements name; pinned as values, not as a band.
+# The exact bounds; pinned as values, not as a band.
 LIMIT_MIN = 1
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200

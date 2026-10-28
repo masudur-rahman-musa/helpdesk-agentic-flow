@@ -339,7 +339,7 @@ def _recording_job(name: str, seen: list[uuid.UUID]) -> Job:
 # --- the constants -----------------------------------------
 
 
-def test_the_runner_constants_are_exactly_the_planned_values() -> None:
+def test_the_runner_constants_are_exactly_the_expected_values() -> None:
     """Catches a cadence, a tick or a key prefix quietly changed. Every one of
     them is a number the rest of this file asserts against: a tick of 600 with
     a cadence of 300 runs each job twice as rarely as the product spec asks, and a
