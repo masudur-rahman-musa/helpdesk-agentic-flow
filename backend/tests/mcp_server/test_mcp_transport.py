@@ -446,8 +446,8 @@ def test_the_transport_receives_explicit_security_settings(
     a diff that passes a `TransportSecuritySettings` built from a literal
     instead of from `mcp_allowed_hosts_from_env()` - that implementation
     satisfies the flag and the explicit pass while ignoring the variable
-    entirely. `allowed_origins` is deliberately not asserted: the design
-    configures hosts only, and `_validate_origin` returns True when no `Origin`
+    entirely. `allowed_origins` is deliberately not asserted: only
+    hosts are configured, and `_validate_origin` returns True when no `Origin`
     header is present, which is every request agent-api sends.
     """
     monkeypatch.setenv("MCP_ALLOWED_HOSTS", "mcp.internal.example:*,127.0.0.1:*")

@@ -35,7 +35,7 @@ neighbouring-guard trap.
 The database and the dedicated Redis index are
 `test_scheduler_runner.py`'s session-scoped fixtures, imported rather than
 rebuilt. Per-test isolation stays what that file established: the only keys
-this file writes are the two the design names, and the one case that touches
+this file writes are the jobs' own two, and the one case that touches
 them deletes exactly those two first.
 
 `test_scheduler_runner.py`, `test_scheduler_daily_jobs.py`

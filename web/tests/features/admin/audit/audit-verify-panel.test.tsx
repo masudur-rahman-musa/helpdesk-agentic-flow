@@ -34,7 +34,7 @@ import { FAILURE_MESSAGES } from "@/lib/failure-messages";
  * Shapes this file fixes:
  * - "GET" is asserted as `init?.method ?? "GET"`, so an omitted method — what
  *   `fetch` defaults to and what the search fetcher relies on — passes, and
- *   a POST does not. The requirements fix the verb, not whether it is spelled out.
+ *   a POST does not. The verb is fixed, not whether it is spelled out.
  * - the FOUR verdict sentences and the TWO anchor lines are
  *   found by TEXT inside the region named `Chain integrity` (each a `<p>`),
  *   never as exported constants, and the refusal and failure sentences inside

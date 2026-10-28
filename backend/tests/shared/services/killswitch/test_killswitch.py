@@ -109,7 +109,7 @@ def _unused_port() -> int:
 
 
 # --- the key shape, pinned from both sides ------------------------------------
-# The design names these exact keys. Drift would silently disable nothing: the
+# These exact keys are fixed. Drift would silently disable nothing: the
 # switch would appear to trip while `check` kept allowing the call.
 
 

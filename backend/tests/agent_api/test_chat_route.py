@@ -32,7 +32,7 @@ Every refusal is a typed body from ``helpdesk.errors``, never free text:
         ``auth_routes`` and ``admin_routes`` already answer with).
     400 ``{"code": "VALIDATION"}`` — a message over ``MAX_MESSAGE_CHARS``.
     500 ``{"code": "INTERNAL"}`` — an unreachable gateway, MCP server or Redis.
-The status/body pairs below were left open by the design; they are fixed here.
+The status/body pairs below are fixed here.
 A turn that ended ``FAILED`` answers the typed 500
 and carries NO reply key at all, because a dependency failure is a
 typed code and "never ... a partial reply".

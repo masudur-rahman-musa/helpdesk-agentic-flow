@@ -20,14 +20,14 @@ dependencies = [
     # The mcp SDK's client speaks httpx2, not httpx, so the floor is declared
     # here rather than inherited from whatever `mcp` happens to vendor.
     "httpx2>=2.12",
-    # the design fixes Langfuse as the trace store. v3 embeds the OpenTelemetry
-    # SDK, so the design's separate `opentelemetry-sdk` pin is not needed
+    # Langfuse is the trace store. v3 embeds the OpenTelemetry
+    # SDK, so a separate `opentelemetry-sdk` pin is not needed
     #.
     "langfuse>=3",
     # The agent reaches the MCP server over streamable HTTP with the official
     # SDK's client, and the server speaks the same SDK.
     "mcp>=2.2",
-    # the design fixes prometheus as the metrics choice; the client owns the text
+    # prometheus is the metrics choice; the client owns the text
     # exposition format a hand-rolled writer gets wrong.
     "prometheus-client>=0.21",
     "pydantic-settings>=2.6",

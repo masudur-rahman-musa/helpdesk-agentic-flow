@@ -349,7 +349,7 @@ spec:
   replicas: 1
   # `Recreate`, not `RollingUpdate`: the rolling default starts the new pod
   # before the old one stops, which is two schedulers for the length of every
-  # deploy. The Redis leader lock the design names is what makes a brief second
+  # deploy. The Redis leader lock is what makes a brief second
   # copy survivable if one ever happens; it is not a reason to arrange for one.
   strategy:
     type: Recreate

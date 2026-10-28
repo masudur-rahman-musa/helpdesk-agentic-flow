@@ -189,8 +189,7 @@ def test_the_group_slots_are_exactly_it_admin_and_hr() -> None:
 
     `department_manager` sliding into it would let ANY caller holding some
     principal fill a seat that names one person; `hr` sliding out would make
-    the HRIS seat a named slot with no id, fillable by nobody in a different
-    way than the design records. Asserted as the exact set,
+    the HRIS seat a named slot with no id, fillable by nobody. Asserted as the exact set,
     not by membership, so both directions fail here.
     """
     assert frozenset({ApproverSlot.IT_ADMIN, ApproverSlot.HR}) == GROUP_SLOTS

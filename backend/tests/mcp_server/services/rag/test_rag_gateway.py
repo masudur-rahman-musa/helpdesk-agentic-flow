@@ -443,8 +443,7 @@ def test_the_embedding_cache_dir_defaults_inside_the_repo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Catches a default of `None` or of `~/.cache/fastembed`: fastembed
-    would then download ~130 MB outside this project folder, which the project rules
-    forbid."""
+    would then download ~130 MB outside this project folder, which this project never does."""
     _set_env(monkeypatch, VALID_ENV)
 
     settings = Settings(_env_file=None)  # type: ignore[call-arg]

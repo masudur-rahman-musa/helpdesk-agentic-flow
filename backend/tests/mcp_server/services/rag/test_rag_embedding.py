@@ -173,8 +173,8 @@ def test_count_tokens_grows_with_the_text(embedder: FastEmbedEmbedder) -> None:
 
 def test_the_models_are_cached_inside_the_repository() -> None:
     """Catches a cache directory resolved against the process working
-    directory or defaulted to `~/.cache/fastembed`: the project rules forbid this
-    project writing ~130 MB outside its own folder, and nothing else in the
+    directory or defaulted to `~/.cache/fastembed`: this
+    project must not write ~130 MB outside its own folder, and nothing else in the
     suite would notice where the weights landed."""
     settings = load_settings()
     cache_dir = Path(settings.embedding_cache_dir)

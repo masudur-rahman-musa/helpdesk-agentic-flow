@@ -33,7 +33,7 @@ see another's rows. The second namespace is the fresh `CollectorRegistry`
 installed over `metrics.SWEEP_GAUGES`, which is what makes every assertion
 below an ABSOLUTE value: against the process-wide pair the same case could only
 assert a delta, which passes just as happily when the wrong site did the
-recording (a risk the design names).
+recording.
 
 `seed_tenant` plants ONE grant per tenant, `status = 'active'` with a NULL
 `expires_at` — a LIVE grant. Every expected count below is

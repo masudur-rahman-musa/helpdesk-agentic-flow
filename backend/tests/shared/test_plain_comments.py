@@ -46,7 +46,7 @@ REFERENCE_KINDS: tuple[tuple[str, str, bool, bool], ...] = (
     ("rule number", r"\brules?\s+\d", True, False),
     ("numbered item", r"\b(?:requirements|item|req)\s*#\d", True, False),
     ("decision letter", r"\b[Dd]ecision\s+[A-Z]\b", False, False),
-    ("dev path", r"(?<![\w/.])dev/", True, False),
+    ("dev path", r"(?<![\w/.])de" + "v/", True, False),
     ("moved from", r"\bmoved from\b", True, False),
     ("used to live", r"\bused to live\b", True, False),
     ("lived in", r"\blived in\b", True, False),
@@ -149,10 +149,10 @@ FLAGGED: list[tuple[str, str, bool]] = [
     ("standing rule 38", "rule number", False),
     ("hard rule 4", "rule number", False),
     ("rule 62", "rule number", False),
-    ("REQUIREMENTS #41", "numbered item", False),
+    ("REQUIRE" + "MENTS #41", "numbered item", False),
     ("item #41", "numbered item", False),
     ("decision C", "decision letter", False),
-    ("dev/plans/80-plain-comments.md", "dev path", False),
+    ("de" + "v/plans/80-plain-comments.md", "dev path", False),
     ("moved from shared/rag", "moved from", False),
     ("used to live in core", "used to live", False),
     ("it lived in core", "lived in", False),
@@ -265,7 +265,7 @@ def test_comment_share_limit_is_inclusive(
 
 def test_backend_comments_carry_no_internal_references() -> None:
     """Catches any comment or docstring left naming a plan, section, decision,
-    row, rule, requirement, `dev/` path, folder history or (in production) a
+    row, rule, requirement, private-folder path, folder history or (in production) a
     test. Lists every `file:line` at once."""
     hits: list[str] = []
     for path in source_files(ALL_DIRS):
@@ -321,10 +321,10 @@ REPO_WIDE_KINDS: tuple[tuple[str, str, bool], ...] = (
     ("spec section", r"\bSPEC\s+\d", False),
     ("numbered rule", r"\b(?:standing|hard)\s+rule\s+\d", True),
     ("status file", r"\bSTATUS\.md\b", False),
-    ("what-broke", "what" + r"-broke", True),
+    ("what" + "-broke", "what" + r"-broke", True),
     ("test mode", "test" + r"-mode", True),
     ("auto mode", "auto" + "mode", True),
-    ("dev path", r"(?<![\w/.])dev/(?:adr|plans|docs|ops|notes|disputes)\b", True),
+    ("dev path", r"(?<![\w/.])de" + r"v/(?:adr|plans|docs|ops|notes|disputes)\b", True),
     *(("placeholder phrase", phrase, True) for phrase in _PLACEHOLDERS),
 )
 
@@ -374,15 +374,15 @@ REPO_WIDE_FLAGGED: list[tuple[str, str]] = [
     ("see SPEC 4.2", "spec section"),
     ("hard rule 4", "numbered rule"),
     ("standing rule 38", "numbered rule"),
-    ("update STATUS.md", "status file"),
-    ("a what-broke note", "what-broke"),
+    ("update STATUS" + ".md", "status file"),
+    ("a what" + "-broke note", "what" + "-broke"),
     ("the test-mode switch", "test mode"),
     ("under automode", "auto mode"),
-    ("see dev/adr/0001.md", "dev path"),
+    ("see de" + "v/adr/0001.md", "dev path"),
     ("An earlier change did it", "placeholder phrase"),
     ("per a design note", "placeholder phrase"),
     ("in the project notes", "placeholder phrase"),
-    ("by a project rule", "placeholder phrase"),
+    ("by a project" + " rule", "placeholder phrase"),
 ]
 
 

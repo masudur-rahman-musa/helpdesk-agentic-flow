@@ -30,7 +30,7 @@ trap.
 The database and the dedicated Redis index are
 `test_scheduler_runner.py`'s session-scoped fixtures, imported rather than
 rebuilt. Per-test isolation stays what that file established: the only key
-this file writes is the one the design names, and the case that touches it
+this file writes is the job's own, and the case that touches it
 deletes exactly that key first.
 
 `test_scheduler_runner.py`, `test_scheduler_daily_jobs.py`,
@@ -133,8 +133,8 @@ def test_the_metrics_job_constants_are_exactly_the_expected_values() -> None:
     """Catches this change's two new literals drifting.
 
     `METRICS_SWEEP_CADENCE_SECONDS` is the lock TTL by construction,
-    and the design chose 300 over reusing `DAILY_CADENCE_SECONDS`
-    for a stated reason: a gauge is read as "now", so a daily refresh means
+    and 300 is chosen over reusing `DAILY_CADENCE_SECONDS`
+    for this reason: a gauge is read as "now", so a daily refresh means
     `helpdesk_grants_active` is a WRONG number for 23 hours rather than a
     missing one, and `helpdesk_audit_chain_ok` would report a chain nobody has
     walked since yesterday as verified. 86400 here is exactly that regression,

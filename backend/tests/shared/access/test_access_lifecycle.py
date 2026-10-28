@@ -101,7 +101,7 @@ EXPECTED_EXPIRY_DAYS = {HRIS_VIEWER: 30, WIKI_VIEWER: 180, PLM_ENGINEER: 180}
 ROLE_DEFAULT_EXPIRY_DAYS = {HRIS_VIEWER: 365, WIKI_VIEWER: 365, PLM_ENGINEER: 180}
 
 # The seeded SoD pair (the standard separation-of-duties rule). A department template naming BOTH
-# is a data defect, and the design says it costs the joiner one role, not the
+# is a data defect, and it costs the joiner one role, not the
 # whole onboarding.
 SOD_ROLE_A = ROWS.role_ids[("payments", "initiator")]
 SOD_ROLE_B = ROWS.role_ids[("payments", "approver")]

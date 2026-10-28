@@ -660,7 +660,7 @@ def test_the_qdrant_client_is_one_per_loop_and_the_embedder_one_per_process(
     mcp_env: SeededMcp,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Catches the two lifetimes swapped, which is the risk the design names.
+    """Catches the two lifetimes swapped, which is the risk here.
 
     A client cached per PROCESS is a pooled connection belonging to a loop that
     has died — the failure `redis_client` exists to avoid — so two

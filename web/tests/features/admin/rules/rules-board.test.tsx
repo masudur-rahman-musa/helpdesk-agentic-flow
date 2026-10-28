@@ -302,7 +302,7 @@ describe("RulesBoard — what a row shows", () => {
     // systems may name a role the same thing, so the slug and the system are
     // what tell an admin WHICH `Fake Approver` the rule is about. Kills one
     // printing `role_id` or `system_slug` into the cell — a uuid beside three
-    // words is the column-width cost the design refuses, and the system slug
+    // words is a column-width cost the board avoids, and the system slug
     // says nothing the system name has not already said in words. The two
     // sides carry different values in every field, so this also kills the swap:
     // the `Role A` cell is asserted not to carry `Role B`'s words, which a

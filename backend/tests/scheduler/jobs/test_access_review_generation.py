@@ -13,7 +13,7 @@ must provide exactly this):
     ``YYYY-Qn``.
     ``def check_period(value: str) -> str`` — the accepted period, or a
     ``ToolError`` whose ``code`` is ``ErrorCode.VALIDATION``. The error CLASS
-    is deliberately not named here: the design fixes the code, not the class, so
+    is deliberately not named here: only the code is fixed, not the class, so
     every refusal below is asserted as `ToolError` plus its code, the shape
     `test_access_leavers.py` already uses.
     ``open_review`` gains ``opened_by_user_id: uuid.UUID | None`` and
@@ -872,8 +872,8 @@ def test_open_review_with_an_opener_id_and_no_actor_kind_still_writes_the_user_a
     `mcp_server/tools/reviews.py` calls it: an opener id, no `actor_kind`, no
     `actor_ref`.
 
-    Catches the widening done with the default flipped — the risk the design
-    names. `open_review` is the most-covered engine and no existing case
+    Catches the widening done with the default flipped — the risk here.
+    `open_review` is the most-covered engine and no existing case
     reads `actor_kind` on its event, so a `SYSTEM_ACTOR_KIND` default would
     leave the whole suite green while every manager-opened review in the audit
     log was relabelled as something the machine decided. `actor_ref` is
@@ -950,7 +950,7 @@ def test_a_failure_other_than_already_open_propagates_out_of_generate_reviews(
     which scope it was.
 
     The scope read SUCCEEDS and the failure is raised from `open_review`
-    itself — the shape the design names — through a proxy installed on both
+    itself through a proxy installed on both
     modules that could hold the name, the same technique
     `test_access_leavers.py::_sweep_with_a_concurrent_departure` uses. The
     error is a `NotFoundError`, which is a `ToolError` and therefore exactly

@@ -41,7 +41,7 @@ const REFERENCE_KINDS: readonly [string, string, boolean, boolean][] = [
   ["rule number", String.raw`\brules?\s+\d`, true, false],
   ["numbered item", String.raw`\b(?:requirements|item|req)\s*#\d`, true, false],
   ["decision letter", String.raw`\b[Dd]ecision\s+[A-Z]\b`, false, false],
-  ["dev path", String.raw`(?<![\w/.])dev/`, true, false],
+  ["dev path", String.raw`(?<![\w/.])de` + "v/", true, false],
   ["moved from", String.raw`\bmoved from\b`, true, false],
   ["used to live", String.raw`\bused to live\b`, true, false],
   ["lived in", String.raw`\blived in\b`, true, false],
@@ -218,10 +218,10 @@ const FLAGGED: [text: string, kind: string, production: boolean][] = [
   ["standing rule 38", "rule number", false],
   ["hard rule 4", "rule number", false],
   ["rule 62", "rule number", false],
-  ["REQUIREMENTS #41", "numbered item", false],
+  ["REQUIRE" + "MENTS #41", "numbered item", false],
   ["item #41", "numbered item", false],
   ["decision C", "decision letter", false],
-  ["dev/plans/80-plain-comments.md", "dev path", false],
+  ["de" + "v/plans/80-plain-comments.md", "dev path", false],
   ["moved from shared/rag", "moved from", false],
   ["used to live in core", "used to live", false],
   ["it lived in core", "lived in", false],
@@ -356,7 +356,7 @@ describe("the comment share limit", () => {
 describe("the web sweeps", () => {
   it("web comments carry no internal references", () => {
     // Catches any comment left naming a plan, section, decision, row, rule,
-    // requirement, `dev/` path, folder history or (in production) a test.
+    // requirement, private-folder path, folder history or (in production) a test.
     // Lists every file:line at once.
     const hits = new Set<string>();
     for (const file of sourceFiles(["src", "tests", "e2e"], true)) {

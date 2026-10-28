@@ -54,7 +54,7 @@ test-policy: ## Policy engine alone: 100% line AND branch coverage
 	  --cov=helpdesk.shared.policy --cov-branch --cov-report=term-missing --cov-fail-under=100
 lint:       ## Lint
 	# .github/scripts, infra/scripts, infra/load and infra/tests sit outside backend/, where the one ruff config
-	# lives, so --config holds them to the project's rule set, not ruff's default.
+	# lives, so --config holds them to the same rule set as backend, not ruff's default.
 	uv run --project backend ruff check --config backend/pyproject.toml backend .github/scripts infra/scripts infra/load infra/tests
 typecheck:  ## Static types
 	cd backend && uv run mypy

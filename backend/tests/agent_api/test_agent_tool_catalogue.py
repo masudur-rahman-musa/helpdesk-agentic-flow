@@ -69,7 +69,7 @@ CITATION_FIELDS: frozenset[str] = frozenset(
 )
 """Six citation fields plus `title`, as a literal.
 
-Counted from the design and the tool's own model: seven. Written out rather
+Counted from the tool's own model: seven. Written out rather
 than read off the server, so a field DROPPED on both sides at once is still a red row here."""
 
 

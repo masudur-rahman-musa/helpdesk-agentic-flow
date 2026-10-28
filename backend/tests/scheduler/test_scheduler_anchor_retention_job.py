@@ -36,7 +36,7 @@ What this file deliberately does NOT re-test:
 
 The database and the dedicated Redis index are
 ``test_scheduler_runner.py``'s session-scoped fixtures, imported rather than
-rebuilt. The only key this file writes is the one the design names, and the case
+rebuilt. The only key this file writes is the job's own, and the case
 that touches it deletes exactly that key first.
 
 ``test_scheduler_anchor_retention_job.py`` carries the
@@ -118,7 +118,7 @@ def test_the_anchor_retention_job_constants_are_exactly_the_expected_values() ->
     takes a fresh key with a fresh window.
 
     The cadence is asserted against `DAILY_CADENCE_SECONDS` AND against 86400,
-    which is the design choice written down: reusing the existing constant is the
+    which pins the choice: reusing the existing constant is the
     decision, and a job that declared its own 86400 literal would pass the
     second assertion and fail the first only if that constant ever moved — so
     both are here, exactly as the review and daily job files do it.

@@ -18,9 +18,9 @@ must provide exactly this):
     ``def reset_chain_verdicts() -> None`` — the reset seam this file needs.
     The map is process-local by design, so without a seam the second case in
     this file would inherit the first case's verdict and every case after a
-    broken one would read ``0`` whatever the code did. The design names the seam
-    but not its spelling; this file fixes it as ``reset_chain_verdicts``, and
-    a different name in the implementation is a rename here, not a redesign.
+    broken one would read ``0`` whatever the code did. This file fixes the seam's spelling as
+    ``reset_chain_verdicts``, and a different name in the implementation is a
+    rename here, not a redesign.
 
 The per-tenant AND is what this file mostly exists for. The runner calls the job once
 per tenant, so a plain ``.set()`` per tenant would let a healthy tenant's tick
@@ -97,7 +97,7 @@ def sweep_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CollectorRegistr
     separate factory: `record_audit_chain_ok` reads `metrics.SWEEP_GAUGES` at
     call time, so replacing that name here is what makes an absolute assertion
     possible and what stops these cases reading the scheduler's process-wide
-    instance (a risk the design names).
+    instance.
     """
     registry = CollectorRegistry()
     monkeypatch.setattr(metrics, "SWEEP_GAUGES", metrics.install_sweep_gauges(registry))

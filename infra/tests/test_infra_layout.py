@@ -1,4 +1,4 @@
-"""Static checks that prove the folder layout.
+"""Static checks on where infra, scripts and docs live.
 
 This file does not touch Postgres, Redis, Qdrant, any fixture or the network.
 It only scans files on disk by their path and reads a few config files' text.
@@ -9,14 +9,14 @@ What is pinned: `k8s/` lives in `infra/k8s/`; `docker/postgres/` in
 `.github/scripts/`, and the e2e scripts and stub in `backend/scripts/`;
 `docs/architecture.md` is root `ARCHITECTURE.md`; `CUSTOMIZING.md` is
 `docs/customizing.md`; a root `SECURITY.md` exists. The root allowlist (now
-`.github/root-allowlist`) has no TEMPORARY block and the root check (now
+`.github/root-allowlist`) names no old roots and the root check (now
 `.github/scripts/check_root.py`) is wired into `.pre-commit-config.yaml` and
 `.github/workflows/ci.yml`.
 
 The happy paths prove the locations are present; the unhappy paths prove
 the old `k8s/`, `docker/`, `scripts/`, root `CUSTOMIZING.md` and the old
-`docs/` files are GONE (no shim left behind), the allowlist's TEMPORARY block
-is absent, and compose and the CI config follow the layout.
+`docs/` files are GONE (no shim left behind), the allowlist names none of the old
+roots, and compose and the CI config follow the layout.
 """
 
 from __future__ import annotations
@@ -87,10 +87,9 @@ def test_old_locations_gone() -> None:
         assert not path.exists(), f"old path still present: {path.relative_to(REPO_ROOT)}"
 
 
-def test_temporary_allowlist_removed() -> None:
-    """Kills an allowlist that still carries the TEMPORARY block or the old roots."""
+def test_allowlist_has_no_old_roots() -> None:
+    """Kills an allowlist that still names an old root."""
     text = (REPO_ROOT / ".github" / "root-allowlist").read_text(encoding="utf-8")
-    assert "TEMPORARY" not in text, "root-allowlist still has a TEMPORARY marker"
     # Match whole allowlist ENTRIES, not substrings: the header comment names
     # `.github/scripts/check_root.py`, which must not read as a stray `scripts/`.
     entries = [

@@ -518,7 +518,7 @@ def test_the_diff_revokes_applies_retains_and_leaves_the_non_standard_grant(
     return value would still look right. A transfer that revoked everything
     the old template named would take the retained role away; a transfer that
     revoked "everything held" would take the NON-STANDARD grant, which
-    the design says stays live and untouched. The revoked row is checked as a
+    stays live and untouched. The revoked row is checked as a
     row (`status`, `revoked_at`, `revoke_reason`), not merely as an id in the
     answer, so a transfer that reported a revocation it never wrote fails.
 
@@ -839,7 +839,7 @@ def test_the_transfer_and_its_events_roll_back_together(
 
     The caller fails AFTER `transfer_user` returned, so anything committed in
     its own transaction survives a rollback that must take it — and the
-    instant the design leaves open, where the mover holds neither the old role
+    instant where the mover holds neither the old role
     nor the new one, becomes visible state rather than a moment inside one
     transaction. All four effects are re-read: the department, the
     revoked row, the applied row and both grant events.

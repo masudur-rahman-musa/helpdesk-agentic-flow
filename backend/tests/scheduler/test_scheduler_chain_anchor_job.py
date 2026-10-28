@@ -39,7 +39,7 @@ What this file deliberately does NOT re-test:
 
 The database and the dedicated Redis index are
 ``test_scheduler_runner.py``'s session-scoped fixtures, imported rather than
-rebuilt. The only key this file writes is the one the design names, and the case
+rebuilt. The only key this file writes is the job's own, and the case
 that touches it deletes exactly that key first.
 
 ``test_scheduler_chain_anchor_job.py`` carries the service in

@@ -128,8 +128,8 @@ services:
       redis: {condition: service_healthy}
       qdrant: {condition: service_healthy}
     healthcheck:
-      # /healthz, never /readyz: readiness is 503 wherever no gateway answers
-      # (the design), so a readiness-based healthcheck would hold this container
+      # /healthz, never /readyz: readiness is 503 wherever no gateway answers,
+      # so a readiness-based healthcheck would hold this container
       # unhealthy on a machine with no gateway and stop web from ever starting.
       # The image ships no curl, so the probe is the interpreter already in it.
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()"]

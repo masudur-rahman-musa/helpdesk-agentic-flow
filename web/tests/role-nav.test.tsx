@@ -25,8 +25,8 @@ import { ApprovalQueue } from "@/features/approvals/components/approval-queue";
  * - the strip is the proof the read RESOLVED: every "four links" row that could
  *   also be satisfied by a pending read first waits for the strip.
  * - the page the hidden-URL row renders is `ApprovalQueue`, whose refused read
- *   is the region alert its own tests pin. The requirements call that
- *   "the tool's forbidden sentence"; the page's sentence is the read alert,
+ *   is the region alert its own tests pin. The tool's forbidden
+ *   sentence is not what this page shows; its sentence is the read alert,
  *   so that is what is asserted.
  *
  * `next/navigation` is mocked as `tests/shell.test.tsx` mocks it.

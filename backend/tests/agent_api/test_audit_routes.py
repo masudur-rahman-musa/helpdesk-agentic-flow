@@ -22,8 +22,8 @@ Shapes this file fixes that were left open:
   bound and ``event_type: null`` where the tool's absent-filter meaning is
   "every event type" (the reason is given in the route's own note).
 - ``occurred_from`` and ``occurred_to`` cross the route as the STRINGS the
-  browser sent, never as a ``datetime`` the route parses: the design asks a
-  non-ISO value to answer the typed ``400 VALIDATION``, and a route declaring
+  browser sent, never as a ``datetime`` the route parses: a
+  non-ISO value must answer the typed ``400 VALIDATION``, and a route declaring
   its own ``datetime`` query parameter answers FastAPI's untyped 422 instead.
   ``before_seq`` and ``limit`` cross as ints, whose
   bounds - not whose type - are the tool's to judge.

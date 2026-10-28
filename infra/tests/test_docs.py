@@ -495,7 +495,7 @@ K8S_DIR = REPO_ROOT / "infra" / "k8s"
 PATH_IN_TEXT = re.compile(r"(?:\./)?((?:backend|web|docs|infra|k8s)/[A-Za-z0-9_.\-/]+)")
 """A repo-relative path starting with a real top-level folder. The character
 class stops at `:`, so a compose mount `./backend/data/policies:/srv/...` yields
-just the host side. `dev/` is left out: it would match device paths like
+just the host side. A bare `dev` folder name is left out: it would match device paths like
 `/dev/null` in the workflows. `docker/` is left out
 too: it collides with GitHub Action refs like `docker/build-push-action`, and
 there is no `docker/` tree now."""
