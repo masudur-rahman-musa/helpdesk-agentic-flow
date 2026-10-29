@@ -208,6 +208,21 @@ async def _admin_execute(admin_url: str, sql: str) -> None:
         await engine.dispose()
 
 
+#: Same shape as the app-role migration: NOLOGIN, made only when missing. Two
+#: workers racing to make it is fine; the loser's duplicate error is ignored.
+_ENSURE_APP_ROLE = """
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'helpdesk_app') THEN
+        CREATE ROLE "helpdesk_app" NOLOGIN;
+    END IF;
+EXCEPTION WHEN duplicate_object OR unique_violation THEN
+    NULL;
+END
+$$
+"""
+
+
 class TempDatabaseFactory:
     """Creates uniquely named temp databases on the compose Postgres."""
 
@@ -261,6 +276,11 @@ def mcp_pg() -> TempDatabaseFactory:
         asyncio.run(_admin_execute(settings.database_url, "SELECT 1"))
     except Exception as exc:
         pytest.fail(_PG_UNREACHABLE_MSG.format(error=exc), pytrace=False)
+    # Roles belong to the whole server, not one database. A temp database that
+    # skips the migrations still needs the app role the checkpointer grants to,
+    # so make it here the way the migration does. Without this, a test passes or
+    # fails depending on whether a migrating test ran earlier on the same server.
+    asyncio.run(_admin_execute(settings.database_url, _ENSURE_APP_ROLE))
     return TempDatabaseFactory(settings.database_url)
 
 

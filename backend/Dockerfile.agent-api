@@ -63,6 +63,13 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 RUN groupadd --gid 10001 helpdesk \
  && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --no-create-home helpdesk
 
+# The pinned Python image still ships libssl3 3.0.22-1~deb12u1, which carries a
+# HIGH CVE fixed in deb12u2. Upgrading the OpenSSL packages here clears it
+# without waiting for a new base image; drop this once the base has it.
+RUN apt-get update \
+ && apt-get install -y --only-upgrade --no-install-recommends libssl3 openssl \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY --from=builder --chown=10001:10001 /app /app

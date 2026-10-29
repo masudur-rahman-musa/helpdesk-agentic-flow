@@ -30,8 +30,9 @@ build/
 
 # local working files
 docker-compose.override.yml
-# AI
-backend/evals/reports/
+# AI. Eval reports stay local, except the one the README quotes.
+backend/evals/reports/*
+!backend/evals/reports/chat-report.json
 # Service
 .terraform/
 *.tfstate

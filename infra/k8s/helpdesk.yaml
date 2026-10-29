@@ -1,7 +1,6 @@
-# The Helpdesk's four workloads on the node: agent API, MCP tool server,
+# The Helpdesk's four workloads on the cluster: agent API, MCP tool server,
 # scheduler and web front end, with their Services, `helpdesk-config` and the
-# policies volume. Moved here from the console repo on 2026-10-12 so this repo
-# deploys itself (`.github/workflows/deploy.yml`).
+# policies volume. Kept in this repo so it deploys itself.
 #
 # What this file relies on and does NOT create, all made by the console repo's
 # deploy, which must have run first: the `apps` namespace and its quota, the
@@ -17,7 +16,7 @@
 # The scheduler has no ports and no probes: it serves nothing, holds a Redis
 # leader lock and runs jobs, so `replicas: 1` with `Recreate` keeps exactly one.
 #
-# Images are set by `kustomization.yaml`; `deploy.yml` puts the commit SHA in.
+# Images are set by `kustomization.yaml`; a deploy job puts the commit SHA in.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -40,8 +39,8 @@ data:
   # server side only, never from the browser.
   MCP_URL: http://helpdesk-mcp-server.apps.svc.cluster.local:8081/mcp
   AGENT_API_URL: http://helpdesk-agent-api.apps.svc.cluster.local:8000
-  # The public address: the host of the console repo's `helpdesk` Ingress on
-  # the node, scheme and host only, no trailing slash.
+  # The public address: the host of the console repo's `helpdesk` Ingress,
+  # scheme and host only, no trailing slash.
   WEB_ORIGIN: https://helpdesk.example.com
   # The Host names the MCP transport accepts: agent-api dials the fully
   # qualified service name, which the default list lacks.
@@ -50,8 +49,8 @@ data:
   SESSION_COOKIE_SECURE: "true"
   # The corpus root the MCP server walks, as `{tenant}/{version}/{file}`. The
   # image carries no corpus: it reads the `helpdesk-policies` volume, read-only,
-  # so a compromised tool process cannot edit what decides access. The console
-  # repo's `make server-helpdesk-data` fills it.
+  # so a compromised tool process cannot edit what decides access. Load it once
+  # before the first start.
   POLICY_DIR: /srv/policies
   # `OTEL_SERVICE_NAME` is deliberately NOT here. It is per-container
   # `env` below, because one trace carries spans from the Helpdesk and from the

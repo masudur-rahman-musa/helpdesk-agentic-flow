@@ -1,5 +1,5 @@
-# The Helpdesk on the node. `deploy.yml` builds this with
-# `kustomize build k8s`, after setting every image tag to the deployed commit
+# The Helpdesk on a Kubernetes cluster. A deploy job builds this with
+# `kustomize build infra/k8s`, after setting every image tag to the deployed commit
 # SHA with `kustomize edit set image` in the runner (never committed back).
 # `0.0.0-unbuilt` is the placeholder until then: no such tag exists on GHCR, so
 # an apply that skipped the tag step fails at the pull instead of running
