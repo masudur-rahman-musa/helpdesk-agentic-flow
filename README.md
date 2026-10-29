@@ -260,7 +260,7 @@ starts first. The two run side by side: the console publishes its backing
 services on shifted host ports, and nothing here has to be stopped for it.
 
 ```
-cd ../ai-operations-console && docker compose up -d --wait
+cd ../llmops-console && docker compose up -d --wait
 ```
 
 Then, back in this repository, copy the override example once. It runs the
@@ -299,6 +299,9 @@ make verify             # everything, including the web build
 make e2e                # five flows in a real browser; resets the database
 ```
 
+How this project was built, and the flow you can follow on your own work:
+[docs/how-it-was-built.md](docs/how-it-was-built.md).
+
 ## Integration path to a real directory
 
 This repository ships a simulated directory: users, departments, memberships
@@ -329,7 +332,7 @@ The five things an adopter changes first are listed in
 method in [docs/directory-adapter.md](docs/directory-adapter.md).
 
 Companion project:
-[ai-operations-console](https://github.com/masudur-rahman-musa/ai-operations-console),
+[llmops-console](https://github.com/masudur-rahman-musa/llmops-console),
 the gateway, evaluation harness and observability layer this system runs on.
 
 License: Apache-2.0
