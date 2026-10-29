@@ -10,15 +10,15 @@
   "Secret": "0f8fad5b-d9cb-469f-a165-70867728950e",
   "File": "web/tests/policies-proxy-routes.test.ts",
   "SymlinkFile": "",
-  "Commit": "1111b57c2bf690c98f0a47330ef720492ca827f1",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/1111b57c2bf690c98f0a47330ef720492ca827f1/web/tests/policies-proxy-routes.test.ts#L255",
+  "Commit": "84b53c3029789c756411687bf68891b429b0460d",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/84b53c3029789c756411687bf68891b429b0460d/web/tests/policies-proxy-routes.test.ts#L255",
   "Entropy": 3.8564746,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-09-14T01:07:13Z",
-  "Message": "Add the admin re-ingest control to the policies board (plan 31b)\n\nOne control per distinct version, on that version's first row, posting the\nthree-key body with a freshly minted idempotency key. A version that is not\nlive arms first, because re-ingesting it makes it live. The board owns the\nquery key and hands down an invalidation; the control owns its arming, its\nin-flight flag, its alert and its result line.\n\nThe proxy route now bounds the call at 35 seconds, above agent-api's own MCP\nread timeout, so the tool's typed refusal reaches the browser rather than the\nproxy aborting an ingest that is still running.",
+  "Message": "Add the admin re-ingest control to the policies board\n\nOne control per distinct version, on that version's first row, posting the\nthree-key body with a freshly minted idempotency key. A version that is not\nlive arms first, because re-ingesting it makes it live. The board owns the\nquery key and hands down an invalidation; the control owns its arming, its\nin-flight flag, its alert and its result line.\n\nThe proxy route now bounds the call at 35 seconds, above agent-api's own MCP\nread timeout, so the tool's typed refusal reaches the browser rather than the\nproxy aborting an ingest that is still running.",
   "Tags": [],
-  "Fingerprint": "1111b57c2bf690c98f0a47330ef720492ca827f1:web/tests/policies-proxy-routes.test.ts:generic-api-key:255"
+  "Fingerprint": "84b53c3029789c756411687bf68891b429b0460d:web/tests/policies-proxy-routes.test.ts:generic-api-key:255"
  },
  {
   "RuleID": "generic-api-key",
@@ -31,15 +31,15 @@
   "Secret": "policies-routes-test-jwt-secret-0123456789",
   "File": "services/agent-api/tests/test_policies_routes.py",
   "SymlinkFile": "",
-  "Commit": "de627e52748d99c54596052710012bcaec33ffbb",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/de627e52748d99c54596052710012bcaec33ffbb/services/agent-api/tests/test_policies_routes.py#L81",
+  "Commit": "c3bf6bf49ad0949e8c438730a973c0b899289362",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/c3bf6bf49ad0949e8c438730a973c0b899289362/services/agent-api/tests/test_policies_routes.py#L81",
   "Entropy": 4.182105,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-09-13T00:44:43Z",
-  "Message": "Make this tenant's policy corpus readable end to end (plan 24g)\n\nread_policy_documents groups policy_documents by slug in two statements,\ncarrying each version's chunk count, current flag, source path and digest,\nso a half-landed ingest is visible rather than hidden. list_policy_documents\nputs that on the wire for it_admin and platform_admin, GET /admin/policies\ncrosses it unchanged, and the web half parses the envelope and proxies the\nread for the page row 24h builds.",
+  "Message": "Make this tenant's policy corpus readable end to end",
   "Tags": [],
-  "Fingerprint": "de627e52748d99c54596052710012bcaec33ffbb:services/agent-api/tests/test_policies_routes.py:generic-api-key:81"
+  "Fingerprint": "c3bf6bf49ad0949e8c438730a973c0b899289362:services/agent-api/tests/test_policies_routes.py:generic-api-key:81"
  },
  {
   "RuleID": "generic-api-key",
@@ -52,15 +52,15 @@
   "Secret": "notification-routes-test-jwt-secret-01234",
   "File": "services/agent-api/tests/test_notification_routes.py",
   "SymlinkFile": "",
-  "Commit": "961076c1abf90e3755429cccc58128ea235327d8",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/961076c1abf90e3755429cccc58128ea235327d8/services/agent-api/tests/test_notification_routes.py#L118",
+  "Commit": "4363cfb15877326c0c497c1fddc8cf1fe2f628d6",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/4363cfb15877326c0c497c1fddc8cf1fe2f628d6/services/agent-api/tests/test_notification_routes.py#L118",
   "Entropy": 3.9057035,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-09-11T23:10:00Z",
-  "Message": "Reach the two notification tools over HTTP and parse their answers (plan 23gb)\n\nTwo agent-api routes over the 23ga tools, two web proxies and one parser, no\npage. The read stamp's idempotency key is derived from the verified reader and\nthe notification under the same namespace and separator as the other three\nderivations, so a double-clicked bell replays rather than filing a second call.\nThe page size and the unread filter stay the tool's, and the stamp carries no\nbody at all.",
+  "Message": "Reach the two notification tools over HTTP and parse their answers\n\nTwo agent-api routes over the 23ga tools, two web proxies and one parser, no\npage. The read stamp's idempotency key is derived from the verified reader and\nthe notification under the same namespace and separator as the other three\nderivations, so a double-clicked bell replays rather than filing a second call.\nThe page size and the unread filter stay the tool's, and the stamp carries no\nbody at all.",
   "Tags": [],
-  "Fingerprint": "961076c1abf90e3755429cccc58128ea235327d8:services/agent-api/tests/test_notification_routes.py:generic-api-key:118"
+  "Fingerprint": "4363cfb15877326c0c497c1fddc8cf1fe2f628d6:services/agent-api/tests/test_notification_routes.py:generic-api-key:118"
  },
  {
   "RuleID": "generic-api-key",
@@ -73,15 +73,15 @@
   "Secret": "157149bd-4d3a-5f66-87b1-aa756d2177fe",
   "File": "services/agent-api/tests/test_notification_routes.py",
   "SymlinkFile": "",
-  "Commit": "961076c1abf90e3755429cccc58128ea235327d8",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/961076c1abf90e3755429cccc58128ea235327d8/services/agent-api/tests/test_notification_routes.py#L147",
+  "Commit": "4363cfb15877326c0c497c1fddc8cf1fe2f628d6",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/4363cfb15877326c0c497c1fddc8cf1fe2f628d6/services/agent-api/tests/test_notification_routes.py#L147",
   "Entropy": 3.708003,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-09-11T23:10:00Z",
-  "Message": "Reach the two notification tools over HTTP and parse their answers (plan 23gb)\n\nTwo agent-api routes over the 23ga tools, two web proxies and one parser, no\npage. The read stamp's idempotency key is derived from the verified reader and\nthe notification under the same namespace and separator as the other three\nderivations, so a double-clicked bell replays rather than filing a second call.\nThe page size and the unread filter stay the tool's, and the stamp carries no\nbody at all.",
+  "Message": "Reach the two notification tools over HTTP and parse their answers\n\nTwo agent-api routes over the 23ga tools, two web proxies and one parser, no\npage. The read stamp's idempotency key is derived from the verified reader and\nthe notification under the same namespace and separator as the other three\nderivations, so a double-clicked bell replays rather than filing a second call.\nThe page size and the unread filter stay the tool's, and the stamp carries no\nbody at all.",
   "Tags": [],
-  "Fingerprint": "961076c1abf90e3755429cccc58128ea235327d8:services/agent-api/tests/test_notification_routes.py:generic-api-key:147"
+  "Fingerprint": "4363cfb15877326c0c497c1fddc8cf1fe2f628d6:services/agent-api/tests/test_notification_routes.py:generic-api-key:147"
  },
  {
   "RuleID": "generic-api-key",
@@ -94,15 +94,15 @@
   "Secret": "approval-routes-test-jwt-secret-0123456789",
   "File": "services/agent-api/tests/test_approval_routes.py",
   "SymlinkFile": "",
-  "Commit": "009faecf0bde109f0978f7db99bb94d4563ccb53",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/009faecf0bde109f0978f7db99bb94d4563ccb53/services/agent-api/tests/test_approval_routes.py#L108",
+  "Commit": "9de6eaffe6ed993a09abbc1764860da9391b6038",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/9de6eaffe6ed993a09abbc1764860da9391b6038/services/agent-api/tests/test_approval_routes.py#L108",
   "Entropy": 4.279721,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-09-11T19:09:29Z",
-  "Message": "Put the approval queue and the two decisions on the wire (plan 23c)\n\nThe queue row widens from twelve fields to twenty, fed by one statement with\nfour joins so the names and the stored decision trace arrive with each request\ninstead of costing a directory read per row.\n\nAgent-api gains GET /me/approvals and the two POST decision routes over the\nsame MCP tools the agent calls, with the idempotency key derived from the\napprover, the request and the verb - a double-clicked Approve replays the\nstored response rather than filing a second decision. The route plumbing moves\ninto deps so later rows share one typed-refusal map.",
+  "Message": "Put the approval queue and the two decisions on the wire\n\nThe queue row widens from twelve fields to twenty, fed by one statement with\nfour joins so the names and the stored decision trace arrive with each request\ninstead of costing a directory read per row.\n\nAgent-api gains GET /me/approvals and the two POST decision routes over the\nsame MCP tools the agent calls, with the idempotency key derived from the\napprover, the request and the verb - a double-clicked Approve replays the\nstored response rather than filing a second decision. The route plumbing moves\ninto deps so later rows share one typed-refusal map.",
   "Tags": [],
-  "Fingerprint": "009faecf0bde109f0978f7db99bb94d4563ccb53:services/agent-api/tests/test_approval_routes.py:generic-api-key:108"
+  "Fingerprint": "9de6eaffe6ed993a09abbc1764860da9391b6038:services/agent-api/tests/test_approval_routes.py:generic-api-key:108"
  },
  {
   "RuleID": "generic-api-key",
@@ -115,15 +115,15 @@
   "Secret": "me-routes-test-jwt-secret-0123456789abcdef",
   "File": "services/agent-api/tests/test_me_routes.py",
   "SymlinkFile": "",
-  "Commit": "d30a21aaf12929a829ee03de649342ed7bd29e51",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/d30a21aaf12929a829ee03de649342ed7bd29e51/services/agent-api/tests/test_me_routes.py#L77",
+  "Commit": "f6c282de26f95d50c669ef9ec6828a4eb887f57c",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/f6c282de26f95d50c669ef9ec6828a4eb887f57c/services/agent-api/tests/test_me_routes.py#L77",
   "Entropy": 4.2617474,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-09-11T10:31:30Z",
-  "Message": "Widen my-requests and put both reads on the wire (plan 23a)\n\nlist_my_requests now answers nineteen fields instead of nine, resolved in one\njoined read alongside the request's grant, and two agent-api routes plus two\nNext proxies put it and list_my_access in front of the browser. The reads go\nthrough the MCP boundary so RBAC, the kill switch and the audit event still\napply, and the caller's own bearer is forwarded verbatim.",
+  "Message": "Widen my-requests and put both reads on the wire\n\nlist_my_requests now answers nineteen fields instead of nine, resolved in one\njoined read alongside the request's grant, and two agent-api routes plus two\nNext proxies put it and list_my_access in front of the browser. The reads go\nthrough the MCP boundary so RBAC, the kill switch and the audit event still\napply, and the caller's own bearer is forwarded verbatim.",
   "Tags": [],
-  "Fingerprint": "d30a21aaf12929a829ee03de649342ed7bd29e51:services/agent-api/tests/test_me_routes.py:generic-api-key:77"
+  "Fingerprint": "f6c282de26f95d50c669ef9ec6828a4eb887f57c:services/agent-api/tests/test_me_routes.py:generic-api-key:77"
  },
  {
   "RuleID": "generic-api-key",
@@ -136,15 +136,15 @@
   "Secret": "mcp-test-jwt-secret-0123456789abcdef",
   "File": "services/mcp-server/tests/mcp_fixtures.py",
   "SymlinkFile": "",
-  "Commit": "48fbde0105eeff93aedacdfa701b2f6955b624ae",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/48fbde0105eeff93aedacdfa701b2f6955b624ae/services/mcp-server/tests/mcp_fixtures.py#L59",
+  "Commit": "9e01e4674ec4199e6cb7bfceb75828bb22750d3e",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/9e01e4674ec4199e6cb7bfceb75828bb22750d3e/services/mcp-server/tests/mcp_fixtures.py#L59",
   "Entropy": 4.315623,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-09-04T16:47:20Z",
-  "Message": "Serve the MCP tool pipeline over streamable HTTP (plan 10a)\n\nEvery tool call now passes one seam: identity from the JWT, then the kill\nswitch, then RBAC, then argument validation, then a tenant-bound session.\nThe seam answers with one of the eight typed codes and nothing else, and\nwrites exactly one audit event per call. The failure event comes from a\nfresh session so it survives the rollback it records.\n\nget_me and list_my_access are the first two tools. Both are self-scoped and\nignore any user named in their arguments.\n\nAdds a connect timeout to the one engine factory and both timeout halves to\nthe kill switch and readiness clients: Redis and Postgres are on the path of\nevery call, and a dropped packet would otherwise hang it forever.",
+  "Message": "Serve the MCP tool pipeline over streamable HTTP\n\nEvery tool call now passes one seam: identity from the JWT, then the kill\nswitch, then RBAC, then argument validation, then a tenant-bound session.\nThe seam answers with one of the eight typed codes and nothing else, and\nwrites exactly one audit event per call. The failure event comes from a\nfresh session so it survives the rollback it records.\n\nget_me and list_my_access are the first two tools. Both are self-scoped and\nignore any user named in their arguments.\n\nAdds a connect timeout to the one engine factory and both timeout halves to\nthe kill switch and readiness clients: Redis and Postgres are on the path of\nevery call, and a dropped packet would otherwise hang it forever.",
   "Tags": [],
-  "Fingerprint": "48fbde0105eeff93aedacdfa701b2f6955b624ae:services/mcp-server/tests/mcp_fixtures.py:generic-api-key:59"
+  "Fingerprint": "9e01e4674ec4199e6cb7bfceb75828bb22750d3e:services/mcp-server/tests/mcp_fixtures.py:generic-api-key:59"
  },
  {
   "RuleID": "generic-api-key",
@@ -157,15 +157,15 @@
   "Secret": "mcp-test-wrong-secret-0123456789abcdef",
   "File": "services/mcp-server/tests/mcp_fixtures.py",
   "SymlinkFile": "",
-  "Commit": "48fbde0105eeff93aedacdfa701b2f6955b624ae",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/48fbde0105eeff93aedacdfa701b2f6955b624ae/services/mcp-server/tests/mcp_fixtures.py#L61",
+  "Commit": "9e01e4674ec4199e6cb7bfceb75828bb22750d3e",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/9e01e4674ec4199e6cb7bfceb75828bb22750d3e/services/mcp-server/tests/mcp_fixtures.py#L61",
   "Entropy": 4.4713545,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-09-04T16:47:20Z",
-  "Message": "Serve the MCP tool pipeline over streamable HTTP (plan 10a)\n\nEvery tool call now passes one seam: identity from the JWT, then the kill\nswitch, then RBAC, then argument validation, then a tenant-bound session.\nThe seam answers with one of the eight typed codes and nothing else, and\nwrites exactly one audit event per call. The failure event comes from a\nfresh session so it survives the rollback it records.\n\nget_me and list_my_access are the first two tools. Both are self-scoped and\nignore any user named in their arguments.\n\nAdds a connect timeout to the one engine factory and both timeout halves to\nthe kill switch and readiness clients: Redis and Postgres are on the path of\nevery call, and a dropped packet would otherwise hang it forever.",
+  "Message": "Serve the MCP tool pipeline over streamable HTTP\n\nEvery tool call now passes one seam: identity from the JWT, then the kill\nswitch, then RBAC, then argument validation, then a tenant-bound session.\nThe seam answers with one of the eight typed codes and nothing else, and\nwrites exactly one audit event per call. The failure event comes from a\nfresh session so it survives the rollback it records.\n\nget_me and list_my_access are the first two tools. Both are self-scoped and\nignore any user named in their arguments.\n\nAdds a connect timeout to the one engine factory and both timeout halves to\nthe kill switch and readiness clients: Redis and Postgres are on the path of\nevery call, and a dropped packet would otherwise hang it forever.",
   "Tags": [],
-  "Fingerprint": "48fbde0105eeff93aedacdfa701b2f6955b624ae:services/mcp-server/tests/mcp_fixtures.py:generic-api-key:61"
+  "Fingerprint": "9e01e4674ec4199e6cb7bfceb75828bb22750d3e:services/mcp-server/tests/mcp_fixtures.py:generic-api-key:61"
  },
  {
   "RuleID": "generic-api-key",
@@ -178,15 +178,15 @@
   "Secret": "replace-with-32-plus-bytes",
   "File": ".env.example",
   "SymlinkFile": "",
-  "Commit": "27b1afd14eee5db3c8d9faa8c3c916b580045c24",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/27b1afd14eee5db3c8d9faa8c3c916b580045c24/.env.example#L7",
+  "Commit": "c38da5b2b3c6a8ba798517c1a4f10cb57ac59d46",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/c38da5b2b3c6a8ba798517c1a4f10cb57ac59d46/.env.example#L7",
   "Entropy": 3.9021747,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-08-22T20:29:38Z",
   "Message": "Add project scaffolding and agent governance",
   "Tags": [],
-  "Fingerprint": "27b1afd14eee5db3c8d9faa8c3c916b580045c24:.env.example:generic-api-key:7"
+  "Fingerprint": "c38da5b2b3c6a8ba798517c1a4f10cb57ac59d46:.env.example:generic-api-key:7"
  },
  {
   "RuleID": "generic-api-key",
@@ -199,14 +199,14 @@
   "Secret": "eval-routes-test-jwt-secret-0123456789abcdef",
   "File": "backend/tests/agent_api/test_eval_routes.py",
   "SymlinkFile": "",
-  "Commit": "759425334dbbbe6f44f2833bd0e23f3be41aebe6",
-  "Link": "https://github.com/masudur-rahman-musa/ai-help-desk-governed-access/blob/759425334dbbbe6f44f2833bd0e23f3be41aebe6/backend/tests/agent_api/test_eval_routes.py#L76",
+  "Commit": "0fa01d5b114a6e9b83feb44d49e46facbf4e3f6b",
+  "Link": "https://github.com/masudur-rahman-musa/helpdesk-agentic-flow/blob/0fa01d5b114a6e9b83feb44d49e46facbf4e3f6b/backend/tests/agent_api/test_eval_routes.py#L76",
   "Entropy": 4.3347964,
   "Author": "Masudur Rahman",
   "Email": "developer.musa@gmail.com",
   "Date": "2026-10-20T15:55:18Z",
-  "Message": "Run the golden set against the real agent, make the cut-offs settings and count stuck chats (plan 107)",
+  "Message": "Run the golden set against the real agent, make the cut-offs settings and count stuck chats",
   "Tags": [],
-  "Fingerprint": "759425334dbbbe6f44f2833bd0e23f3be41aebe6:backend/tests/agent_api/test_eval_routes.py:generic-api-key:76"
+  "Fingerprint": "0fa01d5b114a6e9b83feb44d49e46facbf4e3f6b:backend/tests/agent_api/test_eval_routes.py:generic-api-key:76"
  }
 ]
