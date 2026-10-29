@@ -7,7 +7,7 @@
 # backend/, where they find backend/.env) and to Playwright (run from web/).
 E2E_ACCOUNTS_FILE ?= $(CURDIR)/.cache/e2e-accounts.json
 # The companion console, whose `ops-eval` scores the conversation cases and holds the only baseline.
-CONSOLE_DIR ?= ../ai-operations-console
+CONSOLE_DIR ?= ../llmops-console
 # The agent-api the eval calls; it must run with EVAL_ROUTES_ENABLED=true.
 AGENT_API_URL ?= http://localhost:8000
 # The tag `make images` builds under. `local` rather than a version: nothing

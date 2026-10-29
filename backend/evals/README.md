@@ -24,7 +24,7 @@ from the portfolio projects:
 
 `make eval-chat` needs the stack up (`docker compose up -d`) with the agent-api
 started with `EVAL_ROUTES_ENABLED=true`, the real gateway, and the console
-checked out beside this repo (`CONSOLE_DIR`, default `../ai-operations-console`).
+checked out beside this repo (`CONSOLE_DIR`, default `../llmops-console`).
 It restores the database with `backend/scripts/e2e_reset.py` and the seed, then
 calls the console's `ops-eval conversations` against `$(AGENT_API_URL)`.
 
