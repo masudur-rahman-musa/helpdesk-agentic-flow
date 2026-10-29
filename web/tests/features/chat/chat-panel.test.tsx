@@ -420,3 +420,22 @@ describe("ChatPanel — where the sources sit", () => {
     expect(spacerIndex).toBeLessThan(children.indexOf(composer as Element));
   });
 });
+
+describe("ChatPanel — the link to the access rules", () => {
+  it("test_the_rules_link_opens_the_policies_page_in_a_new_tab", async () => {
+    // Kills a link that is missing, points somewhere else, opens in the same
+    // tab (the open chat would be lost) or opens a new tab without `noopener`,
+    // which hands the new page a handle on this one.
+    render(
+      <QueryProvider>
+        <ChatPanel />
+      </QueryProvider>,
+    );
+
+    const link = await screen.findByRole("link", { name: "Read the company's access rules" });
+    expect(link).toHaveAttribute("href", "/policies");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("heading", { level: 1, name: "Chat" }).nextElementSibling).toBe(link);
+  });
+});

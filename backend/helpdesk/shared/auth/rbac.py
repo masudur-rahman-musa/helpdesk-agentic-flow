@@ -54,6 +54,7 @@ class Tool(StrEnum):
     SET_TOOL_STEPS_VISIBLE = "set_tool_steps_visible"
     LIST_SOD_RULES = "list_sod_rules"
     LIST_POLICY_DOCUMENTS = "list_policy_documents"
+    READ_POLICIES = "read_policies"
     REINGEST_POLICY_DOCUMENT = "reingest_policy_document"
     LIST_NOTIFICATIONS = "list_notifications"
     MARK_NOTIFICATION_READ = "mark_notification_read"
@@ -139,6 +140,9 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
         Tool.LIST_NOTIFICATIONS: _all(Scope.SELF_ONLY),
         Tool.MARK_NOTIFICATION_READ: _all(Scope.SELF_ONLY),
         Tool.SEARCH_POLICY: _all(Scope.ANY),
+        # The company's own rules, read in full by its own people. The same
+        # redacted text the agent cites; the version list stays admin-only.
+        Tool.READ_POLICIES: _all(Scope.ANY),
         Tool.SUGGEST_ROLES: _all(Scope.ANY),
         Tool.CREATE_TICKET: _all(Scope.ANY),
         Tool.CLASSIFY_ACCESS_REQUEST: _all(Scope.ANY),

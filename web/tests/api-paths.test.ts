@@ -31,7 +31,7 @@ describe("api path list", () => {
     // a route that was never written, so a caller would fetch a 404.
     const onDisk = new Set(routePaths());
     const listed = Object.values(API);
-    expect(listed).toHaveLength(26);
+    expect(listed).toHaveLength(27);
     const missing = listed.filter((path) => !onDisk.has(path));
     expect(missing).toEqual([]);
   });
@@ -39,11 +39,11 @@ describe("api path list", () => {
   it("every route file is listed", () => {
     // Kill: catches a route file added (or left over) that nobody put on the list,
     // so callers would hand-write its string again. Also catches two names
-    // sharing one path, because the listed paths must be 26 different ones.
+    // sharing one path, because the listed paths must be 27 different ones.
     const listed = new Set<string>(Object.values(API));
-    expect(listed.size).toBe(26);
+    expect(listed.size).toBe(27);
     const onDisk = routePaths();
-    expect(onDisk).toHaveLength(26);
+    expect(onDisk).toHaveLength(27);
     const unlisted = onDisk.filter((path) => !listed.has(path));
     expect(unlisted).toEqual([]);
   });

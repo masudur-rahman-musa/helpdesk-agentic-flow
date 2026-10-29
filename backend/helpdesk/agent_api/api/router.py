@@ -32,6 +32,7 @@ from helpdesk.agent_api.api.routes.chat import router as chat_router
 from helpdesk.agent_api.api.routes.eval import router as eval_router
 from helpdesk.agent_api.api.routes.me import router as me_router
 from helpdesk.agent_api.api.routes.notifications import router as notification_router
+from helpdesk.agent_api.api.routes.policies import router as policy_read_router
 from helpdesk.agent_api.api.routes.reviews import router as review_router
 from helpdesk.agent_api.core.deps import STATUS_FOR_CODE
 from helpdesk.agent_api.services.auth import LoginRefusedError
@@ -164,6 +165,7 @@ app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(eval_router)
 app.include_router(me_router)
+app.include_router(policy_read_router)
 app.include_router(approval_router)
 app.include_router(review_router)
 app.include_router(notification_router)

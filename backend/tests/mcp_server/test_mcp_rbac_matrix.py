@@ -404,6 +404,9 @@ MATRIX: dict[str, dict[str, bool]] = {
     # reach (this literal is part of every diff adding a
     # REGISTRY entry).
     "search_policy": dict.fromkeys(PRINCIPALS, True),
+    # Every principal reads the company's rules in full: the same redacted
+    # text the search cites, shown whole.
+    "read_policies": dict.fromkeys(PRINCIPALS, True),
     # `Scope.ANY` too: anyone who may ask for a role may be offered the
     # closest names. A suggestion files nothing and grants nothing.
     "suggest_roles": dict.fromkeys(PRINCIPALS, True),
@@ -635,6 +638,12 @@ NO_ID_TOOLS: frozenset[str] = frozenset(
         # and the plain permitted branch of the sweep is the strict assertion
         # that pins the two cells.
         "list_policy_documents",
+        # `read_policies` takes one optional slug, a name inside the TOKEN
+        # tenant's own corpus, never an id of anybody's rows. Its isolation is
+        # pinned by `test_mcp_read_policies.py::
+        # test_another_tenants_policy_is_never_read`. With no slug a permitted
+        # caller SUCCEEDS, so the plain permitted branch pins every cell.
+        "read_policies",
         # `list_open_tickets` takes one optional `limit` and no id at all, so
         # there is no id for a cross-tenant call to carry. Whose tickets it
         # answers comes from the TOKEN, and that isolation is pinned instead
@@ -824,6 +833,9 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         # The call is a READ of `policy_documents` and
         # `policy_chunks` and changes nothing, so the sweep leaves the shared
         # database as it found it.
+        return {}
+    if tool_name == "read_policies":
+        # No slug: the list alone, which every permitted caller gets.
         return {}
     if tool_name == "reingest_policy_document":
         # A slug that is VALID (so `check_slug` cannot answer) and

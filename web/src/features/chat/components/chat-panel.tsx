@@ -38,7 +38,8 @@ import { Alert } from "@/components/ui/alert";
  * the latest turn and clear on a new send or an error. The steps sit in a column
  * beside the chat, level with the composer, and drop under it on a narrow
  * screen. The composer starts with
- * `?ask=` from a renewal link but never sends on its own.
+ * `?ask=` from a renewal link but never sends on its own. A link under the
+ * heading opens the company's access rules in a new tab.
  */
 export function ChatPanel() {
   const refreshAfterReply = useRefreshAfterReply();
@@ -199,7 +200,18 @@ export function ChatPanel() {
         failed={chatList.isError}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <h1 className="text-lg font-semibold">Chat</h1>
+        <div className="flex flex-col gap-1">
+          <h1 className="text-lg font-semibold">Chat</h1>
+          {/* A new tab, so the open chat is not lost. */}
+          <a
+            href="/policies"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="self-start text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
+            Read the company&apos;s access rules
+          </a>
+        </div>
 
         <Conversation
           messages={messages}

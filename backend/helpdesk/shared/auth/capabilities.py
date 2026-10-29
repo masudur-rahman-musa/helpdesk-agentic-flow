@@ -50,6 +50,9 @@ SENTENCES: Mapping[Tool, str] = MappingProxyType(
         Tool.LIST_SOD_RULES: "Show the rules on which roles may not be held together.",
         Tool.LIST_POLICY_DOCUMENTS: "Show the policy files and their versions.",
         Tool.REINGEST_POLICY_DOCUMENT: "Reload a policy file.",
+        Tool.READ_POLICIES: (
+            "Point you to the company's full access rules, through the link under the chat heading."
+        ),
         Tool.LIST_NOTIFICATIONS: "Show your notifications.",
         Tool.MARK_NOTIFICATION_READ: "Mark a notification as read.",
     }

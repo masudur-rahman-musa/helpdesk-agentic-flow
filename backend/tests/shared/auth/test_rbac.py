@@ -75,6 +75,8 @@ MATRIX: dict[str, dict[str, str | None]] = {
     "mark_notification_read": dict.fromkeys(PRINCIPALS, "self_only"),
     # Allowed for all seven principals with scope any.
     "search_policy": dict.fromkeys(PRINCIPALS, "any"),
+    # The company's rules in full, read by its own people: every principal.
+    "read_policies": dict.fromkeys(PRINCIPALS, "any"),
     "suggest_roles": dict.fromkeys(PRINCIPALS, "any"),
     "create_ticket": dict.fromkeys(PRINCIPALS, "any"),
     "classify_access_request": dict.fromkeys(PRINCIPALS, "any"),

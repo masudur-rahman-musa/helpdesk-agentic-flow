@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.models import PolicyChunk, PolicyDocument
 
 
@@ -61,5 +62,35 @@ async def fetch_current_documents_except(
             PolicyDocument.id != new_document_id,
             PolicyDocument.is_current.is_(True),
         )
+    )
+    return list(result.scalars().all())
+
+
+async def fetch_current_documents(session: AsyncSession) -> list[PolicyDocument]:
+    """The live version of each document, by title and then slug.
+
+    The session guard already filters whole rows by tenant; the tenant is
+    named here too, so the read stays scoped if the select ever narrows.
+    """
+    result = await session.execute(
+        select(PolicyDocument)
+        .where(
+            PolicyDocument.tenant_id == bound_tenant_id(session),
+            PolicyDocument.is_current.is_(True),
+        )
+        .order_by(PolicyDocument.title, PolicyDocument.slug)
+    )
+    return list(result.scalars().all())
+
+
+async def fetch_document_chunks(session: AsyncSession, document_id: uuid.UUID) -> list[PolicyChunk]:
+    """Every chunk of one document version, in the order they were cut."""
+    result = await session.execute(
+        select(PolicyChunk)
+        .where(
+            PolicyChunk.tenant_id == bound_tenant_id(session),
+            PolicyChunk.document_id == document_id,
+        )
+        .order_by(PolicyChunk.chunk_index)
     )
     return list(result.scalars().all())

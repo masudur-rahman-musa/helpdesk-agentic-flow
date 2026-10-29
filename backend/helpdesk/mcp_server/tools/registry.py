@@ -410,6 +410,22 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=policy_docs.list_policy_documents,
     ),
     ToolSpec(
+        # Open to every person, and not offered to the agent, which has
+        # `search_policy` for the passages an answer cites.
+        name=rbac.Tool.READ_POLICIES.value,
+        tool=rbac.Tool.READ_POLICIES,
+        description=(
+            "Read this tenant's policy documents: the live version of each, by title, and "
+            "when a slug is given that document's whole text, section by section. An "
+            "unknown slug is NOT_FOUND. Reads only."
+        ),
+        input_model=policy_docs.ReadPoliciesInput,
+        output_model=policy_docs.ReadPoliciesOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=policy_docs.read_policies,
+    ),
+    ToolSpec(
         # Declares its own event: the corpus is what every access decision
         # cites. Not offered to the agent, so a model can never change the
         # evidence its own next answer cites.

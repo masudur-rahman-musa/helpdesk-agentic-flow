@@ -1,12 +1,18 @@
-"""The policy-document tools: list the corpus, and re-ingest one document.
+"""The policy-document tools: read the rules, list the corpus, re-ingest one document.
+
+Reading is open to every signed-in person: it is the company's own policy,
+shown to its own people, in the same redacted text the agent cites. The
+version list and the re-ingest stay with the admins.
 
 Re-ingest is not offered to the agent: a model that could re-ingest the
 corpus could change the evidence its own next answer cites.
 """
 
+import re
+from collections.abc import Sequence
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from helpdesk.mcp_server.services.rag.documents import read_policy_documents
 from helpdesk.mcp_server.services.rag.pipeline import ingest_one_document
@@ -14,6 +20,10 @@ from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.mcp_server.tools.policy_search import UnknownTenantError
 from helpdesk.shared.crud.tenants import find_tenant_by_id
+from helpdesk.shared.core.errors import NotFoundError
+from helpdesk.shared.core.naming import SLUG_LENGTH, SLUG_PATTERN
+from helpdesk.shared.crud.rag import fetch_current_documents, fetch_document_chunks
+from helpdesk.shared.models import PolicyChunk
 
 
 class ListPolicyDocumentsInput(BaseModel):
@@ -71,6 +81,128 @@ async def list_policy_documents(
             )
             for detail in details
         ]
+    )
+
+
+class ReadPoliciesInput(BaseModel):
+    """One optional slug. Extras are refused, so a stray `tenant_id` gets a clear no."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str | None = Field(
+        default=None,
+        max_length=SLUG_LENGTH,
+        description="The document to read in full. Leave it out to get the list only.",
+    )
+
+    @field_validator("slug")
+    @classmethod
+    def _slug_is_one_spelling(cls, value: str | None) -> str | None:
+        """`fullmatch`, not `pattern=`, which would let a trailing newline through."""
+        if value is not None and SLUG_PATTERN.fullmatch(value) is None:
+            raise ValueError("slug must be lowercase letters and digits joined by single dashes")
+        return value
+
+
+class PolicyListRow(BaseModel):
+    """One document's live version, for the list."""
+
+    slug: str
+    title: str
+    version: str
+
+
+class PolicySection(BaseModel):
+    """One heading's text. `heading_path` is outermost first; the heading line is not in `text`."""
+
+    heading_path: list[str]
+    text: str
+
+
+class PolicyText(BaseModel):
+    """One document's live version, whole, section by section in document order."""
+
+    slug: str
+    title: str
+    version: str
+    sections: list[PolicySection]
+
+
+class ReadPoliciesOutput(BaseModel):
+    """The list of live documents, and the one asked for, or null when none was."""
+
+    documents: list[PolicyListRow]
+    document: PolicyText | None
+
+
+_HEADING_LINE = re.compile(r"[ \t]*#{1,6}[ \t]+\S[^\n]*\n?")
+"""A markdown heading line at the very start of a section's text."""
+
+
+def stitch_sections(chunks: Sequence[PolicyChunk]) -> list[PolicySection]:
+    """Join chunks, already in cut order, back into one text per heading.
+
+    A chunk repeats the last sentence of the one before it, so a chunk that
+    starts before the last one ended adds only the part after that end. The
+    offsets index the whole redacted document, so they are compared directly.
+    The heading line is dropped from the text, since the page draws it from
+    `heading_path`. Two headings with the same path are told apart by the
+    heading line a section's first chunk starts with.
+    """
+    sections: list[PolicySection] = []
+    path: list[str] | None = None
+    parts: list[str] = []
+    end = 0
+
+    def close() -> None:
+        if path is None:
+            return
+        text = "".join(parts)
+        heading = _HEADING_LINE.match(text) if path else None
+        if heading is not None:
+            text = text[heading.end() :]
+        text = text.strip()
+        if text:
+            sections.append(PolicySection(heading_path=path, text=text))
+
+    for chunk in chunks:
+        repeated_heading = (
+            bool(parts) and chunk.char_start >= end and _HEADING_LINE.match(chunk.text) is not None
+        )
+        if list(chunk.heading_path) != path or repeated_heading:
+            close()
+            path, parts, end = list(chunk.heading_path), [], chunk.char_start
+        if chunk.char_end <= end and parts:
+            continue
+        parts.append(chunk.text[max(0, end - chunk.char_start) :])
+        end = chunk.char_end
+    close()
+    return sections
+
+
+async def read_policies(ctx: ToolContext, args: ReadPoliciesInput) -> ReadPoliciesOutput:
+    """This tenant's live policy documents, and one of them in full when asked.
+
+    An unknown slug, or one with no live version, is `NOT_FOUND`, the same
+    answer another tenant's slug gets.
+    """
+    current = await fetch_current_documents(ctx.session)
+    document: PolicyText | None = None
+    if args.slug is not None:
+        chosen = next((row for row in current if row.slug == args.slug), None)
+        if chosen is None:
+            raise NotFoundError("no live policy document with that slug")
+        document = PolicyText(
+            slug=chosen.slug,
+            title=chosen.title,
+            version=chosen.version,
+            sections=stitch_sections(await fetch_document_chunks(ctx.session, chosen.id)),
+        )
+    return ReadPoliciesOutput(
+        documents=[
+            PolicyListRow(slug=row.slug, title=row.title, version=row.version) for row in current
+        ],
+        document=document,
     )
 
 
@@ -148,9 +280,16 @@ __all__ = [
     "ListPolicyDocumentsInput",
     "ListPolicyDocumentsOutput",
     "PolicyDocumentRow",
+    "PolicyListRow",
+    "PolicySection",
+    "PolicyText",
     "PolicyVersionRow",
+    "ReadPoliciesInput",
+    "ReadPoliciesOutput",
     "ReingestPolicyDocumentInput",
     "ReingestPolicyDocumentOutput",
     "list_policy_documents",
+    "read_policies",
     "reingest_policy_document",
+    "stitch_sections",
 ]

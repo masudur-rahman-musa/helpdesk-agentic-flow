@@ -153,6 +153,10 @@ EXPECTED_TOOL_NAMES = {
     # tickets but nothing could mark one solved (this literal is the wire
     # surface, and it is part of every diff adding a REGISTRY entry).
     "solve_ticket",
+    # Every person reads the company's rules in full, a READ open to all
+    # (this literal is the wire surface, and it is part of every diff adding a
+    # REGISTRY entry).
+    "read_policies",
 }
 
 DEPENDENCIES: tuple[str, str, str] = ("postgres", "redis", "qdrant")

@@ -1,4 +1,4 @@
-"""Request argument models for the /admin/policies routes."""
+"""Request argument models for the policy routes: the admin board and the rules reader."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,3 +20,14 @@ class ReingestPolicyDocumentArgs(BaseModel):
     slug: str = Field(min_length=1)
     version: str = Field(min_length=1)
     idempotency_key: str = Field(min_length=1)
+
+
+class ReadPoliciesArgs(BaseModel):
+    """The one key the read tool takes. Null asks for the list alone.
+
+    The slug is checked by the tool, so one rule decides what a slug may be.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    slug: str | None = None
