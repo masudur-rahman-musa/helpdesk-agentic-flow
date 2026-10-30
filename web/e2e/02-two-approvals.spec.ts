@@ -11,14 +11,17 @@ import { accounts, decisionCard, loginAs, type Principal, sendTurn } from "./_fi
  * The ask is `gitlab.maintainer`: system `gitlab` is sensitivity `medium` and
  * category `other`, the role's privilege is `admin`, and it is NOT in the
  * Production template, so `risk.py` answers PRIVILEGED (the `admin` row wins
- * over the not-in-template `elevated` row) and `decision.py::_base_chain`
- * gives exactly two slots, `department_manager` then `system_owner`. Neither
+ * over the not-in-template `elevated` row). The employee asks for admin on
+ * their own account, so `decision.py::escalate_self_admin` lifts that one class
+ * to CRITICAL. GitLab's category is `other`, which has no third seat, so
+ * `decision.py::_chain_slots` still gives exactly two slots,
+ * `department_manager` then `system_owner`. Neither
  * seat is a party to the request — the requester is Production index 5 and the
  * two seats are the Production manager and GitLab's owner in IT — so
  * `_substitute_parties` replaces nothing and the chain stays two long.
  *
- * `expiry.py::ADMIN_CAP_DAYS` is 30 and `CLASS_CAP_DAYS[PRIVILEGED]` is 90, so
- * the effective expiry is 30.
+ * `expiry.py::ADMIN_CAP_DAYS` and `CLASS_CAP_DAYS[CRITICAL]` are both 30, so the
+ * effective expiry is 30.
  *
  * DEVIATION from asserting the expiry date is exactly 30 days after the
  * grant date on the card. The DECISION CARD cannot carry that date: the card's
@@ -87,11 +90,13 @@ test("an admin ask needs two approvals and is granted for exactly 30 days", asyn
   // The assistant first shows "I'll file this: ..."; only the yes files it.
   await sendTurn(page, "Yes, that is right.");
 
-  // `DECISION_LABELS.approval`, `RISK_LABELS.privileged` and
-  // `STATUS_LABELS.pending` from `web/lib/decision-labels.ts`, verbatim.
+  // `DECISION_LABELS.approval`, `RISK_LABELS.critical` and
+  // `STATUS_LABELS.pending` from `web/src/lib/decision-labels.ts`, verbatim,
+  // plus the reason that says why the class is critical and not privileged.
   const card = decisionCard(page);
   await expect(card).toContainText("Needs approval");
-  await expect(card).toContainText("Privileged");
+  await expect(card).toContainText("Critical");
+  await expect(card).toContainText("You asked for admin rights over your own account.");
   await expect(card).toContainText("Pending approval");
   await expect(card).toContainText("Expires in 30 days");
 
@@ -110,7 +115,7 @@ test("an admin ask needs two approvals and is granted for exactly 30 days", asyn
   await loginAs(page, manager);
   await page.goto("/approvals");
   await expect(page.getByRole("region", { name: "Approvals" })).toBeVisible();
-  await page.getByRole("textbox", { name: `Comment for ${GITLAB_MAINTAINER}` }).fill("Approved.");
+  await page.getByRole("textbox", { name: `Note for ${GITLAB_MAINTAINER}` }).fill("Approved.");
   await page.getByRole("button", { name: `Approve ${GITLAB_MAINTAINER}` }).click();
   await expect(
     page
@@ -129,7 +134,7 @@ test("an admin ask needs two approvals and is granted for exactly 30 days", asyn
   await loginAs(page, owner);
   await page.goto("/approvals");
   await expect(page.getByRole("region", { name: "Approvals" })).toBeVisible();
-  await page.getByRole("textbox", { name: `Comment for ${GITLAB_MAINTAINER}` }).fill("Approved.");
+  await page.getByRole("textbox", { name: `Note for ${GITLAB_MAINTAINER}` }).fill("Approved.");
   await page.getByRole("button", { name: `Approve ${GITLAB_MAINTAINER}` }).click();
   await expect(
     page

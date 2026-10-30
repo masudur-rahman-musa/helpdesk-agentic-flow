@@ -62,6 +62,10 @@ test("an in-template ask is granted on the spot, cites policy, and lands on /acc
   const grants = page.getByRole("list", { name: "Grants" }).getByRole("listitem");
   await page.goto("/access");
   await expect(page.getByRole("region", { name: "Active access" })).toBeVisible();
+  // The list fetches its own rows after the page paints, so a count taken the
+  // moment the region shows reads 0. The seed gives every user their whole
+  // template, so the list is loaded once the seeded row is there.
+  await expect(grants.filter({ hasText: WIKI_VIEWER }).first()).toBeVisible();
   const wikiRowsBefore = await grants.filter({ hasText: WIKI_VIEWER }).count();
 
   await page.goto("/chat");
