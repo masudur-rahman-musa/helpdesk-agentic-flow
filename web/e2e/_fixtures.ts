@@ -97,9 +97,16 @@ export async function sendTurn(page: Page, message: string): Promise<void> {
     .toBe(true);
 }
 
-/** The chat panel's failure region, the one place a typed code is dressed. */
+/**
+ * The chat panel's failure region, the one place a typed code is dressed.
+ *
+ * Next.js mounts its own `role="alert"` on every page, the route announcer,
+ * which reads the new page title out after a client navigation. It is always
+ * there, so a plain `getByRole("alert")` would always match it and every
+ * "no failure" check would fail. It is left out by its id.
+ */
 export function alert(page: Page): Locator {
-  return page.getByRole("alert");
+  return page.locator('[role="alert"]:not(#__next-route-announcer__)');
 }
 
 /** The turn's decision card: `aria-label="Decision"` on a `section`. */
