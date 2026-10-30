@@ -1,11 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
 
-import { accounts, loginAs, type Principal, sendTurn } from "./_fixtures";
+import { accounts, alert, loginAs, type Principal, sendTurn } from "./_fixtures";
 
 /**
  * The unhappy path: with the `create_access_request` kill switch
- * set for the tenant, flow 1's ask is refused in the chat with the typed
- * message, and no access-request row is created by that turn.
+ * set for the tenant, flow 1's ask is confirmed with a yes, the stopped tool
+ * refuses to run, the assistant answers with a normal reply rather than an
+ * error, and no access-request row is created by that turn.
  *
  * The switch is set and released through the shipped board
  * (`components/admin/kill-switch-toggle.tsx`) as `platform_admin`, the only
@@ -14,11 +15,11 @@ import { accounts, loginAs, type Principal, sendTurn } from "./_fixtures";
  * as at the end of the case, so a failed run does not leave the tenant's
  * request path stopped for the next one.
  *
- * The refusal sentence is `FAILURE_MESSAGES.TOOL_DISABLED` from
- * `web/lib/chat-errors.ts`, asserted verbatim and exact. `TOOL_DISABLED` and
- * not `FORBIDDEN`: `helpdesk/errors.py::ToolDisabledError` exists precisely so
- * a stopped tool is tellable from a denied principal, and asserting only "an
- * alert appeared" would pass for either.
+ * A stopped tool does not fail the turn. The held change runs on the yes, the
+ * MCP server refuses it as `TOOL_DISABLED`, and that refusal goes back to the
+ * model as a tool result for the reply to explain. So the turn ends on an
+ * assistant reply, with no error alert and no decision card, since nothing was
+ * filed.
  *
  * The row half is a BEFORE/AFTER count of `/requests`, not an empty-state
  * assertion: the same employee already filed two requests in flows 1 and 2, so
@@ -36,9 +37,6 @@ function who(all: Record<string, Principal>, key: string): Principal {
 
 /** The tool this case stops, as `rbac.Tool.CREATE_ACCESS_REQUEST.value`. */
 const TOOL = "create_access_request";
-
-/** `web/lib/chat-errors.ts::FAILURE_MESSAGES.TOOL_DISABLED`, verbatim. */
-const TOOL_DISABLED_MESSAGE = "That is switched off right now. Try again later.";
 
 /** `roles.name` as `scripts/seed.py` writes it: `{system}.{slug}`. */
 const WIKI_VIEWER = "wiki.viewer";
@@ -75,13 +73,12 @@ test.afterAll(async ({ browser }) => {
 });
 
 /**
- * Catches a kill switch that refuses the REPLY after the tool has already
- * written its row: the sentence alone would pass that, and the request count
- * is what does not. It also catches a switch wired to the wrong error class —
- * a `FORBIDDEN` refusal renders "You are not allowed to do that." and fails the
- * exact-sentence assertion while still showing an alert.
+ * Catches a kill switch that does not stop the tool: the request count is the
+ * proof, since a reply alone could read the same whether the row was written
+ * or not. It also catches a stopped tool that fails the whole turn into the
+ * error alert instead of coming back as a reply the person can read.
  */
-test("a stopped create_access_request refuses the turn and writes no request row", async ({
+test("a stopped create_access_request answers with a reply and writes no request row", async ({
   page,
 }) => {
   const all = await accounts();
@@ -109,9 +106,12 @@ test("a stopped create_access_request refuses the turn and writes no request row
   // The assistant first shows "I'll file this: ..."; only the yes files it.
   await sendTurn(page, "Yes, that is right.");
 
-  await expect(page.getByRole("alert")).toHaveText(TOOL_DISABLED_MESSAGE);
-  // A refused turn decides nothing, so there is no card to render
-  // (`chat-panel.tsx` clears the decision on an error frame).
+  // The refusal is a tool result, not a failed turn: the assistant answers
+  // and no error alert shows.
+  await expect(alert(page)).toHaveCount(0);
+  const articles = page.getByRole("log", { name: "Conversation" }).getByRole("article");
+  await expect(articles.last()).toHaveAttribute("data-role", "assistant");
+  // Nothing was filed, so there is no card to render.
   await expect(page.getByRole("region", { name: "Decision" })).toHaveCount(0);
 
   await page.goto("/requests");

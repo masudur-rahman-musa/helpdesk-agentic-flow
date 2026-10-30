@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-import { accounts, loginAs, type Principal, sendTurn } from "./_fixtures";
+import { accounts, alert, loginAs, type Principal, sendTurn } from "./_fixtures";
 
 /**
  * Flow 4: the HR demo account offboards a
- * leaver in chat, that user holds no active grant afterwards, and
+ * leaver in chat and confirms with a yes, that user holds no active grant
+ * afterwards, and
  * `/admin/audit` shows one revoke event per grant that existed before the turn.
  *
  * The leaver is the `sod_employee` account, whose part in the suite finished
@@ -66,7 +67,11 @@ test("an HR offboard revokes every grant the leaver held and records one event e
   await loginAs(page, leaver);
   await page.goto("/access");
   await expect(page.getByRole("region", { name: "Active access" })).toBeVisible();
-  const heldBefore = await page.getByRole("list", { name: "Grants" }).getByRole("listitem").count();
+  const heldRows = page.getByRole("list", { name: "Grants" }).getByRole("listitem");
+  // The grants load after the region shows, so wait for the first row before
+  // counting, or the count reads an empty list.
+  await expect(heldRows.first()).toBeVisible();
+  const heldBefore = await heldRows.count();
   // A premise, read off the page: with one grant the case could not tell a
   // complete offboard from one that revoked the first row and stopped.
   expect(heldBefore).toBeGreaterThan(1);
@@ -74,6 +79,10 @@ test("an HR offboard revokes every grant the leaver held and records one event e
   await loginAs(page, hr);
   await page.goto("/chat");
   await sendTurn(page, `${leaver.displayName} (${leaver.email}) is leaving today, offboard them.`);
+  // The assistant first says what the offboard will do; only the yes runs it.
+  await expect(alert(page)).toHaveCount(0);
+  await sendTurn(page, "Yes, that is right.");
+  await expect(alert(page)).toHaveCount(0);
 
   await loginAs(page, itAdmin);
   await page.goto("/admin/audit");
