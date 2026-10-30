@@ -25,7 +25,7 @@ CHAT_PATH = "/chat/completions"
 """The gateway's OpenAI-style chat endpoint, under the configured base URL."""
 
 MAX_SCHEMA_NAME_LENGTH = 128
-"""The gateway's schema-name cap, copied from the Ops Console, a separate repo."""
+"""The gateway's schema-name cap, copied from the LLMOps Console, a separate repo."""
 
 SCHEMA_NAME_PATTERN = re.compile(r"[a-zA-Z0-9_-]{1,128}")
 """The console's allowed name characters, matched in full so a trailing newline fails."""

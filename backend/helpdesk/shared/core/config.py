@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     jwt_secret: str
 
     gateway_url: str = "http://localhost:8080/v1"
-    """The Ops Console gateway's versioned base URL; `/redact` hangs off it."""
+    """The LLMOps Console gateway's versioned base URL; `/redact` hangs off it."""
 
     mcp_url: str = "http://localhost:8081/mcp"
     """Where the MCP server's streamable HTTP transport is mounted."""

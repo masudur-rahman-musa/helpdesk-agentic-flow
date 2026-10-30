@@ -1,4 +1,4 @@
-"""The W3C `traceparent` header, so this service and the Ops Console share a trace."""
+"""The W3C `traceparent` header, so this service and the LLMOps Console share a trace."""
 
 import os
 import re

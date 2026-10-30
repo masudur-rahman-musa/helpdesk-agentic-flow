@@ -1,1 +1,1 @@
-"""The agent-api client for the Ops Console model gateway."""
+"""The agent-api client for the LLMOps Console model gateway."""
