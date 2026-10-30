@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 DEFAULT_WEB_ORIGIN = "http://localhost:3000"
@@ -120,6 +120,22 @@ class Settings(BaseSettings):
 
     eval_routes_enabled: bool = False
     """Turns on `POST /admin/test/reset` and `POST /v1/eval/conversation`. Off in production."""
+
+    @field_validator(
+        "role_suggestion_floor",
+        "policy_refusal_floor",
+        "policy_search_cache",
+        "save_turn_steps",
+        "eval_routes_enabled",
+        "public_trace_langfuse",
+        mode="before",
+    )
+    @classmethod
+    def _empty_means_the_default(cls, value: object, info: ValidationInfo) -> object:
+        """`NAME=` with nothing after it, as `.env.example` lists these, means unset."""
+        if isinstance(value, str) and not value.strip() and info.field_name is not None:
+            return cls.model_fields[info.field_name].default
+        return value
 
     @field_validator("role_suggestion_floor", "policy_refusal_floor")
     @classmethod

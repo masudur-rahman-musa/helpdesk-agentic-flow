@@ -718,3 +718,61 @@ def test_the_mcp_allowed_hosts_field_and_the_helper_share_one_validator(
 
     failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
     assert "MCP_ALLOWED_HOSTS" in failed_fields
+
+
+# --- .env.example, copied as it is ---------------------------------------
+
+ENV_EXAMPLE = Path(__file__).resolve().parents[3] / ".env.example"
+"""The list of every name the app reads. A fresh checkout copies it to make its env."""
+
+
+def _env_example_names() -> list[str]:
+    names: list[str] = []
+    for raw in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#") and "=" in line:
+            names.append(line.partition("=")[0].strip())
+    return names
+
+
+def test_settings_load_from_env_example_as_it_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Catches a `NAME=` line with no value that the settings refuse.
+
+    `.env.example` lists the optional cut-offs and on/off flags with nothing
+    after the `=`. Copying it as it is must still start the app, so an empty
+    value means the field's default rather than a parse error.
+    """
+    for name in _env_example_names():
+        monkeypatch.delenv(name, raising=False)
+
+    settings = Settings(_env_file=ENV_EXAMPLE)
+
+    assert settings.role_suggestion_floor == 0.70
+    assert settings.policy_refusal_floor == 0.35
+    assert settings.policy_search_cache is True
+    assert settings.save_turn_steps is True
+    assert settings.eval_routes_enabled is False
+    assert settings.public_trace_langfuse is False
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ROLE_SUGGESTION_FLOOR",
+        "POLICY_REFUSAL_FLOOR",
+        "POLICY_SEARCH_CACHE",
+        "SAVE_TURN_STEPS",
+        "EVAL_ROUTES_ENABLED",
+        "PUBLIC_TRACE_LANGFUSE",
+    ],
+)
+def test_a_bad_optional_value_is_still_refused(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """Catches an empty-means-default rule that swallows every value, not just
+    the empty one."""
+    _set_env(monkeypatch, {**VALID_ENV, name: "not-a-value"})
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    failed_fields = {str(err["loc"][0]).upper() for err in excinfo.value.errors()}
+    assert name in failed_fields
