@@ -1,62 +1,40 @@
 # How this was built
 
-This project was built with a coding agent (Claude Code), working in a fixed
-loop. The loop is what kept it reliable: nothing was written before it was
-planned, and nothing was called done before the tests and the full check
-proved it. If you want to build something the same way, you can follow it.
+This project was built by one engineer working with AI coding agents (Claude
+Code). The agents wrote much of the code. What kept the result reliable was a
+fixed way of working, with tests and checks deciding when a change was done.
 
-## The flow
+## The way of working
 
-1. **Plan it.** Write down what changes and why, which files it touches, and
-   the acceptance criteria: the checks that prove it works, including what must
-   be refused or must fail safely.
-2. **Write the tests first.** One test per acceptance criterion. They fail at
-   this point, because the code does not exist yet. A coding agent can write
-   them straight from the criteria.
-3. **Make the smallest change that turns them green.** Touch nothing the plan
-   does not name.
-4. **Run `make verify`.** It runs the same checks CI runs, so a green run here
-   means a green run there.
-5. **Commit** with a plain message that says what the change does.
+1. **Write down the change first.** What changes and why, which files it touches, and the checks that prove it works. Those checks include what must be refused or must fail safely.
+2. **Write the tests before the code.** One test per check. They fail at first, because the code does not exist yet.
+3. **Make the smallest change that turns them green.** Touch nothing else.
+4. **Run the checks.** `make verify` runs the same checks CI runs, so a green run on the laptop means a green run in CI.
+5. **Review the change** with fresh eyes before it is committed, then commit it with a plain message that says what it does.
 
-Two things make the loop work. The acceptance criteria are written before any
+Two things make this work with an agent. The checks are written before any
 code, so "done" means the same thing to the person and to the agent. And the
-tests come from those criteria, not from the code, so they check what was asked
+tests come from those checks, not from the code, so they test what was asked
 for rather than what happened to be built.
-
-## A plan, in practice
-
-Each plan was one short file, small enough to build and check in one sitting:
-
-```
-# <short name of the change>
-
-## What and why
-<one paragraph: what changes, and the reason>
-
-## Files
-<the files this change touches>
-
-## Acceptance criteria
-- <a check that proves it works>
-- <a check that proves it refuses or fails safely>
-
-## Tests
-<the test files that hold one test per criterion>
-```
 
 ## What `make verify` runs
 
-- `format`, `lint` and `typecheck`: code style and static types (ruff, mypy).
-- `test`: the backend and infra tests, with a coverage floor.
-- `test-policy`: the policy engine alone, at full line and branch coverage.
-- `web-verify`: the web app's types, lint, unit tests and production build.
-- `security`: a secret scan over the whole history, dependency audits and a config scan.
+- `format`, `lint` and `typecheck` run ruff and `mypy --strict`.
+- `test` runs the backend and repo-level tests with an 80% coverage floor.
+- `test-policy` runs the policy engine alone at 100% line and branch coverage.
+- `web-verify` runs the web app's types, lint, unit tests and production build.
+- `security` runs a secret scan over the whole git history, dependency audits for Python and the web app, and a config scan of the compose files.
 
-CI calls the same targets, so the laptop and CI cannot disagree.
+## Guard rails in the repository
+
+Some rules are checked by tests rather than trusted to memory.
+
+- `backend/.importlinter` keeps the three apps from importing each other.
+- `infra/tests/test_docs.py` fails when a README guarantee links a test that no longer exists, or when a diagram goes missing.
+- `backend/tests/agent_api/test_loop_graph.py` fails when the agent graph and its docs page disagree.
+- `infra/tests/test_security_config.py` keeps the secret scan's exceptions to three known fake files.
 
 ## What is not in this repository
 
-The plan files, the decision notes and the working notes were kept out of this
-public copy. What is here is the result of that process: the code, the tests,
-and a commit for each change.
+The working notes and change plans were kept out of this public copy. What is
+here is the result, meaning the code, the tests and a commit for each change.

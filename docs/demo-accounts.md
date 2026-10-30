@@ -1,14 +1,23 @@
 # Demo accounts
 
-Seeded by `uv run python scripts/seed.py` (deterministic; safe to re-run).
-One login per app principal per tenant. All data is invented; the email
+The seed writes these logins. Run it with `uv run python scripts/seed.py` from
+`backend/`. It gives the same rows every time and is safe to run again. One
+login exists per app principal per tenant. All data is invented, and the email
 domains are reserved `.example` addresses on purpose.
 
-These credentials are for local demos only. Before any public deploy they
-are rotated and moved to secrets; they never guard real data.
+To sign in, open [localhost:3000](http://localhost:3000) and enter the tenant
+(`nordlicht` or `cuan`), the email and the password. These passwords open fake
+accounts on your local database and nothing else.
 
-Every other seeded user shares one filler password that is not documented
-anywhere and is not a login path for demos.
+Every other seeded user shares one filler password. It is not documented and
+is not meant as a demo login.
+
+System names such as Grafana, GitLab, Production AWS and Datadog are seeded
+labels in the simulated directory. The helpdesk does not connect to those
+products.
+
+Policy questions in the chat need the policy documents ingested first. See
+step 7 of [local-setup.md](local-setup.md).
 
 ## Nordlicht Maschinenbau GmbH (`nordlicht`)
 
@@ -25,24 +34,24 @@ anywhere and is not a login path for demos.
 ### What to try at Nordlicht
 
 **employee** (Vincenzo Gude, Production). Already holds everything the
-Production department gets by default: `mes.operator`, `erp.viewer`,
-`vpn.user`, `m365.user`, `wiki.viewer`, `badge.holder`. So every new ask
+Production department gets by default. That is `mes.operator`, `erp.viewer`,
+`vpn.user`, `m365.user`, `wiki.viewer` and `badge.holder`. So every new ask
 needs an approval.
 
 | Ask for | What happens |
 |---|---|
 | Grafana viewer, Wiki editor, CRM viewer, GitLab developer | Waits for the Production manager (Cornelia) |
 | PLM viewer, Finance Dashboard viewer, Supplier Master Data viewer, MES viewer | Waits for the Production manager, then the system owner |
-| ERP buyer, Payment Release initiator | Critical system: manager, then system owner |
-| HR System viewer | Critical HR system: manager, system owner, then HR |
-| Production Cluster auditor or deployer | Critical prod system: manager, system owner, then IT admin |
-| GitLab maintainer for yourself | Admin on yourself is pushed up one level: manager, then system owner |
+| ERP buyer, Payment Release initiator | Critical system. Manager, then system owner |
+| HR System viewer | Critical HR system. Manager, system owner, then HR |
+| Production Cluster auditor or deployer | Critical production system. Manager, system owner, then IT admin |
+| GitLab maintainer for yourself | Admin on yourself moves up one risk level. Manager, then system owner |
 
 The Production manager is the manager login above, so every one of these
 requests shows up in Cornelia's approvals.
 
 You can also reset your password, unlock your account, ask policy questions
-("how long does VPN access last?") and open a ticket.
+such as "how long does VPN access last?", and open a ticket.
 
 **manager** (Cornelia Zorbach, Production manager). Vincenzo's own manager.
 Sees and approves requests from Production staff, asks for access on their
@@ -100,18 +109,18 @@ is still left.
 ### What to try at Cuan
 
 **employee** (Elisha Devereaux Deaueroux, Operations). Already holds
-everything the Operations department gets by default: `core-banking.operator`,
-`ledger.viewer`, `vpn.user`, `m365.user`, `wiki.viewer`. So every new ask
-needs an approval.
+everything the Operations department gets by default. That is
+`core-banking.operator`, `ledger.viewer`, `vpn.user`, `m365.user` and
+`wiki.viewer`. So every new ask needs an approval.
 
 | Ask for | What happens |
 |---|---|
 | Datadog viewer, Wiki editor, CRM viewer, Support Desk agent, GitHub developer | Waits for the Operations manager (Freya) |
 | Data Warehouse analyst, Ledger editor | Waits for the Operations manager, then the system owner |
-| Core Banking viewer, KYC analyst, Payments Gateway initiator | Critical system: manager, then system owner |
-| HR System viewer | Critical HR system: manager, system owner, then HR |
-| Production AWS auditor or deployer | Critical prod system: manager, system owner, then IT admin |
-| Core Banking admin for yourself | Critical, and admin on yourself: manager, then system owner |
+| Core Banking viewer, KYC analyst, Payments Gateway initiator | Critical system. Manager, then system owner |
+| HR System viewer | Critical HR system. Manager, system owner, then HR |
+| Production AWS auditor or deployer | Critical production system. Manager, system owner, then IT admin |
+| Core Banking admin for yourself | Critical, and admin on yourself. Manager, then system owner |
 
 The Operations manager is the manager login above, so every one of these
 requests shows up in Freya's approvals.

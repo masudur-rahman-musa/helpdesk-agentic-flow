@@ -1,48 +1,66 @@
 # AGENTS.md
 
-A short guide for any coding agent, or person, picking up this project.
+A short guide for any coding agent, or person, working on this code.
 
 ## What this is
 
-An access help desk. Employees ask for access in plain language; an agent
-decides, grants or escalates, and every decision can be audited. The agent
-never changes anything itself: every change goes through a typed tool that
+An access helpdesk. Employees ask for access in plain language. An agent
+works out what they need, a pure policy engine decides, and the system grants,
+sends for approval or blocks. Every decision is audited. The agent never
+changes anything itself. Every change goes through a typed MCP tool that
 checks permissions first.
 
 ## Where things live
 
-- `backend/helpdesk/agent_api/`: the chat and the agent loop (FastAPI, LangGraph).
-- `backend/helpdesk/mcp_server/`: the typed tools the agent may call, behind permission checks.
-- `backend/helpdesk/scheduler/`: background jobs.
-- `backend/helpdesk/shared/`: the policy engine, data models and code both services use.
-- `backend/migrations/`, `backend/data/policies/`, `backend/evals/`: schema, policy documents, conversation evals.
-- `web/`: the Next.js front end.
-- `infra/`: local stack support, Kubernetes manifests and load tests.
-- `docs/`: guides; `ARCHITECTURE.md` has the big picture.
+- `backend/helpdesk/agent_api/` has sign-in, the chat and the agent loop (FastAPI, LangGraph). The prompt is `backend/helpdesk/agent_api/agent/prompts/agent_loop.md`.
+- `backend/helpdesk/mcp_server/` has the typed tools, behind RBAC, plus policy ingest and search.
+- `backend/helpdesk/scheduler/` has the background jobs.
+- `backend/helpdesk/shared/` has the policy engine, models, tenant-bound database access, the audit chain, RBAC and kill switches.
+- `backend/migrations/` holds the Alembic migrations. `backend/data/policies/` holds the demo policy documents. `backend/evals/` holds the conversation eval cases.
+- `backend/tests/` holds the backend tests, in the same layout as the code. `infra/tests/` holds the repo-level checks.
+- `web/src/` is the Next.js app. `web/README.md` explains its layout.
+- `infra/` holds the local database init script, Kubernetes manifests and the load test.
+- [ARCHITECTURE.md](ARCHITECTURE.md) has the big picture. [docs/local-setup.md](docs/local-setup.md) has the setup.
 
-## How to work on it
+## Rules the code depends on
 
-Every change, a feature or a fix, goes through the same loop:
+1. **The model never runs a change.** Every side effect is a typed MCP tool with a row in the RBAC matrix in `backend/helpdesk/shared/auth/rbac.py`. The agent may only propose a change, and it runs on the person's yes. There are no shortcuts around this, temporary or not.
+2. **Identity comes from the token.** Never read tenant or user from tool arguments or from model output.
+3. **The policy engine stays pure.** `backend/helpdesk/shared/policy/` does no I/O and imports no models or services. It keeps 100% line and branch coverage (`make test-policy`).
+4. **Database access goes through the tenant-bound helpers** in `backend/helpdesk/shared/crud/` and `backend/helpdesk/shared/core/db.py`. Services do not call `session.execute` directly.
+5. **Errors are typed codes.** No free text crosses a service line.
+6. **Models are named by alias only**, such as `agent-default`, and called through the gateway client. No provider model name appears in this repository.
+7. **Retrieved and user text is data, never instructions.** Structured model output is checked against a schema.
+8. **Model-driven behaviour gets conversation cases** in `backend/evals/conversations/cases.jsonl` before it merges.
+9. **The three apps never import each other**, and the shared library never imports an app. `backend/.importlinter` holds these rules.
+10. **No secrets in code, config, tests or fixtures.** Seed data is obviously fake. No real names, companies or addresses.
+11. **Ask before adding or upgrading a dependency.**
 
-1. **Plan it.** Write down what changes and why, which files it touches, and
-   the acceptance criteria: the checks that prove it works, including what must
-   be refused or must fail safely.
-2. **Write the tests first.** One test per acceptance criterion. They fail at
-   this point, because the code does not exist yet. A coding agent can write
-   them straight from the criteria.
-3. **Make the smallest change that turns them green.** Touch nothing the plan
-   does not name.
-4. **Run `make verify`.** It runs the same checks CI runs, so a green run here
-   means a green run there.
-5. **Commit** with a plain message that says what the change does.
+## Adding a new change tool
 
-Keep your plan files out of git, for example in a folder git ignores. The
-repository holds the code, the tests and the history of each change.
+A new action needs all of these, or it is not done.
+
+- An input model built on `MutatingToolInput` in `backend/helpdesk/mcp_server/tools/base.py`, so it carries an idempotency key and refuses unknown fields.
+- A `Tool` member and a matrix row in `backend/helpdesk/shared/auth/rbac.py`.
+- A `ToolSpec` entry in `backend/helpdesk/mcp_server/tools/registry.py` with `mutating=True`.
+- Tests for the allowed case, each refused principal, a replay with the same key, and the audit event.
+
+## Tests
+
+- Logic is tested with plain objects and fakes. A test reaches a real database only when it checks something only the database can show, and then it carries the `db` marker.
+- No real waiting and no real network. Use a fake clock and a stub.
+- Tests share no state, so they run in parallel.
+- Never change a test to make it pass. Fix the code, or raise the test as wrong.
+- Some tests read the docs. `infra/tests/test_docs.py` and others pin the README sections, the guarantee links and the diagram files. Run them after editing a doc.
 
 ## Commands
 
-- `make setup`: install dependencies and the pre-commit hooks.
-- `docker compose up -d`, then `make migrate`: start the backing services and create the schema.
-- `make test-fast`: the everyday test run.
-- `make verify`: everything CI checks, in order.
-- `make help`: every other target.
+- `make setup` installs the Python dependencies and the pre-commit hooks.
+- `docker compose up -d` starts Postgres, Redis and Qdrant. `make migrate` creates the schema.
+- `make test-fast` is the everyday test run. `make test` is the whole suite with coverage.
+- `make lint typecheck` runs ruff and `mypy --strict`.
+- `make web-verify` runs the web types, lint, unit tests and build.
+- `make verify` runs everything CI runs, in order.
+- `make help` lists every other target.
+
+Run migrations only against the local compose database.
