@@ -707,7 +707,7 @@ def test_an_hr_caller_fills_the_hr_seat_of_a_critical_hris_chain_and_it_complete
     assert payload["slot"] == ApproverSlot.HR.value
     assert payload["chain_complete"] is True
     row = _request_row(mcp_env.database_url, request_id)
-    assert row.status == RequestStatus.APPROVED.value
+    assert row.status == RequestStatus.EXECUTED.value
     assert _slots(row.approvals) == [(ApproverSlot.HR.value, SlotDecision.APPROVE.value)]
     grants = _grants_for_request(mcp_env.database_url, request_id)
     assert len(grants) == 1, "the completed chain must leave exactly one grant"
