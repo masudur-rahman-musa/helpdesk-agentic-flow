@@ -1,7 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  type ReviewItem,
+  type ReviewItemsPage,
   type ReviewQueueRow,
   reviewItemsSchema,
   reviewQueueSchema,
@@ -18,11 +18,16 @@ export function useReviewQueue(status: string) {
   });
 }
 
-/** One selected review's items, keyed on the review. */
+/**
+ * One selected review's items, keyed on the review, a page at a time. Each
+ * page after the first starts from the cursor the page before handed back.
+ */
 export function useReviewItems(reviewId: string) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: queryKeys.reviewItems(reviewId),
-    queryFn: () => fetchItems(reviewId),
+    queryFn: ({ pageParam }) => fetchItems(reviewId, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page: ReviewItemsPage) => page.next_after_item_id ?? null,
   });
 }
 
@@ -63,10 +68,15 @@ async function fetchReviews(status: string): Promise<ReviewQueueRow[]> {
   return parsed === null ? [] : parsed.reviews;
 }
 
-/** One review's items, or an empty list during the redirect to `/login`. */
-async function fetchItems(reviewId: string): Promise<ReviewItem[]> {
-  const parsed = await readWire(apiPath(API.reviewItems, { reviewId }), reviewItemsSchema);
-  return parsed === null ? [] : parsed.items;
+/**
+ * One page of a review's items, or an empty last page during the redirect to
+ * `/login`. `after` is only ever a cursor the server handed back.
+ */
+async function fetchItems(reviewId: string, after: string | null): Promise<ReviewItemsPage> {
+  const path = apiPath(API.reviewItems, { reviewId });
+  const url = after === null ? path : `${path}?${new URLSearchParams({ after }).toString()}`;
+  const parsed = await readWire(url, reviewItemsSchema);
+  return parsed ?? { review_id: reviewId, items: [], next_after_item_id: null };
 }
 
 /**

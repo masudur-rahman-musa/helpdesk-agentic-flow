@@ -104,15 +104,21 @@ async def list_reviews_for_scope(
 
 
 async def list_items_with_context(
-    session: AsyncSession, review_id: uuid.UUID, *, limit: int
+    session: AsyncSession,
+    review_id: uuid.UUID,
+    *,
+    limit: int,
+    after_item_id: uuid.UUID | None = None,
 ) -> Sequence[ReviewItemWithContext]:
     """One review's items with the grant behind each, in `list_items`' order.
 
     One row per item; every join is inner, since every item has a grant and
     every grant has a holder, role and system. The caller has already
-    checked scope.
+    checked scope. `after_item_id` starts the page just after that item.
     """
-    rows = await fetch_items_with_context(session, review_id, limit=limit)
+    rows = await fetch_items_with_context(
+        session, review_id, limit=limit, after_item_id=after_item_id
+    )
     return [
         ReviewItemWithContext(
             item=item,

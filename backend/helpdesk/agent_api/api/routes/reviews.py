@@ -10,7 +10,7 @@ beside the web app's dynamic `[reviewId]` folder.
 
 import uuid
 from collections.abc import Mapping
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
 
@@ -20,7 +20,6 @@ from helpdesk.agent_api.schemas.reviews import (
     DecideBody,
     DecideReviewItemArgs,
     ListReviewItemsArgs,
-    ListReviewItemsArgsWithLimit,
     ListReviewsArgs,
     ListReviewsArgsWithLimit,
     ListReviewsArgsWithStatus,
@@ -53,12 +52,16 @@ async def review_items(
     review_id: uuid.UUID,
     request: Request,
     limit: int | None = Query(default=None),
+    after: Annotated[uuid.UUID | None, Query()] = None,
 ) -> Mapping[str, Any]:
-    """One review's rows. The tool decides who may read it."""
-    arguments = (
-        ListReviewItemsArgs(review_id=review_id)
-        if limit is None
-        else ListReviewItemsArgsWithLimit(review_id=review_id, limit=limit)
+    """One page of a review's rows. The tool decides who may read it.
+
+    `after` is the `next_after_item_id` of the page before. Each value is sent
+    only when asked for.
+    """
+    asked: dict[str, Any] = {"limit": limit, "after_item_id": None if after is None else str(after)}
+    arguments = ListReviewItemsArgs(
+        review_id=review_id, **{name: value for name, value in asked.items() if value is not None}
     )
     return await proxy_tool(request, "list_review_items", arguments)
 

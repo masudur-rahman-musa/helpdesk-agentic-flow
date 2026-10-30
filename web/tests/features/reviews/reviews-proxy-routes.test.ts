@@ -326,3 +326,24 @@ describe("the three review routes — an expired session", () => {
     expect(response.headers.get("location")?.endsWith("/login")).toBe(true);
   });
 });
+
+describe("the item route — paging", () => {
+  it("forwards the page cursor and the page size from its own url", async () => {
+    // Catches a proxy that drops `after`: "load more" would read the first
+    // page again, and a review bigger than one page could never be finished.
+    const cursor = "77777777-7777-5777-8777-777777777777";
+    await itemsGET(
+      new Request(`http://web.test/api/reviews/${REVIEW_ID}/items?limit=25&after=${cursor}`),
+      { params: Promise.resolve({ reviewId: REVIEW_ID }) },
+    );
+
+    const [url] = firstCall();
+    const forwarded = new URL(String(url));
+    expect(forwarded.origin + forwarded.pathname).toBe(
+      `${UPSTREAM_ORIGIN}/reviews/${REVIEW_ID}/items`,
+    );
+    expect(forwarded.searchParams.get("after")).toBe(cursor);
+    expect(forwarded.searchParams.get("limit")).toBe("25");
+    expect([...forwarded.searchParams.keys()]).toHaveLength(2);
+  });
+});

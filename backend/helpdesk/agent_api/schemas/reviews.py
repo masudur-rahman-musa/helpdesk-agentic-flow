@@ -2,7 +2,7 @@
 
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ListReviewsArgs(BaseModel):
@@ -33,15 +33,15 @@ class ListReviewsArgsWithStatusAndLimit(ListReviewsArgs):
 
 
 class ListReviewItemsArgs(BaseModel):
-    """`list_review_items` for one review, at the tool's own page size."""
+    """`list_review_items` for one review, plus only the paging values asked for.
+
+    Extra keys are allowed, not declared, because `model_dump` would send
+    `null` for an unset one. The route adds `limit` and `after_item_id`.
+    """
+
+    model_config = ConfigDict(extra="allow")
 
     review_id: uuid.UUID
-
-
-class ListReviewItemsArgsWithLimit(ListReviewItemsArgs):
-    """The same read with the caller's page size."""
-
-    limit: int
 
 
 class DecideReviewItemArgs(BaseModel):

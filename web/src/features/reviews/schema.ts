@@ -43,12 +43,14 @@ export const reviewItemSchema = z.object({
 });
 
 /**
- * The item list's envelope. `review_id` comes along so the list can be tied to
- * its review.
+ * One page of the item list. `review_id` comes along so the list can be tied
+ * to its review. `next_after_item_id` is where the next page starts; null or
+ * absent means this page is the last.
  */
 export const reviewItemsSchema = z.object({
   review_id: z.string(),
   items: z.array(reviewItemSchema),
+  next_after_item_id: z.string().nullable().optional(),
 });
 
 /**
@@ -67,4 +69,5 @@ export const reviewDecisionSchema = z.object({
 
 export type ReviewQueueRow = z.infer<typeof reviewQueueRowSchema>;
 export type ReviewItem = z.infer<typeof reviewItemSchema>;
+export type ReviewItemsPage = z.infer<typeof reviewItemsSchema>;
 export type ReviewDecision = z.infer<typeof reviewDecisionSchema>;

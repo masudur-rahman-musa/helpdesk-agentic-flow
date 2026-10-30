@@ -2561,3 +2561,60 @@ def test_list_review_items_answers_eleven_keys_naming_the_grant_behind_the_item(
     assert _when(item["granted_at"]) == GRANTED_AT
     assert _when(item["expires_at"]) == FAR_EXPIRY
     assert item["decision"] is None
+
+
+def test_list_review_items_pages_through_every_item_in_a_stable_order(
+    mcp_env: SeededMcp,
+) -> None:
+    """Catches an item list that stops at its first page with no way on, so a
+    review bigger than the page could never be finished. Five grants, pages of
+    two: following `next_after_item_id` must reach all five exactly once, in
+    the order of creation time then id, and the last page must say there is
+    no more. Every item of a review is written in one go and shares its
+    creation time, so the id is what keeps the order the same between pages.
+    """
+    scope = plant_scope(mcp_env)
+    for _ in range(4):
+        member = _plant_user(mcp_env.database_url, scope.tenant_id, scope.department_id)
+        _plant_grant(mcp_env.database_url, scope.tenant_id, member, scope.role_id)
+    token = bearer(token_for(scope.manager, principals=("manager",)))
+    opened = _structured(call_tool(token, OPEN, _open_args(department_id=scope.department_id)))
+    review_id = str(opened["review_id"])
+    stored = _rows(
+        mcp_env.database_url,
+        "SELECT id FROM review_items WHERE review_id = :review ORDER BY created_at, id",
+        {"review": review_id},
+    )
+    assert len(stored) == 5
+
+    pages: list[list[str]] = []
+    after: str | None = None
+    for _ in range(5):
+        arguments: dict[str, Any] = {"review_id": review_id, "limit": 2}
+        if after is not None:
+            arguments["after_item_id"] = after
+        payload = _structured(call_tool(token, LIST, arguments))
+        pages.append([str(item["item_id"]) for item in payload["items"]])
+        after = payload["next_after_item_id"]
+        if after is None:
+            break
+
+    assert [len(page) for page in pages] == [2, 2, 1]
+    assert [item_id for page in pages for item_id in page] == [str(row[0]) for row in stored]
+
+
+def test_a_page_that_ends_exactly_on_the_last_item_says_there_is_no_more(
+    mcp_env: SeededMcp,
+) -> None:
+    """Catches a cursor handed back whenever a page is full, which would send
+    the page after the last one to fetch an empty list behind a live button."""
+    scope = plant_scope(mcp_env)
+    token = bearer(token_for(scope.manager, principals=("manager",)))
+    opened = _structured(call_tool(token, OPEN, _open_args(department_id=scope.department_id)))
+
+    payload = _structured(
+        call_tool(token, LIST, {"review_id": str(opened["review_id"]), "limit": 1})
+    )
+
+    assert [str(item["grant_id"]) for item in payload["items"]] == [str(scope.grant_id)]
+    assert payload["next_after_item_id"] is None

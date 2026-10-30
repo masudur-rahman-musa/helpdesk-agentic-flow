@@ -34,16 +34,29 @@ export function ReviewItems({ reviewId }: { reviewId: string }) {
     return null;
   }
 
-  if (items.data.length === 0) {
+  const rows = items.data.pages.flatMap((page) => page.items);
+  if (rows.length === 0) {
     return <p className="text-sm text-muted-foreground">This review has no items.</p>;
   }
 
   return (
-    <ul aria-label="Items in review" className="flex flex-col gap-3">
-      {items.data.map((item) => (
-        <ItemRow key={item.item_id} item={item} reviewId={reviewId} />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-3">
+      <ul aria-label="Items in review" className="flex flex-col gap-3">
+        {rows.map((item) => (
+          <ItemRow key={item.item_id} item={item} reviewId={reviewId} />
+        ))}
+      </ul>
+      {items.hasNextPage ? (
+        <Button
+          type="button"
+          className="self-start"
+          disabled={items.isFetchingNextPage}
+          onClick={() => void items.fetchNextPage()}
+        >
+          Load more items
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

@@ -93,6 +93,8 @@ class ListReviewItemsInput(BaseModel):
 
     review_id: uuid.UUID
     limit: int = Field(default=LIMIT_DEFAULT, ge=LIMIT_MIN, le=LIMIT_MAX)
+    after_item_id: uuid.UUID | None = None
+    """Start just after this item. Only ever a `next_after_item_id` handed back."""
 
 
 class ReviewItemOutput(BaseModel):
@@ -114,6 +116,8 @@ class ReviewItemOutput(BaseModel):
 class ListReviewItemsOutput(BaseModel):
     review_id: uuid.UUID
     items: list[ReviewItemOutput]
+    next_after_item_id: uuid.UUID | None = None
+    """Where the next page starts, or None when this page is the last."""
 
 
 class ListReviewsInput(BaseModel):
@@ -250,9 +254,14 @@ async def list_review_items(ctx: ToolContext, args: ListReviewItemsInput) -> Lis
     if review is None:
         raise NotFoundError("no such access review in this tenant")
 
-    items = await list_items_with_context(ctx.session, review.id, limit=args.limit)
+    # One row past the page says whether another page exists.
+    rows = await list_items_with_context(
+        ctx.session, review.id, limit=args.limit + 1, after_item_id=args.after_item_id
+    )
+    items = rows[: args.limit]
     return ListReviewItemsOutput(
         review_id=review.id,
+        next_after_item_id=items[-1].item.id if len(rows) > args.limit else None,
         items=[
             ReviewItemOutput(
                 item_id=row.item.id,

@@ -104,6 +104,10 @@ class ClassifyAccessRequestArgs(_ToolArgs):
 class ListReviewItemsArgs(_ToolArgs):
     review_id: uuid.UUID = Field(description="The access review to list the flagged grants of.")
     limit: int = Field(default=50, description="How many items to return, at most.")
+    after_item_id: uuid.UUID | None = Field(
+        default=None,
+        description="Start just after this item: the next_after_item_id of the page before.",
+    )
 
 
 class ListPendingApprovalsArgs(_ToolArgs):

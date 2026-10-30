@@ -576,6 +576,48 @@ def test_the_item_route_sends_the_limit_it_was_asked_for(
     assert arguments == {"review_id": str(REVIEW_ID), "limit": 25}
 
 
+def test_the_item_route_forwards_the_cursor_of_the_page_to_start_after(
+    reviews_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches an item route that drops the paging cursor, so "load more" would
+    read the first page again and a big review could never be finished. The
+    cursor is sent as the tool's `after_item_id`, beside the page size."""
+    caller = ScriptedToolCaller(ITEMS_PAYLOAD)
+    after = uuid.uuid4()
+
+    response, _spy = _request(
+        monkeypatch=monkeypatch,
+        method="GET",
+        path=ITEMS_PATH,
+        caller=caller,
+        headers=_auth(_token()),
+        params={"limit": "25", "after": str(after)},
+    )
+
+    assert response.status_code == 200
+    _name, arguments = caller.calls[0]
+    assert arguments == {"review_id": str(REVIEW_ID), "limit": 25, "after_item_id": str(after)}
+
+
+def test_a_cursor_that_is_not_an_id_reaches_no_tool(
+    reviews_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a route that passes any cursor text through to the tool."""
+    caller = ScriptedToolCaller(ITEMS_PAYLOAD)
+
+    response, _spy = _request(
+        monkeypatch=monkeypatch,
+        method="GET",
+        path=ITEMS_PATH,
+        caller=caller,
+        headers=_auth(_token()),
+        params={"after": "not-an-id"},
+    )
+
+    assert response.status_code == 422
+    assert caller.calls == []
+
+
 def test_the_decide_route_answers_the_tools_output_under_the_callers_own_bearer(
     reviews_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

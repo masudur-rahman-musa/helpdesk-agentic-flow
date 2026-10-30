@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, or_, select
+from sqlalchemy import ColumnElement, func, literal, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.core.db import bound_tenant_id
@@ -78,10 +78,19 @@ async def fetch_item_counts(
 
 
 async def fetch_items_with_context(
-    session: AsyncSession, review_id: uuid.UUID, *, limit: int
+    session: AsyncSession,
+    review_id: uuid.UUID,
+    *,
+    limit: int,
+    after_item_id: uuid.UUID | None = None,
 ) -> list[Any]:
-    """One review's items with the grant, holder, role and system behind each."""
-    result = await session.execute(
+    """One review's items with the grant, holder, role and system behind each.
+
+    Ordered by creation time, then id: a review's items are written together
+    and share a creation time, so the id keeps the order fixed. With
+    `after_item_id`, the page starts just after that item of this review.
+    """
+    statement = (
         select(
             ReviewItem,
             User.display_name,
@@ -99,4 +108,16 @@ async def fetch_items_with_context(
         .order_by(ReviewItem.created_at, ReviewItem.id)
         .limit(limit)
     )
+    if after_item_id is not None:
+        # An id from another review finds no time, so the page comes back empty.
+        after_created_at = (
+            select(ReviewItem.created_at)
+            .where(ReviewItem.review_id == review_id, ReviewItem.id == after_item_id)
+            .scalar_subquery()
+        )
+        statement = statement.where(
+            tuple_(ReviewItem.created_at, ReviewItem.id)
+            > tuple_(after_created_at, literal(after_item_id))
+        )
+    result = await session.execute(statement)
     return list(result.all())
