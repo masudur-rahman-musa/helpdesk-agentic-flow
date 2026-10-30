@@ -279,10 +279,9 @@ with the gateway setup and what works without it, is
 git clone https://github.com/masudur-rahman-musa/helpdesk-agentic-flow
 cd helpdesk-agentic-flow
 
-# 1. The local env file. Drop the empty lines and placeholders, then add two values.
+# 1. The local env file. Drop the two placeholders, then add a login secret.
 cd backend
-grep -v -e '=$' -e '^POLICY_DIR=' -e '^JWT_SECRET=' -e '^GATEWAY_API_KEYS=' .env.example > .env.demo
-echo "POLICY_DIR=data/policies" >> .env.demo
+grep -v -e '^JWT_SECRET=' -e '^GATEWAY_API_KEYS=' .env.example > .env.demo
 echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env.demo
 cd ..
 

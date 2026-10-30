@@ -15,8 +15,7 @@ POLICY_DIR=/srv/company-policies make ingest TENANT=your-tenant-slug VERSION=v1
 
 You can also put the `POLICY_DIR` line in `backend/.env.demo`. The ingest runs
 from `backend/`, so a relative path is read from there. The shipped demo corpus
-is `backend/data/policies/`, which is `POLICY_DIR=data/policies`. The value in
-`backend/.env.example` is only a placeholder name, so set your own.
+is `backend/data/policies/`, which is `POLICY_DIR=data/policies`. That is also the default.
 
 An explicit `--corpus-root` on the ingest command
 (`uv run python -m helpdesk.mcp_server.cli`) wins over the setting. That helps

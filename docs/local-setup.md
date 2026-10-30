@@ -25,22 +25,18 @@ The apps read `backend/.env.demo` first, then `backend/.env` over it. Both are
 gitignored. `backend/.env.demo` holds working local values. `backend/.env` is
 only for real keys you paid for, and this project needs none of its own.
 
-`backend/.env.example` lists every setting. Some lines in it are left empty on
-purpose, and an empty value fails the settings check at startup. So copy it
-without the empty lines, then add the values that must change:
+`backend/.env.example` lists every setting. An empty line means the default.
+Copy it without the two placeholders, then add a login secret:
 
 ```bash
 cd backend
-grep -v -e '=$' -e '^POLICY_DIR=' -e '^JWT_SECRET=' -e '^GATEWAY_API_KEYS=' .env.example > .env.demo
-echo "POLICY_DIR=data/policies" >> .env.demo
+grep -v -e '^JWT_SECRET=' -e '^GATEWAY_API_KEYS=' .env.example > .env.demo
 echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env.demo
 cd ..
 ```
 
-What each added line does:
-
-- `POLICY_DIR=data/policies` points the ingest at the demo policy folder, `backend/data/policies/`. The ingest runs from `backend/`, so the path is relative to it.
-- `JWT_SECRET` signs the login tokens. It must be at least 32 bytes.
+`JWT_SECRET` signs the login tokens. It must be at least 32 bytes.
+`POLICY_DIR` already points at the demo policy folder, `backend/data/policies/`.
 
 The placeholder gateway keys are left out too. Real ones come in step 6. The
 local Postgres, Redis and Qdrant values in the file already match what
