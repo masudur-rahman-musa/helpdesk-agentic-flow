@@ -1102,6 +1102,68 @@ def test_list_items_returns_this_reviews_items_and_honours_the_limit(
     assert len(read_items(access_db_url, review_id=other_review.review_id, limit=50)) == 1
 
 
+def test_list_items_puts_flagged_items_before_the_rest_in_a_fixed_order(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Catches an item read that leaves flagged items wherever their ids fall.
+    A big review then hides the few items that need a look among hundreds of
+    plain ones, past the first page. Eight members hold a plain grant and
+    two of them also hold a grant outside the template: both flagged items
+    must open the list, and the rest must follow by creation time then id."""
+    scope = plant_scope(access_db_url, members=8)
+    for member in scope.members:
+        plant_grant(access_db_url, user_id=member, role_id=scope.template_role_id)
+    for member in scope.members[:2]:
+        plant_grant(access_db_url, user_id=member, role_id=scope.extra_role_id)
+    review = open_one(access_db_url, department_id=scope.department_id)
+    stored = _rows(
+        access_db_url,
+        "SELECT id, flag FROM review_items WHERE review_id = :review"
+        " ORDER BY flag = 'ok', created_at, id",
+        {"review": review.review_id},
+    )
+    flags = {uuid.UUID(str(row[0])): str(row[1]) for row in stored}
+
+    listed = read_items(access_db_url, review_id=review.review_id, limit=50)
+
+    assert list(flags.values()).count("ok") == 8
+    assert listed == list(flags)
+    assert [flags[item] for item in listed[:2]] == ["non_standard", "non_standard"]
+
+
+def test_paging_by_the_last_item_crosses_from_flagged_to_plain_items_without_a_gap(
+    access_db_url: str,  # noqa: F811
+) -> None:
+    """Catches a page cursor that compares creation time and id but not the
+    flagged-first rank: the page after a flagged item would then skip or
+    repeat plain ones. Pages of three, starting after each page's last item,
+    must walk the same ten items as one long read, in the same order."""
+    scope = plant_scope(access_db_url, members=8)
+    for member in scope.members:
+        plant_grant(access_db_url, user_id=member, role_id=scope.template_role_id)
+    for member in scope.members[:2]:
+        plant_grant(access_db_url, user_id=member, role_id=scope.extra_role_id)
+    review = open_one(access_db_url, department_id=scope.department_id)
+
+    async def walk(session: AsyncSession) -> list[uuid.UUID]:
+        seen: list[uuid.UUID] = []
+        after: uuid.UUID | None = None
+        for _ in range(10):
+            page = await list_items_with_context(
+                session, review.review_id, limit=3, after_item_id=after
+            )
+            if not page:
+                break
+            seen.extend(row.item.id for row in page)
+            after = page[-1].item.id
+        return seen
+
+    walked = in_tenant(access_db_url, walk)
+
+    assert walked == read_items(access_db_url, review_id=review.review_id, limit=50)
+    assert len(walked) == 10
+
+
 def test_another_tenants_review_items_are_invisible(
     access_db_url: str,  # noqa: F811
 ) -> None:

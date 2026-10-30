@@ -2569,8 +2569,8 @@ def test_list_review_items_pages_through_every_item_in_a_stable_order(
     """Catches an item list that stops at its first page with no way on, so a
     review bigger than the page could never be finished. Five grants, pages of
     two: following `next_after_item_id` must reach all five exactly once, in
-    the order of creation time then id, and the last page must say there is
-    no more. Every item of a review is written in one go and shares its
+    the order flagged first, then creation time, then id, and the last page
+    must say there is no more. Every item of a review is written in one go and shares its
     creation time, so the id is what keeps the order the same between pages.
     """
     scope = plant_scope(mcp_env)
@@ -2582,7 +2582,8 @@ def test_list_review_items_pages_through_every_item_in_a_stable_order(
     review_id = str(opened["review_id"])
     stored = _rows(
         mcp_env.database_url,
-        "SELECT id FROM review_items WHERE review_id = :review ORDER BY created_at, id",
+        "SELECT id FROM review_items WHERE review_id = :review"
+        " ORDER BY flag = 'ok', created_at, id",
         {"review": review_id},
     )
     assert len(stored) == 5

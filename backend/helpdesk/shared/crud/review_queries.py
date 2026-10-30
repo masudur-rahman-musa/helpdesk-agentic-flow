@@ -12,6 +12,7 @@ from helpdesk.shared.models import (
     AccessReview,
     Department,
     Grant,
+    ReviewFlag,
     ReviewItem,
     Role,
     System,
@@ -77,6 +78,10 @@ async def fetch_item_counts(
     return {review_id: (total, decided) for review_id, total, decided in result.all()}
 
 
+_PLAIN_LAST = ReviewItem.flag == ReviewFlag.OK.value
+"""Sorts flagged items (false) before plain ones (true)."""
+
+
 async def fetch_items_with_context(
     session: AsyncSession,
     review_id: uuid.UUID,
@@ -86,9 +91,11 @@ async def fetch_items_with_context(
 ) -> list[Any]:
     """One review's items with the grant, holder, role and system behind each.
 
-    Ordered by creation time, then id: a review's items are written together
-    and share a creation time, so the id keeps the order fixed. With
-    `after_item_id`, the page starts just after that item of this review.
+    Flagged items come first, so the few that need a look are on the first
+    page of a big review. Then creation time, then id: a review's items are
+    written together and share a creation time, so the id keeps the order
+    fixed. With `after_item_id`, the page starts just after that item of this
+    review.
     """
     statement = (
         select(
@@ -105,19 +112,21 @@ async def fetch_items_with_context(
         .join(Role, Role.id == Grant.role_id)
         .join(System, System.id == Role.system_id)
         .where(ReviewItem.review_id == review_id)
-        .order_by(ReviewItem.created_at, ReviewItem.id)
+        .order_by(_PLAIN_LAST, ReviewItem.created_at, ReviewItem.id)
         .limit(limit)
     )
     if after_item_id is not None:
-        # An id from another review finds no time, so the page comes back empty.
-        after_created_at = (
-            select(ReviewItem.created_at)
-            .where(ReviewItem.review_id == review_id, ReviewItem.id == after_item_id)
-            .scalar_subquery()
+        # An id from another review finds no row, so the page comes back empty.
+        after = select(ReviewItem).where(
+            ReviewItem.review_id == review_id, ReviewItem.id == after_item_id
         )
         statement = statement.where(
-            tuple_(ReviewItem.created_at, ReviewItem.id)
-            > tuple_(after_created_at, literal(after_item_id))
+            tuple_(_PLAIN_LAST, ReviewItem.created_at, ReviewItem.id)
+            > tuple_(
+                after.with_only_columns(_PLAIN_LAST).scalar_subquery(),
+                after.with_only_columns(ReviewItem.created_at).scalar_subquery(),
+                literal(after_item_id),
+            )
         )
     result = await session.execute(statement)
     return list(result.all())
