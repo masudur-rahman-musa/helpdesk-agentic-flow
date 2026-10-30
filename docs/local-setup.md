@@ -176,7 +176,7 @@ on 55432 and Qdrant on 26333, so it does not clash with the console.
 
 Both use the real gateway and a real model.
 
-## Known gaps
+## Browser tests
 
-- `make e2e` resets the database, seeds it and ingests the demo policies through a stub gateway, so it needs no real model. Two browser flows still expect older behaviour, so they will not pass until their tests change. The offboard flow expects a change to run at once, but it now waits for a "yes". The kill switch flow expects an error alert, but a switched-off tool now comes back as a reply.
+- `make e2e` resets the database, seeds it and ingests the demo policies through a stub gateway, so it needs no real model. It then runs the eight Playwright flows.
 - `make eval-chat` runs the same reset through the real gateway, so the console must be up first.
