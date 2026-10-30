@@ -97,7 +97,7 @@ async def set_request_status(
     """Move one request to its next status. Flushed, not committed.
 
     The caller's transaction holds the status, the seats and the grant
-    together, so a request is never `approved` with a grant that rolled
+    together, so a request is never `executed` with a grant that rolled
     back. `approvals=None` leaves the seats as they are; an empty list would
     erase who decided what.
     """

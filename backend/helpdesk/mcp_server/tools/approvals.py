@@ -352,13 +352,15 @@ async def approve_request(ctx: ToolContext, args: ApproveRequestInput) -> Approv
             role_name=await plain_role_name_for(ctx.session, request.role_id),
         )
 
+    # The grant is made, so the request is done: `executed`, like an
+    # automatic grant. `approved` would keep it open and block a new ask.
     await set_request_status(
-        ctx.session, request.id, status=RequestStatus.APPROVED, approvals=dump_slots(decided)
+        ctx.session, request.id, status=RequestStatus.EXECUTED, approvals=dump_slots(decided)
     )
     await notify_granted(ctx.session, request, actor_id=ctx.identity.user_id)
     return _approved(
         request,
-        RequestStatus.APPROVED,
+        RequestStatus.EXECUTED,
         slots[index],
         True,
         grant,

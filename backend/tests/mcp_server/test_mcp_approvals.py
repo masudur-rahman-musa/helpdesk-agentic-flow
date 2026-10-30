@@ -844,7 +844,7 @@ def test_approving_the_last_open_slot_grants_once_with_the_fresh_expiry(
     )
 
     assert payload["chain_complete"] is True
-    assert payload["status"] == RequestStatus.APPROVED.value
+    assert payload["status"] == RequestStatus.EXECUTED.value
     assert payload["failure_code"] is None
     assert payload["grant_id"] is not None
     assert payload["expires_at"] is not None
@@ -860,7 +860,7 @@ def test_approving_the_last_open_slot_grants_once_with_the_fresh_expiry(
     assert grant.expires_at - grant.granted_at == timedelta(days=CRITICAL_CLASS_CAP_DAYS)
 
     row = _request_row(mcp_env.database_url, request_id)
-    assert row.status == RequestStatus.APPROVED.value
+    assert row.status == RequestStatus.EXECUTED.value
     assert _slots(row.approvals) == [
         (ApproverSlot.DEPARTMENT_MANAGER.value, SlotDecision.APPROVE.value)
     ]
@@ -871,6 +871,57 @@ def test_approving_the_last_open_slot_grants_once_with_the_fresh_expiry(
         GRANT_EXECUTED_EVENT,
         SUCCEEDED_EVENT,
     ]
+
+
+REPEAT_TARGET = ROWS.users_by_department["Production"][7]
+"""Owned by the ask-again case: its request is granted, then the grant ends."""
+
+
+def test_a_granted_request_is_executed_so_the_person_can_ask_again(
+    mcp_env: SeededMcp,
+) -> None:
+    """Catches a completed chain that leaves the request `approved` after its
+    grant was made. `approved` counts as still open, so once that grant was
+    revoked the person could never ask for the role again: every new ask
+    would be answered as already filed. The row must end `executed`, the
+    same status an automatic grant reaches, and a later classify for the
+    same person and role must report nothing open."""
+    manager = _seeded(PRODUCTION_MANAGER)
+    request_id = _plant_request(
+        mcp_env.database_url,
+        requester_user_id=REPEAT_TARGET.id,
+        target_user_id=REPEAT_TARGET.id,
+        role_id=CAPPED_ROLE,
+        approvals=[_seat(ApproverSlot.DEPARTMENT_MANAGER, manager.user_id)],
+    )
+
+    payload = _structured(
+        call_tool(
+            bearer(token_for(manager)),
+            APPROVE,
+            {"request_id": str(request_id), "idempotency_key": _key()},
+        )
+    )
+
+    assert payload["status"] == RequestStatus.EXECUTED.value
+    assert payload["grant_id"] is not None
+    assert _request_row(mcp_env.database_url, request_id).status == RequestStatus.EXECUTED.value
+
+    _execute(
+        mcp_env.database_url,
+        "UPDATE grants SET status = 'revoked', revoked_at = now(), revoke_reason = 'fake'"
+        " WHERE request_id = :request",
+        {"request": request_id},
+    )
+    again = _structured(
+        call_tool(
+            bearer(token_for(_seeded(REPEAT_TARGET))),
+            "classify_access_request",
+            {"target_user_id": str(REPEAT_TARGET.id), "role_id": str(CAPPED_ROLE)},
+        )
+    )
+    assert again["already_requested"] is False
+    assert again["request_number"] is None
 
 
 def test_a_conflict_planted_while_the_request_waits_fails_the_row_without_a_grant(
