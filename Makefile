@@ -140,5 +140,5 @@ down:       ## Stop the whole Docker stack, keeping its data (same as app-down)
 	$(MAKE) app-down
 app-up:     ## Backing services plus the four containers (needs .env and the images' build inputs)
 	docker compose --profile app up -d --build
-app-down:   ## Stop the app profile, leaving the backing services and their volumes
+app-down:   ## Stop the four containers and the backing services, keeping their data
 	docker compose --profile app down
