@@ -1,4 +1,4 @@
-# AI Helpdesk with Governed Access
+# AI Helpdesk Agentic Flow
 
 Employees ask for system access in plain language. An AI agent works out what
 they need. A deterministic policy engine decides. The system then grants the
