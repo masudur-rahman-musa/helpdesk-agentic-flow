@@ -171,8 +171,7 @@ evals instead, which cost money and run by hand.
 **Watch mode, optional.** `docker-compose.override.example.yml` runs the four
 app containers from your checkout, so a saved file shows up with no rebuild.
 Copy it to `docker-compose.override.yml` to use it. It also publishes Postgres
-on 55432 and Qdrant on 16333. The Qdrant port is the same one the console
-uses, so change that line in your copy if you run both.
+on 55432 and Qdrant on 26333, so it does not clash with the console.
 
 ## Paid runs, by hand
 
@@ -183,5 +182,5 @@ Both use the real gateway and a real model.
 
 ## Known gaps
 
-- `make e2e` and `make eval-chat` first reset the database with `backend/scripts/e2e_reset.py`. That script calls a policy ingest script that is not in this repository, so both stop at that step today.
-- The stub gateway that `make e2e` uses, `backend/scripts/e2e/gateway_stub.py`, still answers an older request format and does not send tool calls. Chat flows in the browser tests need it updated to the current agent loop.
+- `make e2e` resets the database, seeds it and ingests the demo policies through a stub gateway, so it needs no real model. Two browser flows still expect older behaviour, so they will not pass until their tests change. The offboard flow expects a change to run at once, but it now waits for a "yes". The kill switch flow expects an error alert, but a switched-off tool now comes back as a reply.
+- `make eval-chat` runs the same reset through the real gateway, so the console must be up first.
