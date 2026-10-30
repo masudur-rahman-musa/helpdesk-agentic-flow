@@ -60,7 +60,7 @@ Asserted as an exact ordered list, not as a subset: a sixth section makes the
 file a manual rather than a checklist, and a reordering buries the one change
 (`POLICY_DIR`) that every adopter makes."""
 
-ENV_EXAMPLE_LINE = "POLICY_DIR=policies"
+ENV_EXAMPLE_LINE = "POLICY_DIR=data/policies"
 """The exact line `.env.example` must carry, value included.
 
 The default is a value, so it is pinned as a value, in both

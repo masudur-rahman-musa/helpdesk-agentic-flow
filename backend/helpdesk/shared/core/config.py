@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     embedding_cache_dir: Path = Path(".cache/fastembed")
     """Where fastembed keeps models: inside the repo, not fastembed's `~/.cache`."""
 
-    policy_dir: Path = Path("policies")
+    policy_dir: Path = Path("data/policies")
     """The policy folder ingestion walks, as `{tenant_slug}/{version}/{file}`."""
 
     web_origin: str = DEFAULT_WEB_ORIGIN

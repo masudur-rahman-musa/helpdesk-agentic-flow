@@ -378,7 +378,7 @@ def test_the_settings_field_and_the_helper_share_one_validator(
 # themselves, so a developer with `POLICY_DIR` exported in their own shell
 # cannot make the default row pass or fail by accident.
 
-POLICY_DIR_DEFAULT = Path("policies")
+POLICY_DIR_DEFAULT = Path("data/policies")
 """The default the field declares, written out rather than imported.
 
 importing the field's default and asserting it equals itself
