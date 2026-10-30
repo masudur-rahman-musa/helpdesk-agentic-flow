@@ -53,7 +53,7 @@ export default defineConfig({
   webServer: [
     {
       // The model, and nothing else about the stack.
-      command: "uv run python backend/scripts/e2e/gateway_stub.py",
+      command: "uv run --project backend python backend/scripts/e2e/gateway_stub.py",
       url: `http://127.0.0.1:${STUB_PORT}/healthz`,
       cwd: "..",
       timeout: SERVER_TIMEOUT_MS,
@@ -62,18 +62,18 @@ export default defineConfig({
       stderr: "pipe",
     },
     {
-      command: "uv run uvicorn mcp_server.main:app --port 8081",
+      command: "uv run uvicorn helpdesk.mcp_server.main:app --port 8081",
       url: "http://127.0.0.1:8081/healthz",
-      cwd: "..",
+      cwd: "../backend",
       timeout: SERVER_TIMEOUT_MS,
       reuseExistingServer: reuse,
       stdout: "pipe",
       stderr: "pipe",
     },
     {
-      command: "uv run uvicorn agent_api.main:app --port 8000",
+      command: "uv run uvicorn helpdesk.agent_api.api.router:app --port 8000",
       url: "http://127.0.0.1:8000/healthz",
-      cwd: "..",
+      cwd: "../backend",
       // The one override that makes this a stubbed run: agent-api's model
       // client talks to the canned gateway instead of the real one. Nothing
       // else about the process changes, and no other service is pointed
