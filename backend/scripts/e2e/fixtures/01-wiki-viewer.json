@@ -1,40 +1,34 @@
 {
   "match": "wiki.viewer",
-  "answers": {
-    "IntentExtraction": {
-      "intent": "request_access",
-      "entities": {
-        "system": "wiki",
-        "role": "wiki.viewer",
-        "target_user": null,
-        "department": null,
-        "expiry_days": null,
-        "justification": "I need to read the internal wiki."
-      },
-      "confidence": 0.96,
-      "clarifying_question": null
-    },
-    "ToolPlanAnswer": [
+  "steps": [
+    [
       {
-        "calls": [
-          {
-            "tool": "get_me",
-            "arguments": "{}"
-          }
-        ]
+        "name": "search_policy",
+        "arguments": {
+          "query": "Who may read the internal wiki?"
+        }
       },
       {
-        "calls": [
-          {
-            "tool": "create_access_request",
-            "arguments": "{\"target_user_id\": \"{me.user_id}\", \"role_id\": \"{resolved.role_id}\", \"justification\": \"I need to read the internal wiki.\"}"
-          }
-        ]
+        "name": "find_role",
+        "arguments": {
+          "words": "wiki.viewer"
+        }
       },
       {
-        "calls": []
+        "name": "get_me",
+        "arguments": {}
       }
     ],
-    "text": "That access is part of the standard set for your department, so it is already in place."
-  }
+    [
+      {
+        "name": "create_access_request",
+        "arguments": {
+          "target_user_id": "{get_me.user_id}",
+          "role_id": "{find_role.roles.0.role_id}",
+          "justification": "I need to read the internal wiki."
+        }
+      }
+    ]
+  ],
+  "reply": "Done. The details are below."
 }

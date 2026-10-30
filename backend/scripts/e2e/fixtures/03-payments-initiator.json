@@ -1,40 +1,34 @@
 {
   "match": "payments.initiator",
-  "answers": {
-    "IntentExtraction": {
-      "intent": "request_access",
-      "entities": {
-        "system": "payments",
-        "role": "payments.initiator",
-        "target_user": null,
-        "department": null,
-        "expiry_days": null,
-        "justification": "I need to raise payment runs."
-      },
-      "confidence": 0.95,
-      "clarifying_question": null
-    },
-    "ToolPlanAnswer": [
+  "steps": [
+    [
       {
-        "calls": [
-          {
-            "tool": "get_me",
-            "arguments": "{}"
-          }
-        ]
+        "name": "search_policy",
+        "arguments": {
+          "query": "Who may raise payment runs?"
+        }
       },
       {
-        "calls": [
-          {
-            "tool": "create_access_request",
-            "arguments": "{\"target_user_id\": \"{me.user_id}\", \"role_id\": \"{resolved.role_id}\", \"justification\": \"I need to raise payment runs.\"}"
-          }
-        ]
+        "name": "find_role",
+        "arguments": {
+          "words": "payments.initiator"
+        }
       },
       {
-        "calls": []
+        "name": "get_me",
+        "arguments": {}
       }
     ],
-    "text": "I could not give you that one. It conflicts with access you already hold."
-  }
+    [
+      {
+        "name": "create_access_request",
+        "arguments": {
+          "target_user_id": "{get_me.user_id}",
+          "role_id": "{find_role.roles.0.role_id}",
+          "justification": "I need to raise payment runs."
+        }
+      }
+    ]
+  ],
+  "reply": "Done. The details are below."
 }
