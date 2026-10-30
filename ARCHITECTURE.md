@@ -1,5 +1,7 @@
 # Architecture
 
+For the same system in plain words, without the engineering, see [How access decisions work](docs/how-access-decisions-work.md).
+
 This page explains how the parts fit together and why. The README has the
 short version and the diagram. The four lifecycle diagrams are in
 `docs/diagrams/`.

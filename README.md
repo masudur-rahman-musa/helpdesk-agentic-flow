@@ -2,6 +2,8 @@
 
 *Designed and built end to end by one engineer. Architecture, agent, backend, web app, tests, CI and infra.*
 
+Not an engineer? [How access decisions work, in plain words](docs/how-access-decisions-work.md) explains who can do what and the rules nobody can bend.
+
 Employees ask for system access in plain language. An AI agent works out what
 they need. A deterministic policy engine decides. The system then grants the
 access, sends it to human approvers, or blocks it. Every decision names the
