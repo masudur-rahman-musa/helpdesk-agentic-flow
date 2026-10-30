@@ -108,7 +108,7 @@ verify: format lint typecheck test test-policy web-verify security   ## The full
 e2e:        ## The five end-to-end flows in a real browser (manual; needs docker compose up -d)
 	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright pnpm -C web exec playwright install chromium
 	mkdir -p .cache
-	cd backend && uv run python scripts/e2e_reset.py
+	cd backend && uv run python scripts/e2e_reset.py --stub-gateway
 	cd backend && E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) uv run python scripts/e2e_accounts.py
 	pnpm -C web build
 	PLAYWRIGHT_BROWSERS_PATH=.cache/playwright E2E_ACCOUNTS_FILE=$(E2E_ACCOUNTS_FILE) \

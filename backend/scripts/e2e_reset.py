@@ -27,20 +27,25 @@ connection itself so the guard is drivable with strings and no database at
 all; `main` is the only thing here that touches Postgres or spawns anything.
 """
 
+import argparse
 import asyncio
 import os
 import subprocess
 import sys
-from collections.abc import Awaitable, Callable, Sequence
+import time
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
 from sqlalchemy import String, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from helpdesk.scheduler.jobs.review_schedule import generate_reviews
 from helpdesk.shared.access.directory import SimulatedDirectory
+from helpdesk.shared.core.config import load_settings
 from helpdesk.shared.core.db import (
     create_engine,
     create_session_factory,
@@ -56,6 +61,19 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 # `seed.py` in `backend/scripts/`.
 _BACKEND_ROOT = _REPO_ROOT / "backend"
 _BACKEND_SCRIPTS_DIR = _BACKEND_ROOT / "scripts"
+
+CORPUS_ROOT = _BACKEND_ROOT / "data" / "policies"
+"""The repository's own fake policies, which the e2e flows and the eval cases
+are written against. Named here so the reset does not depend on `POLICY_DIR`."""
+
+POLICY_VERSION = "v1"
+"""The corpus version each tenant gets."""
+
+STUB_GATEWAY = _SCRIPTS_DIR / "e2e" / "gateway_stub.py"
+"""The canned gateway, started for the ingest when the run has no real one."""
+
+STUB_START_SECONDS = 30.0
+"""How long the stub may take to answer `/healthz` before the reset gives up."""
 
 LOCAL_HOSTS: tuple[str, str] = ("localhost", "127.0.0.1")
 """The only hosts this script will drop a schema on."""
@@ -198,14 +216,76 @@ async def _open_this_quarters_reviews(database_url: str) -> None:
         await engine.dispose()
 
 
-def main() -> None:
+def ingest_commands(tenant_slugs: Sequence[str]) -> list[list[str]]:
+    """One policy ingest per tenant, through the same command `make ingest` runs."""
+    return [
+        [
+            sys.executable,
+            "-m",
+            "helpdesk.mcp_server.cli",
+            "--tenant",
+            slug,
+            "--version",
+            POLICY_VERSION,
+            "--corpus-root",
+            str(CORPUS_ROOT),
+        ]
+        for slug in tenant_slugs
+    ]
+
+
+@contextmanager
+def _stub_gateway() -> Iterator[str]:
+    """Run the canned gateway while the ingest needs `/redact`; yield its URL."""
+    port = os.environ.get("E2E_STUB_GATEWAY_PORT", "8099")
+    url = f"http://127.0.0.1:{port}"
+    process = subprocess.Popen([sys.executable, str(STUB_GATEWAY)], cwd=_BACKEND_ROOT)
+    try:
+        deadline = time.monotonic() + STUB_START_SECONDS
+        while True:
+            try:
+                if httpx.get(f"{url}/healthz", timeout=1.0).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            if process.poll() is not None or time.monotonic() > deadline:
+                raise RuntimeError(f"the stub gateway did not start on {url}")
+            time.sleep(0.2)
+        yield url
+    finally:
+        process.terminate()
+        process.wait()
+
+
+def _ingest(tenant_slugs: Sequence[str], *, stub_gateway: bool) -> None:
+    """Ingest each tenant's policies, against the stub gateway when asked."""
+    if not stub_gateway:
+        for command in ingest_commands(tenant_slugs):
+            subprocess.run(command, cwd=_BACKEND_ROOT, check=True)
+        return
+    with _stub_gateway() as url:
+        env = {**os.environ, "GATEWAY_URL": url}
+        for command in ingest_commands(tenant_slugs):
+            subprocess.run(command, cwd=_BACKEND_ROOT, env=env, check=True)
+
+
+def main(argv: list[str] | None = None) -> None:
     """Reset, migrate, set the checkpointer up, seed, ingest, open reviews.
 
     In that order because each step consumes the one before: `alembic` needs
     the empty schema, the seed needs the tables, the ingest needs the tenants
     the seed writes, and the review generation needs the grants it flags.
+    `--stub-gateway` redacts the policies through the canned gateway, for a
+    run with no real one.
     """
-    database_url = os.environ["DATABASE_URL"]
+    parser = argparse.ArgumentParser(description="Reset the local database for an e2e run.")
+    parser.add_argument(
+        "--stub-gateway",
+        action="store_true",
+        help="ingest through the canned gateway instead of GATEWAY_URL",
+    )
+    args = parser.parse_args(argv)
+    database_url = load_settings().database_url
     slugs = [
         slug for slug in os.environ.get("E2E_TENANT_SLUGS", "nordlicht,cuan").split(",") if slug
     ]
@@ -225,7 +305,7 @@ def main() -> None:
         check=True,
     )
     _step("seed.py", scripts_dir=_BACKEND_SCRIPTS_DIR)
-    _step("ingest.py")
+    _ingest(slugs, stub_gateway=args.stub_gateway)
     asyncio.run(_open_this_quarters_reviews(database_url))
 
 
