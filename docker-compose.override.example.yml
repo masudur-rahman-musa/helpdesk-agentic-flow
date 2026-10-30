@@ -14,7 +14,7 @@ services:
   postgres:
     ports: ["55432:5432"]
   qdrant:
-    ports: ["16333:6333"]
+    ports: ["26333:6333"]
 
   # The Python services keep their production image and swap its entrypoint for
   # a reloading uvicorn. The one project is an editable install whose .pth file
