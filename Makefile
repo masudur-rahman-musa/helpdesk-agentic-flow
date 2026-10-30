@@ -117,7 +117,7 @@ load-smoke: ## 20 chat sessions for 5 minutes against the REAL gateway (manual, 
 	uv run --project backend locust -f infra/load/load_smoke.py --headless \
 	  --users 20 --spawn-rate 2 --run-time 5m \
 	  --host $${AGENT_API_URL:-http://localhost:8000}
-eval-chat:  ## Conversation evals: the 33 cases played here, scored by the console (manual, costs money)
+eval-chat:  ## Conversation evals: the 45 cases played here, scored by the console (manual, costs money)
 	cd backend && uv run python scripts/e2e_reset.py
 	cd backend && uv run python scripts/seed.py
 	cd $(CONSOLE_DIR) && uv run --project backend ops-eval conversations --target $(AGENT_API_URL) \

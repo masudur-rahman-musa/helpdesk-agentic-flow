@@ -4,9 +4,9 @@ Project evals measure the PRODUCT'S behaviour (model-driven features), unlike
 coding evals which judge the coding agent's output. The discipline, distilled
 from the portfolio projects:
 
-1. **Conversation cases** (`conversations/cases.jsonl`): 33 chosen multi-turn
+1. **Conversation cases** (`conversations/cases.jsonl`): 45 chosen multi-turn
    cases with expected tool calls and graded replies. A chat failure found
-   later becomes one of them or replaces one; the count stays 33.
+   later becomes one of them or replaces one; the count stays 45.
 2. **Deterministic checks first** (exact tool calls, the turn that says yes);
    **LLM-as-judge only for free text**, and only after calibration against
    human labels, which the companion console keeps.
@@ -25,8 +25,9 @@ from the portfolio projects:
 `make eval-chat` needs the stack up (`docker compose up -d`) with the agent-api
 started with `EVAL_ROUTES_ENABLED=true`, the real gateway, and the console
 checked out beside this repo (`CONSOLE_DIR`, default `../llmops-console`).
-It restores the database with `backend/scripts/e2e_reset.py` and the seed, then
-calls the console's `ops-eval conversations` against `$(AGENT_API_URL)`.
+It restores the database with `backend/scripts/e2e_reset.py` (which also ingests
+version v1 of each tenant's policies from `backend/data/policies`, redacted through
+the real gateway) and the seed, then calls the console's `ops-eval conversations` against `$(AGENT_API_URL)`.
 
 The agent-api answers the console on two routes that exist only while
 `EVAL_ROUTES_ENABLED` is true (off in production): `POST /admin/test/reset`
@@ -36,24 +37,22 @@ one record per turn out). Every step's prompt version is in the
 
 ## The cut-offs
 
-Three numbers decide a turn. Each is a setting, so it can be tuned against the
+Two numbers decide a turn. Each is a setting, so it can be tuned against the
 conversation cases, and the value that is kept is recorded here with its numbers.
 
 | Setting | Default | What it decides |
 |---|---|---|
-| `INTENT_CONFIDENCE_MIN` | 0.7 | below this the agent asks instead of acting |
 | `ROLE_SUGGESTION_FLOOR` | 0.70 | a suggested role must score at least this |
 | `POLICY_REFUSAL_FLOOR` | 0.35 | a policy answer below this is refused |
 
 | Setting | Value | Date | Run commit | Decision accuracy | Refusal recall |
 |---|---|---|---|---|---|
-| `INTENT_CONFIDENCE_MIN` | 0.7 | not tuned yet | not tuned yet | not tuned yet | not tuned yet |
 | `ROLE_SUGGESTION_FLOOR` | 0.70 | not tuned yet | not tuned yet | not tuned yet | not tuned yet |
 | `POLICY_REFUSAL_FLOOR` | 0.35 | not tuned yet | not tuned yet | not tuned yet | not tuned yet |
 
 ## Conversation cases
 
-`conversations/cases.jsonl` holds 33 multi-turn cases, one JSON line each: the
+`conversations/cases.jsonl` holds 45 multi-turn cases, one JSON line each: the
 person's messages (`turns`), the tool calls the whole conversation must make
 (`expected.tool_calls`), the turn that says yes (`expected.confirm_turn`, `null`
 when nothing may change) and 1 to 3 replies to grade (`graded`, each with a pass
