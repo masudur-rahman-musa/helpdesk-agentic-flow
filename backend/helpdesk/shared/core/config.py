@@ -87,6 +87,10 @@ class Settings(BaseSettings):
 
     langfuse_host: str = "https://cloud.langfuse.com"
 
+    span_log_file: str | None = None
+    """A file each finished span's name, start and length is appended to, for a speed
+    reading with no Langfuse. `None` writes nothing."""
+
     public_trace_langfuse: bool = False
     """`True` marks every span public, so anyone with a trace's link can open it."""
 

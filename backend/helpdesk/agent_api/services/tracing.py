@@ -4,8 +4,12 @@ Client errors are swallowed. Tracing is off unless both keys are set. Only
 names, ids and counts are recorded, never a message; `None` values are dropped.
 """
 
+import json
+import time
 from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager, suppress
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from langfuse import Langfuse
@@ -45,6 +49,10 @@ _PUBLIC = False
 """Whether every span is marked public. Off sends no mark at all."""
 
 
+_SPAN_LOG: Path | None = None
+"""Where each finished span's name, start and length is appended, or `None` for off."""
+
+
 def configure_tracing(
     *,
     client: TraceClient | None = None,
@@ -55,7 +63,9 @@ def configure_tracing(
 
     `public` wins over `settings.public_trace_langfuse`; both missing means off.
     """
-    global _CLIENT, _PUBLIC
+    global _CLIENT, _PUBLIC, _SPAN_LOG
+    log_file = settings.span_log_file if settings is not None else None
+    _SPAN_LOG = Path(log_file) if log_file else None
     if public is not None:
         _PUBLIC = public
     else:
@@ -117,9 +127,37 @@ def _write(client: TraceClient, attributes: Mapping[str, Any] | None) -> None:
         return
 
 
+def _log_span(name: str, started_at: datetime, seconds: float) -> None:
+    """Append one line for a finished span to the local span log, when it is on.
+
+    Names and times only, so a speed reading works with no Langfuse. Never fails.
+    """
+    path = _SPAN_LOG
+    if path is None:
+        return
+    line = {"name": name, "started_at": started_at.isoformat(), "duration_ms": seconds * 1000}
+    with suppress(Exception), path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(line) + "\n")
+
+
 @contextmanager
 def span(name: str, *, attributes: Mapping[str, Any] | None = None) -> Iterator[None]:
     """Open one span around this block, or run it untraced.
+
+    The block's time also goes to the local span log when that is on.
+    """
+    started_at = datetime.now(UTC)
+    began = time.perf_counter()
+    try:
+        with _traced_span(name, attributes):
+            yield
+    finally:
+        _log_span(name, started_at, time.perf_counter() - began)
+
+
+@contextmanager
+def _traced_span(name: str, attributes: Mapping[str, Any] | None) -> Iterator[None]:
+    """The Langfuse span around this block, or nothing when tracing is off.
 
     Only the client's own errors are swallowed; the block's errors are raised.
     """

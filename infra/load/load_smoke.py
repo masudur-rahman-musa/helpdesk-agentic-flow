@@ -60,7 +60,10 @@ would measure the write path rather than the turn."""
 class ChatUser(HttpUser):
     """One signed-in person sending one ask at a time."""
 
-    wait_time = between(1, 3)
+    wait_time = between(10, 14)
+    """About one ask every twelve seconds: a busy person, and under the chat's
+    limit of 30 messages per session per ten minutes. A faster pace only
+    measures the limit, not the agent."""
 
     def on_start(self) -> None:
         """Sign in once per simulated user and keep the bearer token."""

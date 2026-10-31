@@ -35,6 +35,19 @@ The agent-api answers the console on two routes that exist only while
 one record per turn out). Every step's prompt version is in the
 `X-Prompt-Versions` response header.
 
+## Speed numbers
+
+`make agent-speed LABEL=before` (or `after`) runs the load smoke test, then reads the
+spans the run filed and saves p50 and p95 for a whole turn, for each model step and for
+each tool call in `agent-speed.json`, with the date and commit. The other label is kept.
+It needs the real gateway and costs money, and it is meant for a quiet stack.
+
+By default the spans come from Langfuse (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`,
+`LANGFUSE_HOST`). With `SPANS=local` they come from the agent's own span log
+(`SPAN_LOG_FILE`), which needs no Langfuse. The load smoke waits about twelve seconds
+between asks, so one session stays under the chat's message limit; the gateway limits
+for the tenant must allow the load too.
+
 ## The cut-offs
 
 Two numbers decide a turn. Each is a setting, so it can be tuned against the

@@ -1,4 +1,4 @@
-.PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify infra-check e2e load-smoke eval-chat images app-up app-down
+.PHONY: help setup run up down rebuild all agent-api mcp-server scheduler web migrate ingest test test-fast test-slowest test-policy lint typecheck format web-verify security verify infra-check e2e load-smoke agent-speed eval-chat images app-up app-down
 # Where `backend/scripts/e2e_accounts.py` writes the seeded principals Playwright signs
 # in as. Inside `.cache/`, which is already gitignored, because the file holds
 # the seed's demo passwords in plaintext: fake, and still not
@@ -117,6 +117,13 @@ load-smoke: ## 20 chat sessions for 5 minutes against the REAL gateway (manual, 
 	uv run --project backend locust -f infra/load/load_smoke.py --headless \
 	  --users 20 --spawn-rate 2 --run-time 5m \
 	  --host $${AGENT_API_URL:-http://localhost:8000}
+agent-speed: ## Load smoke run, then save its speed numbers: make agent-speed LABEL=before|after [SPANS=local] (manual, costs money)
+	@test -n "$(LABEL)" || { echo "give LABEL=before or LABEL=after"; exit 1; }
+	@mkdir -p .cache && date -u +%Y-%m-%dT%H:%M:%S+00:00 > .cache/agent-speed-start
+	@test "$(SPANS)" != local || docker compose exec -T helpdesk-agent-api sh -c ': > "$$SPAN_LOG_FILE"'
+	-$(MAKE) load-smoke
+	@test "$(SPANS)" != local || docker compose cp helpdesk-agent-api:/tmp/spans.jsonl .cache/spans.jsonl
+	cd backend && uv run python scripts/agent_speed.py --label $(LABEL) --since "$$(cat ../.cache/agent-speed-start)" $(if $(filter local,$(SPANS)),--spans-file ../.cache/spans.jsonl)
 eval-chat:  ## Conversation evals: the 45 cases played here, scored by the console (manual, costs money)
 	cd backend && uv run python scripts/e2e_reset.py
 	cd backend && uv run python scripts/seed.py

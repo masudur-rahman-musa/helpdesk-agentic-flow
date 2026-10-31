@@ -111,6 +111,7 @@ from helpdesk.agent_api.services.model_gateway.client import (
     ToolCall,
     ToolCallAnswer,
 )
+from helpdesk.agent_api.services.tracing import span
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models.conversation import MessageRole
 
@@ -134,6 +135,9 @@ LOOP_PROMPT = "agent_loop"
 
 MAX_STEPS = 4
 """Model steps a turn may take; the last is answer-only, so it answers."""
+
+MODEL_STEP_SPAN = "model_step"
+"""The span name of one model step, so a speed reading finds them all."""
 
 STEP_NODE = "agent_step"
 """The `node` a loop step streams as; the web shows it as one step."""
@@ -633,16 +637,20 @@ class _Turn:
                 newest, {"role": "system", "content": draft_message(self.state.request_draft)}
             )
         try:
-            answer = await self.deps.model.complete_with_tools(
-                messages,
-                [tool.wire() for tool in self.offered.values()],
-                alias=ModelAlias.AGENT_DEFAULT,
-                tenant_slug=self.state.tenant_slug,
-                session_id=str(self.state.session_id),
-                user=self.state.gateway_user,
-                prompt_version=self.prompt.sha256,
-                answer_only=answer_only,
-            )
+            with span(
+                MODEL_STEP_SPAN,
+                attributes={"model_alias": ModelAlias.AGENT_DEFAULT.value, "step": self.step or 1},
+            ):
+                answer = await self.deps.model.complete_with_tools(
+                    messages,
+                    [tool.wire() for tool in self.offered.values()],
+                    alias=ModelAlias.AGENT_DEFAULT,
+                    tenant_slug=self.state.tenant_slug,
+                    session_id=str(self.state.session_id),
+                    user=self.state.gateway_user,
+                    prompt_version=self.prompt.sha256,
+                    answer_only=answer_only,
+                )
         except ModelBudgetExceededError as exc:
             raise _BudgetSpent(exc.gateway_message) from exc
         except ModelBusyError as exc:
