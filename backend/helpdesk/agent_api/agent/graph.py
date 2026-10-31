@@ -12,8 +12,11 @@ keeps the state after every node, one thread per turn. Four nodes:
 - `agent`: one model step under the `agent_loop` prompt. A step that asks for
   tools goes to `tools`; one that answers goes to `check_reply`.
 - `tools`: runs lookups and finders through MCP with the caller's own token,
-  back to `agent`. A proposed change is checked, given a key by code and held
-  as the chat's open question, which ends the turn. It is held only when every
+  back to `agent`. The lookups of one step run at the same time; finders and
+  the note run after them, one by one, as they share the database session.
+  Results go back in the order the model asked, trimmed for the model only.
+  A proposed change is checked, given a key by code and held as the chat's
+  open question, which ends the turn. It is held only when every
   person and role id in it came from an ok tool result of this turn, and never
   when it is the very change the person just turned down. Bad arguments go
   back once with the reason, then `CHANGE_FAILED_REPLY`. The model never runs
@@ -33,10 +36,11 @@ The saved state is plain data. The session, the clients and the chat store
 travel in the run's context, so a saved step never holds a connection.
 """
 
+import asyncio
 import contextlib
 import json
 import uuid
-from collections.abc import Callable, Coroutine, Hashable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, TypedDict
@@ -56,7 +60,7 @@ from helpdesk.agent_api.agent.confirmation import (
     read_answer,
 )
 from helpdesk.agent_api.agent.draft import draft_message, merge_draft
-from helpdesk.agent_api.agent.events import StepEvent
+from helpdesk.agent_api.agent.events import ProgressEvent, StepEvent
 from helpdesk.agent_api.agent.keys import derive_idempotency_key
 from helpdesk.agent_api.agent.loop_tools import (
     FIND_PERSON,
@@ -76,6 +80,7 @@ from helpdesk.agent_api.agent.postcheck import (
     unbacked_roles,
     words_in,
 )
+from helpdesk.agent_api.agent.progress import progress_words
 from helpdesk.agent_api.agent.prompts import LoadedPrompt
 from helpdesk.agent_api.agent.role_words import with_plain_role_names
 from helpdesk.agent_api.agent.state import (
@@ -97,6 +102,7 @@ from helpdesk.agent_api.agent.tool_args import (
     TOOL_INPUTS,
     SearchPolicyResult,
 )
+from helpdesk.agent_api.agent.trim import trim_for_model
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import (
     ModelAlias,
@@ -255,8 +261,12 @@ class LoopContext:
 type LoopGraph = CompiledStateGraph[LoopState, LoopContext, LoopState, LoopState]
 
 
-def _emit(event: StepEvent) -> None:
-    """Stream a step event. With no stream reading it, it goes nowhere."""
+type _Fetched = dict[str, Any] | ToolError
+"""A tool's answer, or the typed error it raised, kept to be read in order."""
+
+
+def _emit(event: ProgressEvent | StepEvent) -> None:
+    """Stream a progress or step event. With no stream reading it, it goes nowhere."""
     get_stream_writer()(event)
 
 
@@ -283,6 +293,15 @@ def _tool_turn(call_id: str, content: Any) -> dict[str, Any]:
     if len(text) > MAX_RESULT_CHARACTERS:
         text = text[:MAX_RESULT_CHARACTERS] + " ...(cut)"
     return {"role": "tool", "tool_call_id": call_id, "content": text}
+
+
+async def _fetch(answer: Awaitable[Mapping[str, Any]]) -> _Fetched:
+    """Wait for one tool's answer, holding a typed error as a value, so the
+    step's other lookups still finish when one fails."""
+    try:
+        return dict(await answer)
+    except ToolError as exc:
+        return exc
 
 
 def _assistant_turn(text: str | None, calls: Sequence[ToolCall]) -> dict[str, Any]:
@@ -442,7 +461,7 @@ class _Turn:
         ]
         self.messages.append(_assistant_turn(None, calls))
         for call in calls:
-            self.messages.append(await self._run_held(call, ran))
+            self.messages.append(await self._run_one(call, ran))
         await self._read_after_refused_cancel(ran)
         await self._clear_draft_once_filed()
         _emit(StepEvent(node=STEP_NODE, round=self.step, tools=ran))
@@ -474,6 +493,7 @@ class _Turn:
         """Run the step's lookups and check its changes. A held change ends
         the turn; a change is never run here."""
         calls, self.calls = self.calls, []
+        _emit(ProgressEvent(round=self.step, text=progress_words([call.name for call in calls])))
         ended, ran = await self._run_calls(calls)
         if ran:
             _emit(StepEvent(node=STEP_NODE, round=self.step, tools=ran))
@@ -563,24 +583,14 @@ class _Turn:
             return
         call = ToolCall(id="held_read", name=gates.LIST_MY_REQUESTS, arguments={})
         self.messages.append(_assistant_turn(None, [call]))
-        self.messages.append(await self._look_up(call, self.offered[call.name], ran))
+        self.messages.append(await self._run_one(call, ran))
 
-    async def _run_held(self, call: ToolCall, ran: list[dict[str, Any]]) -> dict[str, Any]:
-        """Run one stored change through MCP with the caller's own token. A
-        typed refusal is a result the reply reads; only `INTERNAL` ends the turn."""
+    async def _run_one(self, call: ToolCall, ran: list[dict[str, Any]]) -> dict[str, Any]:
+        """Run one call code already checked, a stored change or a fresh read,
+        through MCP with the caller's own token, and keep its result."""
         arguments = TOOL_INPUTS[call.name].model_validate(call.arguments)
         self.calls_made += 1
-        try:
-            payload = dict(await self.deps.tools.call_tool(call.name, arguments))
-        except ToolError as exc:
-            if exc.code is ErrorCode.INTERNAL:
-                raise _TurnFailed(exc.code) from exc
-            self.results.append(ToolResult(tool=call.name, ok=False, error_code=exc.code))
-            ran.append({"tool": call.name, "ok": False, "error_code": exc.code.value})
-            return _tool_turn(call.id, {"error": exc.code.value})
-        self.results.append(ToolResult(tool=call.name, ok=True, payload=payload))
-        ran.append({"tool": call.name, "ok": True, "error_code": None})
-        return _tool_turn(call.id, with_plain_role_names(payload))
+        return self._keep(call, await _fetch(self.deps.tools.call_tool(call.name, arguments)), ran)
 
     def _spent(self) -> bool:
         """Whether the deadline or the token budget is used up. The deadline
@@ -624,12 +634,21 @@ class _Turn:
     async def _run_calls(
         self, calls: Sequence[ToolCall]
     ) -> tuple[TurnState | None, list[dict[str, Any]]]:
-        """Run the step's lookups in order and check its changes. A held change
-        ends the turn, which is the first value; the second is the step's
-        results as the stream shows them."""
+        """Run the step's lookups and check its changes. A held change ends
+        the turn, which is the first value; the second is the step's results
+        as the stream shows them.
+
+        Every call's arguments and the call limit are checked in the order the
+        model asked, before any lookup starts. Then the lookups run at the same
+        time on the turn's MCP session, and the finders and the note one by one
+        after them, since those share the database session. Results are kept
+        in the order asked, whatever order they finish in, and an `INTERNAL`
+        failure ends the turn only once every lookup has finished. Pinned by
+        `test_faster_turns.py`."""
         answers: dict[str, dict[str, Any]] = {}
         changes: list[ToolCall] = []
-        ran: list[dict[str, Any]] = []
+        lookups: dict[str, Awaitable[_Fetched]] = {}
+        one_by_one: list[ToolCall] = []
         for call in calls:
             tool = self.offered.get(call.name)
             if tool is None:
@@ -643,9 +662,40 @@ class _Turn:
                     call.id, {"error": "limit", "reason": "no more tool calls this turn"}
                 )
             elif tool.kind is ToolKind.NOTE:
-                answers[call.id] = await self._note(call, ran)
+                self.calls_made += 1
+                one_by_one.append(call)
+            elif tool.kind is ToolKind.FIND:
+                words = call.arguments.get("words")
+                if not isinstance(words, str) or set(call.arguments) != {"words"}:
+                    answers[call.id] = _tool_turn(
+                        call.id, {"error": "bad_arguments", "reason": "words: one string"}
+                    )
+                    continue
+                self.calls_made += 1
+                one_by_one.append(call)
             else:
-                answers[call.id] = await self._look_up(call, tool, ran)
+                try:
+                    arguments = TOOL_INPUTS[call.name].model_validate(call.arguments)
+                except ValidationError as exc:
+                    answers[call.id] = _tool_turn(
+                        call.id, {"error": "bad_arguments", "reason": _problems(exc)}
+                    )
+                    continue
+                self.calls_made += 1
+                lookups[call.id] = _fetch(self.deps.tools.call_tool(call.name, arguments))
+        fetched = dict(zip(lookups, await asyncio.gather(*lookups.values()), strict=True))
+        noted: dict[str, list[dict[str, Any]]] = {}
+        for call in one_by_one:
+            if self.offered[call.name].kind is ToolKind.NOTE:
+                noted[call.id] = []
+                answers[call.id] = await self._note(call, noted[call.id])
+            else:
+                fetched[call.id] = await _fetch(self._find(call.name, call.arguments["words"]))
+        ran: list[dict[str, Any]] = []
+        for call in calls:
+            if call.id in fetched:
+                answers[call.id] = self._keep(call, fetched[call.id], ran)
+            ran.extend(noted.get(call.id, []))
         if changes:
             held, reasons = self._checked_changes(changes)
             if held:
@@ -660,43 +710,25 @@ class _Turn:
         self.messages.extend(answers[call.id] for call in calls)
         return None, ran
 
-    async def _look_up(
-        self, call: ToolCall, tool: LoopTool, ran: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        """Run one lookup or finder and keep its result. A typed refusal is an
-        answer the model reads; only `INTERNAL` ends the turn."""
-        try:
-            if tool.kind is ToolKind.FIND:
-                words = call.arguments.get("words")
-                if not isinstance(words, str) or set(call.arguments) != {"words"}:
-                    return _tool_turn(
-                        call.id, {"error": "bad_arguments", "reason": "words: one string"}
-                    )
-                self.calls_made += 1
-                payload = await self._find(call.name, words)
-            else:
-                try:
-                    arguments = TOOL_INPUTS[call.name].model_validate(call.arguments)
-                except ValidationError as exc:
-                    return _tool_turn(call.id, {"error": "bad_arguments", "reason": _problems(exc)})
-                self.calls_made += 1
-                payload = dict(await self.deps.tools.call_tool(call.name, arguments))
-        except ToolError as exc:
-            if exc.code is ErrorCode.INTERNAL:
-                raise _TurnFailed(exc.code) from exc
-            self.results.append(ToolResult(tool=call.name, ok=False, error_code=exc.code))
-            ran.append({"tool": call.name, "ok": False, "error_code": exc.code.value})
-            return _tool_turn(call.id, {"error": exc.code.value})
-        self.results.append(ToolResult(tool=call.name, ok=True, payload=payload))
+    def _keep(self, call: ToolCall, fetched: _Fetched, ran: list[dict[str, Any]]) -> dict[str, Any]:
+        """Keep one tool's answer whole as a result, and give the model its
+        trimmed copy. A typed refusal is an answer the model reads; only
+        `INTERNAL` ends the turn."""
+        if isinstance(fetched, ToolError):
+            if fetched.code is ErrorCode.INTERNAL:
+                raise _TurnFailed(fetched.code) from fetched
+            self.results.append(ToolResult(tool=call.name, ok=False, error_code=fetched.code))
+            ran.append({"tool": call.name, "ok": False, "error_code": fetched.code.value})
+            return _tool_turn(call.id, {"error": fetched.code.value})
+        self.results.append(ToolResult(tool=call.name, ok=True, payload=fetched))
         ran.append({"tool": call.name, "ok": True, "error_code": None})
-        self._remember(call.name, payload)
-        return _tool_turn(call.id, with_plain_role_names(payload))
+        self._remember(call.name, fetched)
+        return _tool_turn(call.id, trim_for_model(with_plain_role_names(fetched)))
 
     async def _note(self, call: ToolCall, ran: list[dict[str, Any]]) -> dict[str, Any]:
         """Lay the call over the request draft and save it. A bad value goes
         back with the reason and the old draft stays. Not kept as a result, so
         nothing the model notes can back an id or a claim."""
-        self.calls_made += 1
         try:
             draft = merge_draft(self.state.request_draft, call.arguments, now=self.deps.now())
         except ValidationError as exc:

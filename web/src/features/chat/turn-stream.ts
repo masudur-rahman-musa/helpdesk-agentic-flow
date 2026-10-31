@@ -2,6 +2,7 @@ import {
   type ReplyEvent,
   type StepEvent,
   readCode,
+  readProgress,
   readReply,
   readStep,
   readToken,
@@ -12,6 +13,7 @@ import { createSseParser } from "@/lib/sse";
 export type TurnHandlers = {
   onLive: (text: string) => void;
   onStep: (step: StepEvent) => void;
+  onProgress: (words: string) => void;
   onReply: (reply: ReplyEvent) => void;
   onError: (code: string) => void;
 };
@@ -41,6 +43,13 @@ export async function readTurnStream(
       if (event.event === "token") {
         text += readToken(event.data);
         handlers.onLive(text);
+        continue;
+      }
+      if (event.event === "progress") {
+        const words = readProgress(event.data);
+        if (words !== "") {
+          handlers.onProgress(words);
+        }
         continue;
       }
       if (event.event === "step") {

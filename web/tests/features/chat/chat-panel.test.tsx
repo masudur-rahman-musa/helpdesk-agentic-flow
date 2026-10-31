@@ -243,6 +243,29 @@ describe("ChatPanel typing dots and follow-the-reply scroll", () => {
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
   });
 
+  it("shows the newest progress words and clears them on the reply", async () => {
+    // Catches a panel that ignores progress frames, one that stacks every
+    // progress text instead of keeping the newest, and one that leaves the
+    // words on screen after the reply arrives.
+    await sendOnly();
+    await waitFor(() => expect(streamController).toBeDefined());
+    const status = await screen.findByRole("status", { name: "Assistant is working" });
+
+    streamController?.enqueue(frame("progress", { round: 1, text: "Checking your access" }));
+    await waitFor(() => expect(status).toHaveTextContent("Checking your access"));
+
+    streamController?.enqueue(frame("progress", { round: 2, text: "Looking a few things up" }));
+    await waitFor(() => expect(status).toHaveTextContent("Looking a few things up"));
+    expect(status).not.toHaveTextContent("Checking your access");
+
+    streamController?.enqueue(replyFrame(null));
+    streamController?.close();
+
+    await waitFor(() => expect(screen.getByText("Fake answer.")).toBeInTheDocument());
+    expect(screen.queryByText("Looking a few things up")).toBeNull();
+    expect(screen.queryByText("Checking your access")).toBeNull();
+  });
+
   it("clears the dots when the turn fails", async () => {
     // Catches a panel that clears working only on the happy path, so a dropped
     // connection leaves the dots pulsing beside the error for ever.

@@ -9,11 +9,12 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-from helpdesk.agent_api.agent.events import ReplyEvent, StepEvent, TurnEvent
+from helpdesk.agent_api.agent.events import ProgressEvent, ReplyEvent, StepEvent, TurnEvent
 
 __all__ = [
     "DONE",
     "ERROR",
+    "PROGRESS",
     "REPLY",
     "REPLY_CHUNK_CHARS",
     "STEP",
@@ -22,6 +23,9 @@ __all__ = [
     "encode_event",
     "encode_turn_event",
 ]
+
+PROGRESS = "progress"
+"""Plain words for the tool step about to run."""
 
 STEP = "step"
 """One graph node the turn visited."""
@@ -65,6 +69,8 @@ def encode_turn_event(event: TurnEvent) -> tuple[str, ...]:
     A reply becomes token frames, the reply frame, then done. An error is one
     error frame, then done.
     """
+    if isinstance(event, ProgressEvent):
+        return (encode_event(PROGRESS, {"round": event.round, "text": event.text}),)
     if isinstance(event, StepEvent):
         data = {"node": event.node, "round": event.round, "tools": event.tools}
         return (encode_event(STEP, data),)

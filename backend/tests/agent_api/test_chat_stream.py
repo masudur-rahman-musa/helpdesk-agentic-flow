@@ -596,7 +596,8 @@ def test_one_message_streams_its_steps_its_tokens_and_its_reply(
     """Catches a route that answers the finished turn as one JSON body with the
     frames pasted in, and one that streams the reply without the steps that
     justify it: the event name list is asserted as a sequence, so nothing but
-    order satisfies it.
+    order satisfies it. The `progress` frame is named by its wire word, so a
+    renamed event fails here; it must come before the step.
 
     The composed reply carries a frame boundary END TO END, so a route that
     joined chunks itself, or that wrote the reply into the frame outside
@@ -619,7 +620,7 @@ def test_one_message_streams_its_steps_its_tokens_and_its_reply(
     frames = parse_frames(response.text)
     token_count = len(chunk_reply(COMPOSED_REPLY))
     assert token_count > 1, "premise: the reply must span several chunks"
-    assert _names(frames) == [STEP] + [TOKEN] * token_count + [REPLY, DONE]
+    assert _names(frames) == ["progress", STEP] + [TOKEN] * token_count + [REPLY, DONE]
     assert len(_of(frames, REPLY)) == 1
     assert _streamed_text(frames) == COMPOSED_REPLY
 

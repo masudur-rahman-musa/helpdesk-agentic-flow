@@ -21,7 +21,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.agent_api.agent.checkpointer import thread_config, turn_thread_id
 from helpdesk.agent_api.agent.confirmation import OpenQuestion, parse_open_question
 from helpdesk.agent_api.agent.draft import parse_draft
-from helpdesk.agent_api.agent.events import ErrorEvent, ReplyEvent, StepEvent, TurnEvent
+from helpdesk.agent_api.agent.events import (
+    ErrorEvent,
+    ProgressEvent,
+    ReplyEvent,
+    StepEvent,
+    TurnEvent,
+)
 from helpdesk.agent_api.agent.graph import (
     CHANGE_FAILED_REPLY,
     FAILURE_REPLY,
@@ -191,8 +197,8 @@ async def _turn_items(
     store: LoopStore,
     start: LoopState,
     thread_id: str,
-) -> AsyncIterator[StepEvent | TurnState]:
-    """The turn's step events, then its end state, from one graph run."""
+) -> AsyncIterator[ProgressEvent | StepEvent | TurnState]:
+    """The turn's progress and step events, then its end state, from one graph run."""
     graph = deps.graph or compiled_graph(None)
     config = thread_config(thread_id)
     config["recursion_limit"] = RECURSION_LIMIT
@@ -201,7 +207,7 @@ async def _turn_items(
     async for mode, chunk in graph.astream(
         start, config, context=context, stream_mode=["custom", "values"]
     ):
-        if mode == "custom" and isinstance(chunk, StepEvent):
+        if mode == "custom" and isinstance(chunk, ProgressEvent | StepEvent):
             yield chunk
         elif mode == "values" and isinstance(chunk, dict):
             final = chunk.get("final") or final
@@ -285,8 +291,9 @@ async def stream_loop_turn(
     turn_id: uuid.UUID | None = None,
     gateway_user: str | None = None,
 ) -> AsyncIterator[TurnEvent]:
-    """The same turn as `run_loop_turn`, streamed: one step event per model
-    step that ran a tool, then one reply event with the keys `/chat` returns."""
+    """The same turn as `run_loop_turn`, streamed: per model step that asks for
+    tools, a progress event before they run and a step event after, then one
+    reply event with the keys `/chat` returns."""
     check_message_content(message)
     store = store or DbLoopStore(deps.db, session_id=session_id, user_id=user_id)
     start = _start(

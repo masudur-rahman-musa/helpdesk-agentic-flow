@@ -5,8 +5,8 @@
  * cannot fake a second event. A bad frame is dropped and never ends the loop.
  */
 
-/** The five event names agent-api sends. Anything else is dropped. */
-export const SSE_EVENT_NAMES = ["step", "token", "reply", "error", "done"] as const;
+/** The event names agent-api sends. Anything else is dropped. */
+export const SSE_EVENT_NAMES = ["progress", "step", "token", "reply", "error", "done"] as const;
 
 export type SseEventName = (typeof SSE_EVENT_NAMES)[number];
 

@@ -50,6 +50,8 @@ export function ChatPanel() {
   const showSteps = useMe()?.show_tool_steps === true;
   const [turn, setTurn] = useState<ChatMessage[]>([]);
   const [live, setLive] = useState("");
+  // The newest progress words; shown beside the dots to every user, unlike the steps.
+  const [progress, setProgress] = useState("");
   const [steps, setSteps] = useState<StepEvent[]>([]);
   const [citations, setCitations] = useState<Citation[]>([]);
   const [decision, setDecision] = useState<DecisionCardData | null>(null);
@@ -78,6 +80,7 @@ export function ChatPanel() {
   function resetTurn(): void {
     setTurn([]);
     setLive("");
+    setProgress("");
     setSteps([]);
     setCitations([]);
     setDecision(null);
@@ -140,6 +143,7 @@ export function ChatPanel() {
     setCitations([]);
     setDecision(null);
     setLive("");
+    setProgress("");
     setTurn((previous) => [...previous, { role: "user", content: parsed.data.message }]);
 
     try {
@@ -159,6 +163,7 @@ export function ChatPanel() {
       await readTurnStream(response.body, {
         onLive: setLive,
         onStep: (step) => setSteps((previous) => [...previous, step]),
+        onProgress: setProgress,
         onReply: (reply) => {
           setCitations(reply.citations);
           setDecision(reply.decision);
@@ -180,6 +185,7 @@ export function ChatPanel() {
     } finally {
       streaming.current = false;
       setWorking(false);
+      setProgress("");
     }
   }
 
@@ -195,7 +201,12 @@ export function ChatPanel() {
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <h1 className="text-lg font-semibold">Chat</h1>
 
-        <Conversation messages={messages} live={live} working={working} />
+        <Conversation
+          messages={messages}
+          live={live}
+          working={working}
+          progress={progress}
+        />
 
         {failure !== null ? <Alert tone="destructive">{failureMessage(failure)}</Alert> : null}
 

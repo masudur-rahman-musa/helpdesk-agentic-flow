@@ -1,4 +1,5 @@
-"""Typed events a turn yields, one per loop step that ran a tool, then the ending.
+"""Typed events a turn yields: before and after each loop step that runs a tool,
+then the ending.
 
 Nothing here knows about SSE: ``api/sse.py`` imports these and builds the
 frames.
@@ -9,7 +10,15 @@ from typing import Any
 
 from helpdesk.shared.core.errors import ErrorCode
 
-__all__ = ["ErrorEvent", "ReplyEvent", "StepEvent", "TurnEvent"]
+__all__ = ["ErrorEvent", "ProgressEvent", "ReplyEvent", "StepEvent", "TurnEvent"]
+
+
+@dataclass(frozen=True)
+class ProgressEvent:
+    """Plain words for a tool step about to run, shown while the person waits."""
+
+    round: int
+    text: str
 
 
 @dataclass(frozen=True)
@@ -40,4 +49,4 @@ class ErrorEvent:
     code: ErrorCode
 
 
-type TurnEvent = StepEvent | ReplyEvent | ErrorEvent
+type TurnEvent = ProgressEvent | StepEvent | ReplyEvent | ErrorEvent

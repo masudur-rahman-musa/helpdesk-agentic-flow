@@ -73,6 +73,11 @@ export function readToken(data: unknown): string {
   return text(record(data)?.text);
 }
 
+/** The plain words of a `progress` frame, or "" when it holds none. */
+export function readProgress(data: unknown): string {
+  return text(record(data)?.text);
+}
+
 /** The typed code of an `error` frame or a refusal body, as a string. */
 export function readCode(data: unknown): string {
   return text(record(data)?.code);

@@ -8,7 +8,8 @@ import { FormattedText } from "@/features/chat/format";
  * The transcript, oldest first. `role="log"` makes a screen reader announce
  * streamed text. The live turn is replaced by the final reply, never added to:
  * the final check may have rewritten the streamed text. While `working` and no
- * text has arrived yet, three dots stand where the reply will appear.
+ * text has arrived yet, three dots stand where the reply will appear, with the
+ * newest `progress` words beside them.
  * Assistant replies draw their lists and bold; the person's own messages stay
  * exactly as typed.
  */
@@ -16,10 +17,12 @@ export function Conversation({
   messages,
   live,
   working = false,
+  progress = "",
 }: {
   messages: ChatMessage[];
   live: string;
   working?: boolean;
+  progress?: string;
 }) {
   return (
     <div
@@ -45,7 +48,7 @@ export function Conversation({
 
       {live.length > 0 ? <Message role="assistant" content={live} /> : null}
 
-      {working && live.length === 0 ? <TypingDots /> : null}
+      {working && live.length === 0 ? <TypingDots words={progress} /> : null}
     </div>
   );
 }

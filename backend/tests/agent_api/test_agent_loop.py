@@ -949,12 +949,17 @@ def test_bad_change_arguments_go_back_once(
 def test_stream_yields_steps_then_reply() -> None:
     """Catches a stream that yields a step for the final text step (which ran no
     tool), skips the step of a lookup, numbers steps from the wrong place, puts
-    the reply before the steps, yields more than one reply, or builds a reply
-    that differs from the run path's or lacks a key `/chat` gives.
+    the reply before the steps, yields more than one reply, builds a reply
+    that differs from the run path's or lacks a key `/chat` gives, or leaves out
+    the progress words that announce the lookup step.
 
-    One lookup step then the answer: exactly one step event for the lookup with
-    the tool name, its success and no error code, then one reply event.
+    One lookup step then the answer: one progress event for round 1, then
+    exactly one step event for the lookup with the tool name, its success and
+    no error code, then one reply event.
     """
+    from helpdesk.agent_api.agent.events import ProgressEvent
+    from helpdesk.agent_api.agent.progress import PROGRESS_WORDS
+
     payload: dict[str, Any] = {"requests": []}
 
     def script() -> ScriptedGateway:
@@ -966,8 +971,9 @@ def test_stream_yields_steps_then_reply() -> None:
     events = stream(script(), FakeTools({"list_my_requests": payload}), FakeStore())
     ran = run(script(), FakeTools({"list_my_requests": payload}), FakeStore())
 
-    assert len(events) == 2
-    step, reply = events
+    assert len(events) == 3
+    progress, step, reply = events
+    assert progress == ProgressEvent(round=1, text=PROGRESS_WORDS["list_my_requests"])
     assert isinstance(step, StepEvent)
     assert step.node == "agent_step"
     assert step.round == 1

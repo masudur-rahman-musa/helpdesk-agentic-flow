@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { TypingDots } from "@/features/chat/components/typing-dots";
 import { Conversation } from "@/features/chat/components/conversation";
 import type { ChatMessage } from "@/features/chat/components/types";
 
@@ -62,5 +63,17 @@ describe("Conversation typing dots", () => {
       expect(names).toContain("motion-safe:animate-pulse");
       expect(names).not.toContain("animate-pulse");
     }
+  });
+
+  it("shows the progress words beside the dots while working", () => {
+    // Catches a bubble that takes the words but never draws them (the person
+    // still sees only dots), one that draws them in place of the dots, and one
+    // that renames the status to the words so screen readers lose
+    // "Assistant is working".
+    render(<TypingDots words="Checking your access" />);
+
+    const status = screen.getByRole("status", { name: "Assistant is working" });
+    expect(status).toHaveTextContent("Checking your access");
+    expect(dotsOf(status)).toHaveLength(3);
   });
 });
