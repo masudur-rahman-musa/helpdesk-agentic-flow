@@ -43,11 +43,14 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from scripts.agent_speed import (
     SpanRecord,
+    compare,
+    format_table,
     main,
     percentile,
     read_until_stable,
@@ -360,3 +363,220 @@ def test_the_span_log_is_read_instead_of_langfuse_and_needs_no_keys(tmp_path: Pa
     assert stored["turn"]["count"] == 1
     assert stored["model_step"] == {"count": 1, "p50_ms": 10, "p95_ms": 10}
     assert stored["tools"] == {"search_policy": {"count": 1, "p50_ms": 4, "p95_ms": 4}}
+
+
+# --- before and after side by side ----------------------------------------------------------
+
+
+def stored_entry(
+    turn: tuple[float, float],
+    model_step: tuple[float, float],
+    tools: Mapping[str, tuple[float, float]] | None = None,
+) -> dict[str, Any]:
+    """An entry in the stored shape, each row given as (p50_ms, p95_ms)."""
+
+    def row(pair: tuple[float, float]) -> dict[str, float]:
+        return {"count": 10, "p50_ms": pair[0], "p95_ms": pair[1]}
+
+    return {
+        "measured_at": "2026-10-30T09:00:00+00:00",
+        "commit": "old1234",
+        "users": 20,
+        "run_time": "5m",
+        "turn": row(turn),
+        "model_step": row(model_step),
+        "tools": {name: row(pair) for name, pair in (tools or {}).items()},
+    }
+
+
+def by_name(rows: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
+    return {row["name"]: row for row in rows}
+
+
+def test_compare_gives_both_numbers_and_the_change() -> None:
+    """Catches a comparison that flips the sign (faster shown as positive),
+    gives the p50 change for the p95 column, merges the model step or the tools
+    into the turn row, or loses the tool names and their order."""
+    before = stored_entry(
+        (5000, 10000), (800, 1200), {"search_policy": (100, 300), "get_me": (50, 90)}
+    )
+    after = stored_entry(
+        (4000, 10000), (600, 1200), {"search_policy": (50, 300), "get_me": (50, 45)}
+    )
+
+    rows = compare(before, after)
+
+    assert [row["name"] for row in rows] == ["turn", "model_step", "search_policy", "get_me"]
+    assert rows[0] == {
+        "name": "turn",
+        "before_p50_ms": 5000,
+        "after_p50_ms": 4000,
+        "p50_change": -20.0,
+        "before_p95_ms": 10000,
+        "after_p95_ms": 10000,
+        "p95_change": 0.0,
+    }
+    rows_by_name = by_name(rows)
+    assert rows_by_name["model_step"]["before_p50_ms"] == 800
+    assert rows_by_name["model_step"]["after_p50_ms"] == 600
+    assert rows_by_name["model_step"]["p50_change"] == -25.0
+    assert rows_by_name["model_step"]["p95_change"] == 0.0
+    assert rows_by_name["search_policy"]["p50_change"] == -50.0
+    assert rows_by_name["search_policy"]["p95_change"] == 0.0
+    assert rows_by_name["get_me"]["p50_change"] == 0.0
+    assert rows_by_name["get_me"]["p95_change"] == -50.0
+
+
+@pytest.mark.parametrize(
+    ("before_ms", "after_ms", "change"),
+    [
+        pytest.param(3000, 2000, -33.3, id="down-rounds-to-one-decimal"),
+        pytest.param(2000, 3000, 50.0, id="up-is-positive"),
+        pytest.param(3000, 2001, -33.3, id="not-cut-short-of-rounding"),
+        pytest.param(3000, 1999, -33.4, id="rounds-away-at-the-next-digit"),
+    ],
+)
+def test_compare_rounds_the_change_to_one_decimal(
+    before_ms: float, after_ms: float, change: float
+) -> None:
+    """Catches a change shown with many decimals (-33.33333), rounded to a whole
+    number (-33), cut off instead of rounded (-33.3 where -33.4 is due), or
+    worked out against the after number so 2000 to 3000 would read 33.3."""
+    rows = compare(
+        stored_entry((before_ms, before_ms), (1, 1)), stored_entry((after_ms, after_ms), (1, 1))
+    )
+
+    assert rows[0]["p50_change"] == change
+    assert rows[0]["p95_change"] == change
+
+
+def test_a_tool_in_only_one_run_shows_a_dash() -> None:
+    """Catches a comparison that fails on a tool the other run never called,
+    treats the missing side as 0 (a made-up percent or a divide by zero), or
+    drops the one-sided tool from the table. The shared tool keeps its change."""
+    before = stored_entry((100, 200), (10, 20), {"get_me": (40, 80), "search_policy": (10, 20)})
+    after = stored_entry(
+        (100, 200), (10, 20), {"search_policy": (5, 20), "list_my_access": (30, 60)}
+    )
+
+    rows = compare(before, after)
+
+    assert [row["name"] for row in rows] == [
+        "turn",
+        "model_step",
+        "get_me",
+        "search_policy",
+        "list_my_access",
+    ]
+    rows_by_name = by_name(rows)
+    assert rows_by_name["get_me"] == {
+        "name": "get_me",
+        "before_p50_ms": 40,
+        "after_p50_ms": None,
+        "p50_change": None,
+        "before_p95_ms": 80,
+        "after_p95_ms": None,
+        "p95_change": None,
+    }
+    assert rows_by_name["list_my_access"] == {
+        "name": "list_my_access",
+        "before_p50_ms": None,
+        "after_p50_ms": 30,
+        "p50_change": None,
+        "before_p95_ms": None,
+        "after_p95_ms": 60,
+        "p95_change": None,
+    }
+    assert rows_by_name["search_policy"]["p50_change"] == -50.0
+    lines = {line.split()[0]: line for line in format_table(rows).splitlines() if line.strip()}
+    assert "\u2014" in lines["get_me"]
+    assert "\u2014" in lines["list_my_access"]
+    assert "\u2014" not in lines["search_policy"]
+
+
+def test_a_before_row_at_zero_shows_no_percent() -> None:
+    """Catches a comparison that divides by a before time of 0 (crash) or shows
+    a made-up number for it. Only the p50 is zero, so a comparison that blanks
+    the whole row, or the p95 change too, is caught as well."""
+    before = stored_entry((0, 1000), (10, 20))
+    after = stored_entry((500, 800), (10, 20))
+
+    row = compare(before, after)[0]
+
+    assert row["p50_change"] is None
+    assert row["before_p50_ms"] == 0
+    assert row["after_p50_ms"] == 500
+    assert row["p95_change"] == -20.0
+    turn_line = next(
+        line
+        for line in format_table(compare(before, after)).splitlines()
+        if line.startswith("turn")
+    )
+    assert "\u2014" in turn_line
+
+
+def after_spans() -> list[SpanRecord]:
+    return [
+        rec("chat_turn", 4000),
+        rec("chat_turn", 4500),
+        rec("model_step", 700),
+        rec("tool:search_policy", 60),
+        rec("tool:list_my_access", 30),
+    ]
+
+
+def test_saving_after_prints_the_table_when_before_exists(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Catches a command that saves `after` but prints nothing, prints a table
+    for the wrong pair of entries, leaves out a row (turn, model step or a tool
+    from either run), or rewrites the saved `before` while comparing."""
+    out = tmp_path / "agent-speed.json"
+    before = stored_entry(
+        (5000, 10000), (800, 1200), {"get_me": (50, 90), "search_policy": (100, 300)}
+    )
+    out.write_text(json.dumps({"before": before}), encoding="utf-8")
+
+    code = run_main(tmp_path, "after", FakeSource(after_spans()))
+
+    stored = json.loads(out.read_text(encoding="utf-8"))
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert stored["before"] == before
+    assert stored["after"]["turn"]["count"] == 2
+    assert printed.strip() == format_table(compare(stored["before"], stored["after"])).strip()
+    names = [line.split()[0] for line in printed.splitlines() if line.strip()]
+    for name in ("turn", "model_step", "get_me", "search_policy", "list_my_access"):
+        assert name in names
+
+
+def test_saving_after_without_before_prints_no_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Catches a command that crashes or refuses to save `after` when there is
+    no `before` to compare with, or prints an empty or half table instead of
+    saying why there is none."""
+    out = tmp_path / "agent-speed.json"
+
+    code = run_main(tmp_path, "after", FakeSource(after_spans()))
+
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert list(json.loads(out.read_text(encoding="utf-8"))) == ["after"]
+    assert "no before entry to compare" in printed
+    for name in ("turn", "model_step", "search_policy", "list_my_access"):
+        assert name not in printed.replace("no before entry to compare", "").split()
+
+
+def test_saving_before_prints_no_table(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Catches a command that prints the comparison when `before` is written
+    (here an `after` entry already sits in the file)."""
+    out = tmp_path / "agent-speed.json"
+    out.write_text(json.dumps({"after": stored_entry((1, 1), (1, 1))}), encoding="utf-8")
+
+    code = run_main(tmp_path, "before", FakeSource(after_spans()))
+
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert "model_step" not in printed
+    assert "no before entry to compare" not in printed

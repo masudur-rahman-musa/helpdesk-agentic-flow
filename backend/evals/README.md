@@ -48,6 +48,26 @@ By default the spans come from Langfuse (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET
 between asks, so one session stays under the chat's message limit; the gateway limits
 for the tenant must allow the load too.
 
+Saving `after` prints a before and after table when a `before` entry exists. The last
+pair, both runs 20 users for 5 minutes on `agent-default`, spans from the local log:
+
+- `before`: 2026-10-31, commit `0c768b3`, 343 turns.
+- `after`: 2026-10-31, commit `c08b4f2`, 337 turns.
+
+```
+step            p50 before  p50 after  p50 change  p95 before  p95 after  p95 change
+turn            5617        5199       -7.4%       9469        9196       -2.9%
+model_step      2019        2161       7.1%        3589        3470       -3.3%
+search_policy   102         112        9.1%        223         298        34.0%
+list_my_access  12          104        803.8%      33          317        849.8%
+get_me          15          85         465.7%      20          154        676.2%
+```
+
+Times are in milliseconds; a negative change means faster. A whole turn got about 7%
+faster at the middle. Each lookup on its own got slower, because the lookups of one step
+now run at the same time and share the database and the search store; what counts is
+that a step waits for the slowest one instead of all of them in a row.
+
 ## The cut-offs
 
 Two numbers decide a turn. Each is a setting, so it can be tuned against the

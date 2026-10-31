@@ -136,6 +136,77 @@ def write_entry(
     path.write_text(json.dumps(stored, indent=2) + "\n", encoding="utf-8")
 
 
+def _change(before: float | None, after: float | None) -> float | None:
+    """Change in percent from `before` to `after`; negative means faster."""
+    if before is None or after is None or before == 0:
+        return None
+    return round((after - before) / before * 100, 1)
+
+
+def _compare_row(
+    name: str, before: Mapping[str, float] | None, after: Mapping[str, float] | None
+) -> dict[str, Any]:
+    row: dict[str, Any] = {"name": name}
+    for pct in ("p50", "p95"):
+        old = before[f"{pct}_ms"] if before is not None else None
+        new = after[f"{pct}_ms"] if after is not None else None
+        row[f"before_{pct}_ms"] = old
+        row[f"after_{pct}_ms"] = new
+        row[f"{pct}_change"] = _change(old, new)
+    return row
+
+
+def compare(before: Mapping[str, Any], after: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """One row each for the turn, the model step and every tool either run called.
+
+    Tools keep the order of `before`, then the ones only `after` called. A side
+    a run never called is None, and so is its change.
+    """
+    rows = [
+        _compare_row(TURN_SPAN.removeprefix("chat_"), before["turn"], after["turn"]),
+        _compare_row(MODEL_STEP_SPAN, before["model_step"], after["model_step"]),
+    ]
+    before_tools: Mapping[str, Any] = before.get("tools", {})
+    after_tools: Mapping[str, Any] = after.get("tools", {})
+    names = list(before_tools) + [name for name in after_tools if name not in before_tools]
+    rows.extend(_compare_row(name, before_tools.get(name), after_tools.get(name)) for name in names)
+    return rows
+
+
+def _cell(value: float | None, suffix: str = "") -> str:
+    return "—" if value is None else f"{value:.1f}{suffix}" if suffix else f"{value:.0f}"
+
+
+def format_table(rows: Sequence[Mapping[str, Any]]) -> str:
+    """A plain text table, one line per row, the row's name first, columns lined up."""
+    header = [
+        "step",
+        "p50 before",
+        "p50 after",
+        "p50 change",
+        "p95 before",
+        "p95 after",
+        "p95 change",
+    ]
+    body = [
+        [
+            row["name"],
+            _cell(row["before_p50_ms"]),
+            _cell(row["after_p50_ms"]),
+            _cell(row["p50_change"], "%"),
+            _cell(row["before_p95_ms"]),
+            _cell(row["after_p95_ms"]),
+            _cell(row["p95_change"], "%"),
+        ]
+        for row in rows
+    ]
+    widths = [max(len(line[i]) for line in [header, *body]) for i in range(len(header))]
+    return "\n".join(
+        "  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True)).rstrip()
+        for line in [header, *body]
+    )
+
+
 class FileSource:
     """Reads the spans the agent appended to its local span log."""
 
@@ -232,6 +303,12 @@ def main(
         print("no chat turns found after the start time; nothing written", file=sys.stderr)
         return 1
     write_entry(args.out, args.label, entry, measured_at=now().isoformat(), commit=commit())
+    if args.label == "after":
+        stored = json.loads(args.out.read_text(encoding="utf-8"))
+        if "before" in stored:
+            print(format_table(compare(stored["before"], stored["after"])))
+        else:
+            print("no before entry to compare")
     return 0
 
 
