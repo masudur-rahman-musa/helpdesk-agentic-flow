@@ -14,7 +14,7 @@ from helpdesk.shared.core.naming import InvalidSearchArgumentError
 
 SUGGESTION_FLOOR = 0.70
 """Inclusive. Lower offers roles that are not close; higher says "nothing here"
-for a fair guess. A starting value, tuned with the golden set."""
+for a fair guess. A starting value, not tuned yet against the conversation cases."""
 
 MAX_SUGGESTIONS = 3
 """Few enough to read in one reply."""

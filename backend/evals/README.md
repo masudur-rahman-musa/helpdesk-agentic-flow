@@ -39,6 +39,7 @@ one record per turn out). Every step's prompt version is in the
 
 Two numbers decide a turn. Each is a setting, so it can be tuned against the
 conversation cases, and the value that is kept is recorded here with its numbers.
+Neither has been tuned yet: both are still the starting values, picked by hand.
 
 | Setting | Default | What it decides |
 |---|---|---|
