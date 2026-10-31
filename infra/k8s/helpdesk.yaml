@@ -13,8 +13,10 @@
 # and 1408Mi of limits across the four. No `limits.cpu`: a CPU limit throttles
 # the agent-api, which carries a latency target.
 #
-# The scheduler has no ports and no probes: it serves nothing, holds a Redis
-# leader lock and runs jobs, so `replicas: 1` with `Recreate` keeps exactly one.
+# The scheduler has no ports and no probes: it serves nothing and runs jobs.
+# There is no leader lock: each job takes its own Redis lock per tenant (one
+# lock for a job that spans tenants), so `replicas: 1` with `Recreate` keeps
+# exactly one copy and the per-job locks cover any brief overlap.
 #
 # Images are set by `kustomization.yaml`; a deploy job puts the commit SHA in.
 apiVersion: v1
@@ -348,8 +350,9 @@ spec:
   replicas: 1
   # `Recreate`, not `RollingUpdate`: the rolling default starts the new pod
   # before the old one stops, which is two schedulers for the length of every
-  # deploy. The Redis leader lock is what makes a brief second
-  # copy survivable if one ever happens; it is not a reason to arrange for one.
+  # deploy. Each job takes its own Redis lock per tenant before it runs, and
+  # every job is safe to run twice, which is what makes a brief second copy
+  # survivable if one ever happens; it is not a reason to arrange for one.
   strategy:
     type: Recreate
   selector:
