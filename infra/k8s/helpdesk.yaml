@@ -18,6 +18,11 @@
 # lock for a job that spans tenants), so `replicas: 1` with `Recreate` keeps
 # exactly one copy and the per-job locks cover any brief overlap.
 #
+# Database migrations are not run by anything in this folder. There is no
+# migration Job and no init container, and the images carry no Alembic step.
+# Run `make migrate` (`alembic upgrade head`) against the target database
+# before applying this file, or applying it skips them.
+#
 # Images are set by `kustomization.yaml`; a deploy job puts the commit SHA in.
 apiVersion: v1
 kind: ConfigMap
