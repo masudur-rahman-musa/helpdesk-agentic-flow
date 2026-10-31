@@ -3,7 +3,9 @@
     identity -> kill switch -> RBAC -> input validation -> bound session ->
     tool -> audit -> output
 
-The kill switch comes first: a stop that asks who you are is not a stop.
+Identity comes first because the kill switch needs the token's tenant to
+know which switches to read. The kill switch comes right after, before
+RBAC: a stop that depends on the caller's roles is not a stop.
 RBAC comes before validation, so a refused caller learns nothing about a
 tool's inputs. Failures answer with one typed code and no other text.
 A call with an unverified token writes no audit event: there is no
