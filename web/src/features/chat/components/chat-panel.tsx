@@ -30,14 +30,14 @@ import { Alert } from "@/components/ui/alert";
 
 /**
  * The chat page. It fills the shell's width, so the chat list in the left
- * column lines up with the top bar. `chatId` is the chat a
- * message goes to (null is a new chat; the first reply names it), and `openedId`
- * is the chat whose history is read, which only a click on the list sets, so a
- * new chat's own lines are never read back on top of themselves. History is a
- * cached query; the live turn is local state, since a stream has no cache key. The decision card, steps and citations belong to
- * the latest turn and clear on a new send or an error. The steps sit in a column
- * beside the chat, level with the composer, and drop under it on a narrow
- * screen. The composer starts with
+ * column lines up with the top bar. `chatId` is the chat a message goes to
+ * (null is a new chat; the first reply names it), and `openedId` is the chat
+ * whose history is read, which only a click on the list sets, so a new chat's
+ * own lines are never read back on top of themselves. History is a cached
+ * query; the live turn is local state, since a stream has no cache key. The
+ * decision card, steps and citations belong to the latest turn and clear on a
+ * new send or an error. The steps sit in a column beside the chat, level with
+ * the composer, and drop under it on a narrow screen. The composer starts with
  * `?ask=` from a renewal link but never sends on its own. A link under the
  * heading opens the company's access rules in a new tab.
  */
@@ -88,8 +88,9 @@ export function ChatPanel() {
     setFailure(null);
   }
 
-  // Not while a reply is streaming: its lines would land in the chat just opened.
-  function openChat(id: string): void {
+  // Opens a chat, or a new one for null. Not while a reply is streaming: its
+  // lines would land in the chat just opened.
+  function openChat(id: string | null): void {
     if (streaming.current) {
       return;
     }
@@ -97,16 +98,6 @@ export function ChatPanel() {
     setChatId(id);
     setOpenedId(id);
     keepOpenChat(id);
-  }
-
-  function newChat(): void {
-    if (streaming.current) {
-      return;
-    }
-    resetTurn();
-    setChatId(null);
-    setOpenedId(null);
-    keepOpenChat(null);
   }
 
   // Keep the end of the turn in view as it grows. Nothing is sent yet means the
@@ -196,7 +187,7 @@ export function ChatPanel() {
         chats={chatList.data}
         activeId={chatId}
         onOpen={openChat}
-        onNew={newChat}
+        onNew={() => openChat(null)}
         failed={chatList.isError}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-4">
