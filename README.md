@@ -157,12 +157,48 @@ Each line names the file or feature that shows it.
 
 ## What broke and how I fixed it
 
-- **A key check accepted a trailing newline.** Pydantic's `pattern=` matches anywhere in the string, so a value ending in a newline passed a pattern anchored only at the start. The fix was a full-string match in an explicit validator, plus a trailing newline, a carriage return and a space in every rejection table.
-- **The refusal threshold refused everything.** The number was chosen for a similarity score but compared to a fused rank score on a very different scale, so almost no answer cleared it. The fix measures the threshold on the dense cosine, while the fused score keeps ordering the page.
-- **An approval could have granted twice.** The approval tool runs the grant in the same transaction as the last approver's seat. An older chat design also tried to run it when the waiting conversation picked up again. The fix was to make the chat never run it. The person now hears about the decision through a notification.
-- **A turn that ran out of budget told the user nothing had happened.** The fixed refusal was sent even when the turn had already filed a request, so the reply and the audit log disagreed. The fix sends the fixed refusal only when nothing ran. When something did run, the model gets one last answer-only step to report it.
-- **Two paths turned the same object into different bytes.** The idempotency fingerprint and the audit chain each built their own JSON, and key order differed, so a replay looked like a conflict. The fix makes both call one shared serialiser, pinned by a test whose keys sort differently in Python and in the database.
-- **One client had a timeout and its neighbour did not.** One call could hang forever while the one beside it gave up in seconds. The fix gives every client the code builds a connect and a read timeout, checked on the client object rather than on a constant.
+Failures in the agent and retrieval behaviour, how each was found, and what now
+holds the fix.
+
+- **A fixed chat pipeline could not follow plain English, so evals chose its
+  replacement.** The first design sorted each message into set intents and slots. A
+  phrase like "wiki editor access" was split differently from one turn to the next,
+  and each fix was one more rule that live testing soon broke again. It was rebuilt
+  as a tool-calling loop where the model only proposes a change and code holds it,
+  shows it in fixed words and runs it once on a yes. The choice was made on
+  conversation evals. The pipeline passed 15 of 33 cases, a plain loop 17, and the
+  loop inside LangGraph 21. The full story is in
+  [docs/agent-loop-and-langgraph.md](docs/agent-loop-and-langgraph.md), and the
+  scores in [backend/evals/engine-scores.json](backend/evals/engine-scores.json).
+- **Error analysis showed the agent making up ids and re-offering refused
+  changes.** Tagging every failing eval case found wrong tools, claims no tool
+  backed, and weak handling of requests for another person or a change of mind. The
+  prompt already forbade false claims, so the fixes went into code. A held change
+  may only carry role and person ids that a lookup returned in the same turn. A "no"
+  goes back to the model in the person's own words, and the same change cannot be
+  offered again. A check replaces any promise of work that no tool did. Held by
+  [backend/tests/agent_api/test_agent_guardrails.py](backend/tests/agent_api/test_agent_guardrails.py).
+- **Replies said things the tools never said.** In live demo runs, an approver was
+  told "your request is waiting", because the reply read the approver's seat as the
+  role, and another reply asked for a duration after the request was already filed.
+  Approver replies are now fixed words built from the request itself, and a reply
+  check sends back any request number, role or seat that is not in this turn's tool
+  results. Held by
+  [backend/tests/agent_api/test_agent_postcheck.py](backend/tests/agent_api/test_agent_postcheck.py).
+- **The refusal threshold was on the wrong scale.** The planned cutoff of 0.35 was
+  meant to be compared with the fused hybrid-search score, which tops out near
+  0.033, so every answer would have been refused. Rescaling the fused score would
+  have rated an off-topic question as a perfect match. Caught while building
+  retrieval, before release. The fix reads the best dense similarity on the
+  page, and a hit found only by keyword search cannot clear the bar alone. Held by
+  [backend/tests/mcp_server/services/rag/test_rag_refusal.py](backend/tests/mcp_server/services/rag/test_rag_refusal.py).
+- **The prompt cache missed on the reply step.** The last, answer-only step of
+  each turn sent no tool list, so its request began differently from every other
+  step and could not reuse the gateway's cache. Found by checking that every step
+  starts with the same bytes. The fix sends the same tools on every step, with tool calls
+  switched off on the answer-only step, and the request draft sits just before the
+  newest message so it never breaks the shared start. Held by
+  [backend/tests/agent_api/test_same_prompt_start.py](backend/tests/agent_api/test_same_prompt_start.py).
 
 ## Design decisions
 
