@@ -118,7 +118,7 @@ def build_metrics(registry: CollectorRegistry) -> Metrics:
         turn_endings_total=Counter(
             TURN_ENDINGS_TOTAL,
             "How each chat turn ended, by tenant and outcome (filed, asked, stopped, "
-            "refused, failed, unclear). A plain answer counts none.",
+            "refused, failed, busy, unclear). A plain answer counts none.",
             labelnames=("tenant", "outcome"),
             registry=registry,
         ),
@@ -165,7 +165,7 @@ def record_turn(*, tenant: str | None, intent: str, decision: str) -> None:
 
 
 def record_turn_ending(*, tenant: str, outcome: str) -> None:
-    """`outcome` is one of the six closed names, never client text."""
+    """`outcome` is one of the seven closed names, never client text."""
     METRICS.turn_endings_total.labels(tenant=tenant, outcome=outcome).inc()
 
 

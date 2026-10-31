@@ -59,6 +59,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from helpdesk.agent_api.agent.loop import BUSY_REPLY
 from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.api.router import app
@@ -902,6 +903,45 @@ def test_an_unreachable_mcp_server_mid_stream_is_a_typed_error_event(
     assert _of(frames, REPLY) == []
     assert gateway.call_count == 0
     assert checked_out == 0, "the turn's database session outlived the stream"
+
+
+@pytest.mark.db
+def test_a_busy_gateway_streams_the_try_again_reply(
+    stream_env: StreamRouteEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a stream route that answers a busy gateway with an `error` event
+    (the web shows the generic error), that sends no `reply` event, or that
+    sends a reply with another outcome or another text."""
+
+    def busy_gateway(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={
+                "error": {
+                    "message": "Too many requests, slow down.",
+                    "type": "rate_error",
+                    "param": None,
+                    "code": "RATE_LIMITED",
+                }
+            },
+        )
+
+    response = _post_stream(
+        monkeypatch=monkeypatch,
+        token=_token(stream_env.tenant_a, uuid.uuid4()),
+        body={"message": MESSAGE},
+        gateway_handler=busy_gateway,
+        tools=ScriptedToolCaller(),
+    )
+
+    assert response.status_code == 200, response.text
+    frames = parse_frames(response.text)
+    assert _of(frames, ERROR) == []
+    replies = _of(frames, REPLY)
+    assert len(replies) == 1
+    assert replies[0].data["reply"] == BUSY_REPLY
+    assert replies[0].data["outcome"] == TurnOutcome.BUSY.value
+    assert _names(frames)[-1] == DONE
 
 
 @pytest.mark.db

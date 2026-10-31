@@ -183,7 +183,7 @@ def test_trim_leaves_its_input_alone() -> None:
 
 def test_the_reply_check_still_reads_the_full_result() -> None:
     """Catches a turn that trims the result before the reply check reads it: a
-    request number that sits only in row 25 would then back nothing, and a true
+    request number that sits only in the 25th entry would then back nothing, and a true
     reply would be sent back as a breach.
 
     The listing holds 30 rows; REQ-0025 is past the 20 the model gets. The reply

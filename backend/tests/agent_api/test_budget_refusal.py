@@ -308,14 +308,13 @@ def test_the_chat_stays_usable_after_a_budget_refusal() -> None:
     "response",
     [
         pytest.param((503, {"error": "down"}), id="503"),
-        pytest.param((429, rate_limited_body()), id="rate-limited"),
     ],
 )
 def test_any_other_gateway_error_still_shows_the_generic_error(
     response: tuple[int, Mapping[str, Any]],
 ) -> None:
-    """Catches a loop that shows any gateway error text, or any 429, as a
-    finished reply; only a budget refusal may. Both paths: the run ends
+    """Catches a loop that shows any gateway error text as a finished reply;
+    only a budget refusal may. Both paths: the run ends
     ``FAILED`` on ``FAILURE_REPLY`` and the stream yields an ``ErrorEvent``."""
     state = run(RefusingGateway(response), FakeTools(), FakeStore())
     events = stream(RefusingGateway(response), FakeTools(), FakeStore())

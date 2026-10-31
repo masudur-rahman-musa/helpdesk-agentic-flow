@@ -88,6 +88,11 @@ class ModelBudgetExceededError(ModelUnavailableError):
         self.gateway_message = gateway_message
 
 
+class ModelBusyError(ModelUnavailableError):
+    """The gateway answered 429 for any reason but a spent budget: it is busy.
+    The gateway's text is not for the person, so it is not kept."""
+
+
 @dataclass(frozen=True)
 class ModelAnswer:
     """One completed turn. `alias` is what the caller asked for, not the gateway's echo.
@@ -347,8 +352,10 @@ class ModelClient:
             raise ModelForbiddenError("the model gateway refused this tenant's API key")
         if response.status_code == 422:
             raise ModelRequestError("the model gateway refused this request")
-        if response.status_code == 429 and (message := _budget_message(response)) is not None:
-            raise ModelBudgetExceededError(message)
+        if response.status_code == 429:
+            if (message := _budget_message(response)) is not None:
+                raise ModelBudgetExceededError(message)
+            raise ModelBusyError("the model gateway is busy and refused this turn")
         if response.status_code != 200:
             raise ModelUnavailableError("the model gateway failed to complete this turn")
 

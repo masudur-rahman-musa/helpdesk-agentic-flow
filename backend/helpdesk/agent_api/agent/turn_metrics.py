@@ -42,10 +42,12 @@ _ASKED_OUTCOMES = frozenset({TurnOutcome.CLARIFY, TurnOutcome.DISAMBIGUATE, Turn
 
 
 def _ending(state: TurnState) -> str | None:
-    """How the turn ended: the first match of failed, refused, stopped, unclear,
-    filed, asked. A plain answer is `None`."""
+    """How the turn ended: the first match of failed, busy, refused, stopped,
+    unclear, filed, asked. A plain answer is `None`."""
     if state.outcome is TurnOutcome.FAILED:
         return "failed"
+    if state.outcome is TurnOutcome.BUSY:
+        return "busy"
     if state.outcome is TurnOutcome.REFUSE:
         return "refused"
     if state.outcome is TurnOutcome.STOP:

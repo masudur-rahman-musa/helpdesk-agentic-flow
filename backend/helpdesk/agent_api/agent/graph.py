@@ -107,6 +107,7 @@ from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.model_gateway.client import (
     ModelAlias,
     ModelBudgetExceededError,
+    ModelBusyError,
     ToolCall,
     ToolCallAnswer,
 )
@@ -114,6 +115,7 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models.conversation import MessageRole
 
 __all__ = [
+    "BUSY_REPLY",
     "CHANGE_FAILED_REPLY",
     "FAILURE_REPLY",
     "LOOP_NODES",
@@ -151,6 +153,15 @@ FAILURE_REPLY = (
 )
 """Said when the model or a tool failed in a way no reply can cover. None of
 the model's output is shown; the code rides on the state as `error_code`."""
+
+BUSY_REPLY = (
+    "I'm getting a lot of requests right now, so I could not answer that. "
+    "Please wait a moment and send it again."
+)
+"""Said when the gateway answers 429 for any reason but a spent budget. Not a
+failure: the turn ends as a finished reply, with no retry, since waiting here
+would hold the request open and add load to a gateway that asked for less.
+The gateway's own text is not shown."""
 
 MAX_SEND_BACKS = 2
 """How many times a reply that names something no result backs goes back to
@@ -285,6 +296,10 @@ class _BudgetSpent(Exception):
     def __init__(self, reply: str) -> None:
         super().__init__("budget spent")
         self.reply = reply
+
+
+class _GatewayBusy(Exception):
+    """The gateway was too busy to answer the step. The turn ends on `BUSY_REPLY`."""
 
 
 def _tool_turn(call_id: str, content: Any) -> dict[str, Any]:
@@ -545,6 +560,10 @@ class _Turn:
         """End the turn on the gateway's budget message as a finished reply."""
         self.final = await self._finish(reply)
 
+    async def busy(self) -> None:
+        """End the turn on `BUSY_REPLY` as a finished reply, outcome `BUSY`."""
+        self.final = await self._finish(BUSY_REPLY, outcome=TurnOutcome.BUSY)
+
     def _deny(self, question: OpenQuestion) -> None:
         """Give the model the held calls answered as denied, with the person's
         own words as the reason, right before their message, so it re-plans.
@@ -626,6 +645,8 @@ class _Turn:
             )
         except ModelBudgetExceededError as exc:
             raise _BudgetSpent(exc.gateway_message) from exc
+        except ModelBusyError as exc:
+            raise _GatewayBusy from exc
         except ToolError as exc:
             raise _TurnFailed(exc.code) from exc
         self.tokens += answer.usage.total_tokens
@@ -643,8 +664,7 @@ class _Turn:
         time on the turn's MCP session, and the finders and the note one by one
         after them, since those share the database session. Results are kept
         in the order asked, whatever order they finish in, and an `INTERNAL`
-        failure ends the turn only once every lookup has finished. Pinned by
-        `test_faster_turns.py`."""
+        failure ends the turn only once every lookup has finished."""
         answers: dict[str, dict[str, Any]] = {}
         changes: list[ToolCall] = []
         lookups: dict[str, Awaitable[_Fetched]] = {}
@@ -914,7 +934,7 @@ class _NodeFn(Protocol):
 def _node(step: _Step) -> _NodeFn:
     """A `_Turn` step as a node: load the state, run the step, hand back the
     update. A spent budget ends the turn on the gateway's message, word for
-    word. A failure no reply can
+    word. A busy gateway ends it on `BUSY_REPLY`. A failure no reply can
     cover ends the turn on `FAILURE_REPLY`."""
 
     async def run(state: LoopState, *, runtime: Runtime[LoopContext]) -> LoopState:
@@ -923,6 +943,8 @@ def _node(step: _Step) -> _NodeFn:
             await step(turn)
         except _BudgetSpent as spent:
             await turn.budget_spent(spent.reply)
+        except _GatewayBusy:
+            await turn.busy()
         except _TurnFailed as failed:
             await turn.fail(failed.code)
         return turn.saved()

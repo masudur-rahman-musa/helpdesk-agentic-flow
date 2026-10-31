@@ -68,6 +68,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from helpdesk.agent_api.agent.loop import BUSY_REPLY
 from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.agent.tool_args import SEARCH_POLICY
 from helpdesk.agent_api.api.router import app
@@ -1153,6 +1154,49 @@ def test_an_unreachable_gateway_answers_a_typed_code_and_no_partial_reply(
     assert response.status_code == 500
     assert response.json() == {"code": ErrorCode.INTERNAL.value}
     assert gateway.call_count >= 1, "the turn never reached the gateway at all"
+
+
+def _busy_gateway(request: httpx.Request) -> httpx.Response:
+    """A gateway that is busy: a 429 with the rate-limit code, not the budget one."""
+    return httpx.Response(
+        429,
+        json={
+            "error": {
+                "message": "Too many requests, slow down.",
+                "type": "rate_error",
+                "param": None,
+                "code": "RATE_LIMITED",
+            }
+        },
+    )
+
+
+@pytest.mark.db
+def test_a_busy_gateway_answers_200_with_the_try_again_reply(
+    chat_env: ChatEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Catches a route that turns a busy gateway into the typed 500, that leaves
+    the outcome as `failed` or `done`, that shows the gateway's own 429 text,
+    or that does not save the reply so the history route lacks it."""
+    session_id = uuid.uuid4()
+    token = _token(chat_env.tenant_a, session_id)
+
+    response = _post_chat(
+        monkeypatch=monkeypatch,
+        token=token,
+        body={"message": MESSAGE},
+        gateway_handler=_busy_gateway,
+        tools=ScriptedToolCaller(),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == TurnOutcome.BUSY.value == "busy"
+    assert body["reply"] == BUSY_REPLY
+    assert "slow down" not in body["reply"]
+    history = _get_messages(monkeypatch=monkeypatch, token=token, chat_id=body["chat_id"])
+    assert history.status_code == 200, history.text
+    assert [row["content"] for row in history.json()["messages"]] == [MESSAGE, BUSY_REPLY]
 
 
 def test_an_unreachable_mcp_server_answers_a_typed_code(

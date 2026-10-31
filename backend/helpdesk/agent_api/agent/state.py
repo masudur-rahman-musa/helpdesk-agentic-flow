@@ -81,7 +81,8 @@ class TurnOutcome(StrEnum):
     `CONFIRM` shows "I'll file this: ..." before filing; `CONFIRMED` is the yes.
     `ANSWER` skips the tools and composes now: a question was just asked and
     something required is still missing. `STOP` ends in fixed words: a
-    required field was asked twice and is still missing."""
+    required field was asked twice and is still missing. `BUSY` ends in fixed
+    words too: the gateway was too busy to answer, so the person sends again."""
 
     CONTINUE = "continue"
     CLARIFY = "clarify"
@@ -94,6 +95,7 @@ class TurnOutcome(StrEnum):
     CONFIRMED = "confirmed"
     ANSWER = "answer"
     STOP = "stop"
+    BUSY = "busy"
 
 
 class PostCheckOutcome(StrEnum):
