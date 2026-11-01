@@ -7,11 +7,10 @@ with near neighbours. Pure: the node reads the rows and passes them in.
 
 import difflib
 import re
+import unicodedata
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-
-from helpdesk.agent_api.agent.answer_words import fold
 
 FUZZY_CUTOFF = 0.85
 """Inclusive. It keeps a typo of `billing-read` off `billing-admin`, so
@@ -20,6 +19,13 @@ loosening it grants more than was asked."""
 _SEPARATORS = re.compile(r"[^a-z0-9]+")
 """Runs of non-alphanumerics, so `Billing_Admin` and `billing-admin` are
 one term."""
+
+
+def fold(text: str) -> str:
+    """Casefold and take accents off: "Mühle" is "muhle", "Straße" is "strasse"."""
+    plain = text.casefold().replace("\N{RIGHT SINGLE QUOTATION MARK}", "'")
+    decomposed = unicodedata.normalize("NFKD", plain)
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
 @dataclass(frozen=True)

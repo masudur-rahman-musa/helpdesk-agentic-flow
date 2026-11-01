@@ -65,6 +65,7 @@ from tests.agent_api.test_agent_loop import (
     _create_arguments,
     answer_body,
     held_question,
+    reading_body,
     role_row,
     run,
     tool_names,
@@ -346,13 +347,14 @@ def test_a_bare_no_goes_to_the_model_as_a_denial(calls: int) -> None:
     the first of several held calls (the gateway refuses a call with no tool
     turn), or that gives the reason as anything but the person's words.
 
-    The gateway holds one answer, so a second model request fails the run; the
-    tool server holds nothing, so any tool call does too. The one request must
-    carry the held calls, one `denied_by_person` tool turn each (ids `held_0`,
-    `held_1`), then the message "no".
+    The gateway holds the reading and one answer-only reply step, so a third
+    model request fails the run; the tool server holds nothing, so any tool
+    call does too. The reply request must carry the held calls, one
+    `denied_by_person` tool turn each (ids `held_0`, `held_1`), then the
+    message "no".
     """
     question = _question(calls)
-    gateway = ScriptedGateway(answer_body("Okay. What would you like instead?"))
+    gateway = ScriptedGateway(reading_body("no"), answer_body("Okay. What would you like instead?"))
     tools = FakeTools()
     store = FakeStore(question=question)
 
@@ -361,8 +363,8 @@ def test_a_bare_no_goes_to_the_model_as_a_denial(calls: int) -> None:
     assert tools.calls == []
     assert store.question is None
     assert store.held == []
-    assert len(gateway.requests) == 1
-    sent = gateway.requests[0]["messages"]
+    assert len(gateway.requests) == 2
+    sent = gateway.requests[1]["messages"]
     assert sent[-1] == {"role": "user", "content": "no"}
     answers = sent[-1 - calls : -1]
     assert [turn["tool_call_id"] for turn in answers] == [f"held_{n}" for n in range(calls)]
@@ -377,7 +379,8 @@ def test_a_bare_no_goes_to_the_model_as_a_denial(calls: int) -> None:
     assert [json.loads(call["function"]["arguments"]) for call in asked["tool_calls"]] == [
         held.arguments for held in question.calls
     ]
-    assert "tools" in gateway.requests[0]
+    assert "tools" in gateway.requests[1]
+    assert gateway.requests[1]["tool_choice"] == "none"
     assert state.reply == "Okay. What would you like instead?"
 
 
@@ -394,19 +397,23 @@ def test_a_correction_reaches_the_model_with_the_persons_words(message: str) -> 
     The reason in the tool turn must equal the message exactly, for a no with a
     correction and for one that does not begin with a no at all.
     """
-    gateway = ScriptedGateway(answer_body("Got it. Which role should it be?"))
+    gateway = ScriptedGateway(
+        reading_body("new_info"), answer_body("Got it. Which role should it be?")
+    )
     store = FakeStore(question=held_question())
 
     run(gateway, FakeTools(), store, message=message)
 
-    sent = gateway.requests[0]["messages"]
+    sent = gateway.requests[1]["messages"]
     assert json.loads(sent[-2]["content"]) == {"denied_by_person": True, "reason": message}
     assert sent[-1] == {"role": "user", "content": message}
 
 
 def _lookups_then(*steps: dict[str, Any]) -> ScriptedGateway:
-    """A model that first finds the person and the viewer role, then plays `steps`."""
+    """A model that reads the reply as new info, then finds the person and
+    the viewer role, then plays `steps`."""
     return ScriptedGateway(
+        reading_body("new_info"),
         answer_body(
             None,
             wire_call("call_me", "get_me", {}),
@@ -436,8 +443,8 @@ def test_the_denied_change_cannot_be_held_again_this_turn() -> None:
 
     assert store.held == []
     assert state.outcome is not TurnOutcome.CONFIRM
-    assert len(gateway.requests) == 3
-    assert _answer(gateway.requests[2], "call_c") == refused_reason
+    assert len(gateway.requests) == 4
+    assert _answer(gateway.requests[3], "call_c") == refused_reason
     assert state.reply == "Which role would you like instead?"
 
     again = answer_body(None, wire_call("call_d", "create_access_request", _create()))
@@ -473,6 +480,7 @@ def test_a_new_proposal_after_a_denial_is_held(
     editor role, or the viewer role for 7 days: it must be held.
     """
     gateway = ScriptedGateway(
+        reading_body("new_info"),
         answer_body(
             None,
             wire_call("call_me", "get_me", {}),
@@ -500,7 +508,9 @@ def test_a_yes_after_a_denial_runs_nothing() -> None:
     """
     store = FakeStore(question=held_question())
     run(
-        ScriptedGateway(answer_body("Okay. What would you like instead?")),
+        ScriptedGateway(
+            reading_body("new_info"), answer_body("Okay. What would you like instead?")
+        ),
         FakeTools(),
         store,
         message=DENIED_MESSAGE,
@@ -698,7 +708,12 @@ def test_a_filed_request_clears_the_draft() -> None:
     tools = FakeTools({"create_access_request": FILED_PAYLOAD})
     store = FakeStore(question=held_question(), draft=draft)
 
-    run(ScriptedGateway(answer_body(FILED_REPLY)), tools, store, message=YES_MESSAGE)
+    run(
+        ScriptedGateway(reading_body("yes"), answer_body(FILED_REPLY)),
+        tools,
+        store,
+        message=YES_MESSAGE,
+    )
 
     assert tools.names == ["create_access_request"]
     assert store.draft is None
@@ -812,8 +827,9 @@ def test_an_escalation_promise_backed_by_a_ticket_passes() -> None:
     `create_ticket` call ran ok this turn (the person's honest reply would loop
     back every time), or that sees only the person's own message.
 
-    A yes runs a held ticket. The one scripted answer says it will escalate; a
-    send-back would need a second model request and fail the run.
+    A yes runs a held ticket. After the reading, the one scripted answer says
+    it will escalate; a send-back would need a third model request and fail
+    the run.
     """
     ticket = ValidatedCall(
         tool="create_ticket",
@@ -827,12 +843,12 @@ def test_an_escalation_promise_backed_by_a_ticket_passes() -> None:
     question = held_question().model_copy(update={"calls": (ticket,)})
     reply = "I opened a ticket for you. I'll escalate it to the team."
     tools = FakeTools({"create_ticket": {"status": "open"}})
-    gateway = ScriptedGateway(answer_body(reply))
+    gateway = ScriptedGateway(reading_body("yes"), answer_body(reply))
 
     state = run(gateway, tools, FakeStore(question=question), message=YES_MESSAGE)
 
     assert tools.names == ["create_ticket"]
-    assert len(gateway.requests) == 1
+    assert len(gateway.requests) == 2
     assert state.reply == reply
     assert state.postcheck is PostCheckOutcome.PASSED
 

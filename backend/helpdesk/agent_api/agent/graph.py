@@ -5,10 +5,13 @@ allows, then a tool step whose results go back to the model, until it answers.
 LangGraph is the frame: each part is a node, the arrows are edges, and a saver
 keeps the state after every node, one thread per turn. Four nodes:
 
-- `held_answer`: reads the chat and, when a change is held, the person's
-  answer to it, by code. A yes runs the stored calls, then the reply is
-  written as an answer-only step. Anything else drops the change and goes to the model
-  as the person's answer: each held call comes back denied, with their words.
+- `held_answer`: reads the chat and, when a change is held, has the model
+  read the person's answer into one fixed value (`ReplyReading`). A yes runs
+  the stored calls, then the reply is written as an answer-only step; code
+  only makes sure it is the stored calls that run. A no drops the change and
+  an answer-only step says so. New info drops the change and goes to the
+  model as the person's answer: each held call comes back denied, with their
+  words. Unclear keeps the change held and asks for a plain yes or no.
 - `agent`: one model step under the `agent_loop` prompt. A step that asks for
   tools goes to `tools`; one that answers goes to `check_reply`.
 - `tools`: runs lookups and finders through MCP with the caller's own token,
@@ -53,12 +56,12 @@ from langgraph.runtime import Runtime
 from pydantic import ValidationError
 
 from helpdesk.agent_api.agent import gates
-from helpdesk.agent_api.agent.answer_words import guess_language
 from helpdesk.agent_api.agent.confirmation import (
-    Answer,
+    UNCLEAR_REPLY,
     OpenQuestion,
+    Reading,
+    ReplyReading,
     change_summary,
-    read_answer,
 )
 from helpdesk.agent_api.agent.draft import draft_message, merge_draft
 from helpdesk.agent_api.agent.events import ProgressEvent, StepEvent
@@ -84,7 +87,7 @@ from helpdesk.agent_api.agent.postcheck import (
     words_in,
 )
 from helpdesk.agent_api.agent.progress import progress_words
-from helpdesk.agent_api.agent.prompts import LoadedPrompt
+from helpdesk.agent_api.agent.prompts import LoadedPrompt, load_prompt
 from helpdesk.agent_api.agent.role_words import with_plain_role_names
 from helpdesk.agent_api.agent.state import (
     Citation,
@@ -111,6 +114,7 @@ from helpdesk.agent_api.services.model_gateway.client import (
     ModelAlias,
     ModelBudgetExceededError,
     ModelBusyError,
+    ModelShapeError,
     ToolCall,
     ToolCallAnswer,
 )
@@ -137,6 +141,11 @@ __all__ = [
 ]
 
 LOOP_PROMPT = "agent_loop"
+READ_REPLY_PROMPT = "read_reply"
+
+MAX_PICK_WORDS = 3
+"""A failed turn with nothing held this short is most likely the answer to a
+question that asked the person to pick, so it gets `PICK_AGAIN_REPLY`."""
 
 MAX_STEPS = 4
 """Model steps a turn may take; the last is answer-only, so it answers."""
@@ -166,8 +175,9 @@ the model's output is shown; the code rides on the state as `error_code`."""
 PICK_AGAIN_REPLY = (
     "I am not sure which one you mean yet. Please tell me which one, by its name or number."
 )
-"""Said instead of `FAILURE_REPLY` when a bare yes with nothing held, the
-answer to a question that asked the person to pick, ends on a failure. The
+"""Said instead of `FAILURE_REPLY` when a short message with nothing held,
+most likely the answer to a question that asked the person to pick, ends on a
+failure (`MAX_PICK_WORDS`). The
 outcome and error code stay those of the failure
 (`test_a_yes_with_nothing_held_and_a_failed_step_asks_which_one`)."""
 
@@ -292,7 +302,8 @@ class LoopState(TypedDict, total=False):
     denied: list[dict[str, Any]]
     """The held calls the person just turned down, keys left out."""
     bare_yes: bool
-    """The person said a bare yes with nothing held, answering a pick question."""
+    """The person sent a short message with nothing held, likely answering a
+    pick question."""
     final: TurnState | None
     """The turn's end state; once set, the graph stops."""
 
@@ -490,21 +501,30 @@ class _Turn:
         ]
 
     async def held_answer(self) -> None:
-        """Code reads the answer to a held change, never the model. The
-        question is dropped either way, so it is answered once at most. A yes
-        runs the stored calls as they were checked, keys included, then one
-        answer-only step writes the reply. Anything else, a bare no included,
-        runs nothing and goes to the model as the person's answer (`_deny`)."""
+        """The model reads the answer to a held change (`_read_reply`). An
+        unclear reading, or a gateway failure, keeps the question as it was
+        and runs nothing. Any other reading drops the question, so it is
+        answered once at most. A yes runs the stored calls as they were
+        checked, keys included, never anything the model names; then one
+        answer-only step writes the reply. A no runs nothing and an
+        answer-only step says so. New info runs nothing and goes to the
+        model as the person's answer (`_deny`)."""
         await self.store.prepare(self.started)
         question = await self.store.open_question()
-        if question is not None:
-            await self.store.clear_open_question()
         await self._start()
         if question is None:
-            self.bare_yes = read_answer(self.state.user_message) is Answer.YES
+            self.bare_yes = len(self.state.user_message.split()) <= MAX_PICK_WORDS
             return
-        if read_answer(self.state.user_message) is not Answer.YES:
+        reading = await self._read_reply(question)
+        if reading is Reading.UNCLEAR:
+            self.final = await self._finish(UNCLEAR_REPLY, outcome=TurnOutcome.CONFIRM)
+            return
+        await self.store.clear_open_question()
+        if reading is not Reading.YES:
             self._deny(question)
+            if reading is Reading.NO:
+                self.step += 1
+                self.pending = (await self._ask(answer_only=True)).text or ""
             return
         self.state = self.state.model_copy(
             update={"extraction": question.extraction, "resolved": question.resolved}
@@ -594,8 +614,8 @@ class _Turn:
         )
 
     async def fail(self, code: ErrorCode) -> None:
-        """End the turn on `FAILURE_REPLY`, or `PICK_AGAIN_REPLY` after a bare
-        yes with nothing held; none of the model's output is shown."""
+        """End the turn on `FAILURE_REPLY`, or `PICK_AGAIN_REPLY` after a short
+        message with nothing held; none of the model's output is shown."""
         reply = PICK_AGAIN_REPLY if self.bare_yes else FAILURE_REPLY
         self.final = await self._finish(reply, outcome=TurnOutcome.FAILED, error_code=code)
 
@@ -606,6 +626,39 @@ class _Turn:
     async def busy(self) -> None:
         """End the turn on `BUSY_REPLY` as a finished reply, outcome `BUSY`."""
         self.final = await self._finish(BUSY_REPLY, outcome=TurnOutcome.BUSY)
+
+    async def _read_reply(self, question: OpenQuestion) -> Reading:
+        """One strict schema call on the default alias: the shown question and
+        the person's message go as data, and the answer is one fixed value. A
+        reply that fails the shape twice reads as unclear, never as yes."""
+        prompt = load_prompt(READ_REPLY_PROMPT)
+        said = json.dumps({"question": question.asked, "message": self.state.user_message})
+        try:
+            with span(
+                MODEL_STEP_SPAN,
+                attributes={"model_alias": ModelAlias.AGENT_DEFAULT.value, "step": 0},
+            ):
+                answer = await self.deps.model.complete_json(
+                    ReplyReading,
+                    [{"role": "system", "content": prompt.text}, {"role": "user", "content": said}],
+                    alias=ModelAlias.AGENT_DEFAULT,
+                    tenant_slug=self.state.tenant_slug,
+                    session_id=str(self.state.session_id),
+                    user=self.state.gateway_user,
+                    prompt_version=prompt.sha256,
+                )
+        except ModelShapeError:
+            return Reading.UNCLEAR
+        except ModelBudgetExceededError as exc:
+            raise _BudgetSpent(exc.gateway_message) from exc
+        except ModelBusyError as exc:
+            raise _GatewayBusy from exc
+        except ToolError as exc:
+            raise _TurnFailed(exc.code) from exc
+        self.tokens += answer.usage.total_tokens
+        if self.deps.spend is not None:
+            await self.deps.spend(answer.usage.gateway_cost_usd)
+        return answer.value.answer
 
     def _deny(self, question: OpenQuestion) -> None:
         """Give the model the held calls answered as denied, with the person's
@@ -937,6 +990,7 @@ class _Turn:
             clarifying_question=None,
             second_request=None,
         )
+        reply = change_summary(calls, tuple(self.results), resolved, person)
         await self.store.hold(
             OpenQuestion(
                 asked_at=self.deps.now(),
@@ -945,12 +999,10 @@ class _Turn:
                 extraction=extraction,
                 resolved=resolved,
                 citations=tuple(self.citations),
+                asked=reply,
             )
         )
         self.state = self.state.model_copy(update={"extraction": extraction, "resolved": resolved})
-        reply = change_summary(
-            calls, tuple(self.results), resolved, person, guess_language(self.person_said)
-        )
         return await self._finish(reply, outcome=TurnOutcome.CONFIRM)
 
     # --- the answer ----------------------------------------------------------

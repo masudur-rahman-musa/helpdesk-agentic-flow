@@ -77,6 +77,10 @@ class ModelUnavailableError(ToolError):
     code = ErrorCode.INTERNAL
 
 
+class ModelShapeError(ModelUnavailableError):
+    """The model answered twice, and neither answer fit the asked schema."""
+
+
 class ModelBudgetExceededError(ModelUnavailableError):
     """The gateway refused the call because a budget is spent.
 
@@ -231,7 +235,7 @@ class ModelClient:
                 )
             except ValidationError:
                 if attempt == STRUCTURED_OUTPUT_ATTEMPTS - 1:
-                    raise ModelUnavailableError(
+                    raise ModelShapeError(
                         "the model did not return output matching the requested schema"
                     ) from None
         raise AssertionError("unreachable: the loop returns or raises on its last attempt")

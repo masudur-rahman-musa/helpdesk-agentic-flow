@@ -26,6 +26,7 @@ from tests.agent_api.test_agent_loop import (
     ScriptedGateway,
     answer_body,
     held_question,
+    reading_body,
     run,
     wire_call,
 )
@@ -195,12 +196,14 @@ def test_a_denial_sits_before_the_draft() -> None:
     the denied calls, their denial, the draft, then the person's "no".
     """
     draft = RequestDraft(role="wiki viewer", days=7, saved_at=START)
-    gateway = ScriptedGateway(answer_body("Understood. What would you like instead?"))
+    gateway = ScriptedGateway(
+        reading_body("no"), answer_body("Understood. What would you like instead?")
+    )
     store = FakeStore(question=held_question(), draft=draft)
 
     run(gateway, FakeTools(), store, message="no")
 
-    request = gateway.requests[0]
+    request = gateway.requests[1]
     messages = request["messages"]
     assert _roles(request)[-4:] == ["assistant", "tool", "system", "user"]
     assert messages[-2]["content"] == draft_message(draft)

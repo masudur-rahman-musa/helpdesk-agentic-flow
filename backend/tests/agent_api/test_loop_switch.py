@@ -50,7 +50,7 @@ from helpdesk.shared.crud.messages import list_recent_messages
 from helpdesk.shared.crud.sessions import get_open_question
 from helpdesk.shared.models import Department, Role, System, Tenant, User
 from tests.agent_api.conftest import AgentDb
-from tests.agent_api.test_agent_loop import answer_body, wire_call
+from tests.agent_api.test_agent_loop import answer_body, reading_body, wire_call
 from tests.agent_api.test_eval_routes import (
     PRINCIPAL_USER,
     TENANT_SLUG,
@@ -375,15 +375,17 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
     the row after filing, and a second yes that files again.
 
     Message one: the loop proposes a request; nothing is filed and a question is
-    saved. Message two, "yes": the loop files the stored call, exactly as
-    stored, with one tool-less model step. Message three, "yes" again: the
-    question is gone, so a normal turn answers and files nothing more.
+    saved. Message two, "yes": the model reads it as yes and the loop files
+    the stored call, exactly as stored, with one tool-less model step.
+    Message three, "yes" again: the question is gone, so a normal turn answers
+    and files nothing more.
     """
     env = chat_settings_env
     tools = FakeTools(lookup_answers(env))
     gateway = Gateway(
         lookup_body(),
         create_call_body(env),
+        reading_body("yes"),
         answer_body(FILED_SAYS),
         answer_body("Nothing is waiting for a yes right now."),
     )
@@ -406,7 +408,7 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
 
     assert tools.arguments_of(CREATE) == [stored_arguments]
     assert filed.reply == FILED_SAYS
-    answer_only = json.loads(gateway.requests[2].content)
+    answer_only = json.loads(gateway.requests[3].content)
     assert answer_only["tools"]
     assert answer_only["tool_choice"] == "none"
     assert stored_question(env, asked.chat_id) is None
@@ -415,7 +417,7 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
 
     assert tools.names.count(CREATE) == 1
     assert again.reply == "Nothing is waiting for a yes right now."
-    assert len(gateway.requests) == 4
+    assert len(gateway.requests) == 5
 
 
 def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,11 +1,11 @@
-"""Reading a yes or a no, and wording the question, with no graph at all.
+"""Wording the question and keeping it, with no graph at all.
 
 Cost and isolation. Nothing backing: no Postgres, no gateway, no tools. Every
 case calls one pure function in `helpdesk.agent_api.agent.confirmation` on plain
 values, so the file runs in milliseconds and shares no state.
 
 Surface the implementation provides (these names are fixed):
-`Answer` (YES, NO, OTHER), `read_answer`, `OPEN_QUESTION_LIFE`, `OpenQuestion`,
+`OPEN_QUESTION_LIFE`, `OpenQuestion`,
 `parse_open_question`, `summary_reply` (it replaces `question_reply`;
 `summary_reply(resolved, results, held_calls)`), `next_step`, and
 `ResolvedEntities.system_name` / `role_name` in `state.py`.
@@ -19,11 +19,9 @@ import pytest
 
 from helpdesk.agent_api.agent.confirmation import (
     OPEN_QUESTION_LIFE,
-    Answer,
     OpenQuestion,
     next_step,
     parse_open_question,
-    read_answer,
     summary_reply,
 )
 from helpdesk.agent_api.agent.state import (
@@ -44,85 +42,6 @@ NOW = datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
 USER_ID = uuid.UUID("44444444-4444-5444-8444-444444444444")
 ROLE_ID = uuid.UUID("55555555-5555-5555-8555-555555555555")
 SYSTEM_ID = uuid.UUID("66666666-6666-5666-8666-666666666666")
-
-YES_WORDS = ["yes", "yep", "yeah", "correct", "right", "sure", "ok", "okay", "confirm"]
-NO_WORDS = ["no", "nope", "wrong"]
-
-
-# --- reading the answer ---------------------------------------------------------
-
-
-@pytest.mark.parametrize("word", YES_WORDS)
-def test_every_listed_yes_word_alone_reads_as_yes(word: str) -> None:
-    """Catches a yes list that leaves out one of the nine words, so that person's
-    "okay" would be read as something else and nothing would be filed."""
-    assert read_answer(word) is Answer.YES
-
-
-@pytest.mark.parametrize(
-    "message",
-    ["yes", "Yes, that is right.", "ok", "Sure.", "  YES  ", "Yes!\n", "okay, go ahead"],
-)
-def test_yes_words_read_as_yes(message: str) -> None:
-    """Catches a reader that is case-sensitive, trips on punctuation or on
-    surrounding whitespace, so a natural "Yes, that is right." files nothing."""
-    assert read_answer(message) is Answer.YES
-
-
-@pytest.mark.parametrize(
-    ("message", "expected"),
-    [
-        ("yes please do that now", Answer.YES),
-        ("yes please do that right now", Answer.OTHER),
-    ],
-)
-def test_a_yes_of_five_words_is_yes_and_six_is_not(message: str, expected: Answer) -> None:
-    """Catches a yes length cap that is off by one: a cap of 4 turns the five-word
-    row into other, and a cap of 6 or none turns the six-word row into yes, which
-    would file on a long message that only starts with "yes"."""
-    assert read_answer(message) is expected
-
-
-@pytest.mark.parametrize("word", NO_WORDS)
-def test_every_listed_no_word_alone_reads_as_no(word: str) -> None:
-    """Catches a no list that leaves out one of the three words, such as "wrong"."""
-    assert read_answer(word) is Answer.NO
-
-
-@pytest.mark.parametrize(
-    ("message", "expected"),
-    [
-        ("No, that's wrong", Answer.NO),
-        ("no, I meant CRM", Answer.OTHER),
-    ],
-)
-def test_a_bare_no_of_three_words_is_no_and_four_is_other(message: str, expected: Answer) -> None:
-    """Catches a no length cap that is off by one: a cap of 4 or more reads the
-    correction "no, I meant CRM" as a bare no and drops what the person wanted
-    instead of asking again with it, and a cap of 2 refuses a plain "No, wrong"."""
-    assert read_answer(message) is expected
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "How do I reset my password?",
-        "yesterday I asked",
-        "okayish",
-        "nobody told me",
-        "please yes",
-        "I said yes",
-        "",
-        "   ",
-        "yes no no no no no",
-    ],
-)
-def test_an_unrelated_message_is_other(message: str) -> None:
-    """Catches a reader that matches a prefix instead of a whole first word
-    ("yesterday", "okayish", "nobody"), one that looks for a yes word anywhere in
-    the message ("please yes", "I said yes"), and one that raises on an empty
-    message. Each of those would file, or crash, on something that is not a yes."""
-    assert read_answer(message) is Answer.OTHER
 
 
 # --- wording the question -------------------------------------------------------

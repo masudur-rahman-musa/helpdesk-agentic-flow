@@ -46,6 +46,7 @@ from tests.agent_api.test_agent_loop import (
     ScriptedGateway,
     answer_body,
     held_question,
+    reading_body,
     run,
     tool_turns,
 )
@@ -164,7 +165,9 @@ def _yes_cancel(
     *, failure: ToolError | None, listing_status: str = "approved"
 ) -> tuple[FakeTools, ScriptedGateway, Any]:
     # No request number or status word in the reply: only the tool results may back those.
-    gateway = ScriptedGateway(answer_body("That did not go through, so nothing else changed."))
+    gateway = ScriptedGateway(
+        reading_body("yes"), answer_body("That did not go through, so nothing else changed.")
+    )
     tools = FakeTools(
         {CANCEL: {"request_id": str(REQ_107)}, LIST_MY_REQUESTS: _listing(listing_status)},
         failures=None if failure is None else {CANCEL: failure},
@@ -184,10 +187,10 @@ def test_a_cancel_refused_as_not_pending_runs_list_my_requests_once() -> None:
     tools, gateway, state = _yes_cancel(failure=refusal)
 
     assert tools.names == [CANCEL, LIST_MY_REQUESTS]
-    assert len(gateway.requests) == 1
-    assert gateway.requests[0]["tools"]
-    assert gateway.requests[0]["tool_choice"] == "none"
-    turns = tool_turns(gateway.requests[0])
+    assert len(gateway.requests) == 2
+    assert gateway.requests[1]["tools"]
+    assert gateway.requests[1]["tool_choice"] == "none"
+    turns = tool_turns(gateway.requests[1])
     assert len(turns) == 2
     assert json.loads(turns[0]["content"]) == {"error": "REQUEST_NOT_PENDING"}
     listed = json.loads(turns[1]["content"])
@@ -212,7 +215,7 @@ def test_a_cancel_refused_for_any_other_code_runs_no_extra_read(failure_name: st
     tools, gateway, _state = _yes_cancel(failure=failure_class("refused"))
 
     assert tools.names == [CANCEL]
-    assert len(gateway.requests) == 1
+    assert len(gateway.requests) == 2
 
 
 def test_a_cancel_that_works_runs_no_extra_read() -> None:
@@ -221,7 +224,7 @@ def test_a_cancel_that_works_runs_no_extra_read() -> None:
     tools, gateway, _state = _yes_cancel(failure=None)
 
     assert tools.names == [CANCEL]
-    assert len(gateway.requests) == 1
+    assert len(gateway.requests) == 2
 
 
 # --- the code and its error class ---------------------------------------------------

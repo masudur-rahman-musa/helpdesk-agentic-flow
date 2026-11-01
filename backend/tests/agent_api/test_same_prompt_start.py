@@ -40,6 +40,7 @@ from tests.agent_api.test_agent_loop import (
     _deps,
     answer_body,
     held_question,
+    reading_body,
     wire_call,
 )
 
@@ -238,10 +239,12 @@ def test_the_reply_after_a_held_yes_sends_the_same_tools() -> None:
     different tool part from the rest of the chat), or one that sends them
     with "auto" (the model could propose or run more after the change).
 
-    One model request is scripted; it must carry the offered tools and
-    `tool_choice` "none".
+    The reading and one model request are scripted; the reply request must
+    carry the offered tools and `tool_choice` "none".
     """
-    gateway = ScriptedGateway(answer_body("Done. REQ-0001 is filed and still pending."))
+    gateway = ScriptedGateway(
+        reading_body("yes"), answer_body("Done. REQ-0001 is filed and still pending.")
+    )
     tools = FakeTools(
         {
             "create_access_request": {
@@ -256,8 +259,8 @@ def test_the_reply_after_a_held_yes_sends_the_same_tools() -> None:
 
     _turn(gateway, tools, FakeStore(question=held_question()), message=YES_MESSAGE)
 
-    assert len(gateway.requests) == 1
-    request = gateway.requests[0]
+    assert len(gateway.requests) == 2
+    request = gateway.requests[1]
     assert request["tools"] == _wire(("employee",))
     assert request["tool_choice"] == "none"
 

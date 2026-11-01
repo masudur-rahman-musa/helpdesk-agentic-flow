@@ -110,6 +110,11 @@ def answer_body(text: str | None, *calls: Mapping[str, Any], tokens: int = 2) ->
     }
 
 
+def reading_body(answer: str) -> dict[str, Any]:
+    """The model's reading of the person's reply to a held change."""
+    return answer_body(json.dumps({"answer": answer}))
+
+
 def wire_call(call_id: str, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
     """One tool call as the gateway sends it, the arguments as a JSON string."""
     return {
@@ -1095,10 +1100,10 @@ def test_yes_files_held_calls_with_stored_keys() -> None:
     stored arguments, that offers tools on the reply step (the model could
     then propose or run more), or that never gives the results to the model.
 
-    The chat holds one filing call under a known key. One scripted model answer
-    is all the gateway holds: a second model step, or one with tools, fails.
+    The chat holds one filing call under a known key. The gateway holds the
+    reading and one reply: a third model step fails.
     """
-    gateway = ScriptedGateway(answer_body(FILED_REPLY))
+    gateway = ScriptedGateway(reading_body("yes"), answer_body(FILED_REPLY))
     tools = FakeTools({"create_access_request": FILED_PAYLOAD})
     question = held_question()
     store = FakeStore(question=question)
@@ -1110,8 +1115,8 @@ def test_yes_files_held_calls_with_stored_keys() -> None:
     assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
     assert store.question is None
     assert store.held == []
-    assert len(gateway.requests) == 1
-    request = gateway.requests[0]
+    assert len(gateway.requests) == 2
+    request = gateway.requests[1]
     assert request["model"] == "agent-default"
     assert request["tools"]
     assert request["tool_choice"] == "none"
@@ -1131,7 +1136,7 @@ def test_stream_yes_files_held_calls_with_stored_keys() -> None:
     Same set-up as the plain yes; the last event must be the reply and the
     stored call must have run once with the stored key.
     """
-    gateway = ScriptedGateway(answer_body(FILED_REPLY))
+    gateway = ScriptedGateway(reading_body("yes"), answer_body(FILED_REPLY))
     tools = FakeTools({"create_access_request": FILED_PAYLOAD})
     store = FakeStore(question=held_question())
 
@@ -1143,9 +1148,9 @@ def test_stream_yes_files_held_calls_with_stored_keys() -> None:
     assert tools.names == ["create_access_request"]
     assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
     assert store.question is None
-    assert len(gateway.requests) == 1
-    assert gateway.requests[0]["tools"]
-    assert gateway.requests[0]["tool_choice"] == "none"
+    assert len(gateway.requests) == 2
+    assert gateway.requests[1]["tools"]
+    assert gateway.requests[1]["tool_choice"] == "none"
 
 
 @pytest.mark.parametrize("message", ["no", "No.", "nope"])
@@ -1156,11 +1161,11 @@ def test_no_files_nothing(message: str) -> None:
     change down), or that sends the model the person's words changed.
 
     The tool server is scripted no tool, so a tool call fails the run. The
-    gateway holds one answer: the model is asked exactly once, and its request
+    gateway holds the reading, then one answer-only reply step, whose request
     must end with the held call, its `denied_by_person` tool turn carrying the
     person's exact message, then that message.
     """
-    gateway = ScriptedGateway(answer_body("Okay. What do you need instead?"))
+    gateway = ScriptedGateway(reading_body("no"), answer_body("Okay. What do you need instead?"))
     tools = FakeTools()
     store = FakeStore(question=held_question())
 
@@ -1169,8 +1174,9 @@ def test_no_files_nothing(message: str) -> None:
     assert tools.calls == []
     assert store.question is None
     assert store.held == []
-    assert len(gateway.requests) == 1
-    sent = gateway.requests[0]["messages"]
+    assert len(gateway.requests) == 2
+    assert gateway.requests[1]["tool_choice"] == "none"
+    sent = gateway.requests[1]["messages"]
     assert sent[-3]["role"] == "assistant"
     assert [call["id"] for call in sent[-3]["tool_calls"]] == ["held_0"]
     assert sent[-2]["role"] == "tool"
@@ -1196,11 +1202,12 @@ def test_model_cannot_confirm_for_the_person(message: str) -> None:
     as the person's answer, or that keeps the question open after the person
     moved on (the next bare yes would then file it).
 
-    The held call is on the chat row. The message is not a yes or a bare no, so
-    the tool server (no tool scripted) must see nothing, the question must be
-    dropped, and the turn must go to the model as a normal turn with tools.
+    The held call is on the chat row. The model reads the message as new
+    info, since words alone no longer decide, so the tool server (no tool
+    scripted) must see nothing, the question must be dropped, and the turn
+    must go to the model as a normal turn with tools.
     """
-    gateway = ScriptedGateway(answer_body("Tell me what you need."))
+    gateway = ScriptedGateway(reading_body("new_info"), answer_body("Tell me what you need."))
     tools = FakeTools()
     store = FakeStore(question=held_question())
 
@@ -1209,8 +1216,8 @@ def test_model_cannot_confirm_for_the_person(message: str) -> None:
     assert tools.calls == []
     assert store.question is None
     assert store.held == []
-    assert len(gateway.requests) == 1
-    assert "tools" in gateway.requests[0]
+    assert len(gateway.requests) == 2
+    assert "tools" in gateway.requests[1]
     assert state.reply == "Tell me what you need."
 
 

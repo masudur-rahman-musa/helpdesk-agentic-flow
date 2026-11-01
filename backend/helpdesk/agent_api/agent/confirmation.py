@@ -1,12 +1,13 @@
-"""Asking before filing: read the person's answer and word the question.
+"""Asking before filing: the shape of the model's reading of the person's
+answer, and the words of the question.
 
-Pure, so the yes that files a request is read by fixed word lists, never by the
-model: a misread yes would file. The open question is stored on the
-chat row as plain JSON and checked here on every read. The question is a
-summary of what a yes files: the role in plain words, the days and the reason.
-Every other change gets its own code-written line per tool, ending
-`CHANGE_LINE`. The closing lines and what a yes does next come in the
-person's language; the lines that carry names and dates stay English.
+The model reads the answer to a held change into one of four fixed values
+(`ReplyReading`); code only makes sure a yes runs the stored calls and nothing
+else. The open question is stored on the chat row as plain JSON and checked
+here on every read, with the text the person was shown (`asked`). The question
+is a summary of what a yes files: the role in plain words, the days and the
+reason. Every other change gets its own code-written line per tool, ending
+`CHANGE_LINE`.
 """
 
 from collections.abc import Sequence
@@ -16,7 +17,6 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from helpdesk.agent_api.agent.answer_words import NO_WORDS, YES_WORDS, Language, words
 from helpdesk.agent_api.agent.role_words import plain_role_name
 from helpdesk.agent_api.agent.state import (
     Citation,
@@ -35,50 +35,34 @@ FILE_LINE = "Say yes to file, or tell me what to change."
 CHANGE_LINE = "Say yes to go ahead, or no to stop."
 """Ends the summary of every change other than an access request."""
 
-FILE_LINES: dict[Language, str] = {
-    Language.ENGLISH: FILE_LINE,
-    Language.GERMAN: "Sag ja zum Einreichen, oder sag mir, was ich ändern soll.",
-    Language.FRENCH: "Dites oui pour l'envoyer, ou dites-moi ce qu'il faut changer.",
-    Language.SPANISH: "Di sí para enviarla, o dime qué debo cambiar.",
-}
-CHANGE_LINES: dict[Language, str] = {
-    Language.ENGLISH: CHANGE_LINE,
-    Language.GERMAN: "Sag ja zum Fortfahren, oder nein zum Abbrechen.",
-    Language.FRENCH: "Dites oui pour continuer, ou non pour arrêter.",
-    Language.SPANISH: "Di sí para seguir, o no para parar.",
-}
 
 USUAL_LENGTH = "its usual length"
 """Said for the days when neither the policy nor the person gave a number."""
-
-MAX_YES_WORDS = 5
-"""A longer message that starts with yes may add a change, so it is not a yes."""
-
-MAX_NO_WORDS = 3
-"""Longer, and a no is most likely a correction ("no, I meant CRM")."""
 
 OPEN_QUESTION_LIFE = timedelta(hours=24)
 """A question this old or older counts as none: the person has moved on."""
 
 
-class Answer(StrEnum):
-    """How the next message reads against an open question."""
+class Reading(StrEnum):
+    """How the model reads the person's message against an open question."""
 
     YES = "yes"
     NO = "no"
-    OTHER = "other"
+    NEW_INFO = "new_info"
+    """A change to the proposal or a question about it, "yes, but" included."""
+    UNCLEAR = "unclear"
 
 
-def read_answer(message: str) -> Answer:
-    """A yes or a bare no by its first word and its length; anything else is other."""
-    said = words(message)
-    if not said:
-        return Answer.OTHER
-    if said[0] in YES_WORDS and len(said) <= MAX_YES_WORDS:
-        return Answer.YES
-    if said[0] in NO_WORDS and len(said) <= MAX_NO_WORDS:
-        return Answer.NO
-    return Answer.OTHER
+class ReplyReading(BaseModel):
+    """The model's reading of the answer to a held change: one fixed value."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    answer: Reading
+
+
+UNCLEAR_REPLY = "I didn't quite get that. Should I go ahead? Please reply yes or no."
+"""Said when the reading is unclear; the change stays held."""
 
 
 class OpenQuestion(BaseModel):
@@ -92,6 +76,8 @@ class OpenQuestion(BaseModel):
     extraction: IntentExtraction
     resolved: ResolvedEntities
     citations: tuple[Citation, ...] = ()
+    asked: str = ""
+    """The question the person was shown; empty on rows stored before it was kept."""
 
 
 def parse_open_question(raw: object, *, now: datetime) -> OpenQuestion | None:
@@ -110,7 +96,7 @@ def parse_open_question(raw: object, *, now: datetime) -> OpenQuestion | None:
 
 @dataclass(frozen=True)
 class _NextStepWords:
-    """What a yes does next, in one language."""
+    """What a yes does next."""
 
     undecided: str
     granted: str
@@ -122,64 +108,20 @@ class _NextStepWords:
     seats: dict[ApproverSlot, str]
 
 
-_NEXT_STEP: dict[Language, _NextStepWords] = {
-    Language.ENGLISH: _NextStepWords(
-        undecided="If you say yes, I will file it and the policy decides once it is filed.",
-        granted="If you say yes, it is granted right away.",
-        blocked="The rules block it, so if you say yes it will be filed and refused.",
-        approval="If you say yes, I will file it and it needs approval from {who}.",
-        anyone="an approver",
-        and_="and",
-        seats={
-            ApproverSlot.DEPARTMENT_MANAGER: "your manager",
-            ApproverSlot.SYSTEM_OWNER: "the system owner",
-            ApproverSlot.IT_ADMIN: "IT admin",
-            ApproverSlot.HR: "HR",
-        },
-    ),
-    Language.GERMAN: _NextStepWords(
-        undecided="Wenn du ja sagst, reiche ich es ein, und die Richtlinie entscheidet danach.",
-        granted="Wenn du ja sagst, wird es sofort freigegeben.",
-        blocked="Die Regeln sperren es, also wird es bei einem Ja eingereicht und abgelehnt.",
-        approval="Wenn du ja sagst, reiche ich es ein, und es braucht die Freigabe von {who}.",
-        anyone="einer zuständigen Person",
-        and_="und",
-        seats={
-            ApproverSlot.DEPARTMENT_MANAGER: "deiner Führungskraft",
-            ApproverSlot.SYSTEM_OWNER: "der für das System verantwortlichen Person",
-            ApproverSlot.IT_ADMIN: "der IT-Administration",
-            ApproverSlot.HR: "HR",
-        },
-    ),
-    Language.FRENCH: _NextStepWords(
-        undecided="Si vous dites oui, je l'envoie et la politique décide une fois envoyée.",
-        granted="Si vous dites oui, l'accès est accordé tout de suite.",
-        blocked="Les règles le bloquent, donc si vous dites oui il sera envoyé puis refusé.",
-        approval="Si vous dites oui, je l'envoie et il faut l'accord de {who}.",
-        anyone="un approbateur",
-        and_="et",
-        seats={
-            ApproverSlot.DEPARTMENT_MANAGER: "votre responsable",
-            ApproverSlot.SYSTEM_OWNER: "la personne responsable du système",
-            ApproverSlot.IT_ADMIN: "l'administration IT",
-            ApproverSlot.HR: "les RH",
-        },
-    ),
-    Language.SPANISH: _NextStepWords(
-        undecided="Si dices sí, la envío y la política decide cuando esté enviada.",
-        granted="Si dices sí, el acceso se concede enseguida.",
-        blocked="Las reglas lo bloquean, así que si dices sí se enviará y se rechazará.",
-        approval="Si dices sí, la envío y necesita la aprobación de {who}.",
-        anyone="una persona que apruebe",
-        and_="y",
-        seats={
-            ApproverSlot.DEPARTMENT_MANAGER: "tu responsable",
-            ApproverSlot.SYSTEM_OWNER: "la persona responsable del sistema",
-            ApproverSlot.IT_ADMIN: "administración de TI",
-            ApproverSlot.HR: "RR. HH.",
-        },
-    ),
-}
+_NEXT_STEP = _NextStepWords(
+    undecided="If you say yes, I will file it and the policy decides once it is filed.",
+    granted="If you say yes, it is granted right away.",
+    blocked="The rules block it, so if you say yes it will be filed and refused.",
+    approval="If you say yes, I will file it and it needs approval from {who}.",
+    anyone="an approver",
+    and_="and",
+    seats={
+        ApproverSlot.DEPARTMENT_MANAGER: "your manager",
+        ApproverSlot.SYSTEM_OWNER: "the system owner",
+        ApproverSlot.IT_ADMIN: "IT admin",
+        ApproverSlot.HR: "HR",
+    },
+)
 
 
 class _Verdict(BaseModel):
@@ -211,9 +153,9 @@ def _joined(parts: Sequence[str], and_: str = "and") -> str:
     return f"{', '.join(parts[:-1])} {and_} {parts[-1]}"
 
 
-def next_step(results: Sequence[ToolResult], language: Language = Language.ENGLISH) -> str:
+def next_step(results: Sequence[ToolResult]) -> str:
     """What happens after a yes, from this turn's classification only."""
-    wording = _NEXT_STEP[language]
+    wording = _NEXT_STEP
     verdict = _verdict(results)
     if verdict is None:
         return wording.undecided
@@ -250,7 +192,6 @@ def summary_reply(
     results: Sequence[ToolResult],
     held_calls: Sequence[ValidatedCall],
     person: str | None = None,
-    language: Language = Language.ENGLISH,
 ) -> str:
     """ "I'll file this: <role>, <N> days, reason "<reason>"." then the file
     line and what happens next. The days are this turn's classified length,
@@ -269,7 +210,7 @@ def summary_reply(
     reason = str(create.get("justification") or "").strip()
     return (
         f'I\'ll file this: {role}, {length}, reason "{reason}". '
-        f"{FILE_LINES[language]} {next_step(results, language)}"
+        f"{FILE_LINE} {next_step(results)}"
     )
 
 
@@ -372,14 +313,13 @@ def change_summary(
     results: Sequence[ToolResult],
     resolved: ResolvedEntities | None,
     person: str | None = None,
-    language: Language = Language.ENGLISH,
 ) -> str:
     """What a yes runs, in code-written words. A held access request keeps its
     own summary (`summary_reply`); every other change gets one line per tool,
     approvals and rejections one line each naming the listed requests, then
     `CHANGE_LINE`."""
     if any(call.tool == CREATE_ACCESS_REQUEST for call in calls):
-        return summary_reply(resolved, results, calls, person, language)
+        return summary_reply(resolved, results, calls, person)
     names = _listed_names(results)
     lines: list[str] = []
     for tool, verb in _DECISION_VERBS.items():
@@ -393,4 +333,4 @@ def change_summary(
         if call.tool not in _DECISION_VERBS and needs_idempotency_key(call.tool)
     )
     lines = list(dict.fromkeys(lines))
-    return f"{' '.join(lines)} {CHANGE_LINES[language]}"
+    return f"{' '.join(lines)} {CHANGE_LINE}"

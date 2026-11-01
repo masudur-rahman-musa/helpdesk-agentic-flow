@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from helpdesk.agent_api.agent.confirmation import ReplyReading
 from helpdesk.agent_api.agent.state import (
     ComposedReply,
     IntentExtraction,
@@ -35,12 +36,17 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SWEPT_TREES: tuple[Path, ...] = (_REPO_ROOT / "backend" / "helpdesk",)
 _CALL_SITE = re.compile(r"\.complete_json\(")
 
-SCHEMA_MODELS: tuple[type[BaseModel], ...] = (IntentExtraction, ToolPlanAnswer, ComposedReply)
-"""The schema models `complete_json` was built for. Nothing calls it today, and
-the sweep below keeps it that way: a new caller turns it red before its schema
-goes unread."""
+SCHEMA_MODELS: tuple[type[BaseModel], ...] = (
+    IntentExtraction,
+    ToolPlanAnswer,
+    ComposedReply,
+    ReplyReading,
+)
+"""The schema models `complete_json` was built for. The loop reads the reply
+to a held change with `ReplyReading`; the sweep below turns a new caller red
+before its schema goes unread."""
 
-KNOWN_CALLERS: frozenset[str] = frozenset()
+KNOWN_CALLERS: frozenset[str] = frozenset({"graph.py"})
 
 
 @pytest.mark.parametrize("model", SCHEMA_MODELS, ids=lambda model: model.__name__)
