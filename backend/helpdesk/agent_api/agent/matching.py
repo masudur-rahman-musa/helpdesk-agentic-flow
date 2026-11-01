@@ -11,6 +11,8 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from helpdesk.agent_api.agent.answer_words import fold
+
 FUZZY_CUTOFF = 0.85
 """Inclusive. It keeps a typo of `billing-read` off `billing-admin`, so
 loosening it grants more than was asked."""
@@ -30,8 +32,9 @@ class Candidate:
 
 
 def normalise(value: str) -> str:
-    """Casefold, turn each non-alphanumeric run into one space, strip."""
-    return _SEPARATORS.sub(" ", value.casefold()).strip()
+    """Fold case and accents, turn each non-alphanumeric run into one space,
+    strip. Without the accents, "Muhle" finds "Mühle"."""
+    return _SEPARATORS.sub(" ", fold(value)).strip()
 
 
 def aliases_for(candidate: Candidate) -> frozenset[str]:

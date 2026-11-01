@@ -53,6 +53,7 @@ from langgraph.runtime import Runtime
 from pydantic import ValidationError
 
 from helpdesk.agent_api.agent import gates
+from helpdesk.agent_api.agent.answer_words import guess_language
 from helpdesk.agent_api.agent.confirmation import (
     Answer,
     OpenQuestion,
@@ -881,7 +882,9 @@ class _Turn:
             )
         )
         self.state = self.state.model_copy(update={"extraction": extraction, "resolved": resolved})
-        reply = change_summary(calls, tuple(self.results), resolved, person)
+        reply = change_summary(
+            calls, tuple(self.results), resolved, person, guess_language(self.person_said)
+        )
         return await self._finish(reply, outcome=TurnOutcome.CONFIRM)
 
     # --- the answer ----------------------------------------------------------

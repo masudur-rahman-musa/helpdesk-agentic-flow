@@ -14,8 +14,9 @@ from datetime import date
 from types import MappingProxyType
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from helpdesk.agent_api.agent.answer_words import is_bare_answer
 from helpdesk.agent_api.agent.state import Citation
 from helpdesk.shared.models.access import RequestStatus, ReviewDecision
 
@@ -203,6 +204,15 @@ class ApproveRequestArgs(_MutatingToolArgs):
 class RejectRequestArgs(_MutatingToolArgs):
     request_id: uuid.UUID = Field(description="The access request being rejected.")
     reason: str = Field(description="Why it is being rejected.")
+
+    @field_validator("reason")
+    @classmethod
+    def _not_a_bare_answer(cls, reason: str) -> str:
+        """A reason that is only yes or no words ("oui", "nein") is the
+        person's answer, not why, so the model must ask for a real one."""
+        if is_bare_answer(reason):
+            raise ValueError("the reason is only a yes or no; ask why it is being rejected")
+        return reason
 
 
 class CancelRequestArgs(_MutatingToolArgs):
