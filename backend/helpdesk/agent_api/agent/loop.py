@@ -42,7 +42,7 @@ from helpdesk.agent_api.agent.graph import (
     LoopStore,
     compiled_graph,
 )
-from helpdesk.agent_api.agent.loop_tools import PersonRow
+from helpdesk.agent_api.agent.loop_tools import DepartmentRow, PersonRow
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.sources import shown_citations
 from helpdesk.agent_api.agent.state import RequestDraft, TurnOutcome, TurnState
@@ -190,6 +190,12 @@ class DbLoopStore:
             )
             for user in await Repository(self._db, User).list()
             if user.status == "active"
+        ]
+
+    async def departments(self) -> Sequence[DepartmentRow]:
+        return [
+            DepartmentRow(id=department.id, name=department.name)
+            for department in await Repository(self._db, Department).list()
         ]
 
 

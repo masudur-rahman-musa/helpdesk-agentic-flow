@@ -64,11 +64,13 @@ from helpdesk.agent_api.agent.draft import draft_message, merge_draft
 from helpdesk.agent_api.agent.events import ProgressEvent, StepEvent
 from helpdesk.agent_api.agent.keys import derive_idempotency_key
 from helpdesk.agent_api.agent.loop_tools import (
+    FIND_DEPARTMENT,
     FIND_PERSON,
     FIND_ROLE,
     Directory,
     LoopTool,
     ToolKind,
+    find_department,
     find_person,
     find_role,
     offered_tools,
@@ -113,6 +115,7 @@ from helpdesk.agent_api.services.model_gateway.client import (
     ToolCallAnswer,
 )
 from helpdesk.agent_api.services.tracing import span
+from helpdesk.shared.access.onboarding import EMAIL_MAX_LENGTH, emails_in
 from helpdesk.shared.core.errors import ErrorCode, ToolError
 from helpdesk.shared.models.conversation import MessageRole
 
@@ -124,6 +127,7 @@ __all__ = [
     "LOOP_PROMPT",
     "MAX_SEND_BACKS",
     "MAX_STEPS",
+    "PICK_AGAIN_REPLY",
     "TIMEOUT_REPLY",
     "LoopContext",
     "LoopGraph",
@@ -158,6 +162,14 @@ FAILURE_REPLY = (
 )
 """Said when the model or a tool failed in a way no reply can cover. None of
 the model's output is shown; the code rides on the state as `error_code`."""
+
+PICK_AGAIN_REPLY = (
+    "I am not sure which one you mean yet. Please tell me which one, by its name or number."
+)
+"""Said instead of `FAILURE_REPLY` when a bare yes with nothing held, the
+answer to a question that asked the person to pick, ends on a failure. The
+outcome and error code stay those of the failure
+(`test_a_yes_with_nothing_held_and_a_failed_step_asks_which_one`)."""
 
 BUSY_REPLY = (
     "I'm getting a lot of requests right now, so I could not answer that. "
@@ -203,6 +215,25 @@ turn returned them. Identity, tenant and session are filled by code."""
 
 REFUSED_AGAIN = "the person refused this exact change"
 """The reason a proposal equal to a just-denied call goes back with."""
+
+ONBOARD_USER = "onboard_user"
+
+_EMAIL_STAND_IN = "pending@example.invalid"
+"""Put in an onboarding's `email` only so the schema check can read the rest
+of the call when the person typed no usable address. The call then goes back,
+so it is never held."""
+
+NO_EMAIL = (
+    "email: the person has not typed the new joiner's email address in this chat; ask them for it"
+)
+TWO_EMAILS = (
+    "email: the person's latest message holds more than one email address; "
+    "ask them which address is the new joiner's"
+)
+LONG_EMAIL = (
+    f"email: the address the person typed is longer than {EMAIL_MAX_LENGTH} characters; "
+    "ask them for the right one"
+)
 
 
 class LoopStore(Directory, Protocol):
@@ -260,6 +291,8 @@ class LoopState(TypedDict, total=False):
     people_found: dict[str, str]
     denied: list[dict[str, Any]]
     """The held calls the person just turned down, keys left out."""
+    bare_yes: bool
+    """The person said a bare yes with nothing held, answering a pick question."""
     final: TurnState | None
     """The turn's end state; once set, the graph stops."""
 
@@ -394,6 +427,7 @@ class _Turn:
         self.roles_found: dict[str, dict[str, Any]] = dict(state.get("roles_found", {}))
         self.people_found: dict[str, str] = dict(state.get("people_found", {}))
         self.denied: list[dict[str, Any]] = list(state.get("denied", []))
+        self.bare_yes = state.get("bare_yes", False)
         self.final: TurnState | None = None
 
     def saved(self) -> LoopState:
@@ -420,6 +454,7 @@ class _Turn:
             "roles_found": self.roles_found,
             "people_found": self.people_found,
             "denied": self.denied,
+            "bare_yes": self.bare_yes,
             "final": self.final,
         }
 
@@ -466,6 +501,7 @@ class _Turn:
             await self.store.clear_open_question()
         await self._start()
         if question is None:
+            self.bare_yes = read_answer(self.state.user_message) is Answer.YES
             return
         if read_answer(self.state.user_message) is not Answer.YES:
             self._deny(question)
@@ -558,8 +594,10 @@ class _Turn:
         )
 
     async def fail(self, code: ErrorCode) -> None:
-        """End the turn on `FAILURE_REPLY`; none of the model's output is shown."""
-        self.final = await self._finish(FAILURE_REPLY, outcome=TurnOutcome.FAILED, error_code=code)
+        """End the turn on `FAILURE_REPLY`, or `PICK_AGAIN_REPLY` after a bare
+        yes with nothing held; none of the model's output is shown."""
+        reply = PICK_AGAIN_REPLY if self.bare_yes else FAILURE_REPLY
+        self.final = await self._finish(reply, outcome=TurnOutcome.FAILED, error_code=code)
 
     async def budget_spent(self, reply: str) -> None:
         """End the turn on the gateway's budget message as a finished reply."""
@@ -774,7 +812,9 @@ class _Turn:
             return {"roles": await find_role(words, tools=self.deps.tools, directory=self.store)}
         if name == FIND_PERSON:
             return {"people": await find_person(words, directory=self.store)}
-        raise _TurnFailed(ErrorCode.INTERNAL)  # pragma: no cover - only two finders exist
+        if name == FIND_DEPARTMENT:
+            return {"departments": await find_department(words, directory=self.store)}
+        raise _TurnFailed(ErrorCode.INTERNAL)  # pragma: no cover - only three finders exist
 
     def _remember(self, name: str, payload: Mapping[str, Any]) -> None:
         """Keep found roles and people for the summary, and passages for Sources."""
@@ -796,7 +836,8 @@ class _Turn:
         """The step's changes with their keys, all or none, and the reason per
         call when any is wrong. Code adds the key; a model that names one is
         wrong. After the schema, every id must come from this turn's ok results
-        (`_unfound_id`), and a just-denied call is refused again."""
+        (`_unfound_id`), an onboarding's email is the one the person typed
+        (`_typed_email`), and a just-denied call is refused again."""
         listed = gates.listed_request_ids(tuple(self.results))
         found = " ".join(
             json.dumps(result.payload, default=str) for result in self.results if result.ok
@@ -812,8 +853,14 @@ class _Turn:
                     "request_id: not in this turn's list_pending_approvals result; list them first"
                 )
                 continue
+            email_problem = None
+            if call.name == ONBOARD_USER:
+                email, email_problem = self._typed_email()
+                call_arguments = {**call.arguments, "email": email or _EMAIL_STAND_IN}
+            else:
+                call_arguments = dict(call.arguments)
             arguments = {
-                **call.arguments,
+                **call_arguments,
                 IDEMPOTENCY_KEY: derive_idempotency_key(
                     session_id=self.state.session_id,
                     user_message=self.state.user_message,
@@ -834,6 +881,9 @@ class _Turn:
                     f"{unfound}: not returned by a lookup this turn; look it up first"
                 )
                 continue
+            if email_problem is not None:
+                reasons[call.id] = email_problem
+                continue
             if {"tool": call.name, "arguments": _without_key(dumped)} in self.denied:
                 reasons[call.id] = REFUSED_AGAIN
                 continue
@@ -843,6 +893,22 @@ class _Turn:
                 reasons.setdefault(call.id, "held back: another change in this step was wrong")
             return [], reasons
         return validated, {}
+
+    def _typed_email(self) -> tuple[str | None, str | None]:
+        """The new joiner's address from the person's own latest message that
+        holds one, and `None`; or `None` and the reason it cannot be used.
+        Code fills it, never the model: the gateway masks addresses, so the
+        model only sees a placeholder. No reason holds an address."""
+        for said in reversed(self.person_said):
+            found = emails_in(said)
+            if not found:
+                continue
+            if len(found) > 1:
+                return None, TWO_EMAILS
+            if len(found[0]) > EMAIL_MAX_LENGTH:
+                return None, LONG_EMAIL
+            return found[0], None
+        return None, NO_EMAIL
 
     async def _hold(self, calls: list[ValidatedCall]) -> TurnState:
         """Store the checked changes as the open question and say what a yes runs."""

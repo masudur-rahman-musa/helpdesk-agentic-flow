@@ -27,7 +27,7 @@ from helpdesk.agent_api.agent.confirmation import (
     read_answer,
     summary_reply,
 )
-from helpdesk.agent_api.agent.loop_tools import PersonRow, find_person
+from helpdesk.agent_api.agent.loop_tools import DepartmentRow, PersonRow, find_person
 from helpdesk.agent_api.agent.matching import normalise
 from helpdesk.agent_api.agent.state import ResolvedEntities, ToolResult, ValidatedCall
 from helpdesk.agent_api.agent.tool_args import RejectRequestArgs
@@ -282,6 +282,9 @@ class _Directory:
 
     async def people(self) -> Sequence[PersonRow]:
         return self._people
+
+    async def departments(self) -> Sequence[DepartmentRow]:
+        return []
 
 
 def _person(number: int, name: str) -> PersonRow:

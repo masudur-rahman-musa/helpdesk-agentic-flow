@@ -1,4 +1,4 @@
-"""The tools the agent loop offers, and the two finders it runs itself.
+"""The tools the agent loop offers, and the finders it runs itself.
 
 The list offered is cut to what the caller's principals may call
 (`rbac.tools_for`), so the model never sees a tool the person cannot use.
@@ -6,7 +6,7 @@ That only says what to show: every call still goes through MCP with the
 caller's own token, where the tool's own check holds.
 
 Four kinds. A lookup is an MCP read tool, run as asked. A finder
-(`find_role`, `find_person`) runs here, so loose words, typos and picks
+(`find_role`, `find_person`, `find_department`) runs here, so loose words, typos and picks
 become real rows without a new MCP tool. A note (`note_request`) runs here
 too and only writes the request draft on the chat row (`draft.py`). A change
 is an MCP mutating tool the loop only holds for a yes; it is offered with its
@@ -39,6 +39,7 @@ from helpdesk.shared.core.errors import ToolError
 
 FIND_ROLE = "find_role"
 FIND_PERSON = "find_person"
+FIND_DEPARTMENT = "find_department"
 NOTE_REQUEST = "note_request"
 LIST_REQUESTABLE_ROLES = "list_requestable_roles"
 
@@ -160,6 +161,9 @@ _ACTS_FOR_OTHERS = frozenset(
 )
 """A role holding any of these acts for someone else, so it may look people up."""
 
+_NEEDS_A_DEPARTMENT = frozenset({rbac.Tool.ONBOARD_USER, rbac.Tool.TRANSFER_USER})
+"""A role holding either names a department, so it may look departments up."""
+
 _FILES = frozenset(
     {rbac.Tool.CREATE_ACCESS_REQUEST_SELF, rbac.Tool.CREATE_ACCESS_REQUEST_ON_BEHALF}
 )
@@ -194,6 +198,16 @@ def offered_tools(principals: Sequence[str]) -> tuple[LoopTool, ...]:
                 ToolKind.FIND,
             )
         )
+    if allowed & _NEEDS_A_DEPARTMENT:
+        offered.append(
+            LoopTool(
+                FIND_DEPARTMENT,
+                "Find a department in the company by name. Answers up to 3 "
+                "departments with their id and name.",
+                _WORDS_SCHEMA,
+                ToolKind.FIND,
+            )
+        )
     if allowed & _FILES:
         offered.append(
             LoopTool(
@@ -222,12 +236,22 @@ class PersonRow:
     department: str
 
 
+@dataclass(frozen=True)
+class DepartmentRow:
+    """One department as the finder may show it."""
+
+    id: uuid.UUID
+    name: str
+
+
 class Directory(Protocol):
     """The tenant's directory reads the finders need, bound to the caller's tenant."""
 
     async def role_ids(self) -> Mapping[tuple[str, str], uuid.UUID]: ...
 
     async def people(self) -> Sequence[PersonRow]: ...
+
+    async def departments(self) -> Sequence[DepartmentRow]: ...
 
 
 async def find_role(words: str, *, tools: ToolCaller, directory: Directory) -> list[dict[str, Any]]:
@@ -287,28 +311,52 @@ async def find_role(words: str, *, tools: ToolCaller, directory: Directory) -> l
     return rows[:MAX_FOUND]
 
 
+def _name_score(typed: str, name: str) -> float | None:
+    """How close the typed words are to a name, or `None` when they do not
+    name it: every typed word close to a word of the name, or the whole name
+    close, at the matcher's fuzzy cut-off. `typed` is already normalised."""
+    name = matching.normalise(name)
+    whole = difflib.SequenceMatcher(None, typed, name).ratio()
+    name_words = name.split()
+    every_word = all(
+        any(
+            difflib.SequenceMatcher(None, word, part).ratio() >= matching.FUZZY_CUTOFF
+            for part in name_words
+        )
+        for word in typed.split()
+    )
+    return whole if every_word or whole >= matching.FUZZY_CUTOFF else None
+
+
 async def find_person(words: str, *, directory: Directory) -> list[dict[str, Any]]:
-    """Up to 3 people the words name: every typed word close to a word of the
-    name, or the whole name close, at the matcher's fuzzy cut-off. Best first."""
+    """Up to 3 people the words name (`_name_score`). Best first."""
     typed = matching.normalise(words)
     if not typed:
         return []
     scored: list[tuple[float, PersonRow]] = []
     for person in await directory.people():
-        name = matching.normalise(person.display_name)
-        whole = difflib.SequenceMatcher(None, typed, name).ratio()
-        name_words = name.split()
-        every_word = all(
-            any(
-                difflib.SequenceMatcher(None, word, part).ratio() >= matching.FUZZY_CUTOFF
-                for part in name_words
-            )
-            for word in typed.split()
-        )
-        if every_word or whole >= matching.FUZZY_CUTOFF:
-            scored.append((whole, person))
+        score = _name_score(typed, person.display_name)
+        if score is not None:
+            scored.append((score, person))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [
         {"user_id": str(person.id), "name": person.display_name, "department": person.department}
         for _, person in scored[:MAX_FOUND]
+    ]
+
+
+async def find_department(words: str, *, directory: Directory) -> list[dict[str, Any]]:
+    """Up to 3 departments the words name, matched like people. Best first."""
+    typed = matching.normalise(words)
+    if not typed:
+        return []
+    scored: list[tuple[float, DepartmentRow]] = []
+    for department in await directory.departments():
+        score = _name_score(typed, department.name)
+        if score is not None:
+            scored.append((score, department))
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [
+        {"department_id": str(department.id), "name": department.name}
+        for _, department in scored[:MAX_FOUND]
     ]

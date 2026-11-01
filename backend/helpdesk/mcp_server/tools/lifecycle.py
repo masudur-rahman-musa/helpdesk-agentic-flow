@@ -5,7 +5,6 @@ tenant's id give the same `NOT_FOUND`, so answers reveal nothing across
 tenants. No tool takes a tenant argument.
 """
 
-import re
 import uuid
 from datetime import date
 
@@ -16,28 +15,21 @@ from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.shared.access.lifecycle import SkippedRole
 from helpdesk.shared.access.offboarding import offboard_user as offboard_user_core
+
+# Re-exported: the onboarding tool's callers read the length from here.
+from helpdesk.shared.access.onboarding import EMAIL_MAX_LENGTH as EMAIL_MAX_LENGTH
+from helpdesk.shared.access.onboarding import EMAIL_PATTERN
 from helpdesk.shared.access.onboarding import onboard_user as onboard_user_core
 from helpdesk.shared.access.transfers import transfer_user as transfer_user_core
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.models import Department, User
 
-# Read off the columns, so the input check and the storage never disagree.
-_EMAIL_TYPE = User.__table__.c.email.type
-assert isinstance(_EMAIL_TYPE, String), _EMAIL_TYPE
-assert _EMAIL_TYPE.length is not None, "users.email must be a sized column"
-EMAIL_MAX_LENGTH: int = _EMAIL_TYPE.length
-
+# Read off the column, so the input check and the storage never disagree.
 _DISPLAY_NAME_TYPE = User.__table__.c.display_name.type
 assert isinstance(_DISPLAY_NAME_TYPE, String), _DISPLAY_NAME_TYPE
 assert _DISPLAY_NAME_TYPE.length is not None, "users.display_name must be a sized column"
 DISPLAY_NAME_MAX_LENGTH: int = _DISPLAY_NAME_TYPE.length
-
-EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
-r"""Narrow on purpose: one line, one `@`, a dotted domain, no whitespace.
-
-Used with `fullmatch`, so a trailing newline cannot ride into the directory.
-"""
 
 
 class OnboardUserInput(MutatingToolInput):

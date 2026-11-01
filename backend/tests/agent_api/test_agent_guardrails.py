@@ -53,6 +53,7 @@ from helpdesk.shared.crud.sessions import get_asked_kind, get_request_draft, set
 from tests.agent_api.test_agent_loop import (
     FILED_PAYLOAD,
     FILED_REPLY,
+    MESSAGE,
     START,
     USER_ID,
     WIKI_EDITOR_ID,
@@ -295,13 +296,14 @@ def test_ids_on_every_person_field_are_checked(
     held. Then the same call with the id `find_person` returned is held, so it is
     the missing lookup, not the tool, that refused the first.
     """
+    said = {"onboard_user": "Onboard Fake Joiner, joiner@example.test"}
     refused_gateway = ScriptedGateway(
         answer_body(None, wire_call("call_c", tool, build(UNKNOWN_ID))),
         answer_body("Who do you mean?"),
     )
     refused_store = FakeStore(principals=["hr"])
 
-    run(refused_gateway, FakeTools(), refused_store)
+    run(refused_gateway, FakeTools(), refused_store, message=said.get(tool, MESSAGE))
 
     assert refused_store.held == []
     assert len(refused_gateway.requests) == 2
@@ -316,7 +318,7 @@ def test_ids_on_every_person_field_are_checked(
         people=[PersonRow(id=PERSON_ID, display_name="Dana Fake", department="Sales")],
     )
 
-    found = run(found_gateway, FakeTools(), found_store)
+    found = run(found_gateway, FakeTools(), found_store, message=said.get(tool, MESSAGE))
 
     assert [call.tool for call in found_store.held[0].calls] == [tool]
     assert found.outcome is TurnOutcome.CONFIRM

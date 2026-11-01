@@ -1,8 +1,10 @@
 """Creating a new user and giving them their department's template roles."""
 
+import re
 import uuid
 from datetime import date, datetime
 
+from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.shared.access.directory import DirectoryProvider
@@ -24,7 +26,37 @@ from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.crud.users import find_user_by_email
 from helpdesk.shared.models import User
 
-__all__ = ["USER_ONBOARDED_EVENT_TYPE", "onboard_user"]
+__all__ = [
+    "EMAIL_MAX_LENGTH",
+    "EMAIL_PATTERN",
+    "USER_ONBOARDED_EVENT_TYPE",
+    "emails_in",
+    "onboard_user",
+]
+
+# Read off the column, so the input check and the storage never disagree.
+_EMAIL_TYPE = User.__table__.c.email.type
+assert isinstance(_EMAIL_TYPE, String), _EMAIL_TYPE
+assert _EMAIL_TYPE.length is not None, "users.email must be a sized column"
+EMAIL_MAX_LENGTH: int = _EMAIL_TYPE.length
+
+EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+r"""Narrow on purpose: one line, one `@`, a dotted domain, no whitespace.
+
+Used with `fullmatch`, so a trailing newline cannot ride into the directory.
+"""
+
+_AROUND_AN_ADDRESS = "\"'()<>[]{},;:.!?"
+"""Marks a typed address may sit between in a sentence, never part of it."""
+
+
+def emails_in(text: str) -> list[str]:
+    """Every address in `text`, in order. Split on whitespace, so no address
+    carries a space or a line end, then stripped of the punctuation around it
+    ("mara@x.example," gives "mara@x.example"). A masked `<EMAIL_1>` holds no
+    `@`, so it is never one."""
+    found = (word.strip(_AROUND_AN_ADDRESS) for word in text.split())
+    return [word for word in found if EMAIL_PATTERN.fullmatch(word) is not None]
 
 
 async def onboard_user(

@@ -41,6 +41,7 @@ from helpdesk.agent_api.agent.loop import (
     stream_loop_turn,
 )
 from helpdesk.agent_api.agent.loop_tools import (
+    DepartmentRow,
     PersonRow,
     find_person,
     find_role,
@@ -185,6 +186,7 @@ class FakeStore:
         principals: Sequence[str] = ("employee",),
         history: Sequence[tuple[str, str]] = (),
         people: Sequence[PersonRow] = (),
+        departments: Sequence[DepartmentRow] = (),
         on_user_message: Callable[[], None] | None = None,
         question: OpenQuestion | None = None,
         draft: RequestDraft | None = None,
@@ -192,6 +194,7 @@ class FakeStore:
         self._principals = tuple(principals)
         self._history = list(history)
         self._people = list(people)
+        self._departments = list(departments)
         self._on_user_message = on_user_message
         self.prepared: list[datetime] = []
         self.held: list[OpenQuestion] = []
@@ -237,6 +240,9 @@ class FakeStore:
 
     async def people(self) -> Sequence[PersonRow]:
         return self._people
+
+    async def departments(self) -> Sequence[DepartmentRow]:
+        return self._departments
 
 
 class Clock:

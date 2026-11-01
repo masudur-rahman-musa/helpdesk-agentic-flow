@@ -53,6 +53,7 @@ import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.agent_api.agent.loop_tools import DepartmentRow
 from helpdesk.agent_api.agent.prompts import PROMPTS_DIR
 from helpdesk.agent_api.agent.state import TurnOutcome, TurnState
 from helpdesk.agent_api.api.router import app
@@ -532,6 +533,9 @@ class FakeDirectory:
     async def role_ids(self) -> Mapping[tuple[str, str], uuid.UUID]:
         FakeDirectory.reads += 1
         return TENANT_ROLES
+
+    async def departments(self) -> Sequence[DepartmentRow]:
+        return []
 
 
 @pytest.fixture

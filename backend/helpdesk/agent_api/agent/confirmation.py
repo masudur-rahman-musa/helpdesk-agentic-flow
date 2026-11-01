@@ -350,7 +350,8 @@ def _call_line(
         return f"I'll remove your access to {system}." if system else "I'll remove this access."
     if call.tool == "onboard_user":
         return (
-            f"I'll set up starting access for {arguments.get('display_name')}, "
+            f"I'll set up starting access for {arguments.get('display_name')} "
+            f"({arguments.get('email')}), "
             f"starting {arguments.get('start_date')}."
         )
     if call.tool == "transfer_user":

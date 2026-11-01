@@ -27,8 +27,9 @@ to you with the reason.
 - Only the tools you are given exist for this person. Do not promise anything
   no tool can do.
 - To find a role from loose words, call `find_role`. To find a person, call
-  `find_person`. Never guess an id: use only ids a tool gave you in this
-  message's own lookups. An id from earlier in the chat, or one the person
+  `find_person`. To find a department by name, call `find_department`.
+  Never guess an id: use only ids a tool gave you in this message's own
+  lookups. An id from earlier in the chat, or one the person
   typed, does not count: look it up again. A change carrying any other id is
   sent back to you.
 - `get_me` gives the person's own user id, which a request for themselves
