@@ -42,6 +42,9 @@ The placeholder gateway keys are left out too. Real ones come in step 6. The
 local Postgres, Redis and Qdrant values in the file already match what
 `docker-compose.yml` starts.
 
+Every value you make yourself is explained, with the command that makes it, in
+[How to make each value](#how-to-make-each-value) below.
+
 ## 3. Start the backing services
 
 ```bash
@@ -139,6 +142,106 @@ make ingest TENANT=cuan VERSION=v2
 
 Running it again over unchanged files writes nothing. An IT admin can also
 ingest one document again from the Policies page.
+
+## How to make each value
+
+Most settings already work as they are. These are the ones you make yourself.
+None of them is a paid key. They are random strings, and the commands below
+make them with `openssl`, which most systems already have. Each one goes in
+`backend/.env.demo` unless it says otherwise.
+
+### `JWT_SECRET`
+
+What it is for. The agent API signs every login token with it, and checks the
+signature on every request. Anyone who knows it could make a token for any user.
+
+How to make it.
+
+```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)"
+```
+
+`openssl rand -hex 32` makes 32 random bytes and prints them as 64 letters and
+digits. The app refuses a secret shorter than 32 bytes. Changing it later only
+signs everyone out.
+
+### `GATEWAY_API_KEYS`
+
+What it is for. Every model call goes through the gateway in the llmops-console
+repository. The gateway wants to know which company (tenant) a call is for, so it
+can apply that company's budget and rules. Each tenant gets its own key.
+
+The shape is `tenant:key,tenant:key`, one pair per tenant, for example
+`nordlicht:3f9a...,cuan:b71c...`. The tenant names are the two demo companies the
+seed writes. They must also exist in the console's `backend/config/routing.yaml`.
+
+Why it comes in pairs. The helpdesk keeps the key itself, because it has to send
+it. The console keeps only a fingerprint of the key, its SHA-256 digest. A digest
+is a one-way scramble. The console can check a key by scrambling it again and
+comparing, but someone who reads the console's settings still cannot learn the
+key. So one random value becomes two lines, one for each repository.
+
+How to make it. Step 6 above has the command for both tenants. For one tenant it
+looks like this.
+
+```bash
+key=$(openssl rand -hex 32)
+echo "this repo:   nordlicht:$key"
+echo "the console: nordlicht:$(printf %s "$key" | shasum -a 256 | cut -d' ' -f1)"
+```
+
+The first line goes in `GATEWAY_API_KEYS` here. The second goes in
+`OPSCONSOLE_API_KEYS` in the console. If the two sides do not match, the chat
+gets no answer and the gateway logs a 401.
+
+`printf %s` is used instead of `echo` on purpose. `echo` adds a line break at the
+end, and a key with a line break has a different digest.
+
+### `POSTGRES_PASSWORD` and `DATABASE_URL`
+
+What they are for. `POSTGRES_PASSWORD` is the password of the owner account of
+the local database. `DATABASE_URL` is the full address the migrations and the
+tests use, and the same password sits inside it.
+
+The shipped `change-me` is fine on a laptop, since the database only listens on
+your machine. To change it, make one value and put it in both lines.
+
+```bash
+openssl rand -hex 16
+```
+
+Postgres reads the password only when it first creates its data. If the stack
+has already run, the old password stays until you delete the volume with
+`docker compose down -v`, which also deletes all local data.
+
+### `APP_DB_PASSWORD`
+
+What it is for. The app does not use the owner account. It uses a second,
+restricted account that can only add to the audit log, never change or delete
+it. This is that account's password. The database's first start reads it in
+`infra/local/postgres/`, and the app containers build their own database address
+from it.
+
+Make it the same way as above. The same rule about a fresh volume applies.
+
+### `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_HOST`
+
+What they are for. Optional. They send the agent's traces to Langfuse, so you can
+see each step of a chat turn. Without them tracing is off, and nothing else
+changes.
+
+These are not made by a command. Make a free project on Langfuse, open its
+settings, and create an API key pair there. Langfuse shows a public key that
+starts `pk-lf-` and a secret key that starts `sk-lf-`. `LANGFUSE_HOST` is the
+address of your Langfuse region, for example `https://cloud.langfuse.com`. They
+belong to your own account, so put them in `backend/.env`, not in
+`backend/.env.demo`.
+
+### The model provider key
+
+This repository has none. The model key, for example an Anthropic key, lives
+only in the console's `backend/.env`. The helpdesk only ever sends the gateway
+key above.
 
 ## Run the tests
 
