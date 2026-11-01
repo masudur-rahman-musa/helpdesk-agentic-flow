@@ -979,15 +979,22 @@ def test_a_filed_request_answers_its_decision_card(
     through unprojected, fails here rather than at the web app's rendering.
 
     The first message only proposes the request, which is held; the yes runs
-    it. Gateway answers for the proposal, the reading of the yes and the
-    reply after it, and one
+    it. Gateway answers for the proposal, the written question, the reading of
+    the yes and the reply after it, and one
     tool call (the create), so a route that ran an extra call fails inside the
     stub. The payload is the tool's whole output, so a `None` card here is the
     route's doing and not a missing key's.
     """
     session_id = uuid.uuid4()
     gateway = StagedGateway(
-        [_lookups(), _proposed_request(chat_env), '{"answer": "yes"}', FILED_REPLY]
+        [
+            _lookups(),
+            _proposed_request(chat_env),
+            "Soll ich das für 30 Tage beantragen? Grund: Obviously fake justification. "
+            "Bitte antworte mit Ja.",
+            '{"answer": "yes"}',
+            FILED_REPLY,
+        ]
     )
     tools = ScriptedToolCaller(*_lookup_payloads(chat_env), _card_payload())
 
@@ -1015,7 +1022,7 @@ def test_a_filed_request_answers_its_decision_card(
     assert card["expires_at"] == CARD_EXPIRES_AT
     assert str(CARD_APPROVER_ID) not in json.dumps(card)
 
-    assert gateway.call_count == 4
+    assert gateway.call_count == 5
     assert tools.names == ["get_me", "list_my_access", CREATE_REQUEST]
 
 

@@ -55,6 +55,7 @@ from tests.agent_api.test_agent_loop import (
     TENANT_ID,
     TENANT_SLUG,
     USER_ID,
+    WRITTEN_UNNAMED_ROLE,
     Clock,
     FakeStore,
     FakeTools,
@@ -307,6 +308,7 @@ def test_a_change_never_reaches_the_tools_node_as_a_run() -> None:
     gateway = ScriptedGateway(
         lookup_step(),
         answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
+        answer_body(WRITTEN_UNNAMED_ROLE),
     )
     tools = lookup_tools()
     store = FakeStore()
@@ -326,7 +328,7 @@ def test_a_change_never_reaches_the_tools_node_as_a_run() -> None:
     assert [call.tool for call in store.held[0].calls] == ["create_access_request"]
     assert len(store.held) == 1
     assert state.outcome is TurnOutcome.CONFIRM
-    assert len(gateway.requests) == 2
+    assert len(gateway.requests) == 3
 
 
 @pytest.mark.db

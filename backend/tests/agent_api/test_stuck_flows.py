@@ -11,6 +11,7 @@ Expected implementation surface: ``graph.PICK_AGAIN_REPLY``;
 
 import asyncio
 import json
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -133,6 +134,20 @@ def _onboard(email: str, manager: uuid.UUID = PERSON_ID) -> dict[str, Any]:
     }
 
 
+def _written_onboarding(message: str, history: Sequence[tuple[str, str]]) -> str:
+    """The last scripted answer of `_onboarding`. When the change is held it is
+    the written question: it names the joiner, the start date and each address
+    the person typed. When the call is sent back it is the model's follow-up."""
+    typed = re.findall(
+        r"[\w.+-]+@[\w-]+\.[\w.-]+", " ".join([*(t for r, t in history if r == "user"), message])
+    )
+    lines = [
+        f"I'll set up starting access for Mara Quill ({email}), starting 2026-11-02."
+        for email in dict.fromkeys(typed)
+    ]
+    return " ".join(["Which address should I use?", *lines, "Mara Quill 2026-11-02"])
+
+
 def _onboarding(
     sent: str,
     message: str,
@@ -147,7 +162,7 @@ def _onboarding(
     if look_up_manager:
         steps.append(answer_body(None, wire_call("call_p", "find_person", {"words": "dana"})))
     steps.append(answer_body(None, wire_call("call_c", "onboard_user", _onboard(sent, manager))))
-    steps.append(answer_body("Which address should I use?"))
+    steps.append(answer_body(_written_onboarding(message, history)))
     gateway = ScriptedGateway(*steps)
     store = FakeStore(
         principals=["hr"],
@@ -422,6 +437,7 @@ def test_a_transfer_from_a_department_name_holds_the_found_id() -> None:
                 },
             ),
         ),
+        answer_body("Soll ich Dana Fake zum 2026-11-02 versetzen? Bitte antworte mit Ja."),
     )
     store = FakeStore(
         principals=["hr"],

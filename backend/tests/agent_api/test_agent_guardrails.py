@@ -95,6 +95,21 @@ def _tools() -> FakeTools:
     return FakeTools({"get_me": ME_PAYLOAD, "list_requestable_roles": ROLES_PAYLOAD})
 
 
+WRITTEN_VIEWER_30 = (
+    "Soll ich Internal Wiki viewer für 30 Tage beantragen? "
+    "Grund: Obviously fake reason for a test. Bitte antworte mit Ja."
+)
+WRITTEN_BY_TOOL = {
+    "transfer_user": "Soll ich die Versetzung zum 2026-11-01 vornehmen? Bitte antworte mit Ja.",
+    "offboard_user": "Soll ich den Zugang am letzten Tag 2026-11-30 entfernen? Antworte mit Ja.",
+    "onboard_user": (
+        "Soll ich Fake Joiner (joiner@example.test) zum 2026-11-02 einrichten? "
+        "Bitte antworte mit Ja."
+    ),
+}
+"""A written question carrying every fact of each held change below."""
+
+
 def _create(**more: Any) -> dict[str, Any]:
     """A whole, valid filing for the wiki viewer role, for the person themselves."""
     return _create_arguments(**{"role_id": str(WIKI_VIEWER_ID), **more})
@@ -215,12 +230,13 @@ def test_ids_from_get_me_and_find_role_are_held() -> None:
             wire_call("call_r", "find_role", {"words": "wiki viewer"}),
         ),
         answer_body(None, wire_call("call_c", "create_access_request", _create())),
+        answer_body(WRITTEN_VIEWER_30),
     )
     store = FakeStore()
 
     state = run(gateway, _tools(), store)
 
-    assert len(gateway.requests) == 2
+    assert len(gateway.requests) == 3
     assert len(store.held) == 1
     assert store.held[0].calls[0].arguments["role_id"] == str(WIKI_VIEWER_ID)
     assert store.held[0].calls[0].arguments["target_user_id"] == str(USER_ID)
@@ -313,6 +329,7 @@ def test_ids_on_every_person_field_are_checked(
     found_gateway = ScriptedGateway(
         answer_body(None, wire_call("call_p", "find_person", {"words": "dana"})),
         answer_body(None, wire_call("call_c", tool, build(PERSON_ID))),
+        answer_body(WRITTEN_BY_TOOL[tool]),
     )
     found_store = FakeStore(
         principals=["hr"],
@@ -456,21 +473,28 @@ def test_the_denied_change_cannot_be_held_again_this_turn() -> None:
 
 
 @pytest.mark.parametrize(
-    ("words", "changes", "expected_role"),
+    ("words", "changes", "expected_role", "written"),
     [
         pytest.param(
-            "wiki editor", {"role_id": str(WIKI_EDITOR_ID)}, WIKI_EDITOR_ID, id="another_role"
+            "wiki editor",
+            {"role_id": str(WIKI_EDITOR_ID)},
+            WIKI_EDITOR_ID,
+            "Soll ich Internal Wiki editor für 30 Tage beantragen? "
+            "Grund: Obviously fake reason for a test. Bitte antworte mit Ja.",
+            id="another_role",
         ),
         pytest.param(
             "wiki viewer",
             {"role_id": str(WIKI_VIEWER_ID), "requested_expiry_days": 7},
             WIKI_VIEWER_ID,
+            "Soll ich Internal Wiki viewer für 7 Tage beantragen? "
+            "Grund: Obviously fake reason for a test. Bitte antworte mit Ja.",
             id="same_role_other_days",
         ),
     ],
 )
 def test_a_new_proposal_after_a_denial_is_held(
-    words: str, changes: dict[str, Any], expected_role: uuid.UUID
+    words: str, changes: dict[str, Any], expected_role: uuid.UUID, written: str
 ) -> None:
     """Catches a loop that refuses every proposal after a denial (the person
     could never get what they then asked for), or one that compares only the
@@ -487,6 +511,7 @@ def test_a_new_proposal_after_a_denial_is_held(
             wire_call("call_r", "find_role", {"words": words}),
         ),
         answer_body(None, wire_call("call_c", "create_access_request", _create(**changes))),
+        answer_body(written),
     )
     store = FakeStore(question=held_question())
 

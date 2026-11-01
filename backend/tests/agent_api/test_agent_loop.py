@@ -810,6 +810,13 @@ def _create_arguments(**more: Any) -> dict[str, Any]:
     return arguments
 
 
+WRITTEN_UNNAMED_ROLE = (
+    "Soll ich das für 30 Tage beantragen? Grund: Obviously fake reason for a test. "
+    "Bitte antworte mit Ja."
+)
+"""A written question carrying every fact of a filing whose role no lookup named."""
+
+
 def lookup_step() -> dict[str, Any]:
     """A model step that looks up the person (`get_me`) and their access
     (`list_my_access`), so a change proposed next carries ids a lookup returned."""
@@ -839,12 +846,13 @@ def test_proposed_change_is_held_not_run() -> None:
 
     A lookup step first returns the person's id and the role's id (the held
     change only carries ids a lookup returned). The held call must fit the
-    tool's own input model, and the reply must be the code-written "I'll file
-    this" summary naming the reason and the days.
+    tool's own input model, and the reply must be the written question (the
+    third request), stored as the shown text.
     """
     gateway = ScriptedGateway(
         lookup_step(),
         answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
+        answer_body(WRITTEN_UNNAMED_ROLE),
     )
     tools = lookup_tools()
     store = FakeStore()
@@ -852,7 +860,7 @@ def test_proposed_change_is_held_not_run() -> None:
     state = run(gateway, tools, store, message="Please file wiki viewer access for me.")
 
     assert tools.names == ["get_me", "list_my_access"]
-    assert len(gateway.requests) == 2
+    assert len(gateway.requests) == 3
     assert len(store.held) == 1
     held = store.held[0]
     assert held.message == "Please file wiki viewer access for me."
@@ -865,10 +873,8 @@ def test_proposed_change_is_held_not_run() -> None:
     assert checked.role_id == ROLE_ID
     assert checked.justification == "Obviously fake reason for a test."
     assert state.outcome is TurnOutcome.CONFIRM
-    assert state.reply is not None
-    assert state.reply.startswith("I'll file this:")
-    assert '"Obviously fake reason for a test."' in state.reply
-    assert "30 days" in state.reply
+    assert state.reply == WRITTEN_UNNAMED_ROLE
+    assert held.asked == WRITTEN_UNNAMED_ROLE
     assert store.messages[-1] == (MessageRole.ASSISTANT, state.reply)
 
 
@@ -1070,6 +1076,10 @@ def test_confirmation_names_role_days_reason_person() -> None:
                 },
             ),
         ),
+        answer_body(
+            'Soll ich "Internal Wiki viewer" für Dana Fake für 30 Tage beantragen? '
+            'Grund: "Obviously fake reason: audit preparation." Bitte antworte mit Ja.'
+        ),
     )
     tools = FakeTools(
         {"list_requestable_roles": {"roles": [role_row("wiki", "Internal Wiki", "viewer")]}}
@@ -1084,7 +1094,7 @@ def test_confirmation_names_role_days_reason_person() -> None:
     assert state.outcome is TurnOutcome.CONFIRM
     assert state.reply is not None
     assert "Internal Wiki viewer" in state.reply
-    assert "30 days" in state.reply
+    assert "30 Tage" in state.reply
     assert '"Obviously fake reason: audit preparation."' in state.reply
     assert "Dana Fake" in state.reply
     assert "wiki.viewer" not in state.reply

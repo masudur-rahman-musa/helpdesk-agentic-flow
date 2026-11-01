@@ -8,8 +8,13 @@ here on every read, with the text the person was shown (`asked`). The question
 is a summary of what a yes files: the role in plain words, the days and the
 reason. Every other change gets its own code-written line per tool, ending
 `CHANGE_LINE`.
+
+The model writes the question the person sees, in their language; code makes
+sure every fact of the change (`confirm_facts`) is in it, and shows the
+code-written summary when one is not.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -17,6 +22,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from helpdesk.agent_api.agent.matching import fold
 from helpdesk.agent_api.agent.role_words import plain_role_name
 from helpdesk.agent_api.agent.state import (
     Citation,
@@ -208,10 +214,7 @@ def summary_reply(
     if person:
         role = f"{role} for {person}"
     reason = str(create.get("justification") or "").strip()
-    return (
-        f'I\'ll file this: {role}, {length}, reason "{reason}". '
-        f"{FILE_LINE} {next_step(results)}"
-    )
+    return f'I\'ll file this: {role}, {length}, reason "{reason}". {FILE_LINE} {next_step(results)}'
 
 
 _FIXED_CHANGES: dict[str, str] = {
@@ -334,3 +337,108 @@ def change_summary(
     )
     lines = list(dict.fromkeys(lines))
     return f"{' '.join(lines)} {CHANGE_LINE}"
+
+
+@dataclass(frozen=True)
+class Fact:
+    """One thing the written question must show, as code knows it."""
+
+    text: str
+    number: bool = False
+    """Found as the digits standing alone, so "30 Tage" and "30 jours" both
+    show 30 and "130" does not."""
+
+    def found_in(self, question: str) -> bool:
+        """Whether the question shows this fact, ignoring case and accents."""
+        if self.number:
+            return re.search(rf"(?<!\d){re.escape(self.text)}(?!\d)", question) is not None
+        return fold(self.text) in fold(question)
+
+
+def _day_count(results: Sequence[ToolResult], create: dict[str, object]) -> int | None:
+    """This turn's classified length, else the days the create call asks for."""
+    verdict = _verdict(results)
+    for days in (
+        verdict.effective_expiry_days if verdict else None,
+        create.get("requested_expiry_days"),
+    ):
+        if isinstance(days, int) and not isinstance(days, bool) and days > 0:
+            return days
+    return None
+
+
+def _listed_numbers(results: Sequence[ToolResult]) -> dict[str, str]:
+    """ "REQ-0006" per request id, from this turn's listings."""
+    numbers: dict[str, str] = {}
+    for result in results:
+        key = _LISTINGS.get(result.tool)
+        if key is None or not result.ok:
+            continue
+        rows: object = result.payload.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict) and row.get("request_number"):
+                numbers[str(row.get("request_id"))] = str(row["request_number"])
+    return numbers
+
+
+_FACT_ARGUMENTS: dict[str, tuple[str, ...]] = {
+    "onboard_user": ("display_name", "email", "start_date"),
+    "transfer_user": ("effective_date",),
+    "offboard_user": ("end_date",),
+    "create_ticket": ("title",),
+    "open_access_review": ("period",),
+}
+"""The arguments each change shows word for word."""
+
+
+def confirm_facts(
+    calls: Sequence[ValidatedCall],
+    results: Sequence[ToolResult],
+    resolved: ResolvedEntities | None,
+    person: str | None = None,
+) -> tuple[Fact, ...]:
+    """What the written question must show for the held calls: for an access
+    request the role, the days, the reason and who it is for; for a decision
+    each listed request number; for a revoke the access; for the rest the
+    names, dates, title or period they carry. Unknown values are not facts."""
+    facts: list[Fact] = []
+    numbers = _listed_numbers(results)
+    grants = _listed_grants(results)
+    for call in calls:
+        arguments = call.arguments
+        if call.tool == CREATE_ACCESS_REQUEST:
+            if resolved and resolved.role_name:
+                facts.append(Fact(resolved.role_name))
+            days = _day_count(results, arguments)
+            if days is not None:
+                facts.append(Fact(str(days), number=True))
+            reason = str(arguments.get("justification") or "").strip().rstrip(".").strip()
+            if reason:
+                facts.append(Fact(reason))
+            if person:
+                facts.append(Fact(person))
+        elif call.tool in _DECISION_VERBS:
+            number = numbers.get(str(arguments.get("request_id")))
+            if number:
+                facts.append(Fact(number))
+        elif call.tool == "revoke_access":
+            access = grants.get(str(arguments.get("grant_id"))) or (
+                resolved.system_name if resolved else None
+            )
+            if access:
+                facts.append(Fact(access))
+        else:
+            for name in _FACT_ARGUMENTS.get(call.tool, ()):
+                value = str(arguments.get(name) or "").strip()
+                if call.tool == "create_ticket":
+                    value = value.rstrip(".")
+                if value:
+                    facts.append(Fact(value))
+    return tuple(dict.fromkeys(facts))
+
+
+def missing_facts(question: str, facts: Sequence[Fact]) -> list[str]:
+    """The text of every fact the question does not show."""
+    return [fact.text for fact in facts if not fact.found_in(question)]

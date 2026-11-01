@@ -202,7 +202,8 @@ def test_new_info_goes_back_to_the_model_with_tools(message: str) -> None:
 
     The reading says new_info; nothing runs, the question is cleared, the next
     request offers tools on auto with the exact words in the denial, and the
-    model's new proposal, made from ids its own lookups found, is held.
+    model's new proposal, made from ids its own lookups found, is held after
+    one written question.
     """
     gateway = ScriptedGateway(
         reading("new_info"),
@@ -212,6 +213,10 @@ def test_new_info_goes_back_to_the_model_with_tools(message: str) -> None:
             wire_call("call_r", "find_role", {"words": "wiki viewer"}),
         ),
         new_proposal(),
+        answer_body(
+            "Soll ich Internal Wiki viewer für 10 Tage beantragen? "
+            "Grund: Obviously fake reason for a test. Bitte antworte mit Ja."
+        ),
     )
     tools = FakeTools({"get_me": ME_PAYLOAD, "list_requestable_roles": ROLES_PAYLOAD})
     store = FakeStore(question=held())
@@ -220,7 +225,7 @@ def test_new_info_goes_back_to_the_model_with_tools(message: str) -> None:
 
     assert "create_access_request" not in tools.names
     assert store.question is None
-    assert len(gateway.requests) == 3
+    assert len(gateway.requests) == 4
     next_step = gateway.requests[1]
     assert next_step["tools"]
     assert next_step["tool_choice"] == "auto"

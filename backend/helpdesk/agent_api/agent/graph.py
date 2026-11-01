@@ -19,7 +19,10 @@ keeps the state after every node, one thread per turn. Four nodes:
   the note run after them, one by one, as they share the database session.
   Results go back in the order the model asked, trimmed for the model only.
   A proposed change is checked, given a key by code and held as the chat's
-  open question, which ends the turn. It is held only when every
+  open question, which ends the turn. The model writes the question the
+  person sees, in their language; it must show every fact of the change and
+  pass the reply check, with one send-back, else the code-written summary is
+  shown. It is held only when every
   person and role id in it came from an ok tool result of this turn, and never
   when it is the very change the person just turned down. Bad arguments go
   back once with the reason, then `CHANGE_FAILED_REPLY`. The model never runs
@@ -58,10 +61,13 @@ from pydantic import ValidationError
 from helpdesk.agent_api.agent import gates
 from helpdesk.agent_api.agent.confirmation import (
     UNCLEAR_REPLY,
+    Fact,
     OpenQuestion,
     Reading,
     ReplyReading,
     change_summary,
+    confirm_facts,
+    missing_facts,
 )
 from helpdesk.agent_api.agent.draft import draft_message, merge_draft
 from helpdesk.agent_api.agent.events import ProgressEvent, StepEvent
@@ -142,6 +148,7 @@ __all__ = [
 
 LOOP_PROMPT = "agent_loop"
 READ_REPLY_PROMPT = "read_reply"
+WRITE_CONFIRM_PROMPT = "write_confirm"
 
 MAX_PICK_WORDS = 3
 """A failed turn with nothing held this short is most likely the answer to a
@@ -990,7 +997,10 @@ class _Turn:
             clarifying_question=None,
             second_request=None,
         )
-        reply = change_summary(calls, tuple(self.results), resolved, person)
+        summary = change_summary(calls, tuple(self.results), resolved, person)
+        reply = await self._written_question(
+            summary, confirm_facts(calls, self.results, resolved, person)
+        )
         await self.store.hold(
             OpenQuestion(
                 asked_at=self.deps.now(),
@@ -1004,6 +1014,69 @@ class _Turn:
         )
         self.state = self.state.model_copy(update={"extraction": extraction, "resolved": resolved})
         return await self._finish(reply, outcome=TurnOutcome.CONFIRM)
+
+    async def _written_question(self, summary: str, facts: Sequence[Fact]) -> str:
+        """The model's question for a held change, in the person's language.
+        It must show every fact word for word and pass the reply check; a miss
+        goes back once with what is wrong. A second miss, or any gateway
+        failure, gives the code-written `summary`, so a change is never shown
+        without its facts. The calls are stored already, so the question
+        cannot change what a yes runs."""
+        prompt = load_prompt(WRITE_CONFIRM_PROMPT)
+        given = json.dumps(
+            {
+                "summary": summary,
+                "facts": [fact.text for fact in facts],
+                "message": self.state.user_message,
+            },
+            ensure_ascii=False,
+        )
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": prompt.text},
+            {"role": "user", "content": given},
+        ]
+        for attempt in range(2):
+            try:
+                with span(
+                    MODEL_STEP_SPAN,
+                    attributes={"model_alias": ModelAlias.AGENT_DEFAULT.value, "step": self.step},
+                ):
+                    answer = await self.deps.model.complete_with_tools(
+                        messages,
+                        [],
+                        alias=ModelAlias.AGENT_DEFAULT,
+                        tenant_slug=self.state.tenant_slug,
+                        session_id=str(self.state.session_id),
+                        user=self.state.gateway_user,
+                        prompt_version=prompt.sha256,
+                    )
+            except ToolError:
+                return summary
+            self.tokens += answer.usage.total_tokens
+            if self.deps.spend is not None:
+                await self.deps.spend(answer.usage.gateway_cost_usd)
+            question = (answer.text or "").strip()
+            problems = [
+                *(f'"{fact}" (missing)' for fact in missing_facts(question, facts)),
+                *(await self._unbacked(question) if question else ["nothing"]),
+            ]
+            if question and not problems:
+                return question
+            if attempt == 0:
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": question},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Check failed: {', '.join(problems)}. Write the question "
+                                "again, copying every fact exactly and claiming nothing "
+                                "is done."
+                            ),
+                        },
+                    ]
+                )
+        return summary
 
     # --- the answer ----------------------------------------------------------
 

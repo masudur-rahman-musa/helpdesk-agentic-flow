@@ -367,6 +367,13 @@ def test_loop_is_the_only_engine(chat_settings_env: Env, monkeypatch: pytest.Mon
     ]
 
 
+ASKED_IN_WORDS = (
+    "Soll ich dir den Zugang für 14 Tage beantragen? "
+    "Grund: Obviously fake reason: reading the runbooks. Bitte antworte mit Ja."
+)
+"""The written question for the request `create_call_body` proposes."""
+
+
 def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
     """Catches a loop that holds a change nobody can later confirm (the open
     question is not saved to the chat row, or is saved in a shape it cannot
@@ -374,8 +381,8 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
     yes that files with a new key instead of the stored one, a question left on
     the row after filing, and a second yes that files again.
 
-    Message one: the loop proposes a request; nothing is filed and a question is
-    saved. Message two, "yes": the model reads it as yes and the loop files
+    Message one: the loop proposes a request; nothing is filed and the written
+    question is saved. Message two, "yes": the model reads it as yes and the loop files
     the stored call, exactly as stored, with one tool-less model step.
     Message three, "yes" again: the question is gone, so a normal turn answers
     and files nothing more.
@@ -385,6 +392,7 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
     gateway = Gateway(
         lookup_body(),
         create_call_body(env),
+        answer_body(ASKED_IN_WORDS),
         reading_body("yes"),
         answer_body(FILED_SAYS),
         answer_body("Nothing is waiting for a yes right now."),
@@ -394,7 +402,7 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
 
     assert asked.outcome == TurnOutcome.CONFIRM.value
     assert asked.reply is not None
-    assert asked.reply.startswith("I'll file this:")
+    assert asked.reply == ASKED_IN_WORDS
     assert tools.names.count(CREATE) == 0
     raw = stored_question(env, asked.chat_id)
     held = parse_open_question(raw, now=NOW)
@@ -408,7 +416,7 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
 
     assert tools.arguments_of(CREATE) == [stored_arguments]
     assert filed.reply == FILED_SAYS
-    answer_only = json.loads(gateway.requests[3].content)
+    answer_only = json.loads(gateway.requests[4].content)
     assert answer_only["tools"]
     assert answer_only["tool_choice"] == "none"
     assert stored_question(env, asked.chat_id) is None
@@ -417,7 +425,7 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
 
     assert tools.names.count(CREATE) == 1
     assert again.reply == "Nothing is waiting for a yes right now."
-    assert len(gateway.requests) == 5
+    assert len(gateway.requests) == 6
 
 
 def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:

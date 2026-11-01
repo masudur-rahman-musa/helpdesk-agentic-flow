@@ -24,6 +24,7 @@ from helpdesk.shared.models.conversation import MessageRole
 from tests.agent_api.test_agent_loop import (
     MESSAGE,
     PENDING_LISTING,
+    WRITTEN_UNNAMED_ROLE,
     FakeStore,
     FakeTools,
     ScriptedGateway,
@@ -251,7 +252,8 @@ def test_a_change_in_a_step_with_lookups_is_held_and_never_run() -> None:
 
     The step asks two lookups and `create_access_request` with the ids those
     lookups return. The tool server must see the two lookups only; the change
-    must sit held on the chat row; one scripted model answer is all there is.
+    must sit held on the chat row; the second scripted answer is the written
+    question, and no more are scripted.
     """
     gateway = ScriptedGateway(
         answer_body(
@@ -259,7 +261,8 @@ def test_a_change_in_a_step_with_lookups_is_held_and_never_run() -> None:
             wire_call("call_me", "get_me", {}),
             wire_call("call_access", "list_my_access", {}),
             wire_call("call_c", "create_access_request", _create_arguments()),
-        )
+        ),
+        answer_body(WRITTEN_UNNAMED_ROLE),
     )
     tools = lookup_tools()
     store = FakeStore()
@@ -270,7 +273,7 @@ def test_a_change_in_a_step_with_lookups_is_held_and_never_run() -> None:
     assert [call.tool for call in store.held[0].calls] == ["create_access_request"]
     assert len(store.held) == 1
     assert state.outcome is TurnOutcome.CONFIRM
-    assert len(gateway.requests) == 1
+    assert len(gateway.requests) == 2
 
 
 def test_finders_and_the_note_run_one_after_another() -> None:
