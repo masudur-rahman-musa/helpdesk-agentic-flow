@@ -663,8 +663,6 @@ class _Turn:
         except ToolError as exc:
             raise _TurnFailed(exc.code) from exc
         self.tokens += answer.usage.total_tokens
-        if self.deps.spend is not None:
-            await self.deps.spend(answer.usage.gateway_cost_usd)
         return answer.value.answer
 
     def _deny(self, question: OpenQuestion) -> None:
@@ -1053,8 +1051,6 @@ class _Turn:
             except ToolError:
                 return summary
             self.tokens += answer.usage.total_tokens
-            if self.deps.spend is not None:
-                await self.deps.spend(answer.usage.gateway_cost_usd)
             question = (answer.text or "").strip()
             problems = [
                 *(f'"{fact}" (missing)' for fact in missing_facts(question, facts)),

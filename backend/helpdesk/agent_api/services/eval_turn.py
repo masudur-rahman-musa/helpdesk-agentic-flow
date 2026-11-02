@@ -1,12 +1,15 @@
-"""One conversation case, played through the real chat path, answered per turn.
+"""One turn of a conversation case, played through the real chat path.
 
 The console sends a seat name, not a login, so the seat is looked up in the
-seeded data and a short-lived token is minted for that user. Every turn then
-runs through `run_loop_turn` exactly as a chat does, so each tool still reads
-tenant and user from the token and never from the body. `run_conversation`
-answers one record per user turn: the reply and that turn's tool calls with
-their results; the engine and prompt versions ride headers
-(`ConversationOutcome`). It scores nothing; the console's eval engine does.
+seeded data and a short-lived token is minted for that user. The turn runs
+through `run_loop_turn` exactly as a chat does, so each tool still reads
+tenant and user from the token and never from the body. The console plays a
+simulated person, so it sends one message per call: the first starts a chat,
+later ones name it, and a chat the seat did not start is refused.
+`run_conversation` answers the reply, the turn's tool calls with their
+results, and the tenant's world before and after the turn; the engine and
+prompt versions ride headers (`ConversationOutcome`). It scores nothing; the
+console's eval engine does.
 
 Not mounted in production: `EVAL_ROUTES_ENABLED` is off there.
 """
@@ -14,7 +17,7 @@ Not mounted in production: `EVAL_ROUTES_ENABLED` is off there.
 import re
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any
@@ -29,8 +32,10 @@ from helpdesk.agent_api.schemas.eval import (
     EvalConversationAnswer,
     EvalConversationCall,
     EvalConversationRequest,
-    EvalConversationTurn,
+    EvalWorld,
 )
+from helpdesk.agent_api.services import eval_world
+from helpdesk.agent_api.services.eval_world import seed_number
 from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
 from helpdesk.agent_api.services.tool_proxy import build_tool_caller
@@ -38,6 +43,7 @@ from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.db import tenant_session
 from helpdesk.shared.core.errors import ToolError
+from helpdesk.shared.crud.sessions import get_owned_chat
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.crud.users import list_users_in_department_named
 from helpdesk.shared.models import User
@@ -46,6 +52,8 @@ __all__ = [
     "ConversationOutcome",
     "Seat",
     "build_tool_caller",
+    "owns_chat",
+    "read_world",
     "resolve_seat",
     "run_conversation",
     "run_loop_turn",
@@ -53,16 +61,6 @@ __all__ = [
 
 SEAT_PATTERN = re.compile(r"seed:([a-z]+)\.([a-z_]+)\.([0-9]{1,3})")
 """`seed:<department lowercased>.<principal>.<index>`, matched in full."""
-
-# The seed gives user number `n` of a tenant the start date `HIRING_EPOCH +
-# (n * 97) % 2900` days, and numbers a department's users in a row. 97 and 2900
-# share no factor, so the date gives the number back, and with it the order
-# the conversation cases' seat index counts in. Copied from `scripts/seed.py`, which
-# the agent-api image does not ship.
-HIRING_EPOCH_ORDINAL = datetime(2018, 1, 1).toordinal()
-START_DATE_STEP = 97
-START_DATE_SPAN = 2900
-_STEP_INVERSE = pow(START_DATE_STEP, -1, START_DATE_SPAN)
 
 ENGINE = "loop"
 """What the engine header says. The loop is the only chat engine."""
@@ -111,9 +109,7 @@ async def resolve_seat(
 
 
 def _seed_number(user: User) -> int:
-    """The user's place in the tenant's seed order, read back from the start date."""
-    days = user.start_date.toordinal() - HIRING_EPOCH_ORDINAL
-    return (days * _STEP_INVERSE) % START_DATE_SPAN
+    return seed_number(user.start_date)
 
 
 def prompt_versions() -> str:
@@ -163,18 +159,21 @@ class _Call:
 
 @dataclass
 class ConversationOutcome:
-    """The per-turn records, and the engine and prompt versions the headers carry."""
+    """The turn's answer, and the engine and prompt versions the headers carry."""
 
     answer: EvalConversationAnswer
     prompt_versions: str
     engine: str
 
 
-@dataclass
-class _Case:
-    """What one case has seen so far, across its turns."""
+async def owns_chat(db: AsyncSession, seat: Seat, chat_id: uuid.UUID) -> bool:
+    """Whether the chat is one this seat started, in its own tenant."""
+    return await get_owned_chat(db, chat_id=chat_id, user_id=seat.user_id) is not None
 
-    role_names: dict[str, str] = field(default_factory=dict)
+
+async def read_world(db: AsyncSession, seat: Seat) -> EvalWorld:
+    """The seat's tenant world, as the answer carries it."""
+    return await eval_world.read_world(db, seat.tenant_slug)
 
 
 async def run_conversation(
@@ -184,51 +183,54 @@ async def run_conversation(
     settings: Settings,
     factory: async_sessionmaker[AsyncSession],
     model: ModelClient,
-) -> ConversationOutcome:
-    """Play the person's turns in one new chat and answer for every turn."""
-    chat_id = uuid.uuid4()
-    case = _Case()
-    records: list[EvalConversationTurn] = []
-    for number, message in enumerate(body.turns, start=1):
-        now = datetime.now(UTC)
-        calls: list[_Call] = []
-        tools = _ResultTools(
-            build_tool_caller(settings, _seat_token(seat, chat_id, settings, now)), calls
-        )
+) -> ConversationOutcome | None:
+    """Play one turn of the case and answer it with the world before and after.
+
+    `None` when the body names a chat this seat did not start: one case must
+    never write into another person's chat, so nothing is played."""
+    now = datetime.now(UTC)
+    chat_id = body.chat_id
+    if chat_id is not None:
         async with tenant_session(factory, seat.tenant_id) as db:
-            if not case.role_names:
-                case.role_names = await _role_names(db, seat, chat_id)
-            state = await run_loop_turn(
-                deps=TurnDeps(
-                    db=db,
-                    model=model,
-                    tools=tools,
-                    now=_clock(now),
-                ),
-                tenant_id=seat.tenant_id,
-                user_id=seat.user_id,
-                session_id=chat_id,
-                tenant_slug=seat.tenant_slug,
-                message=message,
-            )
-        records.append(
-            EvalConversationTurn(
-                turn=number,
-                reply=state.reply or "",
-                tool_calls=[
-                    EvalConversationCall(
-                        name=call.name,
-                        args=_call_args(case, call.args),
-                        ok=call.ok,
-                        result=call.result,
-                        error_code=call.error_code,
-                    )
-                    for call in calls
-                ],
-            )
+            if not await owns_chat(db, seat, chat_id):
+                return None
+    else:
+        chat_id = uuid.uuid4()
+    calls: list[_Call] = []
+    tools = _ResultTools(
+        build_tool_caller(settings, _seat_token(seat, chat_id, settings, now)), calls
+    )
+    async with tenant_session(factory, seat.tenant_id) as db:
+        role_names = await _role_names(db, seat, chat_id)
+        before = await read_world(db, seat)
+    async with tenant_session(factory, seat.tenant_id) as db:
+        state = await run_loop_turn(
+            deps=TurnDeps(db=db, model=model, tools=tools, now=_clock(now)),
+            tenant_id=seat.tenant_id,
+            user_id=seat.user_id,
+            session_id=chat_id,
+            tenant_slug=seat.tenant_slug,
+            message=body.message,
         )
+    async with tenant_session(factory, seat.tenant_id) as db:
+        after = await read_world(db, seat)
     return ConversationOutcome(
-        answer=EvalConversationAnswer(case_id=body.case_id, turns=records),
+        answer=EvalConversationAnswer(
+            chat_id=str(chat_id),
+            reply=state.reply or "",
+            tool_calls=[
+                EvalConversationCall(
+                    name=call.name,
+                    args=_call_args(role_names, call.args),
+                    ok=call.ok,
+                    result=call.result,
+                    error_code=call.error_code,
+                )
+                for call in calls
+            ],
+            world_before=before,
+            world_after=after,
+        ),
         prompt_versions=prompt_versions(),
         engine=ENGINE,
     )
@@ -262,10 +264,10 @@ async def _role_names(db: AsyncSession, seat: Seat, chat_id: uuid.UUID) -> dict[
     return {str(role_id): f"{system}.{role}" for (system, role), role_id in roles.items()}
 
 
-def _call_args(case: _Case, args: Mapping[str, Any]) -> dict[str, Any]:
+def _call_args(role_names: Mapping[str, str], args: Mapping[str, Any]) -> dict[str, Any]:
     """The call's arguments, with a `role_id` written as `<system slug>.<role slug>`."""
     shown = dict(args)
     role_id = shown.pop("role_id", None)
     if role_id is not None:
-        shown["role"] = case.role_names.get(str(role_id), str(role_id))
+        shown["role"] = role_names.get(str(role_id), str(role_id))
     return shown

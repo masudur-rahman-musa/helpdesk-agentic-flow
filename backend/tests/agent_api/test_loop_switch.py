@@ -7,7 +7,8 @@ Expected implementation surface:
 ``helpdesk.agent_api.services.chat``
     ``chat_turn`` calls ``run_loop_turn``; the module has no ``run_turn``.
 ``helpdesk.agent_api.services.eval_turn``
-    ``run_conversation`` calls the module attribute ``run_loop_turn``; the
+    ``run_conversation`` calls the module attribute ``run_loop_turn`` once per
+    request (one turn per call; the world is read through ``read_world``); the
     module has no ``run_turn``. ``X-Chat-Engine`` always says ``loop`` and
     ``X-Prompt-Versions`` is ``loop=<sha256 of agent_loop.md>``.
 
@@ -62,6 +63,7 @@ from tests.agent_api.test_eval_routes import (
     _conv_body,
     _drive,
     _plain,
+    read_empty_world,
 )
 
 pytestmark = pytest.mark.db
@@ -435,7 +437,7 @@ def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     `CHAT_ENGINE` and so runs the deleted pipeline, and an eval service that
     keeps the old runner.
 
-    The route runs one conversation with no engine setting and with an old
+    The route plays one turn with no engine setting and with an old
     `CHAT_ENGINE=pipeline` left in the environment. The loop's recording turn
     function must be called exactly once per run, and the headers must name the
     loop and its one prompt digest.
@@ -460,6 +462,7 @@ def test_eval_names_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(eval_turn, "resolve_seat", resolve)
     monkeypatch.setattr(eval_turn, "run_loop_turn", loop_turns)
     monkeypatch.setattr(eval_turn, "build_tool_caller", lambda _settings, _token: stub)
+    monkeypatch.setattr(eval_turn, "read_world", read_empty_world)
     model = ModelClient(
         base_url=GATEWAY_URL,
         api_keys={TENANT_SLUG: "fake-eval-key"},

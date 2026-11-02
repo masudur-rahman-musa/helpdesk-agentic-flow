@@ -45,8 +45,9 @@ async def reset() -> Response:
 
 @router.post("/v1/eval/conversation", response_model=EvalConversationAnswer)
 async def conversation(request: Request, body: EvalConversationRequest) -> Response:
-    """Play one conversation case and answer, for every user turn, the reply and
-    that turn's tool calls with their results."""
+    """Play one turn of a conversation case and answer the chat id, the reply,
+    the turn's tool calls with their results, and the world before and after.
+    A chat the seat did not start is refused, and nothing is played."""
     settings = _enabled_settings()
     state = request.app.state
     seat = await eval_turn.resolve_seat(
@@ -61,6 +62,8 @@ async def conversation(request: Request, body: EvalConversationRequest) -> Respo
         factory=state.session_factory,
         model=state.model,
     )
+    if outcome is None:
+        return JSONResponse(status_code=422, content={"code": ErrorCode.VALIDATION.value})
     return JSONResponse(
         content=outcome.answer.model_dump(mode="json"),
         headers={

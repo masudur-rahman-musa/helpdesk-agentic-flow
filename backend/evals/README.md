@@ -5,11 +5,12 @@ coding evals which judge the coding agent's output. The discipline, distilled
 from the portfolio projects:
 
 1. **Conversation cases** (`conversations/cases.jsonl`): 45 chosen multi-turn
-   cases with expected tool calls and graded replies. A chat failure found
-   later becomes one of them or replaces one; the count stays 45.
-2. **Deterministic checks first** (exact tool calls, the turn that says yes);
-   **LLM-as-judge only for free text**, and only after calibration against
-   human labels, which the companion console keeps.
+   cases, each graded by where the world ended up and by a few checks of the
+   replies. A chat failure found later becomes one of them or replaces one;
+   the count stays 45.
+2. **Deterministic checks first** (the world after the conversation, read
+   from the database); **LLM-as-judge only for the reply checks**, and only
+   after calibration against human labels, which the companion console keeps.
 3. **Baseline**: the companion console's `backend/evals/baseline.json` is the
    only baseline. This repo keeps the cases and holds no baseline file.
    It is never edited to make a run pass.
@@ -31,8 +32,8 @@ the real gateway) and the seed, then calls the console's `ops-eval conversations
 
 The agent-api answers the console on two routes that exist only while
 `EVAL_ROUTES_ENABLED` is true (off in production): `POST /admin/test/reset`
-(answers 204, clears nothing) and `POST /v1/eval/conversation` (one case in,
-one record per turn out). Every step's prompt version is in the
+(answers 204, clears nothing) and `POST /v1/eval/conversation` (one turn in,
+the reply and the world before and after out). Every step's prompt version is in the
 `X-Prompt-Versions` response header.
 
 ## Speed numbers
@@ -86,20 +87,51 @@ Neither has been tuned yet: both are still the starting values, picked by hand.
 
 ## Conversation cases
 
-`conversations/cases.jsonl` holds 45 multi-turn cases, one JSON line each: the
-person's messages (`turns`), the tool calls the whole conversation must make
-(`expected.tool_calls`), the turn that says yes (`expected.confirm_turn`, `null`
-when nothing may change) and 1 to 3 replies to grade (`graded`, each with a pass
-or fail question). There is no larger set. The help desk scores nothing: the
-console's eval engine plays each case through `POST /v1/eval/conversation`,
-which answers every turn's reply, tool calls and results.
+`conversations/cases.jsonl` holds 45 multi-turn cases, `case-001` to
+`case-045`, one JSON line each. The help desk scores nothing: the console plays
+a simulated person through `POST /v1/eval/conversation` and grades the result.
 
-- `principal_user` is `seed:<department lowercased>.<principal>.<index>`, a
-  coordinate into the seeded directory rather than an address: department by
-  name, index within the department, and the seat must hold the named
-  principal.
-- A tool call's `args_subset` is symbolic. An access request names its role as
-  `<system slug>.<role slug>`, which the route writes back in place of the role id.
+Each case has these fields:
 
-Cases run in file order and share one database, so an approval case relies on
-the request an earlier case filed. Run the whole file, not one case.
+- `id`, `purpose` (one sentence), `owner` (`access`, `accounts`, `policy` or
+  `safety`) and `tags`: one or more `job:<chat tool name>` and one or more
+  kinds of variety (`everyday_words`, `typos`, `short_answers`, `follow_ups`,
+  `changes_of_mind`, `for_others`, `other_languages`, `off_topic`, `attacks`,
+  `live_failures`, `tricky_phrasing`).
+- `scripted`: true only where the exact words matter (attacks, other
+  languages, tricky phrasing), so the simulated person sends them as written.
+- `person`: `seat`, `role`, `tenant` and `language`. The seat is
+  `seed:<department lowercased>.<principal>.<index>`, a place in the seeded
+  directory: department by name, index within the department, and the seat
+  must hold the named principal.
+- `world`: the facts the right answer depends on, all true on a fresh seed.
+- `goal`, `opening` (the first message), `person_knows` (what the simulated
+  person may answer when asked) and `confirms_if` (when it says yes).
+- `right_end_states`: one or more lists of facts; the world after must match
+  one of them. `never`: rules only this case has.
+- `reply_checks`: each `{check, applies_when}`, the check one of
+  `asks_before_change`, `reports_from_tool`, `cites_policy`,
+  `asks_only_what_is_missing`, `refuses_safely`, `same_language`,
+  `stays_on_topic`, `honest_about_failure`.
+- `limits`: `max_turns` (1 to 10) and `max_tool_calls` (1 to 20).
+
+A fact is one key: `holds`, `lacks`, `open_request` or `no_open_request` (a
+role, `<system>.<role>`), `open_ticket` or `no_open_ticket` (a ticket kind),
+`in_department`; an end state may also use `is_leaver`, `user_exists` (an
+email), `reset_asked`, `unlocked`, `open_review` (a department) and
+`nothing_changed`. A fact may add `person`, `<department lowercased>.<index>`,
+to speak of someone other than the case's person. The seed plants a few
+pending requests so "already asked" is true on a fresh seed.
+
+Where the right answer depends on the person, sibling cases share the opening
+with a different world: does not hold the role, already holds it, already
+asked for it.
+
+The route plays one turn per call. The first call sends `chat_id` null; the
+answer gives the chat id to send with every later turn, and a chat the seat
+did not start is refused. Each answer carries the reply, the turn's tool calls
+with their results (a role id written back as `<system>.<role>`), and the case
+tenant's requests, grants, tickets, people and reviews before and after the
+turn, with people named as in the facts.
+
+Cases share one database, so restore it before a run.

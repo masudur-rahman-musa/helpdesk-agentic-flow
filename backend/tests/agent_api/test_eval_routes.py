@@ -9,7 +9,7 @@ the cases below use. The implementer must provide exactly these names:
 true, and are a typed 404 ``{"code": "NOT_FOUND"}`` otherwise. Both join the
 open paths only when it is true; when it is false they still need a token.
 
-``helpdesk.agent_api.services.eval_turn`` holds the turn. Four names in it
+``helpdesk.agent_api.services.eval_turn`` holds the turn. Six names in it
 are looked up at call time, so a test can swap them and no database, tool
 server or model is needed:
 
@@ -19,18 +19,26 @@ server or model is needed:
     ``user_id``, ``department_id`` and ``principals``.
 ``run_loop_turn(**kwargs)``
     the loop's own ``run_loop_turn`` (same keyword-only signature), called once
-    per message, in order, with ``deps.db`` bound to the seat's tenant, a
+    per request, with ``deps.db`` bound to the seat's tenant, a
     ``deps.tools`` that records the calls made, and ``deps.model`` the app's
     model client (watched, so the headers of every call are kept).
 ``build_tool_caller(settings, bearer_token)``
     the same seam ``routes/chat.py`` has: called with the token minted for
     the seat.
 ``DbLoopStore(db, *, session_id, user_id)``
-    read once per conversation for ``role_ids()``, the tenant's roles, so a
+    read once per request for ``role_ids()``, the tenant's roles, so a
     call's ``role_id`` reads back as ``<system slug>.<role slug>``.
+``owns_chat(db, seat, chat_id) -> bool``
+    async; whether the chat is the seat's own. Asked only on a later turn
+    (``chat_id`` given), never on the first.
+``read_world(db, seat) -> EvalWorld``
+    async; the seat's tenant world. Called once before and once after the
+    loop turn, so a fake that changes between calls shows only in the world
+    after.
 
-The answer is exactly the console's envelope, and every step's prompt version
-rides the ``X-Prompt-Versions`` header.
+The route plays ONE turn per call. The answer is the chat id, the reply, the
+tool calls and the world before and after, and the loop's prompt version rides
+the ``X-Prompt-Versions`` header.
 
 Cost: no backing service, no socket. The database is a recording session
 factory over an empty directory, the loop a scripted function, the tool server a recording stub and
@@ -64,6 +72,7 @@ from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelCl
 from helpdesk.shared.auth.jwt import issue_token, verify_token
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS
 
 RESET_PATH = "/admin/test/reset"
 
@@ -440,13 +449,83 @@ def test_reset_answers_204_when_switched_on(install: Callable[..., Harness]) -> 
 
 # --- the conversation route ---------------------------------------
 #
-# `POST /v1/eval/conversation` and `eval_turn.run_conversation`. The same
-# seams are swapped (`resolve_seat`, `run_loop_turn`, `build_tool_caller`,
-# `DbLoopStore`), so no database, tool server or model is needed.
+# `POST /v1/eval/conversation` plays one turn. The same seams are swapped
+# (`resolve_seat`, `run_loop_turn`, `build_tool_caller`, `DbLoopStore`), plus
+# `owns_chat` and `read_world`, so no database, tool server or model is needed.
 
 CONVERSATION_PATH = "/v1/eval/conversation"
 DW_ANALYST = "data-warehouse.analyst"
 DW_ROLE_ID = uuid.UUID("a6666666-6666-5666-8666-666666666666")
+OTHER_USER_ID = uuid.UUID("a7777777-7777-5777-8777-777777777777")
+CHAT_ID = uuid.UUID("c1111111-1111-4111-8111-111111111111")
+WORLD_LISTS = {"requests", "grants", "tickets", "people", "reviews"}
+
+
+def empty_world() -> "eval_schemas.EvalWorld":
+    return eval_schemas.EvalWorld(requests=[], grants=[], tickets=[], people=[], reviews=[])
+
+
+def _world_before() -> "eval_schemas.EvalWorld":
+    return eval_schemas.EvalWorld(
+        requests=[
+            eval_schemas.WorldRequest(
+                number=1,
+                requester="sales.3",
+                target="sales.3",
+                role="wiki.viewer",
+                status="pending",
+            )
+        ],
+        grants=[],
+        tickets=[],
+        people=[
+            eval_schemas.WorldPerson(
+                person="sales.3",
+                department="Sales",
+                status="active",
+                reset_asked=False,
+                unlocked=False,
+            )
+        ],
+        reviews=[],
+    )
+
+
+def _world_after() -> "eval_schemas.EvalWorld":
+    return eval_schemas.EvalWorld(
+        requests=[
+            eval_schemas.WorldRequest(
+                number=1,
+                requester="sales.3",
+                target="sales.3",
+                role="wiki.viewer",
+                status="executed",
+            )
+        ],
+        grants=[
+            eval_schemas.WorldGrant(
+                person="sales.3", role="wiki.viewer", status="active", expires_at=None
+            )
+        ],
+        tickets=[
+            eval_schemas.WorldTicket(number=4, person="sales.3", kind="general", status="open")
+        ],
+        people=[
+            eval_schemas.WorldPerson(
+                person="sales.3",
+                department="Sales",
+                status="active",
+                reset_asked=True,
+                unlocked=False,
+            )
+        ],
+        reviews=[eval_schemas.WorldReview(status="open", items_decided=2)],
+    )
+
+
+async def read_empty_world(db: object, seat: object) -> "eval_schemas.EvalWorld":
+    """A `read_world` that finds nothing, for a test that does not look at the world."""
+    return empty_world()
 
 
 @dataclass(frozen=True)
@@ -538,22 +617,71 @@ class FakeDirectory:
         return []
 
 
+class ChatBook:
+    """Stands in for `owns_chat`: the (user, chat) pairs that exist, and who asked."""
+
+    def __init__(self, owned: Sequence[tuple[uuid.UUID, uuid.UUID]]) -> None:
+        self.owned = set(owned)
+        self.asked: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+    async def __call__(self, db: object, seat: Any, chat_id: Any) -> bool:
+        pair = (seat.user_id, uuid.UUID(str(chat_id)))
+        self.asked.append(pair)
+        return pair in self.owned
+
+
+class WorldReads:
+    """Stands in for `read_world`: the world before the loop turn has been played
+    and the world after, told apart by how many turns have run when it is read."""
+
+    def __init__(
+        self,
+        turns: ConvTurns,
+        before: "eval_schemas.EvalWorld",
+        after: "eval_schemas.EvalWorld",
+    ) -> None:
+        self._turns = turns
+        self._before = before
+        self._after = after
+        self.reads: list[tuple[int, Any, Any]] = []
+
+    async def __call__(self, db: Any, seat: Any) -> "eval_schemas.EvalWorld":
+        played = len(self._turns.calls)
+        self.reads.append((played, db, seat))
+        return self._before if played == 0 else self._after
+
+
+@dataclass
+class ConvEnv:
+    """Everything one conversation case watches."""
+
+    harness: Harness
+    turns: ConvTurns
+    chats: ChatBook
+    worlds: WorldReads
+
+
 @pytest.fixture
 def install_conversation(
     install: Callable[..., Harness], monkeypatch: pytest.MonkeyPatch
-) -> Callable[..., tuple[Harness, ConvTurns]]:
-    """`install`, then the conversation's own scripted turns and stub caller."""
+) -> Callable[..., ConvEnv]:
+    """`install`, then the turn's own scripted turns, stub caller, chat book and world."""
 
     def build(
         steps: Sequence[ConvStep],
         *,
         answers: Mapping[str, Mapping[str, Any]] | None = None,
         failures: Mapping[str, ToolError] | None = None,
-    ) -> tuple[Harness, ConvTurns]:
+        owned: Sequence[tuple[uuid.UUID, uuid.UUID]] = (),
+        world_before: "eval_schemas.EvalWorld | None" = None,
+        world_after: "eval_schemas.EvalWorld | None" = None,
+    ) -> ConvEnv:
         harness = install([])
         turns = ConvTurns(steps)
         tokens = harness.tokens
         stub = StubCaller(answers or {}, failures or {})
+        chats = ChatBook(owned)
+        worlds = WorldReads(turns, world_before or empty_world(), world_after or empty_world())
 
         def build_caller(_settings: object, bearer_token: str) -> StubCaller:
             tokens.append(bearer_token)
@@ -562,16 +690,19 @@ def install_conversation(
         monkeypatch.setattr(eval_turn, "run_loop_turn", turns)
         monkeypatch.setattr(eval_turn, "build_tool_caller", build_caller)
         monkeypatch.setattr(eval_turn, "DbLoopStore", FakeDirectory)
+        monkeypatch.setattr(eval_turn, "owns_chat", chats)
+        monkeypatch.setattr(eval_turn, "read_world", worlds)
         monkeypatch.setattr(FakeDirectory, "reads", 0)
-        return harness, turns
+        return ConvEnv(harness, turns, chats, worlds)
 
     return build
 
 
 def _conv_body(
     *,
-    turns: Sequence[str] = ("hello",),
-    case_id: str = "conv-001",
+    message: str = "hello",
+    chat_id: str | None = None,
+    case_id: str = "case-001",
     tenant: str = TENANT_SLUG,
     principal_user: str = PRINCIPAL_USER,
 ) -> dict[str, Any]:
@@ -579,7 +710,8 @@ def _conv_body(
         "case_id": case_id,
         "tenant": tenant,
         "principal_user": principal_user,
-        "turns": list(turns),
+        "chat_id": chat_id,
+        "message": message,
     }
 
 
@@ -593,8 +725,7 @@ def _post_conversation(body: Mapping[str, Any], *, token: str | None = None) -> 
 
 
 def test_the_conversation_route_is_404_when_switched_off(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
-    monkeypatch: pytest.MonkeyPatch,
+    install_conversation: Callable[..., ConvEnv], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Catches a conversation route that answers in production: one that ignores
     `EVAL_ROUTES_ENABLED`, or is not mounted (FastAPI's `{"detail"}` instead of
@@ -603,100 +734,313 @@ def test_the_conversation_route_is_404_when_switched_off(
     The fakes would make the switched-on route answer 200, so the 404 can only
     come from the switch.
     """
-    harness, turns = install_conversation([ConvStep(update=_plain())])
+    env = install_conversation([ConvStep(update=_plain())])
     monkeypatch.setenv("EVAL_ROUTES_ENABLED", "false")
 
     response = _post_conversation(_conv_body(), token=_login_token())
 
     assert (response.status_code, response.json()) == (404, {"code": ErrorCode.NOT_FOUND.value})
-    assert turns.calls == []
-    assert harness.seat_lookups == []
+    assert env.turns.calls == []
+    assert env.harness.seat_lookups == []
+    assert env.worlds.reads == []
 
 
-def test_a_conversation_answers_one_record_per_turn_in_order(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+def test_a_first_turn_starts_a_chat_and_answers_its_id(
+    install_conversation: Callable[..., ConvEnv],
 ) -> None:
-    """Catches an answer that keeps only the last turn's reply (as `/v1/eval/turn`
-    does), numbers turns from 0, reorders them, or starts a new chat per turn.
+    """Catches a first turn that answers no chat id, a fixed or reused id, an id
+    that is not a new random uuid, an id the loop did not run under, a first
+    turn that asks whether the chat is owned (there is no chat yet), and an
+    answer that carries any field beyond the five the console reads.
 
-    Each scripted reply differs, so a record carrying another turn's reply fails.
+    Two first turns are played: their ids must differ, so a constant id fails.
+    The loop's own session id is compared with the answered one, so an id made
+    for the answer alone fails.
     """
-    _, turns = install_conversation(
+    env = install_conversation(
         [
             ConvStep(update={"outcome": TurnOutcome.CLARIFY, "reply": "first reply"}),
-            ConvStep(update={"outcome": TurnOutcome.CLARIFY, "reply": "second reply"}),
-            ConvStep(update={"outcome": TurnOutcome.DONE, "reply": "third reply"}),
+            ConvStep(update={"outcome": TurnOutcome.DONE, "reply": "second reply"}),
         ]
     )
 
-    response = _post_conversation(_conv_body(turns=("one", "two", "three"), case_id="conv-007"))
+    first = _post_conversation(_conv_body(message="one"))
+    second = _post_conversation(_conv_body(message="two", chat_id=None))
+
+    assert first.status_code == second.status_code == 200
+    body = first.json()
+    assert set(body) == {"chat_id", "reply", "tool_calls", "world_before", "world_after"}
+    assert body["reply"] == "first reply"
+    assert body["tool_calls"] == []
+    parsed = uuid.UUID(body["chat_id"])
+    assert parsed.version == 4
+    assert str(parsed) == body["chat_id"]
+    assert env.turns.calls[0]["session_id"] == parsed
+    assert env.turns.calls[1]["session_id"] == uuid.UUID(second.json()["chat_id"])
+    assert second.json()["chat_id"] != body["chat_id"]
+    assert [call["message"] for call in env.turns.calls] == ["one", "two"]
+    assert env.chats.asked == []
+
+
+def test_a_second_turn_continues_the_same_chat(
+    install_conversation: Callable[..., ConvEnv],
+) -> None:
+    """Catches a later turn that starts a new chat instead of continuing the one
+    given, that answers a different id, that mints its token for a different
+    session, or that never asks whether the seat owns the chat.
+
+    The chat is owned by the seat, so the ownership answer is yes; the loop must
+    run under that exact id, with the token's session claim the same, and the
+    question must name the seat's user and the chat.
+    """
+    env = install_conversation([ConvStep(update=_plain())], owned=[(SEAT_USER_ID, CHAT_ID)])
+
+    response = _post_conversation(_conv_body(message="and then?", chat_id=str(CHAT_ID)))
+
+    assert response.status_code == 200
+    assert response.json()["chat_id"] == str(CHAT_ID)
+    assert [call["session_id"] for call in env.turns.calls] == [CHAT_ID]
+    assert [call["message"] for call in env.turns.calls] == ["and then?"]
+    assert env.chats.asked == [(SEAT_USER_ID, CHAT_ID)]
+    assert env.harness.tokens
+    for token in env.harness.tokens:
+        claims = verify_token(token, TEST_JWT_SIGNING_PHRASE, datetime.now(UTC))
+        assert claims.sid == str(CHAT_ID)
+
+
+def test_each_turn_answers_the_world_before_and_after(
+    install_conversation: Callable[..., ConvEnv],
+) -> None:
+    """Catches an answer whose two worlds are the same read (both before or both
+    after the turn), a world read for the wrong session or seat, a world
+    missing one of its five lists, and a world read more or less than twice.
+
+    The fake world returns one state while no turn has run and another after,
+    so the answered `world_before` can only be the first and `world_after`
+    only the second if the reads bracket the loop turn. The read gets the
+    database session bound to the seat's tenant and the seat itself.
+    """
+    env = install_conversation(
+        [ConvStep(update=_plain())], world_before=_world_before(), world_after=_world_after()
+    )
+
+    response = _post_conversation(_conv_body())
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"case_id", "turns"}
-    assert body["case_id"] == "conv-007"
-    assert [(t["turn"], t["reply"]) for t in body["turns"]] == [
-        (1, "first reply"),
-        (2, "second reply"),
-        (3, "third reply"),
-    ]
-    assert [call["message"] for call in turns.calls] == ["one", "two", "three"]
-    assert len({call["session_id"] for call in turns.calls}) == 1
+    assert set(body["world_before"]) == WORLD_LISTS
+    assert set(body["world_after"]) == WORLD_LISTS
+    assert body["world_before"] == _world_before().model_dump(mode="json")
+    assert body["world_after"] == _world_after().model_dump(mode="json")
+    assert [played for played, _, _ in env.worlds.reads] == [0, 1]
+    for _, db, seat in env.worlds.reads:
+        assert bound_tenant_id(cast(AsyncSession, db)) == SEAT_TENANT_ID
+        assert seat.user_id == SEAT_USER_ID
 
 
-def test_each_turn_lists_only_its_own_calls_and_results(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+def test_a_chat_id_of_another_seat_is_refused(
+    install_conversation: Callable[..., ConvEnv],
 ) -> None:
-    """Catches calls piled up across the whole conversation (as the single-turn
-    envelope does), so turn 3 would list turn 1's call too; a `role_id` left as
-    an id; and a `result` that is rebuilt rather than the tool's own answer.
+    """Catches a route that plays a turn into a chat that belongs to another
+    person, so one case could write into someone else's chat: an
+    implementation that trusts the `chat_id` of the body.
 
-    Turn 2 makes no call and must read `[]`. The role names come from the
-    tenant's role list, read once for the whole conversation, so turn 3 reads
-    the same name back without a second read.
+    The chat exists, but under another user, and the same chat id is answered
+    200 for its own seat in the test above, so the 422 can only come from the
+    ownership answer. The loop must not run and no token may be minted.
+    """
+    env = install_conversation([ConvStep(update=_plain())], owned=[(OTHER_USER_ID, CHAT_ID)])
+
+    response = _post_conversation(_conv_body(chat_id=str(CHAT_ID)))
+
+    assert response.status_code == 422
+    assert response.json() == {"code": ErrorCode.VALIDATION.value}
+    assert env.chats.asked == [(SEAT_USER_ID, CHAT_ID)]
+    assert env.turns.calls == []
+    assert env.harness.tokens == []
+
+
+@pytest.mark.parametrize(
+    "chat_id",
+    [
+        pytest.param(str(uuid.UUID(int=12345)), id="well-formed-but-unknown"),
+        pytest.param("not-a-uuid", id="not-a-uuid"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_an_unknown_chat_id_is_refused(
+    install_conversation: Callable[..., ConvEnv], chat_id: str
+) -> None:
+    """Catches a later turn with an id the server never started that is played
+    anyway (as a new chat or as that id), and an id that is not a uuid
+    answered 200 or 500 instead of 422.
+
+    No chat exists for anyone, so the ownership answer is no; nothing may run.
+    """
+    env = install_conversation([ConvStep(update=_plain())])
+
+    response = _post_conversation(_conv_body(chat_id=chat_id))
+
+    assert response.status_code == 422
+    assert env.turns.calls == []
+    assert env.harness.tokens == []
+
+
+def test_an_unknown_chat_id_answers_the_typed_validation_code(
+    install_conversation: Callable[..., ConvEnv],
+) -> None:
+    """Catches an unknown chat answered with a bare detail or another code
+    (`NOT_FOUND`, `FORBIDDEN`) instead of the typed `VALIDATION`, which would
+    tell a caller that a chat exists under someone else."""
+    install_conversation([ConvStep(update=_plain())])
+
+    response = _post_conversation(_conv_body(chat_id=str(uuid.UUID(int=12345))))
+
+    assert (response.status_code, response.json()) == (422, {"code": ErrorCode.VALIDATION.value})
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            {
+                "case_id": "conv-001",
+                "tenant": TENANT_SLUG,
+                "principal_user": PRINCIPAL_USER,
+                "turns": ["one", "two"],
+            },
+            id="old-body",
+        ),
+        pytest.param(_conv_body(case_id="conv-001"), id="conv-id-on-a-one-turn-body"),
+        pytest.param(_conv_body(case_id="conv-045"), id="last-old-id"),
+    ],
+)
+def test_the_old_many_turn_body_is_refused(
+    install_conversation: Callable[..., ConvEnv], body: Mapping[str, Any]
+) -> None:
+    """Catches a route that still takes the old body (a `turns` list), or one
+    that takes the old `conv-` ids so old and new scores could mix.
+
+    The middle and last rows are complete one-turn bodies except for the id,
+    so only the id pattern can refuse them.
+    """
+    env = install_conversation([ConvStep(update=_plain()) for _ in range(2)])
+
+    response = _post_conversation(body)
+
+    assert response.status_code == 422
+    assert env.turns.calls == []
+
+
+@pytest.mark.parametrize(
+    ("case_id", "status"),
+    [
+        pytest.param("case-001", 200, id="first"),
+        pytest.param("case-000", 200, id="case-000"),
+        pytest.param("case-999", 200, id="case-999"),
+        pytest.param("case-12", 422, id="two-digit-id"),
+        pytest.param("case-1000", 422, id="four-digit-id"),
+        pytest.param("case-001\n", 422, id="id-trailing-newline"),
+        pytest.param("case-001\r\n", 422, id="id-trailing-crlf"),
+        pytest.param("case-001 ", 422, id="id-trailing-space"),
+        pytest.param("xcase-001", 422, id="id-leading-text"),
+    ],
+)
+def test_the_case_id_is_case_and_three_digits(
+    install_conversation: Callable[..., ConvEnv], case_id: str, status: int
+) -> None:
+    """Catches an id pattern looser than three digits or unanchored (a trailing
+    newline, CRLF or space, or leading text let through) and a range that
+    refuses `case-000` or `case-999`.
+    """
+    env = install_conversation([ConvStep(update=_plain())])
+
+    response = _post_conversation(_conv_body(case_id=case_id))
+
+    assert response.status_code == status
+    assert len(env.turns.calls) == (1 if status == 200 else 0)
+
+
+@pytest.mark.parametrize(
+    ("length", "status"),
+    [
+        pytest.param(1, 200, id="one-character"),
+        pytest.param(MAX_MESSAGE_CHARS - 1, 200, id="one-under-the-limit"),
+        pytest.param(MAX_MESSAGE_CHARS, 200, id="at-the-limit"),
+        pytest.param(MAX_MESSAGE_CHARS + 1, 422, id="one-over-the-limit"),
+        pytest.param(0, 422, id="empty"),
+    ],
+)
+def test_a_message_over_the_chat_limit_is_refused(
+    install_conversation: Callable[..., ConvEnv], length: int, status: int
+) -> None:
+    """Catches a message limit that differs from the chat's own: one that is
+    one too tight (the limit itself refused), one that is one too loose (one
+    over let through), no limit at all, and an empty message let through.
+
+    The chat's own limit is imported, so both sides move together; the
+    accepted rows run the turn, so a limit that is too tight fails there.
+    """
+    env = install_conversation([ConvStep(update=_plain())])
+
+    response = _post_conversation(_conv_body(message="m" * length))
+
+    assert response.status_code == status
+    assert len(env.turns.calls) == (1 if status == 200 else 0)
+    if status == 200:
+        assert len(env.turns.calls[0]["message"]) == length
+
+
+def test_a_turn_lists_its_own_calls_and_results(
+    install_conversation: Callable[..., ConvEnv],
+) -> None:
+    """Catches a `role_id` left as an id in the answer, a `result` that is
+    rebuilt rather than the tool's own answer, calls of another turn listed
+    here, and a role list read more than once for one turn.
+
+    The turn makes two calls, so order matters; a second turn on the same chat
+    makes none and must read `[]`, so calls piled up across turns fail.
     """
     answer_a = {"request_id": "r-1", "status": "executed", "decision": "auto"}
     answer_b = {"tickets": [{"id": "t-9"}], "count": 1}
-    _, _ = install_conversation(
+    install_conversation(
         [
             ConvStep(
                 update=_about("data-warehouse", "analyst"),
-                calls=(("create_access_request", DW_ROLE_ID),),
+                calls=(("create_access_request", DW_ROLE_ID), ("create_ticket", DW_ROLE_ID)),
             ),
             ConvStep(update=_plain(TurnOutcome.CLARIFY)),
-            ConvStep(update=_plain(), calls=(("create_ticket", DW_ROLE_ID),)),
         ],
         answers={"create_access_request": answer_a, "create_ticket": answer_b},
+        owned=[(SEAT_USER_ID, CHAT_ID)],
     )
 
-    response = _post_conversation(_conv_body(turns=("a", "b", "c")))
+    first = _post_conversation(_conv_body())
+    second = _post_conversation(_conv_body(chat_id=str(CHAT_ID)))
 
-    assert response.status_code == 200
-    records = response.json()["turns"]
-    assert records[0]["tool_calls"] == [
+    assert first.status_code == second.status_code == 200
+    assert first.json()["tool_calls"] == [
         {
             "name": "create_access_request",
             "args": {"role": DW_ANALYST},
             "ok": True,
             "result": answer_a,
             "error_code": None,
-        }
-    ]
-    assert records[1]["tool_calls"] == []
-    assert records[2]["tool_calls"] == [
+        },
         {
             "name": "create_ticket",
             "args": {"role": DW_ANALYST},
             "ok": True,
             "result": answer_b,
             "error_code": None,
-        }
+        },
     ]
-    assert FakeDirectory.reads == 1
+    assert second.json()["tool_calls"] == []
+    assert FakeDirectory.reads == 2
 
 
 def test_a_failed_call_is_kept_with_its_error_code(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+    install_conversation: Callable[..., ConvEnv],
 ) -> None:
     """Catches a recorder that drops a call which raised, that keeps it with
     `ok` true, or that loses the error code (`None` or `INTERNAL`); and one that
@@ -706,7 +1050,7 @@ def test_a_failed_call_is_kept_with_its_error_code(
     the scripted turn catches it as the loop does and still answers. The
     success after it must stay `ok` true.
     """
-    _, _ = install_conversation(
+    install_conversation(
         [
             ConvStep(
                 update=_about("wiki", "viewer"),
@@ -720,9 +1064,9 @@ def test_a_failed_call_is_kept_with_its_error_code(
     response = _post_conversation(_conv_body())
 
     assert response.status_code == 200
-    record = response.json()["turns"][0]
-    assert record["reply"] == "reply about wiki.viewer"
-    failed, fine = record["tool_calls"]
+    body = response.json()
+    assert body["reply"] == "reply about wiki.viewer"
+    failed, fine = body["tool_calls"]
     assert failed["name"] == "revoke_access"
     assert failed["ok"] is False
     assert failed["error_code"] == ErrorCode.NOT_FOUND.value == "NOT_FOUND"
@@ -732,16 +1076,16 @@ def test_a_failed_call_is_kept_with_its_error_code(
 
 
 def test_the_conversation_identity_comes_from_the_seat(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+    install_conversation: Callable[..., ConvEnv],
 ) -> None:
-    """Catches a conversation that takes tenant or user from the body, mints a
-    token per turn with a fresh `sid`, or lets body text reach a tool.
+    """Catches a turn that takes tenant or user from the body, mints a token
+    with a session claim other than the chat's, or lets body text reach a tool.
 
-    The seat's ids are values nothing in the body spells. Every turn's token and
-    loop call must carry them and one chat id; the tool's arguments hold
-    only the role id.
+    The seat's ids are values nothing in the body spells. A first turn and a
+    second turn on the answered chat must each carry them, and one chat id; the
+    tool's arguments hold only the role id.
     """
-    harness, turns = install_conversation(
+    env = install_conversation(
         [
             ConvStep(update=_plain(), calls=(("create_ticket", ROLE_ID),)),
             ConvStep(update=_plain(), calls=(("create_ticket", ROLE_ID),)),
@@ -749,26 +1093,28 @@ def test_the_conversation_identity_comes_from_the_seat(
         answers={"create_ticket": {"ok": True}},
     )
 
-    response = _post_conversation(_conv_body(turns=("first", "second")))
+    first = _post_conversation(_conv_body(message="first"))
+    chat_id = first.json()["chat_id"]
+    env.chats.owned.add((SEAT_USER_ID, uuid.UUID(chat_id)))
+    second = _post_conversation(_conv_body(message="second", chat_id=chat_id))
 
-    assert response.status_code == 200
-    assert harness.seat_lookups == [(TENANT_SLUG, PRINCIPAL_USER)]
-    chat_ids = {call["session_id"] for call in turns.calls}
-    assert len(chat_ids) == 1
-    chat_id = next(iter(chat_ids))
-    for call in turns.calls:
+    assert first.status_code == second.status_code == 200
+    assert env.harness.seat_lookups == [(TENANT_SLUG, PRINCIPAL_USER)] * 2
+    assert {str(call["session_id"]) for call in env.turns.calls} == {chat_id}
+    assert len(env.turns.calls) == 2
+    for call in env.turns.calls:
         assert call["tenant_id"] == SEAT_TENANT_ID
         assert call["user_id"] == SEAT_USER_ID
         assert call["tenant_slug"] == TENANT_SLUG
         assert bound_tenant_id(cast(AsyncSession, call["deps"].db)) == SEAT_TENANT_ID
-    assert len(harness.tokens) >= 1
-    for token in harness.tokens:
+    assert len(env.harness.tokens) >= 2
+    for token in env.harness.tokens:
         claims = verify_token(token, TEST_JWT_SIGNING_PHRASE, datetime.now(UTC))
         assert claims.sub == str(SEAT_USER_ID)
         assert claims.tenant_id == str(SEAT_TENANT_ID)
-        assert claims.sid == str(chat_id)
-    for record in response.json()["turns"]:
-        for call in record["tool_calls"]:
+        assert claims.sid == chat_id
+    for answer in (first.json(), second.json()):
+        for call in answer["tool_calls"]:
             assert PRINCIPAL_USER not in json.dumps(call)
             assert "first" not in json.dumps(call["args"])
 
@@ -782,64 +1128,28 @@ def test_the_conversation_identity_comes_from_the_seat(
     ],
 )
 def test_an_unknown_seat_is_rejected_on_the_conversation_route(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
-    tenant: str,
-    principal_user: str,
+    install_conversation: Callable[..., ConvEnv], tenant: str, principal_user: str
 ) -> None:
-    """Catches a conversation that runs anyway for a seat or tenant that is not
+    """Catches a turn that runs anyway for a seat or tenant that is not
     seeded, or answers 404, 500 or 200 instead of 422 `VALIDATION`.
 
     The only seat the fake knows is the good one, and each row is unknown for
-    its own reason, so a lookup on one half alone lets a row through.
+    its own reason, so a lookup on one half alone lets a row through. No
+    world may be read for a seat that does not exist.
     """
-    harness, turns = install_conversation([ConvStep(update=_plain())])
+    env = install_conversation([ConvStep(update=_plain())])
 
     response = _post_conversation(_conv_body(tenant=tenant, principal_user=principal_user))
 
     assert response.status_code == 422
     assert response.json() == {"code": ErrorCode.VALIDATION.value}
-    assert turns.calls == []
-    assert harness.tokens == []
-
-
-@pytest.mark.parametrize(
-    ("case_id", "turn_count", "status"),
-    [
-        pytest.param("conv-001", 1, 200, id="one-turn"),
-        pytest.param("conv-001", 10, 200, id="ten-turns"),
-        pytest.param("conv-000", 2, 200, id="conv-000"),
-        pytest.param("conv-001", 0, 422, id="zero-turns"),
-        pytest.param("conv-001", 11, 422, id="eleven-turns"),
-        pytest.param("conv-12", 2, 422, id="two-digit-id"),
-        pytest.param("conv-1000", 2, 422, id="four-digit-id"),
-        pytest.param("conv-001\n", 2, 422, id="id-trailing-newline"),
-        pytest.param("conv-001\r\n", 2, 422, id="id-trailing-crlf"),
-        pytest.param("conv-001 ", 2, 422, id="id-trailing-space"),
-    ],
-)
-def test_the_conversation_body_limits(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
-    case_id: str,
-    turn_count: int,
-    status: int,
-) -> None:
-    """Catches limits that are off by one (0 or 11 turns let through, 10 refused),
-    an id pattern that is looser than three digits or unanchored (a trailing
-    newline, CRLF or space let through), and a lower bound that refuses `conv-000`.
-
-    The accepted rows run every turn, so a bound that is too tight also fails.
-    """
-    _, turns = install_conversation([ConvStep(update=_plain()) for _ in range(10)])
-    messages = [f"message {n}" for n in range(turn_count)]
-
-    response = _post_conversation(_conv_body(turns=messages, case_id=case_id))
-
-    assert response.status_code == status
-    assert len(turns.calls) == (turn_count if status == 200 else 0)
+    assert env.turns.calls == []
+    assert env.harness.tokens == []
+    assert env.worlds.reads == []
 
 
 def test_the_conversation_answer_carries_the_loop_prompt_version(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+    install_conversation: Callable[..., ConvEnv],
 ) -> None:
     """Catches a conversation answer with no `X-Prompt-Versions` header, one
     that still names the old pipeline's four steps, or one that holds anything
@@ -860,7 +1170,7 @@ def test_the_conversation_answer_carries_the_loop_prompt_version(
 
 
 def test_an_eval_conversation_sends_no_user_header(
-    install_conversation: Callable[..., tuple[Harness, ConvTurns]],
+    install_conversation: Callable[..., ConvEnv],
 ) -> None:
     """Catches an eval route that looks up or invents a gateway user id for the
     seat and hands it to the turn, so eval traffic would show up as a real
@@ -869,10 +1179,10 @@ def test_an_eval_conversation_sends_no_user_header(
     The turn is a recorder, so what the route passed is read straight off its
     keyword arguments: none may name a gateway user.
     """
-    _, turns = install_conversation([ConvStep(update=_plain()), ConvStep(update=_plain())])
+    env = install_conversation([ConvStep(update=_plain())])
 
-    response = _post_conversation(_conv_body(turns=("one", "two")))
+    response = _post_conversation(_conv_body())
 
     assert response.status_code == 200
-    assert len(turns.calls) == 2
-    assert [call.get("gateway_user") for call in turns.calls] == [None, None]
+    assert len(env.turns.calls) == 1
+    assert [call.get("gateway_user") for call in env.turns.calls] == [None]

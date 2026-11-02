@@ -42,6 +42,7 @@ import scripts.seed as seed_module
 from helpdesk.shared.auth.passwords import hash_password
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.models import (
+    AccessRequest,
     Base,
     Department,
     Grant,
@@ -54,8 +55,8 @@ from helpdesk.shared.models import (
     Ticket,
     User,
 )
-from helpdesk.shared.models.numbers import ReferenceCounter
-from scripts.seed import SeedError, seed_all
+from helpdesk.shared.models.numbers import NumberKind, ReferenceCounter
+from scripts.seed import CUAN, NORDLICHT, SeedError, generate_tenant, seed_all
 from tests.conftest import TempDatabaseFactory
 
 # Most tests here still take 1.5-4.9s (each seeds both tenants
@@ -648,7 +649,7 @@ def test_a_reseed_backfills_system_about(fresh_db_url: str) -> None:
 
 @pytest.mark.db
 def test_a_reseed_keeps_a_counter_the_migration_made(fresh_db_url: str) -> None:
-    """Catches a re-seed that looks for the ticket counter only by its fixed id:
+    """Catches a re-seed that looks for a counter only by its fixed id:
     the numbers migration gave older databases counters with random ids, so the
     seed would add a second row for the same kind and break the unique key."""
 
@@ -666,12 +667,10 @@ def test_a_reseed_keeps_a_counter_the_migration_made(fresh_db_url: str) -> None:
             async with engine.connect() as conn:
                 before = await counters(conn)
             async with engine.begin() as conn:
-                for (tenant_id,) in (
-                    await conn.execute(select(ReferenceCounter.tenant_id).distinct())
-                ).all():
+                for (counter_id,) in (await conn.execute(select(ReferenceCounter.id))).all():
                     await conn.execute(
                         update(ReferenceCounter)
-                        .where(ReferenceCounter.tenant_id == tenant_id)
+                        .where(ReferenceCounter.id == counter_id)
                         .values(id=uuid.uuid4())
                     )
 
@@ -795,5 +794,121 @@ def test_upsert_many_with_no_rows_sends_no_statement(fresh_db_url: str) -> None:
                     result = await repo.upsert_many({})
             assert result == {}, f"an empty batch returned {result!r}"
             assert sent == [], f"an empty batch sent {len(sent)} statement(s): {sent!r}"
+
+    asyncio.run(scenario())
+
+
+def test_planted_requests_are_pending_and_skip_the_demo_accounts() -> None:
+    """Catches a seed whose planted requests land on a demo account (as requester,
+    target or approver), so the demo logins would start with someone else's
+    open work; one that numbers them out of spec order or not from 1; one that
+    plants a request the policy would grant at once (`auto`), or one already
+    decided; and rows that differ from the spec they came from (wrong person,
+    role, justification or expiry).
+
+    Both tenants are generated in memory. At least one request is planted
+    overall, so a seed that plants nothing cannot pass by having nothing to check.
+    """
+    planted_total = 0
+    for spec in (NORDLICHT, CUAN):
+        rows = generate_tenant(spec)
+        demo_ids = {user.id for user in rows.demo_accounts.values()}
+        user_ids = {user.id for user in rows.users}
+        assert len(rows.planted_requests) == len(spec.planted_requests)
+        assert [r.number for r in rows.planted_requests] == list(
+            range(1, len(spec.planted_requests) + 1)
+        )
+        assert len({r.id for r in rows.planted_requests}) == len(rows.planted_requests)
+        for row, planted in zip(rows.planted_requests, spec.planted_requests, strict=True):
+            who = rows.users_by_department[planted.department][planted.user_index]
+            assert row.requester.id == row.target.id == who.id
+            assert row.role == planted.role
+            assert row.justification == planted.justification
+            assert row.requested_expiry_days == planted.requested_expiry_days
+            assert row.status == "pending"
+            assert row.decision in {"approval", "blocked"}, row.decision
+            assert row.risk_class in {"low", "elevated", "privileged", "critical"}
+            assert set(row.approver_user_ids) <= user_ids
+            touched = {row.requester.id, row.target.id, *row.approver_user_ids}
+            assert not touched & demo_ids, f"{spec.slug}: request {row.number} uses a demo account"
+        planted_total += len(rows.planted_requests)
+    assert planted_total >= 1
+
+
+@pytest.mark.db
+def test_the_seed_writes_planted_requests_and_the_counter(fresh_db_url: str) -> None:
+    """Catches a writer that leaves the planted requests out of the database,
+    numbers them differently from the generated rows, stores a decision or
+    status other than the generated one, leaves the request counter missing or
+    not equal to their count (the next real request would reuse REQ-0001), or
+    a reseed that adds a second set, moves a number or changes the counter.
+
+    The expected rows come from `generate_tenant`; the database is read back
+    by tenant, and the reseed is compared table to table, ids included.
+    """
+
+    async def scenario() -> None:
+        async with _engine(fresh_db_url) as engine:
+            await _create_schema(engine)
+            await seed_all(fresh_db_url)
+
+            async def stored(
+                conn: AsyncConnection, tenant_id: uuid.UUID
+            ) -> list[tuple[uuid.UUID, int, uuid.UUID, uuid.UUID, str, str, str, int | None]]:
+                result = await conn.execute(
+                    select(
+                        AccessRequest.id,
+                        AccessRequest.number,
+                        AccessRequest.requester_user_id,
+                        AccessRequest.target_user_id,
+                        AccessRequest.status,
+                        AccessRequest.decision,
+                        AccessRequest.risk_class,
+                        AccessRequest.requested_expiry_days,
+                    )
+                    .where(AccessRequest.tenant_id == tenant_id)
+                    .order_by(AccessRequest.number)
+                )
+                return [tuple(row) for row in result]
+
+            async def counter(conn: AsyncConnection, tenant_id: uuid.UUID) -> list[int]:
+                result = await conn.execute(
+                    select(ReferenceCounter.last).where(
+                        ReferenceCounter.tenant_id == tenant_id,
+                        ReferenceCounter.kind == NumberKind.ACCESS_REQUEST.value,
+                    )
+                )
+                return list(result.scalars().all())
+
+            checked = 0
+            async with engine.connect() as conn:
+                for spec in (NORDLICHT, CUAN):
+                    rows = generate_tenant(spec)
+                    expected = [
+                        (
+                            r.id,
+                            r.number,
+                            r.requester.id,
+                            r.target.id,
+                            "pending",
+                            r.decision,
+                            r.risk_class,
+                            r.requested_expiry_days,
+                        )
+                        for r in rows.planted_requests
+                    ]
+                    assert await stored(conn, rows.tenant_id) == expected
+                    if expected:
+                        assert [e[1] for e in expected] == list(range(1, len(expected) + 1))
+                        assert await counter(conn, rows.tenant_id) == [len(expected)]
+                    checked += len(expected)
+            assert checked >= 1
+            before = await _snapshot(engine)
+
+            await seed_all(fresh_db_url)
+
+            after = await _snapshot(engine)
+            assert after["access_requests"] == before["access_requests"]
+            assert after["reference_counters"] == before["reference_counters"]
 
     asyncio.run(scenario())
