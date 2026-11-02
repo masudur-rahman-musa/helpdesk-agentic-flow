@@ -185,8 +185,7 @@ PICK_AGAIN_REPLY = (
 """Said instead of `FAILURE_REPLY` when a short message with nothing held,
 most likely the answer to a question that asked the person to pick, ends on a
 failure (`MAX_PICK_WORDS`). The
-outcome and error code stay those of the failure
-(`test_a_yes_with_nothing_held_and_a_failed_step_asks_which_one`)."""
+outcome and error code stay those of the failure."""
 
 BUSY_REPLY = (
     "I'm getting a lot of requests right now, so I could not answer that. "

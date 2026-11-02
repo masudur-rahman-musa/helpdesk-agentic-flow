@@ -79,11 +79,16 @@ def test_loop_files_are_still_there() -> None:
     """Catches a delete that goes too far (the loop, its prompt, or a kept
     module removed), and keeps the checks above from passing on an empty tree.
 
-    Also pins that the loop prompt is the only prompt left.
+    Also pins the prompts that are left: the loop's own, and the two small
+    ones it uses to read a reply to a held change and to write its question.
     """
     for name in KEPT_MODULES:
         assert (AGENT / f"{name}.py").is_file(), name
-    assert sorted(path.name for path in PROMPTS.glob("*.md")) == ["agent_loop.md"]
+    assert sorted(path.name for path in PROMPTS.glob("*.md")) == [
+        "agent_loop.md",
+        "read_reply.md",
+        "write_confirm.md",
+    ]
 
 
 def _imported_modules(path: Path) -> list[str]:
