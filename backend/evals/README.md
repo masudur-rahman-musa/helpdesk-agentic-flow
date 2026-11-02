@@ -100,6 +100,10 @@ Each case has these fields:
   `live_failures`, `tricky_phrasing`).
 - `scripted`: true only where the exact words matter (attacks, other
   languages, tricky phrasing), so the simulated person sends them as written.
+- `script`: scripted cases only, at least one step. Each step is
+  `{say, yes}`: the message sent as written (1 to 4000 characters) and
+  whether it agrees to the change on offer. The yes is never guessed from
+  the words.
 - `person`: `seat`, `role`, `tenant` and `language`. The seat is
   `seed:<department lowercased>.<principal>.<index>`, a place in the seeded
   directory: department by name, index within the department, and the seat

@@ -186,7 +186,8 @@ def _made_up(rows: TenantRows | None = None, **override: Any) -> Case:
 def _check_fields(cases: Sequence[Case]) -> None:
     for case in cases:
         name = case.get("id")
-        assert set(case) == CASE_FIELDS, f"{name}: fields are {sorted(set(case) ^ CASE_FIELDS)}"
+        expected = CASE_FIELDS | {"script"} if case.get("scripted") is True else CASE_FIELDS
+        assert set(case) == expected, f"{name}: fields are {sorted(set(case) ^ expected)}"
         for text_field in ("purpose", "goal", "opening", "person_knows", "confirms_if"):
             value = case[text_field]
             assert isinstance(value, str) and value.strip(), f"{name}: {text_field} is empty"
@@ -222,6 +223,33 @@ def _check_fields(cases: Sequence[Case]) -> None:
             value = limits[key]
             assert type(value) is int, f"{name}: {key} is not a whole number"
             assert low <= value <= high, f"{name}: {key} {value} is outside {low} to {high}"
+
+
+def _check_scripts(cases: Sequence[Case]) -> None:
+    for case in cases:
+        name = case.get("id")
+        if case.get("scripted") is not True:
+            assert "script" not in case, f"{name}: an unscripted case has a script"
+            continue
+        script = case.get("script")
+        assert isinstance(script, list) and script, f"{name}: a scripted case has no steps"
+        for step in script:
+            assert isinstance(step, dict) and set(step) == {"say", "yes"}, f"{name}: step keys"
+            assert isinstance(step["say"], str) and 1 <= len(step["say"]) <= 4000, (
+                f"{name}: a say is not 1 to 4000 characters"
+            )
+            assert type(step["yes"]) is bool, f"{name}: yes is not true or false"
+
+
+def _check_yes_step(cases: Sequence[Case]) -> None:
+    for case in cases:
+        if case.get("scripted") is not True:
+            continue
+        if case["confirms_if"].strip().lower().startswith("never"):
+            continue
+        assert any(step["yes"] is True for step in case["script"]), (
+            f"{case['id']}: the case waits for a yes but no step says yes"
+        )
 
 
 def _check_fact_shape(fact: Fact, allowed: frozenset[str]) -> None:
@@ -428,9 +456,9 @@ def test_the_file_holds_45_cases_case_001_to_case_045_in_order() -> None:
 
 
 def test_every_case_has_every_field_and_no_other(cases: list[Case]) -> None:
-    """Catches a case missing one of the 15 fields, carrying an extra or an
-    old one, a person or limits block with the wrong keys, a limit outside
-    its range, or an owner outside the four.
+    """Catches a case missing one of the 15 fields (16 with `script`, which only a
+    scripted case has), carrying an extra or an old one, a person or limits block
+    with the wrong keys, a limit outside its range, or an owner outside the four.
     """
     _check_fields(cases)
 
@@ -441,6 +469,8 @@ def test_every_case_has_every_field_and_no_other(cases: list[Case]) -> None:
         pytest.param({"category": "typos"}, id="extra-field"),
         pytest.param({"owner": "sales"}, id="owner-not-in-the-four"),
         pytest.param({"scripted": "yes"}, id="scripted-not-a-bool"),
+        pytest.param({"script": [{"say": "Ja", "yes": True}]}, id="script-on-unscripted"),
+        pytest.param({"scripted": True}, id="scripted-with-no-script-field"),
         pytest.param({"person": {"seat": "x"}}, id="person-keys"),
         pytest.param({"limits": {"max_turns": 4}}, id="limits-keys"),
         pytest.param({"limits": {"max_turns": 0, "max_tool_calls": 6}}, id="turns-0"),
@@ -463,6 +493,12 @@ def test_a_bad_case_is_caught_by_the_field_check(mutation: Mapping[str, Any]) ->
     _check_fields([_made_up()])
     with pytest.raises(AssertionError):
         _check_fields([_made_up(**mutation)])
+
+
+def test_a_scripted_case_may_carry_a_script() -> None:
+    """Catches a field check that refuses the new field on a scripted case: the 16th field
+    `script` is allowed exactly when `scripted` is true."""
+    _check_fields([_made_up(scripted=True, script=[{"say": "Ja", "yes": True}])])
 
 
 def test_the_limits_accept_their_own_ends() -> None:
@@ -821,3 +857,55 @@ def test_a_copy_is_not_a_sibling() -> None:
                 _made_up(opening="three", world=holds),
             ]
         )
+
+
+def test_every_scripted_case_has_a_script(cases: list[Case]) -> None:
+    """Catches a scripted case with no steps, a step with the wrong keys, an empty or
+    over-long say, a yes that is not a real boolean, and an unscripted case that carries a
+    script."""
+    _check_scripts(cases)
+    assert any(case["scripted"] for case in cases)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        pytest.param({"script": []}, id="no-steps"),
+        pytest.param({"script": [{"say": "Ja"}]}, id="missing-yes"),
+        pytest.param({"script": [{"say": "Ja", "yes": "true"}]}, id="yes-as-text"),
+        pytest.param({"script": [{"say": "", "yes": True}]}, id="empty-say"),
+        pytest.param({"script": [{"say": "a" * 4001, "yes": True}]}, id="say-4001"),
+        pytest.param({"scripted": False, "script": [{"say": "Ja", "yes": True}]}, id="unscripted"),
+    ],
+)
+def test_a_bad_script_is_caught(mutation: Mapping[str, Any]) -> None:
+    """Catches a script check that is too loose. The good scripted case (a say of 4000
+    characters, the inclusive limit) passes first, so a checker that refuses everything
+    fails here."""
+    good = _made_up(scripted=True, script=[{"say": "a" * 4000, "yes": False}])
+    _check_scripts([good])
+    with pytest.raises(AssertionError):
+        _check_scripts([_made_up(**{"scripted": True, **mutation})])
+
+
+def test_a_case_waiting_for_a_yes_has_a_yes_step(cases: list[Case]) -> None:
+    """Catches a scripted case that waits for a yes (its `confirms_if` does not start with
+    "never") whose steps never say one, so the help desk is never allowed to act."""
+    _check_yes_step(cases)
+
+
+def test_a_missing_yes_step_is_caught() -> None:
+    """Catches a yes-step check that passes any script: a waiting case with only `no` steps
+    fails, a `never` case with only `no` steps and a waiting case with one yes pass."""
+    steps_no = [{"say": "Hm", "yes": False}]
+    waiting = "The agent names the wiki viewer role."
+    _check_yes_step([_made_up(scripted=True, script=steps_no, confirms_if="never; nothing")])
+    _check_yes_step(
+        [
+            _made_up(
+                scripted=True, script=[*steps_no, {"say": "Ja", "yes": True}], confirms_if=waiting
+            )
+        ]
+    )
+    with pytest.raises(AssertionError):
+        _check_yes_step([_made_up(scripted=True, script=steps_no, confirms_if=waiting)])
