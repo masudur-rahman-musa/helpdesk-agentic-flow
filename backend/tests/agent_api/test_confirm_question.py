@@ -93,7 +93,9 @@ def manager_tools() -> FakeTools:
 
 def written(*questions: str) -> ScriptedGateway:
     """A gateway playing the two lookup steps, then one answer per question."""
-    return ScriptedGateway(*lookups(), *(answer_body(question) for question in questions))
+    return ScriptedGateway(
+        *lookups(), *(answer_body(json.dumps({"question": question})) for question in questions)
+    )
 
 
 # --- the turn: the model writes, code checks ------------------------------------------
@@ -566,104 +568,48 @@ def test_the_first_message_is_the_message_when_the_chat_just_started() -> None:
     assert sent["message"] == MESSAGE
 
 
-# --- a question holds only the question ----------------------------------------------
+# --- the question comes in one fixed shape -------------------------------------------
 
-ONE_QUESTION = "Shall I file this for 30 days? Please answer yes."
+NOT_JSON = "Shall I file this for 30 days? Please answer yes."
+EXTRA_KEY = json.dumps({"question": GOOD, "note": "my own thoughts"})
+CHATTY = f"{GOOD} Hmm, wait, ist das richtig? Wirklich?"
 
 
-def test_a_clean_question_has_no_problems() -> None:
-    """Catches a guard that refuses an ordinary question (one question mark, no
-    self-correction), which would send every question back and then to the
-    fixed line.
+def raw_written(*bodies: str) -> ScriptedGateway:
+    """A gateway playing the two lookup steps, then one raw writer answer each."""
+    return ScriptedGateway(*lookups(), *(answer_body(body) for body in bodies))
+
+
+@pytest.mark.parametrize("bad", [NOT_JSON, EXTRA_KEY], ids=["plain_text", "extra_key"])
+def test_a_question_not_in_the_fixed_shape_is_written_again(bad: str) -> None:
+    """Catches a hold that shows the writer's first answer when it is not the
+    fixed `{"question": ...}` shape (plain text, or an extra key), or one that
+    never asks the writer a second time.
+
+    The first answer is plain text or has an extra key (the plain text holds
+    every fact, so only the shape can refuse it); the second is good. The
+    second question is shown and stored after exactly two writing requests.
     """
-    assert confirmation.question_problems(ONE_QUESTION) == []
-    assert confirmation.question_problems(GOOD) == []
-    assert confirmation.question_problems("Shall I file this for 30 days, yes or no?") == []
-
-
-@pytest.mark.parametrize(
-    "question",
-    [
-        "Shall I file this? Is that right?",
-        "Shall I file this?? Please answer yes.",
-        "Shall I file this? Really? Please answer yes.",
-    ],
-    ids=["two_questions", "doubled_mark", "three_marks"],
-)
-def test_more_than_one_question_mark_is_a_problem(question: str) -> None:
-    """Catches a guard that allows a second question in the confirm message,
-    where the person would not know which one to answer.
-
-    None of these holds a self-correction word, so only the count can refuse
-    them.
-    """
-    assert confirmation.question_problems(question)
-
-
-@pytest.mark.parametrize(
-    "marker",
-    ["hmm", "wait", "oops", "scratch that", "i mean", "let me rephrase", "correction", "sorry"],
-)
-def test_a_self_correction_marker_is_a_problem(marker: str) -> None:
-    """Catches a guard that misses one self-correction marker, or one that
-    matches only in lower case (a model writes "Oops" and "WAIT" too).
-
-    Each row has exactly one question mark and one marker, so only the marker
-    can refuse it: written lower, capitalised and upper case.
-    """
-    for shown in (marker, marker.capitalize(), marker.upper()):
-        question = f"Shall I file this for 30 days? {shown}, please answer yes."
-        assert confirmation.question_problems(question), shown
-
-
-def test_a_self_correction_marker_inside_a_sentence_is_a_problem() -> None:
-    """Catches a guard that matches only a marker at the start of the text.
-
-    The marker sits in the middle and the question mark count is one.
-    """
-    question = "Shall I file this for 30 days, oops, I mean for 90 days? Please answer yes."
-
-    assert confirmation.question_problems(question)
-
-
-BAD_SELF = f"{GOOD} Hmm, wait, scratch that."
-BAD_TWO = f"{GOOD} Ist das richtig? Wirklich?"
-ALL_FACTS = [Fact(ROLE), Fact("30", number=True), Fact(REASON.rstrip(".")), Fact(PERSON)]
-
-
-@pytest.mark.parametrize("bad", [BAD_SELF, BAD_TWO], ids=["self_correction", "two_questions"])
-def test_a_question_with_a_self_correction_is_written_again(bad: str) -> None:
-    """Catches a hold that shows a question talking to itself or asking twice
-    because every fact was in it (the fact check alone lets it through), or one
-    that retries more than once.
-
-    Both bad answers carry every fact, so only the question-only guard can
-    refuse them. The second fake answer is shown and stored.
-    """
-    assert missing_facts(bad, ALL_FACTS) == []
-    gateway = written(bad, GOOD)
+    gateway = raw_written(bad, json.dumps({"question": GOOD}))
     store = manager_store()
 
     state = run(gateway, manager_tools(), store, message=MESSAGE)
 
-    first, second = gateway.requests[2], gateway.requests[3]
-    assert second["messages"][: len(first["messages"])] == first["messages"]
-    assert second["messages"][-1]["role"] == "user"
-    assert "tools" not in second
     assert len(gateway.requests) == 4
+    assert "tools" not in gateway.requests[3]
     assert state.reply == GOOD
     assert state.outcome is TurnOutcome.CONFIRM
     assert store.held[0].asked == GOOD
 
 
-def test_two_bad_questions_fall_back_to_the_fixed_line() -> None:
-    """Unhappy path. Catches a hold that shows the second bad question, that
-    asks the model a third time, or that ends on another outcome.
+def test_two_bad_answers_fall_back_to_the_fixed_line() -> None:
+    """Unhappy path. Catches a hold that shows a badly shaped answer after the
+    retry, that asks the writer a third time, or that ends on another outcome.
 
-    Both answers carry every fact but are not only a question: the fixed
-    English line is shown and stored, after exactly two writing requests.
+    Both answers are not in the fixed shape: the code-written English line is
+    shown and stored, after exactly two writing requests.
     """
-    gateway = written(BAD_SELF, BAD_TWO)
+    gateway = raw_written(NOT_JSON, EXTRA_KEY)
     store = manager_store()
 
     state = run(gateway, manager_tools(), store, message=MESSAGE)
@@ -674,3 +620,29 @@ def test_two_bad_questions_fall_back_to_the_fixed_line() -> None:
     assert state.outcome is TurnOutcome.CONFIRM
     assert len(store.held) == 1
     assert store.held[0].asked == state.reply
+
+
+def test_a_well_shaped_question_is_not_judged_by_its_words() -> None:
+    """Catches a leftover check on the question's own words or its question
+    marks, which would send a correctly shaped, complete question back.
+
+    The question holds every fact, a "hmm" and a second question mark, in the
+    fixed shape: it is shown as written after one writing request.
+    """
+    gateway = raw_written(json.dumps({"question": CHATTY}))
+    store = manager_store()
+
+    state = run(gateway, manager_tools(), store, message=MESSAGE)
+
+    assert len(gateway.requests) == 3
+    assert state.reply == CHATTY
+    assert store.held[0].asked == CHATTY
+
+
+def test_no_word_list_checks_the_question() -> None:
+    """Catches a leftover word list or question check in the confirmation code.
+
+    `confirmation` holds neither `_SELF_CORRECTION` nor `question_problems`.
+    """
+    assert not hasattr(confirmation, "_SELF_CORRECTION")
+    assert not hasattr(confirmation, "question_problems")

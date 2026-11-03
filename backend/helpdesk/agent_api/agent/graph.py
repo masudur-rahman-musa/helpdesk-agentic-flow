@@ -69,14 +69,17 @@ from helpdesk.agent_api.agent.confirmation import (
     CREATE_ACCESS_REQUEST,
     UNCLEAR_REPLY,
     ChangeField,
+    ConfirmQuestion,
     Fact,
+    OfferedChoices,
     OpenQuestion,
     Reading,
     ReplyReading,
     change_summary,
+    choices_message,
     confirm_facts,
     missing_facts,
-    question_problems,
+    offered_choices,
     waiting_message,
 )
 from helpdesk.agent_api.agent.draft import draft_message, merge_draft
@@ -163,10 +166,6 @@ LOOP_PROMPT = "agent_loop"
 READ_REPLY_PROMPT = "read_reply"
 WRITE_CONFIRM_PROMPT = "write_confirm"
 
-MAX_PICK_WORDS = 3
-"""A failed turn with nothing held this short is most likely the answer to a
-question that asked the person to pick, so it gets `PICK_AGAIN_REPLY`."""
-
 MAX_STEPS = 4
 """Model steps a turn may take; the last is answer-only, so it answers."""
 
@@ -195,10 +194,9 @@ the model's output is shown; the code rides on the state as `error_code`."""
 PICK_AGAIN_REPLY = (
     "I am not sure which one you mean yet. Please tell me which one, by its name or number."
 )
-"""Said instead of `FAILURE_REPLY` when a short message with nothing held,
-most likely the answer to a question that asked the person to pick, ends on a
-failure (`MAX_PICK_WORDS`). The
-outcome and error code stay those of the failure."""
+"""Said instead of `FAILURE_REPLY` when a turn that answers offered choices
+(`OfferedChoices`) ends on a failure. The outcome and error code stay those
+of the failure."""
 
 BUSY_REPLY = (
     "I'm getting a lot of requests right now, so I could not answer that. "
@@ -274,11 +272,11 @@ class LoopStore(Directory, Protocol):
 
     async def history(self) -> list[tuple[str, str]]: ...
 
-    async def open_question(self) -> OpenQuestion | None: ...
+    async def open_question(self) -> OpenQuestion | OfferedChoices | None: ...
 
     async def clear_open_question(self) -> None: ...
 
-    async def hold(self, question: OpenQuestion) -> None: ...
+    async def hold(self, question: OpenQuestion | OfferedChoices) -> None: ...
 
     async def add_message(self, role: MessageRole, content: str) -> None: ...
 
@@ -323,9 +321,8 @@ class LoopState(TypedDict, total=False):
     denied: list[dict[str, Any]]
     corrections: dict[str, Any]
     """The held calls the person just turned down, keys left out."""
-    bare_yes: bool
-    """The person sent a short message with nothing held, likely answering a
-    pick question."""
+    picking: bool
+    """The message answers choices the last reply offered."""
     final: TurnState | None
     """The turn's end state; once set, the graph stops."""
 
@@ -501,7 +498,7 @@ class _Turn:
         self.corrections: dict[str, Any] = dict(state.get("corrections", {}))
         """The filing arguments the person corrected in their answer to a held
         request; a new filing this turn carries them (`_checked_changes`)."""
-        self.bare_yes = state.get("bare_yes", False)
+        self.picking = state.get("picking", False)
         self.final: TurnState | None = None
 
     def saved(self) -> LoopState:
@@ -530,7 +527,7 @@ class _Turn:
             "grant_holders": self.grant_holders,
             "denied": self.denied,
             "corrections": self.corrections,
-            "bare_yes": self.bare_yes,
+            "picking": self.picking,
             "final": self.final,
         }
 
@@ -582,7 +579,13 @@ class _Turn:
         question = await self.store.open_question()
         await self._start()
         if question is None:
-            self.bare_yes = len(self.state.user_message.split()) <= MAX_PICK_WORDS
+            return
+        if isinstance(question, OfferedChoices):
+            await self.store.clear_open_question()
+            self.picking = True
+            self.messages[-1:-1] = [
+                {"role": "system", "content": choices_message(question.choices)}
+            ]
             return
         read = await self._read_reply(question)
         handling = READING_HANDLING[read.answer]
@@ -665,6 +668,7 @@ class _Turn:
                 passed = (
                     PostCheckOutcome.REGENERATED if self.send_backs else PostCheckOutcome.PASSED
                 )
+                await self._keep_choices(reply)
                 self.final = await self._finish(reply, postcheck=passed)
                 return
             if self.send_backs < MAX_SEND_BACKS:
@@ -688,10 +692,17 @@ class _Turn:
             outcome_reply(self._state()), postcheck=PostCheckOutcome.FALLBACK
         )
 
+    async def _keep_choices(self, reply: str) -> None:
+        """Keep the found names a passed reply offers, so the next message is
+        read against them (`offered_choices`)."""
+        choices = offered_choices(self.results, reply)
+        if choices:
+            await self.store.hold(OfferedChoices(asked_at=self.deps.now(), choices=choices))
+
     async def fail(self, code: ErrorCode) -> None:
-        """End the turn on `FAILURE_REPLY`, or `PICK_AGAIN_REPLY` after a short
-        message with nothing held; none of the model's output is shown."""
-        reply = PICK_AGAIN_REPLY if self.bare_yes else FAILURE_REPLY
+        """End the turn on `FAILURE_REPLY`, or `PICK_AGAIN_REPLY` when the
+        message answers offered choices; none of the model's output is shown."""
+        reply = PICK_AGAIN_REPLY if self.picking else FAILURE_REPLY
         self.final = await self._finish(reply, outcome=TurnOutcome.FAILED, error_code=code)
 
     async def budget_spent(self, reply: str) -> None:
@@ -1151,9 +1162,10 @@ class _Turn:
 
     async def _written_question(self, summary: str, facts: Sequence[Fact]) -> str:
         """The model's question for a held change, in the person's language.
-        It must show every fact word for word and pass the reply check; a miss
-        goes back once with what is wrong. A second miss, or any gateway
-        failure, gives the code-written `summary`, so a change is never shown
+        It comes in the fixed shape `ConfirmQuestion`, must show every fact
+        word for word and must pass the reply check; a miss goes back once
+        with what is wrong. A second miss, two answers out of shape, or any
+        gateway failure gives the code-written `summary`, so a change is never shown
         without its facts. The calls are stored already, so the question
         cannot change what a yes runs."""
         prompt = load_prompt(WRITE_CONFIRM_PROMPT)
@@ -1166,7 +1178,7 @@ class _Turn:
             },
             ensure_ascii=False,
         )
-        messages: list[dict[str, Any]] = [
+        messages: list[dict[str, str]] = [
             {"role": "system", "content": prompt.text},
             {"role": "user", "content": given},
         ]
@@ -1176,22 +1188,21 @@ class _Turn:
                     MODEL_STEP_SPAN,
                     attributes={"model_alias": ModelAlias.AGENT_DEFAULT.value, "step": self.step},
                 ):
-                    answer = await self.deps.model.complete_with_tools(
+                    answer = await self.deps.model.complete_json(
+                        ConfirmQuestion,
                         messages,
-                        [],
                         alias=ModelAlias.AGENT_DEFAULT,
                         tenant_slug=self.state.tenant_slug,
                         session_id=str(self.state.session_id),
                         user=self.state.gateway_user,
                         prompt_version=prompt.sha256,
                     )
-            except ToolError:
+            except (ModelShapeError, ToolError):
                 return summary
             self.tokens += answer.usage.total_tokens
-            question = (answer.text or "").strip()
+            question = answer.value.question.strip()
             problems = [
                 *(f'"{fact}" (missing)' for fact in missing_facts(question, facts)),
-                *question_problems(question),
                 *(await self._unbacked(question) if question else ["nothing"]),
             ]
             if question and not problems:
@@ -1199,13 +1210,13 @@ class _Turn:
             if attempt == 0:
                 messages.extend(
                     [
-                        {"role": "assistant", "content": question},
+                        {"role": "assistant", "content": json.dumps({"question": question})},
                         {
                             "role": "user",
                             "content": (
                                 f"Check failed: {', '.join(problems)}. Write the question "
-                                "again, copying every fact exactly, claiming nothing "
-                                "is done, and writing only the one question."
+                                "again, copying every fact exactly and claiming nothing "
+                                "is done."
                             ),
                         },
                     ]

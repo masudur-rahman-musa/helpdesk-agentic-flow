@@ -25,6 +25,6 @@ Write one short question to the person:
 - Say what happens after a yes, as the summary says.
 - End by asking for a yes to go ahead.
 
-Answer with the question only: one question, no second question, and no line
-correcting yourself ("hmm", "wait", "sorry, I mean"). If you get something
-wrong, write the whole question again cleanly.
+Answer only with JSON of this shape: `{"question": "..."}`. The question is
+the whole text the person sees: one question, nothing said to yourself
+before or after it.

@@ -990,8 +990,12 @@ def test_a_filed_request_answers_its_decision_card(
         [
             _lookups(),
             _proposed_request(chat_env),
-            "Soll ich das für 30 Tage beantragen? Grund: Obviously fake justification. "
-            "Bitte antworte mit Ja.",
+            json.dumps(
+                {
+                    "question": "Soll ich das für 30 Tage beantragen? Grund: Obviously fake "
+                    "justification. Bitte antworte mit Ja."
+                }
+            ),
             '{"answer": "yes"}',
             FILED_REPLY,
         ]

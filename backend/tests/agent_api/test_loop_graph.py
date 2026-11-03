@@ -64,6 +64,7 @@ from tests.agent_api.test_agent_loop import (
     answer_body,
     lookup_step,
     lookup_tools,
+    question_body,
     wire_call,
 )
 from tests.support.mcp import TempDatabaseFactory
@@ -308,7 +309,7 @@ def test_a_change_never_reaches_the_tools_node_as_a_run() -> None:
     gateway = ScriptedGateway(
         lookup_step(),
         answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
-        answer_body(WRITTEN_UNNAMED_ROLE),
+        question_body(WRITTEN_UNNAMED_ROLE),
     )
     tools = lookup_tools()
     store = FakeStore()

@@ -32,6 +32,7 @@ from tests.agent_api.test_agent_loop import (
     _listing_then,
     answer_body,
     lookup_tools,
+    question_body,
     run,
     stream,
     tool_turns,
@@ -262,7 +263,7 @@ def test_a_change_in_a_step_with_lookups_is_held_and_never_run() -> None:
             wire_call("call_access", "list_my_access", {}),
             wire_call("call_c", "create_access_request", _create_arguments()),
         ),
-        answer_body(WRITTEN_UNNAMED_ROLE),
+        question_body(WRITTEN_UNNAMED_ROLE),
     )
     tools = lookup_tools()
     store = FakeStore()

@@ -66,6 +66,7 @@ from tests.agent_api.test_agent_loop import (
     _create_arguments,
     answer_body,
     held_question,
+    question_body,
     reading_body,
     role_row,
     run,
@@ -231,7 +232,7 @@ def test_ids_from_get_me_and_find_role_are_held() -> None:
             wire_call("call_r", "find_role", {"words": "wiki viewer"}),
         ),
         answer_body(None, wire_call("call_c", "create_access_request", _create())),
-        answer_body(WRITTEN_VIEWER_30),
+        question_body(WRITTEN_VIEWER_30),
     )
     store = FakeStore()
 
@@ -330,7 +331,7 @@ def test_ids_on_every_person_field_are_checked(
     found_gateway = ScriptedGateway(
         answer_body(None, wire_call("call_p", "find_person", {"words": "dana"})),
         answer_body(None, wire_call("call_c", tool, build(PERSON_ID))),
-        answer_body(WRITTEN_BY_TOOL[tool]),
+        question_body(WRITTEN_BY_TOOL[tool]),
     )
     found_store = FakeStore(
         principals=["hr"],
@@ -513,7 +514,7 @@ def test_a_new_proposal_after_a_denial_is_held(
             wire_call("call_r", "find_role", {"words": words}),
         ),
         answer_body(None, wire_call("call_c", "create_access_request", _create(**changes))),
-        answer_body(written),
+        question_body(written),
     )
     store = FakeStore(question=held_question())
 

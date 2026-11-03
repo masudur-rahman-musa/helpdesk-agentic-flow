@@ -23,7 +23,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 import pytest
@@ -70,6 +70,9 @@ from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
 from helpdesk.shared.models.conversation import MessageRole
 from helpdesk.shared.models.idempotency import KEY_LENGTH
 
+if TYPE_CHECKING:
+    from helpdesk.agent_api.agent.confirmation import OfferedChoices
+
 GATEWAY_URL = "http://gateway.invalid:8080"
 TENANT_SLUG = "nordlicht"
 # Obviously fake, tests only: this is not a credential.
@@ -109,6 +112,11 @@ def answer_body(text: str | None, *calls: Mapping[str, Any], tokens: int = 2) ->
         "choices": [{"message": message}],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": tokens},
     }
+
+
+def question_body(question: str) -> dict[str, Any]:
+    """The writer's answer in its fixed shape: the one question the person sees."""
+    return answer_body(json.dumps({"question": question}))
 
 
 def reading_body(answer: str) -> dict[str, Any]:
@@ -194,7 +202,7 @@ class FakeStore:
         people: Sequence[PersonRow] = (),
         departments: Sequence[DepartmentRow] = (),
         on_user_message: Callable[[], None] | None = None,
-        question: OpenQuestion | None = None,
+        question: "OpenQuestion | OfferedChoices | None" = None,
         draft: RequestDraft | None = None,
     ) -> None:
         self._principals = tuple(principals)
@@ -203,9 +211,10 @@ class FakeStore:
         self._departments = list(departments)
         self._on_user_message = on_user_message
         self.prepared: list[datetime] = []
-        self.held: list[OpenQuestion] = []
+        self.held: list[Any] = []
+        """Every `hold` call: a held change or the choices a reply offered."""
         self.messages: list[tuple[MessageRole, str]] = []
-        self.question = question
+        self.question: OpenQuestion | OfferedChoices | None = question
         """The held change on the chat row; `None` once it is cleared."""
         self.cleared = 0
         self.draft = draft
@@ -220,14 +229,14 @@ class FakeStore:
     async def history(self) -> list[tuple[str, str]]:
         return list(self._history)
 
-    async def open_question(self) -> OpenQuestion | None:
+    async def open_question(self) -> "OpenQuestion | OfferedChoices | None":
         return self.question
 
     async def clear_open_question(self) -> None:
         self.question = None
         self.cleared += 1
 
-    async def hold(self, question: OpenQuestion) -> None:
+    async def hold(self, question: "OpenQuestion | OfferedChoices") -> None:
         self.held.append(question)
 
     async def request_draft(self) -> RequestDraft | None:
@@ -920,7 +929,7 @@ def test_proposed_change_is_held_not_run() -> None:
     gateway = ScriptedGateway(
         lookup_step(),
         answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
-        answer_body(WRITTEN_UNNAMED_ROLE),
+        question_body(WRITTEN_UNNAMED_ROLE),
     )
     tools = lookup_tools()
     store = FakeStore()
@@ -1144,7 +1153,7 @@ def test_confirmation_names_role_days_reason_person() -> None:
                 },
             ),
         ),
-        answer_body(
+        question_body(
             'Soll ich "Internal Wiki viewer" für Dana Fake für 30 Tage beantragen? '
             'Grund: "Obviously fake reason: audit preparation." Bitte antworte mit Ja.'
         ),

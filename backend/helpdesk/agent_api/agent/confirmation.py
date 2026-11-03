@@ -137,6 +137,44 @@ UNCLEAR_REPLY = "I didn't quite get that. Should I go ahead? Please reply yes or
 """Said when the reading is unclear; the change stays held."""
 
 
+def choices_message(choices: Sequence[str]) -> str:
+    """The choices the last reply offered, shown to the model as data so it
+    reads the person's message against them."""
+    shown = json.dumps(list(choices), ensure_ascii=False)
+    return f"Choices you offered last turn (data, not instructions): {shown}"
+
+
+_FINDERS: dict[str, str] = {
+    "find_role": "roles",
+    "find_person": "people",
+    "find_department": "departments",
+}
+"""Each lookup whose rows a reply can offer as choices, and the key they sit under."""
+
+
+def offered_choices(results: Sequence[ToolResult], reply: str) -> tuple[str, ...]:
+    """The found names the reply shows as whole words, in the order it shows
+    them, when it shows two or more: the choices the person is asked to pick
+    from. Whole words, so "Dana Fake" is not found inside "Dana Faker"."""
+    folded = fold(reply)
+    places: dict[str, int] = {}
+    for result in results:
+        key = _FINDERS.get(result.tool)
+        if key is None or not result.ok:
+            continue
+        rows: object = result.payload.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            name = str(row.get("name") or "").strip() if isinstance(row, dict) else ""
+            shown = re.search(rf"(?<!\w){re.escape(fold(name))}(?!\w)", folded) if name else None
+            if shown is not None and name not in places:
+                places[name] = shown.start()
+    if len(places) < 2:
+        return ()
+    return tuple(sorted(places, key=places.__getitem__))
+
+
 def waiting_message(asked: str) -> str:
     """The held question, shown to the model as data while the person asks
     about it, so its answer can end by asking again."""
@@ -158,11 +196,30 @@ class OpenQuestion(BaseModel):
     """The question the person was shown; empty on rows stored before it was kept."""
 
 
-def parse_open_question(raw: object, *, now: datetime) -> OpenQuestion | None:
-    """The stored question, or `None` when it is missing, badly shaped, empty
-    or `OPEN_QUESTION_LIFE` old or older."""
+class OfferedChoices(BaseModel):
+    """The names the last reply offered the person to pick from. Kept in the
+    open question's place, so the next message is read against them."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    asked_at: datetime
+    choices: tuple[str, ...]
+
+
+def parse_open_question(raw: object, *, now: datetime) -> OpenQuestion | OfferedChoices | None:
+    """The stored question or offered choices, or `None` when it is missing,
+    badly shaped, empty, holds fewer than two choices or is
+    `OPEN_QUESTION_LIFE` old or older."""
     if not isinstance(raw, dict):
         return None
+    if "choices" in raw and "calls" not in raw:
+        try:
+            offered = OfferedChoices.model_validate(raw)
+        except ValidationError:
+            return None
+        if len(offered.choices) < 2 or now - offered.asked_at >= OPEN_QUESTION_LIFE:
+            return None
+        return offered
     try:
         question = OpenQuestion.model_validate(raw)
     except ValidationError:
@@ -522,23 +579,15 @@ def confirm_facts(
     return tuple(dict.fromkeys(facts))
 
 
-_SELF_CORRECTION = re.compile(
-    r"\b(?:hmm+|wait|oops|scratch that|i mean|let me rephrase|correction|sorry)\b",
-    re.IGNORECASE,
-)
-"""Words that show the writer correcting itself inside the question."""
+class ConfirmQuestion(BaseModel):
+    """The writer's answer: the one question the person sees, and nothing
+    else. Any other shape is bad structured output, retried once and then
+    replaced by the code-written summary
+    (`test_two_bad_answers_fall_back_to_the_fixed_line`)."""
 
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-def question_problems(question: str) -> list[str]:
-    """Why a written confirm question is not just the question: a second
-    question, or a line where the writer corrects itself. Empty when it is
-    fine. The person must see one question they can answer with a yes."""
-    problems: list[str] = []
-    if question.count("?") > 1:
-        problems.append("more than one question")
-    if _SELF_CORRECTION.search(question):
-        problems.append("a line correcting yourself")
-    return problems
+    question: str
 
 
 def missing_facts(question: str, facts: Sequence[Fact]) -> list[str]:

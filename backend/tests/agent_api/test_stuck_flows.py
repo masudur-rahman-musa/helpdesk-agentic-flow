@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from helpdesk.agent_api.agent import confirmation
 from helpdesk.agent_api.agent.graph import FAILURE_REPLY, PICK_AGAIN_REPLY, today_line
 from helpdesk.agent_api.agent.loop_tools import (
     FIND_DEPARTMENT,
@@ -36,6 +37,7 @@ from tests.agent_api.test_agent_loop import (
     FakeTools,
     ScriptedGateway,
     answer_body,
+    question_body,
     run,
     tool_names,
     tool_turns,
@@ -50,6 +52,14 @@ ENGINEERING_ID = uuid.UUID(int=302)
 
 PICK_QUESTION = "Do you mean the viewer role or the editor role?"
 PICK_HISTORY = [("user", "I need wiki access"), ("assistant", PICK_QUESTION)]
+PICK_CHOICES = ("Internal Wiki viewer", "Internal Wiki editor")
+
+
+def kept_choices() -> "confirmation.OfferedChoices":
+    """The two roles the pick question offered, kept with the chat."""
+    return confirmation.OfferedChoices(asked_at=START, choices=PICK_CHOICES)
+
+
 OUTAGE = (503, {"error": "down"})
 
 TYPED = "mara.quill@cuan.example"
@@ -67,15 +77,15 @@ DEPARTMENTS = [
 
 @pytest.mark.parametrize("message", ["yes", "ja"])
 def test_a_yes_with_nothing_held_and_a_failed_step_asks_which_one(message: str) -> None:
-    """Catches a loop that ends the failed turn on the generic failure reply, or
-    one that hides the failure by changing the outcome or the error code, so
-    telemetry would stop showing it.
+    """Catches a loop that ends the failed turn on the generic failure reply
+    although the last reply offered choices, or one that hides the failure by
+    changing the outcome or the error code, so telemetry would stop showing it.
 
-    After a pick question the person says yes, nothing is held, and the gateway
-    is down. The reply must be `PICK_AGAIN_REPLY`, saved as the assistant
-    message, with outcome `FAILED` and error `INTERNAL`.
+    After a pick question (its two choices kept) the person says yes, no change
+    is held, and the gateway is down. The reply must be `PICK_AGAIN_REPLY`,
+    saved as the assistant message, with outcome `FAILED` and error `INTERNAL`.
     """
-    store = FakeStore(history=PICK_HISTORY)
+    store = FakeStore(history=PICK_HISTORY, question=kept_choices())
 
     state = run(RefusingGateway(OUTAGE), FakeTools(), store, message=message)
 
@@ -90,12 +100,12 @@ def test_a_yes_with_nothing_held_still_goes_to_the_model() -> None:
     model never gets to say which one it meant.
 
     The gateway holds one answer; the tool server holds nothing. The model's
-    own words must be the reply, the yes must be its last message, and nothing
-    is held or run.
+    own words must be the reply, the yes must be its last message (the kept
+    choices come before it), and nothing is held or run.
     """
     gateway = ScriptedGateway(answer_body("Then the viewer role. Shall I file it?"))
     tools = FakeTools()
-    store = FakeStore(history=PICK_HISTORY)
+    store = FakeStore(history=PICK_HISTORY, question=kept_choices())
 
     state = run(gateway, tools, store, message="yes")
 
@@ -112,9 +122,10 @@ def test_a_yes_with_nothing_held_still_goes_to_the_model() -> None:
 
 def test_any_other_failed_turn_still_shows_the_generic_reply() -> None:
     """Unhappy path. Catches a loop that shows the pick-again reply for every
-    failure after a pick question, not only for a bare yes.
+    failure after a pick question, although no choices were kept.
 
-    Same history and same outage as the yes case; only the message differs.
+    Same history and same outage as the yes case; no choices are kept and the
+    message differs.
     """
     store = FakeStore(history=PICK_HISTORY)
 
@@ -166,7 +177,7 @@ def _onboarding(
     if look_up_manager:
         steps.append(answer_body(None, wire_call("call_p", "find_person", {"words": "dana"})))
     steps.append(answer_body(None, wire_call("call_c", "onboard_user", _onboard(sent, manager))))
-    steps.append(answer_body(_written_onboarding(message, history)))
+    steps.append(question_body(_written_onboarding(message, history)))
     gateway = ScriptedGateway(*steps)
     store = FakeStore(
         principals=["hr"],
@@ -441,7 +452,7 @@ def test_a_transfer_from_a_department_name_holds_the_found_id() -> None:
                 },
             ),
         ),
-        answer_body("Soll ich Dana Fake zum 2026-11-02 versetzen? Bitte antworte mit Ja."),
+        question_body("Soll ich Dana Fake zum 2026-11-02 versetzen? Bitte antworte mit Ja."),
     )
     store = FakeStore(
         principals=["hr"],

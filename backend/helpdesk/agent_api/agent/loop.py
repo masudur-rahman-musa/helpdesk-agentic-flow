@@ -19,7 +19,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.agent.checkpointer import thread_config, turn_thread_id
-from helpdesk.agent_api.agent.confirmation import OpenQuestion, parse_open_question
+from helpdesk.agent_api.agent.confirmation import (
+    OfferedChoices,
+    OpenQuestion,
+    parse_open_question,
+)
 from helpdesk.agent_api.agent.draft import parse_draft
 from helpdesk.agent_api.agent.events import (
     ErrorEvent,
@@ -139,7 +143,7 @@ class DbLoopStore:
         rows = await list_recent_messages(self._db, self._session_id)
         return [(str(row.role), row.content) for row in rows]
 
-    async def open_question(self) -> OpenQuestion | None:
+    async def open_question(self) -> OpenQuestion | OfferedChoices | None:
         if self._now is None:  # pragma: no cover - the turn always prepares first
             return None
         raw = await get_open_question(self._db, session_id=self._session_id)
@@ -148,7 +152,7 @@ class DbLoopStore:
     async def clear_open_question(self) -> None:
         await set_open_question(self._db, session_id=self._session_id, value=None)
 
-    async def hold(self, question: OpenQuestion) -> None:
+    async def hold(self, question: OpenQuestion | OfferedChoices) -> None:
         await set_open_question(
             self._db, session_id=self._session_id, value=question.model_dump(mode="json")
         )

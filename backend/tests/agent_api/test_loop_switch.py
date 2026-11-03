@@ -35,7 +35,7 @@ import pytest
 from fastapi import Request
 from pydantic import BaseModel
 
-from helpdesk.agent_api.agent.confirmation import parse_open_question
+from helpdesk.agent_api.agent.confirmation import OpenQuestion, parse_open_question
 from helpdesk.agent_api.agent.prompts import PROMPTS_DIR
 from helpdesk.agent_api.agent.state import TurnOutcome
 from helpdesk.agent_api.api.router import app
@@ -51,7 +51,7 @@ from helpdesk.shared.crud.messages import list_recent_messages
 from helpdesk.shared.crud.sessions import get_open_question
 from helpdesk.shared.models import Department, Role, System, Tenant, User
 from tests.agent_api.conftest import AgentDb
-from tests.agent_api.test_agent_loop import answer_body, reading_body, wire_call
+from tests.agent_api.test_agent_loop import answer_body, question_body, reading_body, wire_call
 from tests.agent_api.test_eval_routes import (
     PRINCIPAL_USER,
     TENANT_SLUG,
@@ -394,7 +394,7 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
     gateway = Gateway(
         lookup_body(),
         create_call_body(env),
-        answer_body(ASKED_IN_WORDS),
+        question_body(ASKED_IN_WORDS),
         reading_body("yes"),
         answer_body(FILED_SAYS),
         answer_body("Nothing is waiting for a yes right now."),
@@ -408,7 +408,7 @@ def test_yes_after_a_held_change_files_once(chat_settings_env: Env) -> None:
     assert tools.names.count(CREATE) == 0
     raw = stored_question(env, asked.chat_id)
     held = parse_open_question(raw, now=NOW)
-    assert held is not None
+    assert isinstance(held, OpenQuestion)
     assert [call.tool for call in held.calls] == [CREATE]
     assert isinstance(raw, dict)
     stored_arguments = raw["calls"][0]["arguments"]
