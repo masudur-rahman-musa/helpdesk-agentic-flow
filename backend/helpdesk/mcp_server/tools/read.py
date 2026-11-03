@@ -1,6 +1,8 @@
-"""The read tools: `get_me`, `list_my_access`, `list_requestable_roles` and `search_audit`.
+"""The read tools: `get_me`, `list_my_access`, `list_person_access`,
+`list_requestable_roles` and `search_audit`.
 
-The user is always the token's; a stray `user_id` argument is ignored.
+The user is always the token's; a stray `user_id` argument is ignored. The one
+exception is `list_person_access`, whose whole job is another person.
 """
 
 import uuid
@@ -71,6 +73,17 @@ class ListMyAccessOutput(BaseModel):
     grants: list[ActiveGrant]
 
 
+class ListPersonAccessInput(BaseModel):
+    model_config = _IGNORE_EXTRAS
+
+    user_id: uuid.UUID
+    """The person whose access to list."""
+
+
+class ListPersonAccessOutput(BaseModel):
+    grants: list[ActiveGrant]
+
+
 async def get_me(ctx: ToolContext, args: GetMeInput) -> GetMeOutput:
     """The token user's own directory record. Foreign users read as not found."""
     user = await find_user_by_id(ctx.session, ctx.identity.user_id)
@@ -93,6 +106,50 @@ async def list_my_access(ctx: ToolContext, args: ListMyAccessInput) -> ListMyAcc
     """Every grant the token user holds at the call's own instant."""
     grants = await list_active_grants_for_user(ctx.session, ctx.identity.user_id, ctx.now)
     return ListMyAccessOutput(grants=list(grants))
+
+
+async def list_person_access(
+    ctx: ToolContext, args: ListPersonAccessInput
+) -> ListPersonAccessOutput:
+    """Every live grant of one person the caller looks after.
+
+    Who the caller looks after is the scope this tool shares with
+    `revoke_access`, checked with the same `request_in_scope`. A whole-person
+    scope (any, own department) lists every grant; `own_systems` lists only
+    grants on systems the caller owns. A person out of reach reads as
+    `NOT_FOUND`, the same as an unknown id, so nobody can probe who exists.
+    Departments come from the directory, never the token.
+    """
+    target = await find_user_by_id(ctx.session, args.user_id)
+    if target is None:
+        raise NotFoundError("no such user in this tenant")
+    grants = await list_active_grants_for_user(ctx.session, target.id, ctx.now)
+    if target.id == ctx.identity.user_id:
+        return ListPersonAccessOutput(grants=list(grants))
+    scopes = rbac.authorize(ctx.identity.claims, rbac.Tool.LIST_PERSON_ACCESS).scopes
+    caller = await ctx.directory.lookup_user(ctx.identity.user_id)
+    holder = await ctx.directory.lookup_user(target.id)
+
+    whole_person = request_in_scope(
+        scopes,
+        approver_user_id=ctx.identity.user_id,
+        approver_department_id=None if caller is None else caller.department_id,
+        target_department_id=None if holder is None else holder.department_id,
+        system_owner_user_id=None,
+    )
+    if whole_person:
+        return ListPersonAccessOutput(grants=list(grants))
+    visible: list[ActiveGrant] = []
+    if Scope.OWN_SYSTEMS in scopes:
+        owned = {
+            system.slug
+            for system in await Repository(ctx.session, System).list()
+            if system.owner_user_id == ctx.identity.user_id
+        }
+        visible = [grant for grant in grants if grant.system_slug in owned]
+    if not visible:
+        raise NotFoundError("no such user in this tenant")
+    return ListPersonAccessOutput(grants=visible)
 
 
 # --- list_requestable_roles ------------------------------------------------------

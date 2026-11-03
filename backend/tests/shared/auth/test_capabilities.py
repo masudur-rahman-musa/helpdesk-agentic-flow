@@ -28,8 +28,9 @@ EMPLOYEE_TOOLS = (
     Tool.CREATE_ACCESS_REQUEST_SELF,
     Tool.LIST_MY_ACCESS,
     Tool.LIST_MY_REQUESTS,
+    Tool.LIST_PERSON_ACCESS,
 )
-"""The five self-service actions an employee is told about, written out."""
+"""The six self-service actions an employee is told about, written out."""
 
 APPROVE_TOOLS = (Tool.APPROVE_REQUEST, Tool.LIST_PENDING_APPROVALS)
 
@@ -48,7 +49,7 @@ def test_every_matrix_tool_has_an_entry() -> None:
 
 def test_an_employee_gets_only_self_service_lines() -> None:
     """Catches lines built from a fixed list instead of the matrix: the
-    employee must get the five self-service sentences and not one of the
+    employee must get the six self-service sentences and not one of the
     approval sentences, which an employee's token is refused."""
     lines = capability_lines(("employee",))
 
@@ -147,3 +148,16 @@ def test_an_employee_is_told_they_can_remove_their_own_access() -> None:
 
     assert SENTENCES[Tool.REVOKE_ACCESS] == sentence
     assert sentence in capability_lines(("employee",))
+
+
+def test_everyone_is_told_they_can_look_up_the_access_another_person_holds() -> None:
+    """Catches a new tool with no sentence, a sentence worded differently from
+    the one the plan names, and a sentence shown to only some principals: the
+    tool's row is the same as removing access, which every principal holds
+    (an employee at self scope), so every principal's lines carry it."""
+    sentence = "Look up the access another person holds, for people you look after."
+
+    assert Tool.LIST_PERSON_ACCESS.value == "list_person_access"
+    assert SENTENCES[Tool.LIST_PERSON_ACCESS] == sentence
+    for principal in rbac.Principal:
+        assert sentence in capability_lines((principal.value,)), principal

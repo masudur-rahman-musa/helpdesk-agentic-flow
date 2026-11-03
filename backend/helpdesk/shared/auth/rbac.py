@@ -21,6 +21,7 @@ from helpdesk.shared.core.errors import ErrorCode, ToolError
 class Tool(StrEnum):
     GET_ME = "get_me"
     LIST_MY_ACCESS = "list_my_access"
+    LIST_PERSON_ACCESS = "list_person_access"
     LIST_MY_REQUESTS = "list_my_requests"
     LIST_REQUESTABLE_ROLES = "list_requestable_roles"
     RESET_OWN_PASSWORD = "reset_own_password"
@@ -120,6 +121,22 @@ def _all(scope: Scope) -> dict[Principal, Scope]:
     return dict.fromkeys(Principal, scope)
 
 
+# Whose access a caller looks after. Every role may give up its own
+# access; `self_only` reaches no one else's grant, so an employee still
+# cannot touch or see a colleague's.
+_LOOK_AFTER_ACCESS: Mapping[Principal, Scope] = MappingProxyType(
+    {
+        Principal.EMPLOYEE: Scope.SELF_ONLY,
+        Principal.MANAGER: Scope.OWN_DEPARTMENT,
+        Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
+        Principal.HR: Scope.ANY,
+        Principal.IT_ADMIN: Scope.ANY,
+        Principal.AUDITOR: Scope.SELF_ONLY,
+        Principal.PLATFORM_ADMIN: Scope.ANY,
+    }
+)
+
+
 # One entry per tool; a principal missing from an entry is refused.
 _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
     {
@@ -176,17 +193,9 @@ _MATRIX: Mapping[Tool, Mapping[Principal, Scope]] = MappingProxyType(
             Principal.IT_ADMIN: Scope.ANY,
             Principal.PLATFORM_ADMIN: Scope.ANY,
         },
-        # Every role may give up its own access; `self_only` reaches no one
-        # else's grant, so an employee still cannot touch a colleague's.
-        Tool.REVOKE_ACCESS: {
-            Principal.EMPLOYEE: Scope.SELF_ONLY,
-            Principal.MANAGER: Scope.OWN_DEPARTMENT,
-            Principal.SYSTEM_OWNER: Scope.OWN_SYSTEMS,
-            Principal.HR: Scope.ANY,
-            Principal.IT_ADMIN: Scope.ANY,
-            Principal.AUDITOR: Scope.SELF_ONLY,
-            Principal.PLATFORM_ADMIN: Scope.ANY,
-        },
+        Tool.REVOKE_ACCESS: _LOOK_AFTER_ACCESS,
+        # Seeing a person's access reaches exactly who removing it does.
+        Tool.LIST_PERSON_ACCESS: _LOOK_AFTER_ACCESS,
         Tool.ONBOARD_USER: {
             Principal.HR: Scope.ANY,
             Principal.IT_ADMIN: Scope.ANY,

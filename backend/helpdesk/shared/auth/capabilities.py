@@ -15,6 +15,9 @@ SENTENCES: Mapping[Tool, str] = MappingProxyType(
     {
         Tool.GET_ME: "Tell you which account you are signed in with.",
         Tool.LIST_MY_ACCESS: "Show the access you hold right now.",
+        Tool.LIST_PERSON_ACCESS: (
+            "Look up the access another person holds, for people you look after."
+        ),
         Tool.LIST_MY_REQUESTS: "Show the access requests you have filed and where each one stands.",
         Tool.LIST_REQUESTABLE_ROLES: "List the systems and roles you can ask for.",
         Tool.RESET_OWN_PASSWORD: "Reset your own password.",

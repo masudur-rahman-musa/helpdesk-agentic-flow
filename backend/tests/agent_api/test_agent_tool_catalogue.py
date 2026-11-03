@@ -44,6 +44,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from helpdesk.agent_api.agent.loop_tools import ToolKind, offered_tools
 from helpdesk.agent_api.agent.state import Citation
 from helpdesk.agent_api.agent.tool_args import (
     SEARCH_POLICY,
@@ -55,6 +56,7 @@ from helpdesk.agent_api.agent.tool_args import (
     SearchPolicyResult,
     planner_schema,
 )
+from helpdesk.shared.auth.rbac import Principal
 from tests.support.mcp import (
     TEST_JWT_SIGNING_PHRASE,
     TEST_QDRANT_URL,
@@ -113,6 +115,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
     {
         "get_me",
         "list_my_access",
+        "list_person_access",
         "list_my_requests",
         "list_my_tickets",
         "list_requestable_roles",
@@ -135,7 +138,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
         "cancel_request",
     }
 )
-"""Every tool the agent may reach, as a literal: twenty-two.
+"""Every tool the agent may reach, as a literal: twenty-three.
 
 Counted from the server's own `REGISTRY` — thirty specs — less the seven
 in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools
@@ -210,7 +213,7 @@ def test_the_args_model_defaults_top_k_to_the_catalogue_constant() -> None:
     assert SearchPolicyArgs.model_fields["top_k"].default == SEARCH_POLICY_TOP_K
 
 
-def test_tool_inputs_holds_exactly_the_twenty_two_tools_the_agent_may_reach() -> None:
+def test_tool_inputs_holds_exactly_the_twenty_three_tools_the_agent_may_reach() -> None:
     """Catches a
     catalogue short of a tool — a name in an `INTENT_TOOLS` row that no model
     validates, so its arguments reach the server unchecked — and one that
@@ -224,7 +227,7 @@ def test_tool_inputs_holds_exactly_the_twenty_two_tools_the_agent_may_reach() ->
     mapping lets a node register a tool at runtime, and a tool registered at
     runtime is a tool the drift sweep below never compares."""
     assert set(TOOL_INPUTS) == CATALOGUED_TOOLS
-    assert len(TOOL_INPUTS) == 22
+    assert len(TOOL_INPUTS) == 23
     assert ADMIN_TOOLS.isdisjoint(TOOL_INPUTS)
     assert TOOL_INPUTS[SEARCH_POLICY] is SearchPolicyArgs
     assert isinstance(TOOL_INPUTS, MappingProxyType)
@@ -462,3 +465,36 @@ def test_list_my_tickets_args_refuse_a_user_id() -> None:
     token only."""
     with pytest.raises(ValidationError):
         ListMyTicketsArgs.model_validate({"user_id": "33333333-3333-5333-8333-333333333333"})
+
+
+# --- the lookup for another person's access -------------------------------------
+
+
+def test_list_person_access_takes_one_required_user_id() -> None:
+    """Catches an args model that makes the person optional (an empty call
+    would then silently mean "myself"), accepts a non-id string, or carries an
+    idempotency key for what is a lookup. Read off the agent's own copy; the
+    drift sweep above compares it with the server's."""
+    schema = TOOL_INPUTS["list_person_access"].model_json_schema()
+
+    assert set(_properties(schema)) == {"user_id"}
+    assert _required(schema) == frozenset({"user_id"})
+    with pytest.raises(ValidationError):
+        TOOL_INPUTS["list_person_access"].model_validate({})
+    with pytest.raises(ValidationError):
+        TOOL_INPUTS["list_person_access"].model_validate({"user_id": "not-an-id"})
+
+
+@pytest.mark.parametrize("principal", [p.value for p in Principal])
+def test_list_person_access_is_offered_to_every_principal_as_a_lookup(principal: str) -> None:
+    """Catches a tool left out of the loop's lookups (the model could never ask
+    for it), one offered as a held change, or one offered only to some roles by
+    a hand-written list: its permission row gives every principal a cell, so
+    every principal is offered it, with the words the plan names."""
+    offered = {tool.name: tool for tool in offered_tools((principal,))}
+
+    tool = offered["list_person_access"]
+    assert tool.kind is ToolKind.LOOKUP
+    assert tool.description == "The access another person holds."
+    assert set(tool.parameters["properties"]) == {"user_id"}
+    assert tool.parameters["required"] == ["user_id"]

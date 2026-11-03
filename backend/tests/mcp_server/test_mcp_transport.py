@@ -74,6 +74,7 @@ EXPECTED_TOOL_NAMES = {
     "cancel_request",
     # The one tool that takes access away.
     "revoke_access",
+    "list_person_access",
     # The joiner, mover and leaver tools.
     # They were added together, so this literal went stale for all three at once
     # when only each tool's own tests were run.

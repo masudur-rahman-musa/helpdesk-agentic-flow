@@ -136,6 +136,15 @@ MATRIX: dict[str, dict[str, str | None]] = {
         "auditor": "self_only",
         "platform_admin": "any",
     },
+    "list_person_access": {
+        "employee": "self_only",
+        "manager": "own_department",
+        "system_owner": "own_systems",
+        "hr": "any",
+        "it_admin": "any",
+        "auditor": "self_only",
+        "platform_admin": "any",
+    },
     "onboard_user": {
         "employee": None,
         "manager": None,
@@ -631,3 +640,23 @@ def test_principals_of_keeps_the_matrix_members_and_drops_the_rest() -> None:
 
     assert result == frozenset({Principal.IT_ADMIN, Principal.MANAGER})
     assert isinstance(result, frozenset)
+
+
+@pytest.mark.parametrize("principal", PRINCIPALS)
+def test_person_access_lookup_has_the_same_scopes_as_removing_access(principal: str) -> None:
+    """Catches a lookup row typed out by hand (or copied with one cell off, say
+    the employee at `any`) instead of shared with removing access: the two
+    tools would then disagree about who may see a person's grants and who may
+    remove them. The lookup is checked against both the tool and the literal
+    revoke row above, so a wrong revoke row cannot hide a matching wrong
+    lookup row."""
+    claims = _claims([principal])
+    expected = MATRIX["revoke_access"][principal]
+    assert expected is not None, "premise: every principal holds a revoke cell"
+
+    lookup = authorize(claims, Tool.LIST_PERSON_ACCESS.value)
+    revoke = authorize(claims, Tool.REVOKE_ACCESS.value)
+
+    assert Tool.LIST_PERSON_ACCESS.value == "list_person_access"
+    assert lookup.scope == revoke.scope == Scope(expected)
+    assert lookup.scopes == revoke.scopes

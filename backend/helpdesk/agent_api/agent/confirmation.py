@@ -250,11 +250,15 @@ def _listed_names(results: Sequence[ToolResult]) -> dict[str, str]:
     return names
 
 
+_GRANT_LISTINGS = frozenset({"list_my_access", "list_person_access"})
+
+
 def _listed_grants(results: Sequence[ToolResult]) -> dict[str, str]:
-    """ "CRM viewer" per grant id, from this turn's `list_my_access` rows."""
+    """ "CRM viewer" per grant id, from this turn's `list_my_access` and
+    `list_person_access` rows."""
     names: dict[str, str] = {}
     for result in results:
-        if result.tool != "list_my_access" or not result.ok:
+        if result.tool not in _GRANT_LISTINGS or not result.ok:
             continue
         rows: object = result.payload.get("grants")
         if not isinstance(rows, list):
@@ -276,10 +280,14 @@ def _decision_line(verb: str, ids: Sequence[str], names: dict[str, str]) -> str:
 
 
 def _call_line(
-    call: ValidatedCall, resolved: ResolvedEntities | None, grants: dict[str, str]
+    call: ValidatedCall,
+    resolved: ResolvedEntities | None,
+    grants: dict[str, str],
+    person: str | None = None,
 ) -> str:
     """One held change other than a request or a decision, in fixed words. A
-    held revoke names the access from this turn's `list_my_access` rows."""
+    held revoke names the access from this turn's grant listings, and whose
+    it is when it is not the person's own."""
     arguments = call.arguments
     fixed = _FIXED_CHANGES.get(call.tool)
     if fixed is not None:
@@ -287,11 +295,12 @@ def _call_line(
     if call.tool == "create_ticket":
         return f"I'll open a ticket: {str(arguments.get('title', '')).strip().rstrip('.')}."
     if call.tool == "revoke_access":
+        whose = f"{person}'s" if person else "your"
         listed = grants.get(str(arguments.get("grant_id")))
         if listed:
-            return f"I'll remove your access to {listed}."
+            return f"I'll remove {whose} access to {listed}."
         system = resolved.system_name if resolved else None
-        return f"I'll remove your access to {system}." if system else "I'll remove this access."
+        return f"I'll remove {whose} access to {system}." if system else "I'll remove this access."
     if call.tool == "onboard_user":
         return (
             f"I'll set up starting access for {arguments.get('display_name')} "
@@ -331,7 +340,7 @@ def change_summary(
             lines.append(_decision_line(verb, ids, names))
     grants = _listed_grants(results)
     lines.extend(
-        _call_line(call, resolved, grants)
+        _call_line(call, resolved, grants, person)
         for call in calls
         if call.tool not in _DECISION_VERBS and needs_idempotency_key(call.tool)
     )
@@ -429,6 +438,8 @@ def confirm_facts(
             )
             if access:
                 facts.append(Fact(access))
+            if person:
+                facts.append(Fact(person))
         else:
             for name in _FACT_ARGUMENTS.get(call.tool, ()):
                 value = str(arguments.get(name) or "").strip()

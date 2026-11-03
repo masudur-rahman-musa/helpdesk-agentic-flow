@@ -66,6 +66,12 @@ class ListMyAccessArgs(_ToolArgs):
     """No arguments, for the same reason: the access listed is the caller's own."""
 
 
+class ListPersonAccessArgs(_ToolArgs):
+    """Whose access to list. The server answers only for people the caller looks after."""
+
+    user_id: uuid.UUID
+
+
 class ListMyRequestsArgs(_ToolArgs):
     """`limit` copies the server's default. A test keeps the two equal."""
 
@@ -261,6 +267,7 @@ TOOL_INPUTS: Mapping[str, type[BaseModel]] = MappingProxyType(
     {
         "get_me": GetMeArgs,
         "list_my_access": ListMyAccessArgs,
+        "list_person_access": ListPersonAccessArgs,
         "list_my_requests": ListMyRequestsArgs,
         "list_my_tickets": ListMyTicketsArgs,
         "list_requestable_roles": ListRequestableRolesArgs,

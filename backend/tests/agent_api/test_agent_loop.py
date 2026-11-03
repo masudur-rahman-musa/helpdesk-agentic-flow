@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.agent_api.agent.confirmation import OpenQuestion
 from helpdesk.agent_api.agent.events import ReplyEvent, StepEvent, TurnEvent
 from helpdesk.agent_api.agent.gates import MAX_TOOL_CALLS, TURN_DEADLINE_SECONDS
+from helpdesk.agent_api.agent.graph import today_line
 from helpdesk.agent_api.agent.loop import (
     CHANGE_FAILED_REPLY,
     MAX_STEPS,
@@ -400,8 +401,75 @@ def test_history_goes_as_real_roles() -> None:
         ("user", "Hi, I am new here."),
         ("assistant", "Welcome. What do you need?"),
         ("user", "Something about the wiki."),
-        ("user", "The viewer one, please."),
+        ("user", f"{today_line(START)}\nThe viewer one, please."),
     ]
+
+
+def _last_user_text(request_body: Mapping[str, Any]) -> str:
+    """The text of the last `user` turn one request carried."""
+    turns = [turn for turn in request_body["messages"] if turn["role"] == "user"]
+    return str(turns[-1]["content"])
+
+
+def test_the_user_turn_starts_with_todays_date() -> None:
+    """Catches a loop that never tells the model the date (so "Friday" and
+    "next week" cannot become real dates), that writes it from a clock other
+    than `deps.now()`, that puts the line anywhere but first, that adds it to
+    the earlier history turns as well, or that saves the decorated text as the
+    person's message so every later turn would repeat an old date.
+
+    The fake clock stands at Tuesday 3 November 2026. The model must read that
+    as the first line of its last user message on every step of the turn (a
+    lookup step and the answer step), with the person's own words after it.
+    """
+    clock = Clock()
+    clock.at = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
+    gateway = ScriptedGateway(
+        answer_body(None, wire_call("call_a", "list_my_requests", {})),
+        answer_body("Done."),
+    )
+    store = FakeStore(history=[("user", "Hi."), ("assistant", "Hello.")])
+
+    run(
+        gateway,
+        FakeTools({"list_my_requests": {"requests": []}}),
+        store,
+        message="Give me wiki access from Monday.",
+        clock=clock,
+    )
+
+    assert len(gateway.requests) == 2
+    for request in gateway.requests:
+        last = _last_user_text(request)
+        assert last.split("\n")[0] == "Today is 2026-11-03 (Tuesday)."
+        assert last.endswith("Give me wiki access from Monday.")
+        first_user = next(t for t in request["messages"] if t["role"] == "user")
+        assert first_user["content"] == "Hi."
+    assert store.messages[0] == (MessageRole.USER, "Give me wiki access from Monday.")
+
+
+def test_the_system_prompt_is_the_same_on_two_days() -> None:
+    """Catches a date written into the system prompt or the tool list: the
+    prompt and tools must be byte for byte the same on two different days so
+    the model's cached start is shared. The date is shown to differ in the user
+    turn, so the test cannot pass by the clock being ignored."""
+    seen = []
+    for day in (datetime(2026, 11, 3, 9, 0, tzinfo=UTC), datetime(2026, 11, 4, 9, 0, tzinfo=UTC)):
+        clock = Clock()
+        clock.at = day
+        gateway = ScriptedGateway(answer_body("Fine."))
+        run(gateway, FakeTools(), FakeStore(principals=["manager"]), clock=clock)
+        request = gateway.requests[0]
+        seen.append(
+            (request["messages"][0], request["tools"], _last_user_text(request).split("\n")[0])
+        )
+
+    (system_a, tools_a, line_a), (system_b, tools_b, line_b) = seen
+    assert line_a == "Today is 2026-11-03 (Tuesday)."
+    assert line_b == "Today is 2026-11-04 (Wednesday)."
+    assert system_a == system_b
+    assert system_a["role"] == "system"
+    assert tools_a == tools_b
 
 
 def test_answer_without_tools_ends_in_one_step() -> None:
@@ -1192,7 +1260,7 @@ def test_no_files_nothing(message: str) -> None:
     assert sent[-2]["role"] == "tool"
     assert sent[-2]["tool_call_id"] == "held_0"
     assert json.loads(sent[-2]["content"]) == {"denied_by_person": True, "reason": message}
-    assert sent[-1] == {"role": "user", "content": message}
+    assert sent[-1] == {"role": "user", "content": f"{today_line(START)}\n{message}"}
     assert state.reply == "Okay. What do you need instead?"
     assert store.messages[-1] == (MessageRole.ASSISTANT, "Okay. What do you need instead?")
 

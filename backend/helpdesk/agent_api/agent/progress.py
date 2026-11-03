@@ -16,6 +16,7 @@ PROGRESS_WORDS: Mapping[str, str] = MappingProxyType(
     {
         "get_me": "Checking who you are",
         "list_my_access": "Checking your access",
+        "list_person_access": "Checking their access",
         "list_my_requests": "Checking your requests",
         "list_my_tickets": "Checking your tickets",
         "list_pending_approvals": "Checking what waits for your approval",

@@ -124,6 +124,20 @@ def _rows(database_url: str, sql: str, params: dict[str, Any]) -> list[Any]:
     return asyncio.run(scenario())
 
 
+def _execute(database_url: str, sql: str, params: dict[str, Any]) -> None:
+    """One committed statement written around the tools."""
+
+    async def scenario() -> None:
+        engine = create_async_engine(database_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(sql), params)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def _audit_event_types(database_url: str, tenant_id: uuid.UUID) -> list[str]:
     rows = _rows(
         database_url,
@@ -997,3 +1011,184 @@ def test_the_request_limit_boundary_is_inclusive_at_1_and_200(
         return
     payload = _structured(result)
     assert 1 <= len(payload["requests"]) <= limit
+
+
+# --- list_person_access ---------------------------------------------------------
+
+LIST_PERSON_ACCESS = "list_person_access"
+LIST_MY_ACCESS = "list_my_access"
+
+PRODUCTION_MANAGER = ROWS.users_by_department["Production"][0]
+IT_ADMIN = ROWS.users_by_department["IT"][16]
+SAME_DEPARTMENT_COLLEAGUE = ROWS.users_by_department["Production"][3]
+OTHER_DEPARTMENT_PERSON = ROWS.users_by_department["Sales"][15]
+OWNED_SYSTEM_HOLDER = ROWS.users_by_department["Sales"][22]
+"""Holds the Sales template (crm among it) and, planted by the owner case, one
+role on a system the IT system owner owns."""
+OWNED_SYSTEM_SLUG = "prod-k8s"
+OWNED_SYSTEM_ROLE = ROWS.role_ids[(OWNED_SYSTEM_SLUG, "deployer")]
+
+
+def _person_args(user: UserRow | uuid.UUID) -> dict[str, Any]:
+    return {"user_id": str(user.id if isinstance(user, UserRow) else user)}
+
+
+def _grant_ids(payload: dict[str, Any]) -> set[str]:
+    return {str(grant["grant_id"]) for grant in payload["grants"]}
+
+
+def _own_grant_ids(caller: SeededUser, principals: tuple[str, ...]) -> set[str]:
+    """What the person themself sees with `list_my_access`: the truth to compare with."""
+    token = token_for(caller, principals=principals)
+    return _grant_ids(_structured(call_tool(bearer(token), LIST_MY_ACCESS, {})))
+
+
+def test_an_it_admin_sees_a_colleagues_access(mcp_env: SeededMcp) -> None:
+    """Catches a lookup that answers only for the caller (it ignores `user_id`),
+    or one that stops at the caller's own department: the IT admin asks about a
+    Production person and a Sales person, and each answer must be exactly that
+    person's own live grants, not empty and not the admin's."""
+    admin = _seeded(IT_ADMIN)
+    for person in (SAME_DEPARTMENT_COLLEAGUE, OTHER_DEPARTMENT_PERSON):
+        assert person.department != IT_ADMIN.department, "premise: another department"
+        expected = _own_grant_ids(_seeded(person), ("employee",))
+        assert expected, "premise: the person holds grants"
+
+        result = call_tool(
+            bearer(token_for(admin, principals=("it_admin",))),
+            LIST_PERSON_ACCESS,
+            _person_args(person),
+        )
+
+        assert _grant_ids(_structured(result)) == expected, person.email
+
+
+def test_a_manager_sees_only_their_own_department(mcp_env: SeededMcp) -> None:
+    """Catches a lookup that lets a manager reach every department (the row
+    admits managers, so only the scope check can refuse the other department)
+    and one that refuses the manager's own people. Both targets are in the
+    manager's tenant, so the tenant guard cannot be what answers."""
+    manager = _seeded(PRODUCTION_MANAGER)
+    own = SAME_DEPARTMENT_COLLEAGUE
+    other = OTHER_DEPARTMENT_PERSON
+    assert own.department == PRODUCTION_MANAGER.department != other.department
+    token = token_for(manager, principals=("manager",))
+
+    own_result = call_tool(bearer(token), LIST_PERSON_ACCESS, _person_args(own))
+    other_result = call_tool(bearer(token), LIST_PERSON_ACCESS, _person_args(other))
+
+    assert _grant_ids(_structured(own_result)) == _own_grant_ids(_seeded(own), ("employee",))
+    assert error_code(other_result) == "NOT_FOUND"
+
+
+def test_a_system_owner_sees_only_grants_on_systems_they_own(mcp_env: SeededMcp) -> None:
+    """Catches a lookup that gives a system owner the whole person (every
+    grant) instead of the grants on the systems they own. The target holds
+    the Sales template (crm among it, owned by someone else) plus one planted
+    role on a system the caller owns, and sits in another department than the
+    caller, so only the systems scope can be what narrows the answer."""
+    owner_row = ROWS.system_owners[OWNED_SYSTEM_SLUG]
+    owner = _seeded(owner_row)
+    assert owner_row.department != OWNED_SYSTEM_HOLDER.department
+    owned_slugs = {slug for slug, row in ROWS.system_owners.items() if row.id == owner_row.id}
+    other_owner = ROWS.system_owners["crm"]
+    assert other_owner.id != owner_row.id, "premise: crm is owned by someone else"
+    database_url = mcp_env.database_url
+    holder = OWNED_SYSTEM_HOLDER.id
+    assert (
+        _rows(
+            database_url,
+            "SELECT id FROM grants WHERE user_id = :user AND role_id = :role",
+            {"user": holder, "role": OWNED_SYSTEM_ROLE},
+        )
+        == []
+    ), "premise: the holder has no grant on the owned system yet"
+    planted = uuid.uuid4()
+    _execute(
+        database_url,
+        "INSERT INTO grants (id, tenant_id, user_id, role_id, request_id, granted_by_user_id,"
+        " granted_at, expires_at, revoked_at, revoke_reason, status, created_at, updated_at)"
+        " VALUES (:id, :tenant, :user, :role, NULL, NULL, :granted_at, NULL, NULL, NULL,"
+        " 'active', now(), now())",
+        {
+            "id": planted,
+            "tenant": ROWS.tenant_id,
+            "user": holder,
+            "role": OWNED_SYSTEM_ROLE,
+            "granted_at": datetime(2026, 1, 1, 9, 0, tzinfo=UTC),
+        },
+    )
+    try:
+        everything = _own_grant_ids(_seeded(OWNED_SYSTEM_HOLDER), ("employee",))
+        assert str(planted) in everything and len(everything) > 1, "premise: more than one grant"
+
+        result = call_tool(
+            bearer(token_for(owner, principals=("system_owner",))),
+            LIST_PERSON_ACCESS,
+            _person_args(holder),
+        )
+        payload = _structured(result)
+    finally:
+        _execute(database_url, "DELETE FROM grants WHERE id = :id", {"id": planted})
+
+    slugs = {grant["system_slug"] for grant in payload["grants"]}
+    assert OWNED_SYSTEM_SLUG in slugs
+    assert slugs <= owned_slugs
+    assert "crm" not in slugs
+    assert str(planted) in _grant_ids(payload)
+
+
+def test_an_employee_cannot_see_a_colleagues_access(mcp_env: SeededMcp) -> None:
+    """Unhappy path. Catches a lookup that answers an employee about a
+    colleague (the row admits employees at self scope, so only the scope check
+    refuses), and one that answers FORBIDDEN instead of the same NOT_FOUND an
+    unknown id gets, which would tell the employee who exists. The colleague
+    is in the employee's own department, so a department match alone is not
+    what refuses."""
+    employee = _seeded(CLEAN_USER)
+    assert SAME_DEPARTMENT_COLLEAGUE.department == CLEAN_USER.department
+    token = token_for(employee, principals=("employee",))
+
+    colleague = call_tool(
+        bearer(token), LIST_PERSON_ACCESS, _person_args(SAME_DEPARTMENT_COLLEAGUE)
+    )
+    unknown = call_tool(bearer(token), LIST_PERSON_ACCESS, _person_args(uuid.uuid4()))
+
+    assert error_code(colleague) == "NOT_FOUND"
+    assert error_code(unknown) == "NOT_FOUND"
+
+
+def test_an_employee_sees_their_own_access(mcp_env: SeededMcp) -> None:
+    """Catches a scope check that refuses the caller's own id (self scope must
+    reach exactly the caller): the answer equals what `list_my_access` gives
+    the same person."""
+    employee = _seeded(CLEAN_USER)
+    expected = _own_grant_ids(employee, ("employee",))
+    assert expected, "premise: the person holds grants"
+
+    result = call_tool(
+        bearer(token_for(employee, principals=("employee",))),
+        LIST_PERSON_ACCESS,
+        _person_args(CLEAN_USER),
+    )
+
+    assert _grant_ids(_structured(result)) == expected
+
+
+def test_a_person_in_another_tenant_is_not_found_even_for_an_it_admin(
+    mcp_env: SeededMcp,
+) -> None:
+    """Catches a lookup that escapes the tenant guard: `any` scope reaches
+    every department of the caller's tenant, so only the tenant check keeps
+    out a real person of the other company."""
+    admin = _seeded(IT_ADMIN)
+    foreign = OTHER_TENANT_ROWS.users[0]
+    assert OTHER_TENANT_ROWS.tenant_id != admin.tenant_id
+
+    result = call_tool(
+        bearer(token_for(admin, principals=("it_admin",))),
+        LIST_PERSON_ACCESS,
+        _person_args(foreign.id),
+    )
+
+    assert error_code(result) == "NOT_FOUND"

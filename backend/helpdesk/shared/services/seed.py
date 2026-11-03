@@ -22,10 +22,12 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 from faker import Faker
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from helpdesk.shared.access.requests import approval_slots
 from helpdesk.shared.auth.passwords import hash_password
 from helpdesk.shared.core.db import bound_tenant_id
 from helpdesk.shared.crud import Repository
@@ -644,6 +646,9 @@ class PlantedRequestRow:
     decision: str
     reasons: tuple[str, ...]
     approver_user_ids: tuple[uuid.UUID, ...]
+    approvals: tuple[dict[str, Any], ...]
+    """The seats a filed request gets, so a named approver finds it waiting."""
+
     status: str = "pending"
 
 
@@ -868,6 +873,7 @@ def _plant_requests(rows: TenantRows) -> list[PlantedRequestRow]:
                     for approver in classification.required_approvers
                     if approver.user_id is not None
                 ),
+                approvals=tuple(approval_slots(classification.required_approvers)),
             )
         )
     return planted
@@ -1102,7 +1108,7 @@ async def _write_tenant(session: AsyncSession, rows: TenantRows) -> None:
                 "citations": [],
                 "status": request.status,
                 "approver_user_ids": list(request.approver_user_ids),
-                "approvals": [],
+                "approvals": list(request.approvals),
             }
             for request in rows.planted_requests
         }

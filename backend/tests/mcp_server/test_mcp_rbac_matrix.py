@@ -249,6 +249,16 @@ MATRIX: dict[str, dict[str, bool]] = {
         "auditor": True,
         "platform_admin": True,
     },
+    # The person lookup shares the revoke row, so every principal holds a cell.
+    "list_person_access": {
+        "employee": True,
+        "manager": True,
+        "system_owner": True,
+        "hr": True,
+        "it_admin": True,
+        "auditor": True,
+        "platform_admin": True,
+    },
     # The matrix's rollback row, the narrowest yet: TWO cells. `hr`
     # holds one on `revoke_access` above and none here, and `auditor` reads
     # the audit log without being able to change anything, so a row copied
@@ -448,6 +458,8 @@ ALLOW_ANSWERS_NOT_FOUND = frozenset(
         # A permitted caller naming a request nobody filed: the lookup refuses.
         "cancel_request",
         "revoke_access",
+        # A permitted caller naming a person nobody knows: the lookup refuses.
+        "list_person_access",
         "onboard_user",
         "transfer_user",
         "offboard_user",
@@ -522,6 +534,7 @@ ID_TAKING_TOOLS: frozenset[str] = frozenset(
         "reject_request",
         "cancel_request",
         "revoke_access",
+        "list_person_access",
         "onboard_user",
         "transfer_user",
         "offboard_user",
@@ -895,6 +908,8 @@ def _arguments_for(tool_name: str, env: SeededMcp) -> dict[str, Any]:
         # Valid arguments naming a row that does not exist: a permitted
         # caller must get past RBAC and be refused NOT_FOUND by the lookup,
         # never FORBIDDEN by the matrix.
+        if tool_name == "list_person_access":
+            return {"user_id": str(uuid.uuid4())}
         arguments = {"idempotency_key": f"fake-key-{uuid.uuid4().hex}"}
         if tool_name == "revoke_access":
             arguments["grant_id"] = str(uuid.uuid4())
@@ -1333,6 +1348,10 @@ def _cross_tenant_arguments(tool_name: str, env: SeededMcp) -> dict[str, Any]:
             "ticket_id": str(_foreign_ticket(env)),
             "idempotency_key": f"fake-key-{uuid.uuid4().hex}",
         }
+    if tool_name == "list_person_access":
+        # Tenant B's person, a real row there: the refusal has to come from the
+        # tenant guard, not from an id nobody could resolve anyway.
+        return {"user_id": str(env.tenant_b.user_id)}
     if tool_name == "list_review_items":
         return {"review_id": str(_foreign_review(env))}
     if tool_name == "decide_review_item":

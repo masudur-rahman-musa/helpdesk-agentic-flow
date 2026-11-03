@@ -114,6 +114,16 @@ _SPECS: tuple[ToolSpec[Any, Any], ...] = (
         handler=read.list_my_access,
     ),
     ToolSpec(
+        name=rbac.Tool.LIST_PERSON_ACCESS.value,
+        tool=rbac.Tool.LIST_PERSON_ACCESS,
+        description="List the access another person holds, for a person the caller looks after.",
+        input_model=read.ListPersonAccessInput,
+        output_model=read.ListPersonAccessOutput,
+        event_type=SUCCESS_EVENT_TYPE,
+        mutating=False,
+        handler=read.list_person_access,
+    ),
+    ToolSpec(
         name=rbac.Tool.CLASSIFY_ACCESS_REQUEST.value,
         tool=rbac.Tool.CLASSIFY_ACCESS_REQUEST,
         description="Classify a hypothetical access request; decides nothing, writes nothing.",

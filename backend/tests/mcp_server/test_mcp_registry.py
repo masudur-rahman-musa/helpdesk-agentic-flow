@@ -352,6 +352,21 @@ MUTATING_TOOL_NAMES = frozenset(
 )
 
 
+def test_the_registry_holds_thirty_eight_tools_with_the_person_lookup_among_them() -> None:
+    """Catches a new tool that is never registered (the handler exists and no
+    caller can reach it) and a registry grown by a tool nobody decided on.
+    The new lookup is also pinned as its own spec: a read (not mutating, so no
+    key is demanded), the generic success event, and the matrix member of the
+    same name, so a spec pointed at `revoke_access` (whose scope row it shares)
+    would not pass."""
+    assert len(REGISTRY) == 38
+    spec = REGISTRY["list_person_access"]
+    assert spec.name == "list_person_access" == rbac.Tool.LIST_PERSON_ACCESS.value
+    assert spec.tool is rbac.Tool.LIST_PERSON_ACCESS
+    assert spec.event_type == registry.SUCCESS_EVENT_TYPE
+    assert spec.mutating is False
+
+
 def test_the_wire_name_aliases_are_exactly_the_declared_pair() -> None:
     """The alias table is the ONLY licence a wire name
     has to differ from its matrix member's value, so an undeclared alias

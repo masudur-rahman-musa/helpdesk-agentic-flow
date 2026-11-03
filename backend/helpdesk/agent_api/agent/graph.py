@@ -76,6 +76,7 @@ from helpdesk.agent_api.agent.loop_tools import (
     FIND_DEPARTMENT,
     FIND_PERSON,
     FIND_ROLE,
+    LIST_PERSON_ACCESS,
     Directory,
     LoopTool,
     ToolKind,
@@ -305,6 +306,8 @@ class LoopState(TypedDict, total=False):
     person_said: list[str]
     roles_found: dict[str, dict[str, Any]]
     people_found: dict[str, str]
+    grant_holders: dict[str, str]
+    """Whose grant each id is, from `list_person_access`, so a held revoke names them."""
     denied: list[dict[str, Any]]
     """The held calls the person just turned down, keys left out."""
     bare_yes: bool
@@ -355,6 +358,20 @@ class _BudgetSpent(Exception):
 
 class _GatewayBusy(Exception):
     """The gateway was too busy to answer the step. The turn ends on `BUSY_REPLY`."""
+
+
+_WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+"""Fixed English names, so the line never follows the server's locale."""
+
+
+def today_line(now: datetime) -> str:
+    """ "Today is 2026-11-03 (Tuesday)." It rides on the person's newest
+    message, never the system prompt, so the prompt and tools stay byte for
+    byte the same each day and the gateway can cache them. Pinned by
+    `test_the_user_turn_starts_with_todays_date` and
+    `test_the_system_prompt_is_the_same_on_two_days`."""
+    today = now.date()
+    return f"Today is {today.isoformat()} ({_WEEKDAYS[today.weekday()]})."
 
 
 def _tool_turn(call_id: str, content: Any) -> dict[str, Any]:
@@ -443,6 +460,7 @@ class _Turn:
         """The person's own messages, this turn's last; never the check's notes."""
         self.roles_found: dict[str, dict[str, Any]] = dict(state.get("roles_found", {}))
         self.people_found: dict[str, str] = dict(state.get("people_found", {}))
+        self.grant_holders: dict[str, str] = dict(state.get("grant_holders", {}))
         self.denied: list[dict[str, Any]] = list(state.get("denied", []))
         self.bare_yes = state.get("bare_yes", False)
         self.final: TurnState | None = None
@@ -470,6 +488,7 @@ class _Turn:
             "person_said": self.person_said,
             "roles_found": self.roles_found,
             "people_found": self.people_found,
+            "grant_holders": self.grant_holders,
             "denied": self.denied,
             "bare_yes": self.bare_yes,
             "final": self.final,
@@ -503,7 +522,7 @@ class _Turn:
                 for role, text in history
                 if role in (MessageRole.USER.value, MessageRole.ASSISTANT.value)
             ),
-            {"role": "user", "content": self.state.user_message},
+            {"role": "user", "content": f"{today_line(self.started)}\n{self.state.user_message}"},
         ]
 
     async def held_answer(self) -> None:
@@ -846,7 +865,7 @@ class _Turn:
             return _tool_turn(call.id, {"error": fetched.code.value})
         self.results.append(ToolResult(tool=call.name, ok=True, payload=fetched))
         ran.append({"tool": call.name, "ok": True, "error_code": None})
-        self._remember(call.name, fetched)
+        self._remember(call.name, fetched, call.arguments)
         return _tool_turn(call.id, trim_for_model(with_plain_role_names(fetched)))
 
     async def _note(self, call: ToolCall, ran: list[dict[str, Any]]) -> dict[str, Any]:
@@ -873,14 +892,20 @@ class _Turn:
             return {"departments": await find_department(words, directory=self.store)}
         raise _TurnFailed(ErrorCode.INTERNAL)  # pragma: no cover - only three finders exist
 
-    def _remember(self, name: str, payload: Mapping[str, Any]) -> None:
-        """Keep found roles and people for the summary, and passages for Sources."""
+    def _remember(
+        self, name: str, payload: Mapping[str, Any], arguments: Mapping[str, Any]
+    ) -> None:
+        """Keep found roles, people and whose grants were listed for the
+        summary, and passages for Sources."""
         if name == FIND_ROLE:
             for row in payload.get("roles") or []:
                 self.roles_found[str(row["role_id"])] = row
         elif name == FIND_PERSON:
             for row in payload.get("people") or []:
                 self.people_found[str(row["user_id"])] = str(row["name"])
+        elif name == LIST_PERSON_ACCESS:
+            for row in payload.get("grants") or []:
+                self.grant_holders[str(row["grant_id"])] = str(arguments.get("user_id"))
         elif name == SEARCH_POLICY:
             with contextlib.suppress(ValidationError):
                 self.citations.extend(SearchPolicyResult.model_validate(payload).citations)
@@ -971,6 +996,8 @@ class _Turn:
         """Store the checked changes as the open question and say what a yes runs."""
         first = calls[0]
         target = str(first.arguments.get("target_user_id") or "")
+        if first.tool == "revoke_access":
+            target = self.grant_holders.get(str(first.arguments.get("grant_id")), "")
         person = None
         if target and target != str(self.state.user_id):
             person = self.people_found.get(target, "someone else")

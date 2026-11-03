@@ -11,7 +11,7 @@ Cost and isolation. Pure: no Postgres, no socket, no gateway.
 import uuid
 from typing import Any
 
-from helpdesk.agent_api.agent.confirmation import change_summary
+from helpdesk.agent_api.agent.confirmation import change_summary, confirm_facts
 from helpdesk.agent_api.agent.state import ResolvedEntities, ToolResult, ValidatedCall
 
 RESET = "reset_own_password"
@@ -19,6 +19,9 @@ UNLOCK = "unlock_own_account"
 TICKET = "create_ticket"
 LIST_APPROVALS = "list_pending_approvals"
 APPROVE = "approve_request"
+REVOKE = "revoke_access"
+LIST_MY_ACCESS = "list_my_access"
+LIST_PERSON_ACCESS = "list_person_access"
 
 REQ_6 = uuid.UUID("aaaaaaaa-0000-5000-8000-000000000006")
 REQ_13 = uuid.UUID("aaaaaaaa-0000-5000-8000-000000000013")
@@ -94,3 +97,80 @@ def test_the_approval_summary_counts_and_names_each_listed_request() -> None:
     assert "REQ-0019 Data Warehouse admin" in summary
     assert "REQ-0013" not in summary
     assert summary.endswith(CHANGE_LINE)
+
+
+# --- a held revoke names whose access it is ----------------------------------------------
+
+GRANT_ID = uuid.UUID("bbbbbbbb-0000-5000-8000-000000000001")
+OTHER_GRANT_ID = uuid.UUID("bbbbbbbb-0000-5000-8000-000000000002")
+NATALIE = "Natalie Deegan"
+
+
+def _access_result(tool: str) -> tuple[ToolResult, ...]:
+    """What an access lookup answered: two live grants, as the server shapes them."""
+    rows = [
+        {
+            "grant_id": str(GRANT_ID),
+            "role_slug": "developer",
+            "role_name": "github.developer",
+            "privilege": "write",
+            "system_slug": "github",
+            "system_name": "GitHub",
+            "granted_at": "2026-01-01T09:00:00Z",
+            "expires_at": None,
+        },
+        {
+            "grant_id": str(OTHER_GRANT_ID),
+            "role_slug": "viewer",
+            "role_name": "crm.viewer",
+            "privilege": "read",
+            "system_slug": "crm",
+            "system_name": "CRM",
+            "granted_at": "2026-01-01T09:00:00Z",
+            "expires_at": None,
+        },
+    ]
+    return (ToolResult(tool=tool, ok=True, payload={"grants": rows}),)
+
+
+def test_a_revoke_for_someone_else_names_them() -> None:
+    """Catches a summary that still says "your" for a colleague's grant, or one
+    that cannot name the role because it reads grant names only from
+    `list_my_access` rows: the grant here comes from `list_person_access`, so
+    the role is found only if that listing is read too. The person is passed
+    as the name the turn found for them."""
+    summary = change_summary(
+        [_call(REVOKE, grant_id=str(GRANT_ID))],
+        _access_result(LIST_PERSON_ACCESS),
+        ResolvedEntities(),
+        NATALIE,
+    )
+
+    assert summary == f"I'll remove {NATALIE}'s access to GitHub developer. {CHANGE_LINE}"
+
+
+def test_a_revoke_of_own_access_still_says_your() -> None:
+    """Catches a change that puts a name (or "None's") into the line for the
+    person's own grant: with no other person and the grant listed by
+    `list_my_access`, the old words stay exactly as they were."""
+    summary = change_summary(
+        [_call(REVOKE, grant_id=str(OTHER_GRANT_ID))],
+        _access_result(LIST_MY_ACCESS),
+        ResolvedEntities(),
+    )
+
+    assert summary == f"I'll remove your access to CRM viewer. {CHANGE_LINE}"
+
+
+def test_the_question_must_show_a_role_listed_by_the_person_lookup() -> None:
+    """Catches `confirm_facts` that reads grant names from `list_my_access`
+    only: for a grant listed by `list_person_access` the role would be no
+    fact, and a written question that dropped it would pass."""
+    facts = confirm_facts(
+        [_call(REVOKE, grant_id=str(GRANT_ID))],
+        _access_result(LIST_PERSON_ACCESS),
+        ResolvedEntities(),
+        NATALIE,
+    )
+
+    assert [fact.text for fact in facts if "GitHub" in fact.text] == ["GitHub developer"]

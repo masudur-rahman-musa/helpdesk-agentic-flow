@@ -39,6 +39,7 @@ from helpdesk.shared.core.errors import ToolError
 
 FIND_ROLE = "find_role"
 FIND_PERSON = "find_person"
+LIST_PERSON_ACCESS = "list_person_access"
 FIND_DEPARTMENT = "find_department"
 NOTE_REQUEST = "note_request"
 LIST_REQUESTABLE_ROLES = "list_requestable_roles"
@@ -90,6 +91,7 @@ _WORDS_SCHEMA: dict[str, Any] = {
 _LOOKUPS: Mapping[str, str] = {
     "get_me": "The person's own record: their user id, name and department.",
     "list_my_access": "The access the person holds now.",
+    LIST_PERSON_ACCESS: "The access another person holds.",
     "list_my_requests": "The person's access requests and where each stands.",
     "list_my_tickets": "The person's tickets and where each stands.",
     "list_pending_approvals": "The access requests waiting for this person to approve.",

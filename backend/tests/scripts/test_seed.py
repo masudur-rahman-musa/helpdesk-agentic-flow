@@ -33,13 +33,17 @@ from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from sqlalchemy import Engine, Table, event, insert, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 import scripts.seed as seed_module
+from helpdesk.shared.access.approvals import list_pending_for_approver
+from helpdesk.shared.access.directory import SimulatedDirectory
 from helpdesk.shared.auth.passwords import hash_password
+from helpdesk.shared.auth.rbac import Principal, Scope
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.models import (
     AccessRequest,
@@ -56,7 +60,8 @@ from helpdesk.shared.models import (
     User,
 )
 from helpdesk.shared.models.numbers import NumberKind, ReferenceCounter
-from scripts.seed import CUAN, NORDLICHT, SeedError, generate_tenant, seed_all
+from helpdesk.shared.policy.types import ApproverSlot
+from scripts.seed import CUAN, NORDLICHT, SeedError, UserRow, generate_tenant, seed_all
 from tests.conftest import TempDatabaseFactory
 
 # Most tests here still take 1.5-4.9s (each seeds both tenants
@@ -912,3 +917,70 @@ def test_the_seed_writes_planted_requests_and_the_counter(fresh_db_url: str) -> 
             assert after["reference_counters"] == before["reference_counters"]
 
     asyncio.run(scenario())
+
+
+def test_planted_requests_carry_their_approval_seats() -> None:
+    """Catches a seed that plants every request with an empty list of seats
+    (the manager named as approver would have a request with nowhere to
+    sign), or seats whose named people differ from `approver_user_ids` (the
+    seat list and the approver list would then tell two stories).
+
+    Every request waiting on approval holds at least one seat, each seat is
+    `{"slot", "user_id"}` with a known slot, and the seats that name a person
+    name exactly `approver_user_ids`, in order. Both tenants are generated in
+    memory, and at least one named seat is seen overall, so a seed that plants
+    nothing cannot pass.
+    """
+    named_seats = 0
+    for spec in (NORDLICHT, CUAN):
+        for row in generate_tenant(spec).planted_requests:
+            seats = list(row.approvals)
+            if row.decision == "approval":
+                assert seats, f"{spec.slug}: request {row.number} waits on approval with no seat"
+            for seat in seats:
+                assert set(seat) == {"slot", "user_id"}, seat
+                assert seat["slot"] in {slot.value for slot in ApproverSlot}, seat
+            named = [seat["user_id"] for seat in seats if seat["user_id"] is not None]
+            assert named == [str(user_id) for user_id in row.approver_user_ids]
+            assert len(seats) >= len(row.approver_user_ids)
+            named_seats += len(named)
+    assert named_seats >= 1
+
+
+@pytest.mark.db
+def test_a_named_approver_finds_a_planted_request_waiting(seeded_db_url: str) -> None:
+    """Catches a seed that stores the planted requests with no seats: the
+    waiting-for-me lookup shows only a request with an open seat for the caller,
+    so the manager (or system owner) a request names would see nothing. Read
+    through the real queue, after a real seed, for every named approver of every
+    planted request; only Postgres shows what was stored and how the queue
+    reads it."""
+
+    async def queue_of(tenant_id: uuid.UUID, approver: UserRow, factory: Any) -> list[uuid.UUID]:
+        async with tenant_session(factory, tenant_id) as session:
+            rows = await list_pending_for_approver(
+                session,
+                SimulatedDirectory(session),
+                approver_user_id=approver.id,
+                scopes=frozenset({Scope.OWN_DEPARTMENT, Scope.OWN_SYSTEMS}),
+                principals=frozenset(Principal(name) for name in approver.principals),
+                limit=200,
+            )
+            return [request.id for request, _slot in rows]
+
+    async def scenario() -> int:
+        found = 0
+        async with _engine(seeded_db_url) as engine:
+            factory = create_session_factory(engine)
+            for spec in (NORDLICHT, CUAN):
+                rows = generate_tenant(spec)
+                users = {user.id: user for user in rows.users}
+                for request in rows.planted_requests:
+                    for approver_id in request.approver_user_ids:
+                        waiting = await queue_of(rows.tenant_id, users[approver_id], factory)
+                        assert request.id in waiting, (spec.slug, request.number, approver_id)
+                        found += 1
+        return found
+
+    checked = asyncio.run(scenario())
+    assert checked >= 1
