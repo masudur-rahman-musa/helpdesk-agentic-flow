@@ -416,22 +416,23 @@ def test_a_correction_reaches_the_model_with_the_persons_words(message: str) -> 
     correction and for one that does not begin with a no at all.
     """
     gateway = ScriptedGateway(
-        reading_body("new_info"), answer_body("Got it. Which role should it be?")
+        reading_body("no_with_new_request"), answer_body("Got it. Which role should it be?")
     )
     store = FakeStore(question=held_question())
 
     run(gateway, FakeTools(), store, message=message)
 
     sent = gateway.requests[1]["messages"]
-    assert json.loads(sent[-3]["content"]) == {"denied_by_person": True, "reason": message}
+    denial = [m for m in sent if m["role"] == "tool"][-1]
+    assert json.loads(denial["content"]) == {"denied_by_person": True, "reason": message}
     assert sent[-1] == {"role": "user", "content": f"{today_line(START)}\n{message}"}
 
 
 def _lookups_then(*steps: dict[str, Any]) -> ScriptedGateway:
-    """A model that reads the reply as new info, then finds the person and
+    """A model that reads the reply as a no with a new request, then finds the person and
     the viewer role, then plays `steps`."""
     return ScriptedGateway(
-        reading_body("new_info"),
+        reading_body("no_with_new_request"),
         answer_body(
             None,
             wire_call("call_me", "get_me", {}),
@@ -505,7 +506,7 @@ def test_a_new_proposal_after_a_denial_is_held(
     editor role, or the viewer role for 7 days: it must be held.
     """
     gateway = ScriptedGateway(
-        reading_body("new_info"),
+        reading_body("no_with_new_request"),
         answer_body(
             None,
             wire_call("call_me", "get_me", {}),
@@ -535,7 +536,7 @@ def test_a_yes_after_a_denial_runs_nothing() -> None:
     store = FakeStore(question=held_question())
     run(
         ScriptedGateway(
-            reading_body("new_info"), answer_body("Okay. What would you like instead?")
+            reading_body("no_with_new_request"), answer_body("Okay. What would you like instead?")
         ),
         FakeTools(),
         store,

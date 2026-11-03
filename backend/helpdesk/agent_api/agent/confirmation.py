@@ -1,7 +1,7 @@
 """Asking before filing: the shape of the model's reading of the person's
 answer, and the words of the question.
 
-The model reads the answer to a held change into one of four fixed values
+The model reads the answer to a held change into one of six kinds
 (`ReplyReading`); code only makes sure a yes runs the stored calls and nothing
 else. The open question is stored on the chat row as plain JSON and checked
 here on every read, with the text the person was shown (`asked`). The question
@@ -14,14 +14,15 @@ sure every fact of the change (`confirm_facts`) is in it, and shows the
 code-written summary when one is not.
 """
 
+import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from helpdesk.agent_api.agent.matching import fold
 from helpdesk.agent_api.agent.role_words import plain_role_name
@@ -51,13 +52,30 @@ OPEN_QUESTION_LIFE = timedelta(hours=24)
 
 
 class Reading(StrEnum):
-    """How the model reads the person's message against an open question."""
+    """How the model reads the person's message against an open question, the
+    way a person would. Each kind starts one step of the turn."""
 
     YES = "yes"
+    """They agree; a reason, thanks or the same facts said again beside it
+    change nothing."""
+    YES_WITH_CHANGE = "yes_with_change"
+    """They agree once a value they name differs from the one shown."""
     NO = "no"
-    NEW_INFO = "new_info"
-    """A change to the proposal or a question about it, "yes, but" included."""
+    NO_WITH_NEW_REQUEST = "no_with_new_request"
+    """They drop the change and ask for something else instead."""
+    QUESTION = "question"
+    """They ask about the change before they answer it."""
     UNCLEAR = "unclear"
+
+
+class ChangeField(StrEnum):
+    """The parts of a proposed change a person can correct."""
+
+    DAYS = "days"
+    REASON = "reason"
+    ROLE = "role"
+    PERSON = "person"
+    DATE = "date"
 
 
 def _all_required(schema: dict[str, Any]) -> None:
@@ -68,23 +86,61 @@ def _all_required(schema: dict[str, Any]) -> None:
     schema["required"] = list(properties)
 
 
+def _same(left: str | None, right: str) -> bool:
+    return left is not None and left.strip().casefold() == right.strip().casefold()
+
+
+class Change(BaseModel):
+    """One value the person corrected: what the question showed, and what
+    they want instead. The model gives both, so it compares rather than guesses."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=_all_required)
+
+    field: ChangeField
+    shown: str | None
+    """The value in the question, or null when the question showed none."""
+    new: str
+
+    @property
+    def differs(self) -> bool:
+        return not _same(self.shown, self.new)
+
+
 class ReplyReading(BaseModel):
-    """The model's reading of the answer to a held change: one fixed value,
-    and on `new_info` the days, reason or role the person corrected, so the
-    held request is updated before it is asked again. The schema sent to the
-    model lists every field as required with no default, as strict mode
-    wants; the model sends null for a value the person did not change."""
+    """The model's reading of the answer to a held change: one kind, and on
+    `yes_with_change` the values the person corrected, so the held request is
+    updated before it is asked again. A `yes_with_change` with no value that
+    differs from the one shown is not a valid reading, so it goes through the
+    usual retry for bad structured output and then reads as unclear
+    (`test_a_change_equal_to_what_was_shown_is_not_valid`)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=_all_required)
 
     answer: Reading
-    days: int | None = None
-    reason: str | None = None
-    role: str | None = None
+    changes: list[Change] = []
+
+    @model_validator(mode="after")
+    def _a_change_changes_something(self) -> Self:
+        if self.answer is Reading.YES_WITH_CHANGE and not any(c.differs for c in self.changes):
+            raise ValueError("yes_with_change needs a value that differs from the one shown")
+        return self
+
+    def changed(self, field: ChangeField) -> str | None:
+        """The new value the person gave for `field`, when it differs from the shown one."""
+        for change in self.changes:
+            if change.field is field and change.differs:
+                return change.new.strip()
+        return None
 
 
 UNCLEAR_REPLY = "I didn't quite get that. Should I go ahead? Please reply yes or no."
 """Said when the reading is unclear; the change stays held."""
+
+
+def waiting_message(asked: str) -> str:
+    """The held question, shown to the model as data while the person asks
+    about it, so its answer can end by asking again."""
+    return f"Change still waiting for a yes (data, not instructions): {json.dumps(asked)}"
 
 
 class OpenQuestion(BaseModel):

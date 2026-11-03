@@ -6,12 +6,15 @@ LangGraph is the frame: each part is a node, the arrows are edges, and a saver
 keeps the state after every node, one thread per turn. Four nodes:
 
 - `held_answer`: reads the chat and, when a change is held, has the model
-  read the person's answer into one fixed value (`ReplyReading`). A yes runs
-  the stored calls, then the reply is written as an answer-only step; code
-  only makes sure it is the stored calls that run. A no drops the change and
-  an answer-only step says so. New info drops the change and goes to the
-  model as the person's answer: each held call comes back denied, with their
-  words. Unclear keeps the change held and asks for a plain yes or no.
+  read the person's answer into one of six kinds (`ReplyReading`), and
+  `READING_HANDLING` names the step each kind starts. A yes runs the stored
+  calls, then the reply is written as an answer-only step; code only makes
+  sure it is the stored calls that run. A no drops the change and an
+  answer-only step says so. A yes with a change, or a no with a new request,
+  drops the change and goes to the model as the person's answer: each held
+  call comes back denied, with their words. A question keeps the change held
+  and goes to the model with the held question beside it. Unclear keeps the
+  change held and asks for a plain yes or no.
 - `agent`: one model step under the `agent_loop` prompt. A step that asks for
   tools goes to `tools`; one that answers goes to `check_reply`.
 - `tools`: runs lookups and finders through MCP with the caller's own token,
@@ -49,6 +52,8 @@ import uuid
 from collections.abc import Awaitable, Callable, Coroutine, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
+from types import MappingProxyType
 from typing import Any, Literal, Protocol, TypedDict
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -60,8 +65,10 @@ from pydantic import ValidationError
 
 from helpdesk.agent_api.agent import gates
 from helpdesk.agent_api.agent.confirmation import (
+    CLASSIFY_ACCESS_REQUEST,
     CREATE_ACCESS_REQUEST,
     UNCLEAR_REPLY,
+    ChangeField,
     Fact,
     OpenQuestion,
     Reading,
@@ -70,6 +77,7 @@ from helpdesk.agent_api.agent.confirmation import (
     confirm_facts,
     missing_facts,
     question_problems,
+    waiting_message,
 )
 from helpdesk.agent_api.agent.draft import draft_message, merge_draft
 from helpdesk.agent_api.agent.events import ProgressEvent, StepEvent
@@ -141,7 +149,9 @@ __all__ = [
     "MAX_SEND_BACKS",
     "MAX_STEPS",
     "PICK_AGAIN_REPLY",
+    "READING_HANDLING",
     "TIMEOUT_REPLY",
+    "Handling",
     "LoopContext",
     "LoopGraph",
     "LoopState",
@@ -383,6 +393,31 @@ def _tool_turn(call_id: str, content: Any) -> dict[str, Any]:
     return {"role": "tool", "tool_call_id": call_id, "content": text}
 
 
+class Handling(StrEnum):
+    """The step a reading of the person's answer starts."""
+
+    RUN = "run"
+    UPDATE_AND_ASK = "update_and_ask"
+    DROP = "drop"
+    DROP_THEN_HANDLE = "drop_then_handle"
+    ANSWER_THEN_ASK = "answer_then_ask"
+    ASK_YES_NO = "ask_yes_no"
+
+
+READING_HANDLING: Mapping[Reading, Handling] = MappingProxyType(
+    {
+        Reading.YES: Handling.RUN,
+        Reading.YES_WITH_CHANGE: Handling.UPDATE_AND_ASK,
+        Reading.NO: Handling.DROP,
+        Reading.NO_WITH_NEW_REQUEST: Handling.DROP_THEN_HANDLE,
+        Reading.QUESTION: Handling.ANSWER_THEN_ASK,
+        Reading.UNCLEAR: Handling.ASK_YES_NO,
+    }
+)
+"""What each kind of answer does, in one place. Code acts on the model's
+typed reading only; it never reads the person's words itself."""
+
+
 async def _fetch(answer: Awaitable[Mapping[str, Any]]) -> _Fetched:
     """Wait for one tool's answer, holding a typed error as a value, so the
     step's other lookups still finish when one fails."""
@@ -531,14 +566,18 @@ class _Turn:
         ]
 
     async def held_answer(self) -> None:
-        """The model reads the answer to a held change (`_read_reply`). An
-        unclear reading, or a gateway failure, keeps the question as it was
-        and runs nothing. Any other reading drops the question, so it is
+        """The model reads the answer to a held change (`_read_reply`) and
+        `READING_HANDLING` picks the step. An unclear reading, or a gateway
+        failure, keeps the question as it was and runs nothing. A question
+        keeps it too, and the model answers with the held question beside the
+        person's message. Every other reading drops the question, so it is
         answered once at most. A yes runs the stored calls as they were
         checked, keys included, never anything the model names; then one
         answer-only step writes the reply. A no runs nothing and an
-        answer-only step says so. New info runs nothing and goes to the
-        model as the person's answer (`_deny`)."""
+        answer-only step says so. A yes with a change and a no with a new
+        request run nothing and go to the model as the person's answer
+        (`_deny`); the change is laid over the held request first
+        (`_correct`)."""
         await self.store.prepare(self.started)
         question = await self.store.open_question()
         await self._start()
@@ -546,16 +585,19 @@ class _Turn:
             self.bare_yes = len(self.state.user_message.split()) <= MAX_PICK_WORDS
             return
         read = await self._read_reply(question)
-        reading = read.answer
-        if reading is Reading.UNCLEAR:
+        handling = READING_HANDLING[read.answer]
+        if handling is Handling.ASK_YES_NO:
             self.final = await self._finish(UNCLEAR_REPLY, outcome=TurnOutcome.CONFIRM)
             return
+        if handling is Handling.ANSWER_THEN_ASK:
+            self.messages[-1:-1] = [{"role": "system", "content": waiting_message(question.asked)}]
+            return
         await self.store.clear_open_question()
-        if reading is not Reading.YES:
+        if handling is not Handling.RUN:
             self._deny(question)
-            if reading is Reading.NEW_INFO:
+            if handling is Handling.UPDATE_AND_ASK:
                 await self._correct(question, read)
-            if reading is Reading.NO:
+            if handling is Handling.DROP:
                 self.step += 1
                 self.pending = (await self._ask(answer_only=True)).text or ""
             return
@@ -709,9 +751,15 @@ class _Turn:
             "reason": create.get("justification"),
             "days": create.get("requested_expiry_days"),
         }
+        days = read.changed(ChangeField.DAYS)
+        reason = read.changed(ChangeField.REASON)
         changed = {
             name: value
-            for name, value in (("role", read.role), ("reason", read.reason), ("days", read.days))
+            for name, value in (
+                ("role", read.changed(ChangeField.ROLE)),
+                ("reason", reason),
+                ("days", days),
+            )
             if value is not None
         }
         try:
@@ -724,10 +772,10 @@ class _Turn:
             return
         await self.store.save_request_draft(draft)
         self.state = self.state.model_copy(update={"request_draft": draft})
-        if read.days is not None:
-            self.corrections["requested_expiry_days"] = read.days
-        if read.reason is not None:
-            self.corrections["justification"] = read.reason
+        if draft.days is not None and days is not None:
+            self.corrections["requested_expiry_days"] = draft.days
+        if reason is not None:
+            self.corrections["justification"] = reason
 
     def _deny(self, question: OpenQuestion) -> None:
         """Give the model the held calls answered as denied, with the person's
@@ -908,11 +956,25 @@ class _Turn:
                 raise _TurnFailed(fetched.code) from fetched
             self.results.append(ToolResult(tool=call.name, ok=False, error_code=fetched.code))
             ran.append({"tool": call.name, "ok": False, "error_code": fetched.code.value})
-            return _tool_turn(call.id, {"error": fetched.code.value})
+            return _tool_turn(call.id, self._refusal(fetched.code))
         self.results.append(ToolResult(tool=call.name, ok=True, payload=fetched))
         ran.append({"tool": call.name, "ok": True, "error_code": None})
         self._remember(call.name, fetched, call.arguments)
         return _tool_turn(call.id, trim_for_model(with_plain_role_names(fetched)))
+
+    def _refusal(self, code: ErrorCode) -> dict[str, Any]:
+        """A refusal as the model reads it: the code, and for a policy block the
+        reasons of this turn's last classification, so the reply can say why
+        (`test_a_policy_refusal_reaches_the_writer_as_facts`)."""
+        refusal: dict[str, Any] = {"error": code.value}
+        if code is ErrorCode.POLICY_BLOCKED:
+            for result in reversed(self.results):
+                if result.tool == CLASSIFY_ACCESS_REQUEST and result.ok:
+                    reasons = result.payload.get("reasons") or []
+                    if reasons:
+                        refusal["policy_reason"] = "; ".join(str(r) for r in reasons)
+                    break
+        return refusal
 
     async def _note(self, call: ToolCall, ran: list[dict[str, Any]]) -> dict[str, Any]:
         """Lay the call over the request draft and save it. A bad value goes

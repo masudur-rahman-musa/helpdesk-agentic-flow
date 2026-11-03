@@ -66,7 +66,7 @@ from helpdesk.agent_api.agent.tool_args import CreateAccessRequestArgs
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.services.mcp_client import ToolCaller
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
-from helpdesk.shared.core.errors import ToolError
+from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
 from helpdesk.shared.models.conversation import MessageRole
 from helpdesk.shared.models.idempotency import KEY_LENGTH
 
@@ -113,7 +113,7 @@ def answer_body(text: str | None, *calls: Mapping[str, Any], tokens: int = 2) ->
 
 def reading_body(answer: str) -> dict[str, Any]:
     """The model's reading of the person's reply to a held change."""
-    return answer_body(json.dumps({"answer": answer}))
+    return answer_body(json.dumps({"answer": answer, "changes": []}))
 
 
 def wire_call(call_id: str, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -1280,12 +1280,14 @@ def test_model_cannot_confirm_for_the_person(message: str) -> None:
     as the person's answer, or that keeps the question open after the person
     moved on (the next bare yes would then file it).
 
-    The held call is on the chat row. The model reads the message as new
-    info, since words alone no longer decide, so the tool server (no tool
-    scripted) must see nothing, the question must be dropped, and the turn
-    must go to the model as a normal turn with tools.
+    The held call is on the chat row. The model reads the message as a no
+    with a new request, since words alone no longer decide, so the tool server
+    (no tool scripted) must see nothing, the question must be dropped, and the
+    turn must go to the model as a normal turn with tools.
     """
-    gateway = ScriptedGateway(reading_body("new_info"), answer_body("Tell me what you need."))
+    gateway = ScriptedGateway(
+        reading_body("no_with_new_request"), answer_body("Tell me what you need.")
+    )
     tools = FakeTools()
     store = FakeStore(question=held_question())
 
@@ -1490,3 +1492,138 @@ def test_the_prompt_answers_in_the_first_message_language() -> None:
     assert "english" in around
     assert "greeting" in around
     assert "never switch" in text
+
+
+# --- a refusal reaches the model as facts -------------------------------------------------
+
+
+class _PolicyBlocked(ToolError):
+    """A typed refusal carrying the policy-blocked code."""
+
+    code = ErrorCode.POLICY_BLOCKED
+
+
+BLOCK_REASONS = ["CRITICAL_SYSTEM", "TARGET_LEAVER"]
+BLOCKED_VERDICT: dict[str, Any] = {
+    "decision": "blocked",
+    "risk_class": "high",
+    "reasons": BLOCK_REASONS,
+    "required_approvers": [],
+    "effective_expiry_days": 30,
+    "sod_conflicts": [],
+    "policy_refs": [],
+}
+
+
+def _refused_turn(failure: ToolError, *, classify: bool) -> tuple[dict[str, Any], FakeTools]:
+    """Run a turn: two lookups, optionally one classification, then a lookup the
+    tool server refuses with `failure`. Returns the tool turn the model got back
+    for the refused call, and the tool server."""
+    steps: list[dict[str, Any]] = [
+        answer_body(
+            None,
+            wire_call("call_me", "get_me", {}),
+            wire_call("call_r", "find_role", {"words": "wiki viewer"}),
+        )
+    ]
+    if classify:
+        steps.append(
+            answer_body(
+                None,
+                wire_call(
+                    "call_k",
+                    "classify_access_request",
+                    {"target_user_id": str(USER_ID), "role_id": str(WIKI_VIEWER_ID)},
+                ),
+            )
+        )
+    steps.append(answer_body(None, wire_call("call_x", "list_my_requests", {})))
+    steps.append(answer_body("That did not go through."))
+    answers: dict[str, Mapping[str, Any]] = {
+        "get_me": {"user_id": str(USER_ID), "display_name": "Fake Person"},
+        "list_requestable_roles": {"roles": [role_row("wiki", "Internal Wiki", "viewer")]},
+    }
+    if classify:
+        answers["classify_access_request"] = BLOCKED_VERDICT
+    tools = FakeTools(answers, failures={"list_my_requests": failure})
+    gateway = ScriptedGateway(*steps)
+
+    run(gateway, tools, FakeStore())
+
+    turns = [t for t in tool_turns(gateway.requests[-1]) if t["tool_call_id"] == "call_x"]
+    assert len(turns) == 1
+    parsed = json.loads(turns[0]["content"])
+    assert isinstance(parsed, dict)
+    return parsed, tools
+
+
+def test_a_policy_refusal_reaches_the_writer_as_facts() -> None:
+    """Catches a loop that hands the model only the bare code after a policy
+    block, so it makes up a cause for the refusal instead of reporting the
+    policy's own reasons.
+
+    A classification says blocked with two reasons, then a tool refuses with the
+    policy-blocked code: the model's next request holds that code and both
+    reasons as text.
+    """
+    turn, tools = _refused_turn(_PolicyBlocked("blocked"), classify=True)
+
+    assert tools.names[-1] == "list_my_requests"
+    assert turn["error"] == "POLICY_BLOCKED"
+    assert isinstance(turn["policy_reason"], str)
+    for reason in BLOCK_REASONS:
+        assert reason in turn["policy_reason"]
+    assert set(turn) == {"error", "policy_reason"}
+
+
+def test_a_policy_refusal_without_a_classification_has_only_the_code() -> None:
+    """Catches a loop that invents a policy reason when no classification ran
+    this turn (it would be a made-up fact).
+
+    The refusal comes with no classification result: the model gets the bare
+    code and no policy_reason key.
+    """
+    turn, _tools = _refused_turn(_PolicyBlocked("blocked"), classify=False)
+
+    assert turn == {"error": "POLICY_BLOCKED"}
+
+
+def test_a_refusal_with_another_code_does_not_carry_the_policy_reason() -> None:
+    """Catches a loop that attaches the last policy reason to every refusal, so
+    a plain not-found would be explained by an unrelated policy block.
+
+    A classification says blocked, then a tool answers not-found: the model
+    gets only that code.
+    """
+    turn, _tools = _refused_turn(NotFoundError("gone"), classify=True)
+
+    assert turn == {"error": "NOT_FOUND"}
+
+
+def test_the_prompts_hold_the_refusal_and_lookup_rules() -> None:
+    """Catches a loop prompt that never tells the model to report a refusal as
+    it is, or to name only what this chat's tool results show, which lets it
+    hide a block behind a made-up cause or claim a lookup no tool made.
+
+    The loop prompt carries a refusal sentence and a lookup sentence; the
+    reading prompt names all six kinds, no longer names new_info, and has lost
+    the line that pushed every yes with extra words away from yes.
+    """
+    loop = " ".join(load_prompt("agent_loop").text.lower().split())
+    sentences = loop.split(". ")
+
+    assert any("refus" in s and "as it is" in s for s in sentences)
+    assert any(("lookup" in s or "looked up" in s) and "tool result" in s for s in sentences)
+
+    reading = load_prompt("read_reply").text.lower()
+    for kind in (
+        "yes",
+        "yes_with_change",
+        "no",
+        "no_with_new_request",
+        "question",
+        "unclear",
+    ):
+        assert f"`{kind}`" in reading, kind
+    assert "new_info" not in reading
+    assert "when in doubt" not in reading

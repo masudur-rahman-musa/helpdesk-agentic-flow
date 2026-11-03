@@ -22,12 +22,19 @@ from pydantic import ValidationError
 from helpdesk.agent_api.agent import confirmation, graph
 from helpdesk.agent_api.agent.confirmation import (
     UNCLEAR_REPLY,
+    Change,
+    ChangeField,
     OpenQuestion,
     Reading,
     ReplyReading,
     parse_open_question,
 )
-from helpdesk.agent_api.agent.graph import FAILURE_REPLY, PICK_AGAIN_REPLY
+from helpdesk.agent_api.agent.graph import (
+    FAILURE_REPLY,
+    PICK_AGAIN_REPLY,
+    READING_HANDLING,
+    Handling,
+)
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import ResolvedEntities, TurnOutcome, TurnState, ValidatedCall
 from helpdesk.agent_api.agent.tool_args import (
@@ -55,6 +62,10 @@ from tests.agent_api.test_agent_loop import (
 from tests.agent_api.test_budget_refusal import RefusingGateway
 
 ASKED = "Shall I file Internal Wiki viewer access for 30 days?"
+OLD_REASON = "Obviously fake reason for a test."
+NEW_REASON = "Obviously fake audit preparation."
+VIEWER = "Internal Wiki viewer"
+EDITOR = "Internal Wiki editor"
 OUTAGE = (503, {"error": "down"})
 PICK_HISTORY = [
     ("user", "I need wiki access"),
@@ -64,7 +75,14 @@ PICK_HISTORY = [
 
 def reading(answer: str) -> dict[str, Any]:
     """One scripted gateway answer holding the model's reading."""
-    return answer_body(json.dumps({"answer": answer}))
+    return answer_body(json.dumps({"answer": answer, "changes": []}))
+
+
+def changed(answer: str, *changes: tuple[str, str | None, str]) -> dict[str, Any]:
+    """One scripted gateway answer holding a reading with typed changes, each
+    given as (field, value shown in the question, new value)."""
+    listed = [{"field": f, "shown": shown, "new": new} for f, shown, new in changes]
+    return answer_body(json.dumps({"answer": answer, "changes": listed}))
 
 
 def held() -> OpenQuestion:
@@ -159,7 +177,8 @@ def test_the_reading_is_a_strict_schema_call_on_agent_default() -> None:
     assert first["response_format"]["json_schema"]["name"] == "ReplyReading"
     assert first["response_format"]["json_schema"]["strict"] is True
     enums = _enums(first["response_format"]["json_schema"]["schema"])
-    assert sorted(["yes", "no", "new_info", "unclear"]) in [sorted(e) for e in enums]
+    kinds = ["yes", "yes_with_change", "no", "no_with_new_request", "question", "unclear"]
+    assert sorted(kinds) in [sorted(e) for e in enums]
     messages = first["messages"]
     assert [turn["role"] for turn in messages] == ["system", "user"]
     assert messages[0]["content"] == prompt.text
@@ -198,21 +217,22 @@ def test_a_model_no_drops_the_change_and_says_so() -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["make it 10 days", "who approves it?", "yes, but make it 10 days"],
-    ids=["a_change", "a_question", "yes_but"],
+    ["no, I need the CRM instead", "forget that, who is my manager?"],
+    ids=["other_system", "other_topic"],
 )
-def test_new_info_goes_back_to_the_model_with_tools(message: str) -> None:
-    """Catches a "yes, but ..." that runs the old change, a new fact that is
-    dropped as a no (the model gets no tools to propose again), a denial that
-    changes the person's words, or a question left on the chat row.
+def test_a_no_with_a_new_request_drops_the_change_then_handles_the_request(message: str) -> None:
+    """Catches a no-with-a-new-request that runs the held change, that answers
+    only "dropped" and ignores the new request (no tools offered), that changes
+    the person's words in the denial, or that leaves the question on the chat
+    row.
 
-    The reading says new_info; nothing runs, the question is cleared, the next
-    request offers tools on auto with the exact words in the denial, and the
-    model's new proposal, made from ids its own lookups found, is held after
-    one written question.
+    The reading says no_with_new_request; nothing runs, the question is
+    cleared, the next request offers tools on auto with the exact words in the
+    denial of the held call, and the model's new proposal, made from ids its
+    own lookups found, is held after one written question.
     """
     gateway = ScriptedGateway(
-        reading("new_info"),
+        reading("no_with_new_request"),
         answer_body(
             None,
             wire_call("call_me", "get_me", {}),
@@ -239,6 +259,225 @@ def test_new_info_goes_back_to_the_model_with_tools(message: str) -> None:
     assert json.loads(denial[0]["content"]) == {"denied_by_person": True, "reason": message}
     assert state.outcome is TurnOutcome.CONFIRM
     assert len(store.held) == 1
+
+
+def test_a_question_is_answered_and_asked_again() -> None:
+    """Catches a question about the change that drops the held change (a later
+    yes finds nothing), that runs it, that clears and re-stores it (its 24 hours
+    restart), or that leaves the model blind to the waiting question.
+
+    The reading says question; nothing runs, the very same question stays on
+    the chat row, and the model's request carries a system message with the
+    waiting question text and answers.
+    """
+    gateway = ScriptedGateway(reading("question"), answer_body("Your manager approves it."))
+    tools = FakeTools()
+    question = held()
+    store = FakeStore(question=question)
+
+    state = run(gateway, tools, store, message="who approves it?")
+
+    assert tools.calls == []
+    assert store.question == question
+    assert store.cleared == 0
+    assert store.held == []
+    assert len(gateway.requests) == 2
+    answering = gateway.requests[1]
+    waiting = [m for m in answering["messages"] if m["role"] == "system" and ASKED in m["content"]]
+    assert waiting, "the model was not given the waiting question"
+    assert all(m["role"] != "tool" for m in answering["messages"])
+    assert state.reply == "Your manager approves it."
+
+
+def test_a_yes_after_a_question_still_runs_the_held_change() -> None:
+    """Catches a question reading that loses the held change, so the yes that
+    follows runs nothing.
+
+    Turn one reads question, turn two reads yes on the same chat row: the stored
+    call runs once under its stored key.
+    """
+    store = FakeStore(question=held())
+    tools = FakeTools({"create_access_request": FILED_PAYLOAD})
+
+    run(
+        ScriptedGateway(reading("question"), answer_body("Your manager.")),
+        tools,
+        store,
+        message="who approves it?",
+    )
+    assert tools.calls == []
+    state = run(
+        ScriptedGateway(reading("yes"), answer_body(FILED_REPLY)), tools, store, message="ok"
+    )
+
+    assert tools.names == ["create_access_request"]
+    assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
+    assert state.reply == FILED_REPLY
+
+
+def held_with(tool: str, **arguments: Any) -> OpenQuestion:
+    """A held change of another tool, under the stored key."""
+    checked = TOOL_INPUTS[tool].model_validate({**arguments, "idempotency_key": STORED_KEY})
+    call = ValidatedCall(tool=tool, arguments=checked.model_dump(mode="json"))
+    return held_question().model_copy(update={"calls": (call,), "asked": "Shall I go ahead?"})
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments", "message"),
+    [
+        pytest.param(
+            "revoke_access",
+            {"grant_id": str(uuid.UUID(int=21)), "reason": "No longer needed."},
+            "Yes, please remove my GitLab developer access. I moved off the scripting project.",
+            id="yes_with_a_reason",
+        ),
+        pytest.param(
+            "transfer_user",
+            {
+                "user_id": str(USER_ID),
+                "new_department_id": str(uuid.UUID(int=22)),
+                "effective_date": "2026-11-01",
+            },
+            "Yes, go ahead with the move. She transfers to the finance team on 1 November.",
+            id="yes_restating_the_facts",
+        ),
+    ],
+)
+def test_a_yes_with_a_reason_runs_the_change(
+    tool: str, arguments: dict[str, Any], message: str
+) -> None:
+    """Catches a reader or graph that treats the extra words beside a yes (a
+    reason, a restated move) as a change and asks the same question again
+    instead of running the held change.
+
+    The model reads these real messages as yes: the held change runs exactly
+    once under its stored key, the question is gone, nothing new is held, the
+    reader was handed the whole message, and the reply is not a question.
+    """
+    question = held_with(tool, **arguments)
+    gateway = ScriptedGateway(reading("yes"), answer_body("Done."))
+    tools = FakeTools({tool: {"ok": True}})
+    store = FakeStore(question=question)
+
+    state = run(gateway, tools, store, message=message)
+
+    assert tools.names == [tool]
+    assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
+    assert store.question is None
+    assert store.held == []
+    assert state.outcome is not TurnOutcome.CONFIRM
+    assert json.loads(gateway.requests[0]["messages"][1]["content"])["message"] == message
+
+
+def test_a_yes_with_a_change_asks_again_with_the_new_value() -> None:
+    """Catches a "yes, but 10 days" that files the old 30 days, that asks the
+    old 30 again because the model proposed it again, or that leaves the held
+    question or an old draft in place.
+
+    The reading is yes_with_change, days 30 to 10; the model still proposes 30.
+    Nothing runs, the question is cleared, the draft says 10 days, and the new
+    question the person sees and the stored call both say 10.
+    """
+    gateway = ScriptedGateway(
+        changed("yes_with_change", ("days", "30", "10")),
+        lookups_step(),
+        proposal(days=30),
+        answer_body(question_with(10, OLD_REASON)),
+    )
+
+    state, store = correct(gateway, message="yes, but 10 days")
+
+    assert state.outcome is TurnOutcome.CONFIRM
+    assert state.reply == question_with(10, OLD_REASON)
+    assert store.question is None
+    assert store.draft is not None
+    assert store.draft.days == 10
+    assert len(store.held) == 1
+    assert store.held[0].calls[0].arguments["requested_expiry_days"] == 10
+    assert store.held[0].asked == state.reply
+    assert "30" not in writer_facts(gateway)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        pytest.param([], id="no_changes"),
+        pytest.param([("days", "30", "30")], id="same_number"),
+        pytest.param([("reason", f" {OLD_REASON.upper()} ", OLD_REASON)], id="same_after_tidying"),
+        pytest.param([("days", "30", "30"), ("role", VIEWER, VIEWER)], id="all_equal"),
+    ],
+)
+def test_a_change_equal_to_what_was_shown_is_not_valid(
+    changes: list[tuple[str, str | None, str]],
+) -> None:
+    """Unhappy path. Catches a reading that calls a repeat of the shown values a
+    change (the person is asked the same thing again), that is accepted on the
+    first try without a retry, or that counts a yes_with_change with no real
+    change as yes.
+
+    Two scripted bodies, both saying yes_with_change with nothing different
+    from what was shown (stripped, ignoring case): the model is asked exactly
+    twice, then the reply is the unclear one, nothing runs and the question
+    stays held.
+    """
+    body = changed("yes_with_change", *changes)
+    gateway = ScriptedGateway(body, body)
+    tools = FakeTools()
+    question = held()
+    store = FakeStore(question=question)
+
+    state = run(gateway, tools, store, message="yes, 30 days like you said")
+
+    assert state.reply == UNCLEAR_REPLY
+    assert len(gateway.requests) == 2
+    assert tools.calls == []
+    assert store.question == question
+    assert store.cleared == 0
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        pytest.param([("days", "30", "10")], id="other_number"),
+        pytest.param([("reason", None, "audit")], id="nothing_shown"),
+        pytest.param([("days", "30", "30"), ("role", VIEWER, EDITOR)], id="one_of_two_differs"),
+    ],
+)
+def test_a_real_change_is_valid(changes: list[tuple[str, str | None, str]]) -> None:
+    """Catches a validation that is too strict: one that refuses a value shown
+    as null, or refuses a reading because one of its changes repeats what was
+    shown while another is different.
+
+    Each reading validates and keeps its changes in order.
+    """
+    parsed = ReplyReading.model_validate(
+        {
+            "answer": "yes_with_change",
+            "changes": [{"field": f, "shown": shown, "new": new} for f, shown, new in changes],
+        }
+    )
+
+    assert [(c.field.value, c.shown, c.new) for c in parsed.changes] == changes
+
+
+def test_every_kind_starts_exactly_one_step() -> None:
+    """Catches a kind with no step (it would fall through to a default), two
+    kinds sharing a step, or a step no kind starts.
+
+    Every reading is a key, each maps to its own step, and together they cover
+    every step.
+    """
+    assert set(READING_HANDLING) == set(Reading)
+    assert READING_HANDLING == {
+        Reading.YES: Handling.RUN,
+        Reading.YES_WITH_CHANGE: Handling.UPDATE_AND_ASK,
+        Reading.NO: Handling.DROP,
+        Reading.NO_WITH_NEW_REQUEST: Handling.DROP_THEN_HANDLE,
+        Reading.QUESTION: Handling.ANSWER_THEN_ASK,
+        Reading.UNCLEAR: Handling.ASK_YES_NO,
+    }
+    assert len(set(READING_HANDLING.values())) == len(Reading) == 6
+    assert set(READING_HANDLING.values()) == set(Handling)
 
 
 def test_unclear_keeps_the_change_and_asks_yes_or_no() -> None:
@@ -414,22 +653,26 @@ def test_a_short_reply_with_nothing_held_and_a_failed_step_asks_which_one(
     assert state.outcome is TurnOutcome.FAILED
 
 
-def test_the_reading_prompt_names_the_four_answers() -> None:
-    """Catches a reading prompt that leaves out an answer, files "yes, but"
-    with a change under yes, or never says the person's message is data (a
-    message could then give the model orders).
+def test_the_reading_prompt_names_the_six_answers() -> None:
+    """Catches a reading prompt that leaves out a kind, still names the removed
+    new_info, keeps the line that pushed every yes with extra words away from
+    yes, or never says the person's message is data (a message could then give
+    the model orders).
 
-    The prompt loads, names the four answers, ties "yes, but" to new_info, and
-    says the message is data.
+    The prompt names all six kinds, ties "yes, but" to yes_with_change, says the
+    message is data, and the enum holds exactly the six values.
     """
     text = load_prompt("read_reply").text.lower()
 
-    for answer in ("yes", "no", "new_info", "unclear"):
-        assert answer in text, answer
+    kinds = ["yes", "yes_with_change", "no", "no_with_new_request", "question", "unclear"]
+    for answer in kinds:
+        assert f"`{answer}`" in text, answer
+    assert "new_info" not in text
+    assert "when in doubt" not in text
     start = text.index("yes, but")
-    assert "new_info" in text[start : start + 200]
+    assert "yes_with_change" in text[start : start + 200]
     assert "data" in text
-    assert [member.value for member in Reading] == ["yes", "no", "new_info", "unclear"]
+    assert [member.value for member in Reading] == kinds
     assert ReplyReading.model_fields["answer"].annotation is Reading
 
 
@@ -473,7 +716,7 @@ def test_yes_to_a_cancel_question_cancels() -> None:
 
 def test_the_reading_prompt_counts_a_repeated_change_as_yes() -> None:
     """Catches a reading prompt that sends "yes, please cancel REQ-0001" to
-    new_info because the message names the change, which asks the person the
+    a change because the message names the change, which asks the person the
     same question again.
 
     The prompt names that very wording and, around it, says a message that
@@ -489,15 +732,15 @@ def test_the_reading_prompt_counts_a_repeated_change_as_yes() -> None:
 
 # --- a correction to a held request ----------------------------------------------------
 
-OLD_REASON = "Obviously fake reason for a test."
-NEW_REASON = "Obviously fake audit preparation."
-VIEWER = "Internal Wiki viewer"
-EDITOR = "Internal Wiki editor"
+
+SHOWN = {"days": "30", "reason": OLD_REASON, "role": VIEWER}
+"""The values the held question showed, per field."""
 
 
-def reading_with(**fields: Any) -> dict[str, Any]:
-    """One scripted gateway answer: new_info with the corrected values."""
-    return answer_body(json.dumps({"answer": "new_info", **fields}))
+def reading_with(answer: str = "yes_with_change", **fields: Any) -> dict[str, Any]:
+    """One scripted gateway answer: a reading with a typed change per field."""
+    listed = [{"field": f, "shown": SHOWN[f], "new": str(new)} for f, new in fields.items()]
+    return answer_body(json.dumps({"answer": answer, "changes": listed}))
 
 
 def held_request() -> OpenQuestion:
@@ -707,7 +950,7 @@ def test_a_correction_to_a_held_cancel_saves_no_draft() -> None:
     """Catches a draft seeded from a held call that is not a filing, which
     would invent a request the person never started.
 
-    A held cancel gets a new_info reading with days: no draft is saved.
+    A held cancel gets a yes_with_change reading with days: no draft is saved.
     """
     gateway = ScriptedGateway(reading_with(days=90), answer_body("Okay, noted."))
     store = FakeStore(question=held_cancel())
@@ -717,38 +960,52 @@ def test_a_correction_to_a_held_cancel_saves_no_draft() -> None:
     assert store.draft is None
 
 
-def test_values_in_a_reading_that_is_not_new_info_save_no_draft() -> None:
+def test_changes_in_a_reading_that_is_not_yes_with_change_save_no_draft() -> None:
     """Catches a draft saved from a no (or a yes) that happens to carry days.
 
-    The reading says no with days 90: the change is dropped and no draft
+    The reading says no with a days change to 90: the change is dropped and no draft
     exists afterwards.
     """
-    gateway = ScriptedGateway(
-        answer_body(json.dumps({"answer": "no", "days": 90})), answer_body("Okay, dropped.")
-    )
+    gateway = ScriptedGateway(reading_with("no", days=90), answer_body("Okay, dropped."))
 
     _state, store = correct(gateway)
 
     assert store.draft is None
 
 
-def test_the_reading_may_carry_corrected_values() -> None:
-    """Catches a reading model that cannot carry days, reason or role (the
-    correction would be dropped before the graph sees it), one that requires
-    them, or one that lets another field through.
+def test_the_reading_may_carry_typed_changes() -> None:
+    """Catches a reading model that cannot carry a typed change (the correction
+    would be dropped before the graph sees it), that requires one on a plain
+    yes, that lets another field through, or whose schema hides the list from
+    the model.
 
-    Each defaults to none, a full reading validates, an unknown field is
-    refused, and the schema sent to the gateway lists all three.
+    A plain yes has no changes, a full reading keeps field, shown and new, an
+    unknown field is refused, the old loose fields are gone, both models are
+    frozen, the five fields are exactly the named ones, and the schema sent to
+    the gateway lists `answer` and `changes`.
     """
-    plain = ReplyReading.model_validate({"answer": "yes"})
-    assert (plain.days, plain.reason, plain.role) == (None, None, None)
+    plain = ReplyReading.model_validate({"answer": "yes", "changes": []})
+    assert plain.changes == []
     full = ReplyReading.model_validate(
-        {"answer": "new_info", "days": 90, "reason": NEW_REASON, "role": EDITOR}
+        {
+            "answer": "yes_with_change",
+            "changes": [{"field": "days", "shown": "30", "new": "90"}],
+        }
     )
-    assert (full.days, full.reason, full.role) == (90, NEW_REASON, EDITOR)
+    assert full.changes == [Change(field=ChangeField.DAYS, shown="30", new="90")]
     with pytest.raises(ValidationError):
-        ReplyReading.model_validate({"answer": "yes", "who": "Dana"})
+        ReplyReading.model_validate({"answer": "yes", "changes": [], "who": "Dana"})
+    for old in ("days", "reason", "role"):
+        assert old not in ReplyReading.model_fields
     assert ReplyReading.model_config["frozen"] is True
+    assert Change.model_config["frozen"] is True
+    assert [member.value for member in ChangeField] == [
+        "days",
+        "reason",
+        "role",
+        "person",
+        "date",
+    ]
 
     gateway = ScriptedGateway(reading("yes"), answer_body(FILED_REPLY))
     run(
@@ -758,4 +1015,4 @@ def test_the_reading_may_carry_corrected_values() -> None:
         message="go ahead",
     )
     schema = gateway.requests[0]["response_format"]["json_schema"]["schema"]
-    assert {"answer", "days", "reason", "role"} <= set(schema["properties"])
+    assert set(schema["properties"]) == {"answer", "changes"}
