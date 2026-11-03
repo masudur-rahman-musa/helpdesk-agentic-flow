@@ -25,7 +25,8 @@ class EvalConversationRequest(BaseModel):
 
 class EvalConversationCall(BaseModel):
     """One tool call of a turn and what it answered. A refused call has `ok` false,
-    its typed `error_code` and an empty `result`."""
+    its typed `error_code`, and a `result` holding only the error type's fixed
+    `reason`, the same one the model reads."""
 
     model_config = ConfigDict(extra="forbid")
 

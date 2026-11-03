@@ -42,7 +42,7 @@ from helpdesk.agent_api.services.tool_proxy import build_tool_caller
 from helpdesk.shared.auth.jwt import issue_token
 from helpdesk.shared.core.config import Settings
 from helpdesk.shared.core.db import tenant_session
-from helpdesk.shared.core.errors import ToolError
+from helpdesk.shared.core.errors import CODE_REASONS, ToolError
 from helpdesk.shared.crud.sessions import get_owned_chat
 from helpdesk.shared.crud.tenants import find_tenant_by_slug
 from helpdesk.shared.crud.users import list_users_in_department_named
@@ -119,7 +119,8 @@ def prompt_versions() -> str:
 
 class _ResultTools:
     """A tool caller that keeps each call's name, arguments and answer, a refused
-    call included (`ok` false, the typed code), and lets the refusal go on."""
+    call included (`ok` false, the typed code and its fixed reason), and lets the
+    refusal go on."""
 
     def __init__(self, inner: ToolCaller, calls: list["_Call"]) -> None:
         self._inner = inner
@@ -142,7 +143,9 @@ class _ResultTools:
         try:
             result = await self._inner.call_tool(name, arguments)
         except ToolError as error:
-            self._calls.append(_Call(name, args, False, {}, error.code.value))
+            # The same fixed reason the model reads, never the error's own message.
+            reason = error.reason or CODE_REASONS[error.code]
+            self._calls.append(_Call(name, args, False, {"reason": reason}, error.code.value))
             raise
         self._calls.append(_Call(name, args, True, dict(result), None))
         return result

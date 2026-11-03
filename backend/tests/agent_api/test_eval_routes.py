@@ -71,7 +71,7 @@ from helpdesk.agent_api.services.mcp_client import RemoteNotFoundError
 from helpdesk.agent_api.services.model_gateway.client import ModelAlias, ModelClient
 from helpdesk.shared.auth.jwt import issue_token, verify_token
 from helpdesk.shared.core.db import bound_tenant_id
-from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import CODE_REASONS, ErrorCode, ToolError
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS
 
 RESET_PATH = "/admin/test/reset"
@@ -1071,6 +1071,8 @@ def test_a_failed_call_is_kept_with_its_error_code(
     assert failed["ok"] is False
     assert failed["error_code"] == ErrorCode.NOT_FOUND.value == "NOT_FOUND"
     assert isinstance(failed["result"], dict)
+    assert failed["result"] == {"reason": CODE_REASONS[ErrorCode.NOT_FOUND]}
+    assert "no such grant" not in json.dumps(failed)
     assert fine["ok"] is True
     assert fine["error_code"] is None
 
