@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.agent.graph import FAILURE_REPLY, PICK_AGAIN_REPLY
+from helpdesk.agent_api.agent.graph import FAILURE_REPLY, PICK_AGAIN_REPLY, today_line
 from helpdesk.agent_api.agent.loop_tools import (
     FIND_DEPARTMENT,
     DepartmentRow,
@@ -31,6 +31,7 @@ from helpdesk.shared.access.onboarding import EMAIL_MAX_LENGTH
 from helpdesk.shared.core.errors import ErrorCode
 from helpdesk.shared.models.conversation import MessageRole
 from tests.agent_api.test_agent_loop import (
+    START,
     FakeStore,
     FakeTools,
     ScriptedGateway,
@@ -101,7 +102,10 @@ def test_a_yes_with_nothing_held_still_goes_to_the_model() -> None:
     assert state.reply == "Then the viewer role. Shall I file it?"
     assert state.outcome is TurnOutcome.DONE
     assert len(gateway.requests) == 1
-    assert gateway.requests[0]["messages"][-1] == {"role": "user", "content": "yes"}
+    assert gateway.requests[0]["messages"][-1] == {
+        "role": "user",
+        "content": f"{today_line(START)}\nyes",
+    }
     assert tools.calls == []
     assert store.held == []
 

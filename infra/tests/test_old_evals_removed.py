@@ -83,13 +83,13 @@ def test_the_old_eval_files_are_gone() -> None:
     that cuts too far and shrinks the conversation cases.
 
     Each file is checked on its own, so one survivor is named. The case count
-    is exactly 45 lines: a range would admit a lost or an added case.
+    is exactly 42 lines: a range would admit a lost or an added case.
     """
     survivors = [name for name in GONE_FILES if (REPO_ROOT / name).exists()]
     assert survivors == []
 
     lines = (REPO_ROOT / CONVERSATION_CASES).read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 45
+    assert len(lines) == 42
 
 
 def test_the_makefile_has_no_eval_target() -> None:

@@ -176,7 +176,7 @@ def test_loop_prompt_states_scope() -> None:
 
     for phrase in ("access", "accounts", "tickets", "policy questions"):
         assert phrase in text, phrase
-    assert "anything else" in text
+    assert "not work at all" in text
     assert "cannot help" in text
 
 

@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from helpdesk.agent_api.agent.draft import draft_message
+from helpdesk.agent_api.agent.graph import today_line
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import RequestDraft
 from helpdesk.shared.models.conversation import MessageRole
@@ -128,7 +129,7 @@ def test_the_draft_goes_after_the_history() -> None:
     assert _roles(gateway.requests[0]) == ["system", "user", "assistant", "system", "user"]
     assert messages[0] == _prompt()
     assert messages[3]["content"] == draft_message(draft)
-    assert messages[4] == {"role": "user", "content": "I am back."}
+    assert messages[4] == {"role": "user", "content": f"{today_line(START)}\nI am back."}
 
 
 def test_the_start_stays_the_same_when_the_draft_changes() -> None:
@@ -170,7 +171,8 @@ def test_the_next_turn_keeps_the_same_start() -> None:
 
     Two turns on one chat row with a saved draft. Turn 2's first request must
     begin with every message turn 1's first request had apart from its draft:
-    the prompt, the history and turn 1's own message.
+    the prompt, the history and turn 1's own message, which comes back as it
+    was saved, without the date line.
     """
     draft = RequestDraft(role="wiki viewer", saved_at=START)
     gateway = ScriptedGateway(answer_body("First answer."), answer_body("Second answer."))
@@ -183,8 +185,14 @@ def test_the_next_turn_keeps_the_same_start() -> None:
     first_index = _draft_index(first)
     assert first_index == 1 + len(HISTORY)
     without_draft = [m for i, m in enumerate(first["messages"]) if i != first_index]
-    assert without_draft[-1] == {"role": "user", "content": "First message."}
-    assert second["messages"][: len(without_draft)] == without_draft
+    assert without_draft[-1] == {"role": "user", "content": f"{today_line(START)}\nFirst message."}
+    # The date line rides only on the turn's own message, so turn 2 gets turn
+    # 1's message back as it was saved, without it.
+    assert second["messages"][: len(without_draft) - 1] == without_draft[:-1]
+    assert second["messages"][len(without_draft) - 1] == {
+        "role": "user",
+        "content": "First message.",
+    }
     assert _draft_index(second) == len(without_draft) + 1
 
 
@@ -207,7 +215,7 @@ def test_a_denial_sits_before_the_draft() -> None:
     messages = request["messages"]
     assert _roles(request)[-4:] == ["assistant", "tool", "system", "user"]
     assert messages[-2]["content"] == draft_message(draft)
-    assert messages[-1] == {"role": "user", "content": "no"}
+    assert messages[-1] == {"role": "user", "content": f"{today_line(START)}\nno"}
 
 
 def test_no_draft_sends_no_draft_message() -> None:
@@ -229,5 +237,5 @@ def test_no_draft_sends_no_draft_message() -> None:
     assert messages == [
         _prompt(),
         *_history_messages(HISTORY),
-        {"role": "user", "content": "Hi again."},
+        {"role": "user", "content": f"{today_line(START)}\nHi again."},
     ]

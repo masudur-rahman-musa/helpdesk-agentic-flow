@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.agent_api.agent.confirmation import OpenQuestion
 from helpdesk.agent_api.agent.draft import DRAFT_LIFE, draft_message, parse_draft
+from helpdesk.agent_api.agent.graph import today_line
 from helpdesk.agent_api.agent.loop import CHANGE_FAILED_REPLY, DbLoopStore
 from helpdesk.agent_api.agent.loop_tools import PersonRow
 from helpdesk.agent_api.agent.postcheck import unbacked_promises
@@ -382,7 +383,7 @@ def test_a_bare_no_goes_to_the_model_as_a_denial(calls: int) -> None:
     assert store.held == []
     assert len(gateway.requests) == 2
     sent = gateway.requests[1]["messages"]
-    assert sent[-1] == {"role": "user", "content": "no"}
+    assert sent[-1] == {"role": "user", "content": f"{today_line(START)}\nno"}
     answers = sent[-1 - calls : -1]
     assert [turn["tool_call_id"] for turn in answers] == [f"held_{n}" for n in range(calls)]
     assert all(turn["role"] == "tool" for turn in answers)
@@ -422,8 +423,8 @@ def test_a_correction_reaches_the_model_with_the_persons_words(message: str) -> 
     run(gateway, FakeTools(), store, message=message)
 
     sent = gateway.requests[1]["messages"]
-    assert json.loads(sent[-2]["content"]) == {"denied_by_person": True, "reason": message}
-    assert sent[-1] == {"role": "user", "content": message}
+    assert json.loads(sent[-3]["content"]) == {"denied_by_person": True, "reason": message}
+    assert sent[-1] == {"role": "user", "content": f"{today_line(START)}\n{message}"}
 
 
 def _lookups_then(*steps: dict[str, Any]) -> ScriptedGateway:
@@ -550,7 +551,7 @@ def test_a_yes_after_a_denial_runs_nothing() -> None:
     assert store.held == []
     assert len(gateway.requests) == 1
     sent = gateway.requests[0]["messages"]
-    assert sent[-1] == {"role": "user", "content": YES_MESSAGE}
+    assert sent[-1] == {"role": "user", "content": f"{today_line(START)}\n{YES_MESSAGE}"}
     assert tool_turns(gateway.requests[0]) == []
     assert state.reply == "I have nothing waiting for a yes."
 

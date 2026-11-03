@@ -370,9 +370,7 @@ _WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 def today_line(now: datetime) -> str:
     """ "Today is 2026-11-03 (Tuesday)." It rides on the person's newest
     message, never the system prompt, so the prompt and tools stay byte for
-    byte the same each day and the gateway can cache them. Pinned by
-    `test_the_user_turn_starts_with_todays_date` and
-    `test_the_system_prompt_is_the_same_on_two_days`."""
+    byte the same each day and the gateway can cache them."""
     today = now.date()
     return f"Today is {today.isoformat()} ({_WEEKDAYS[today.weekday()]})."
 
@@ -699,8 +697,7 @@ class _Turn:
         person changed laid over them. The corrected days and reason are also
         forced onto the next filing this turn, so the old value cannot be
         asked back. A correction outside the draft's limits is dropped; the
-        model still reads the person's words. Pinned by
-        `test_a_new_length_updates_the_held_request`."""
+        model still reads the person's words."""
         create = next(
             (call.arguments for call in question.calls if call.tool == CREATE_ACCESS_REQUEST),
             None,
