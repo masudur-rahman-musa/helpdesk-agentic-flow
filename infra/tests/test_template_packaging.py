@@ -310,6 +310,12 @@ Not `scripts/` (it holds `seed.py`, which owns the values), not any `tests/`
 directory (a test naming a seeded tenant is naming its own fixture), and not
 `web/`, whose one hit is prose in a comment about a regex."""
 
+SEED_VALUES_FILE = REPO_ROOT / "backend" / "helpdesk" / "shared" / "services" / "seed.py"
+"""The one application file that owns the seed values.
+
+The eval reads the seeded people from them at run time, so they ship with the app
+instead of living in `scripts/`. Every other application file is still checked."""
+
 
 def _application_source_files() -> list[Path]:
     files: list[Path] = []
@@ -318,7 +324,7 @@ def _application_source_files() -> list[Path]:
         files.extend(
             path
             for path in sorted(root.rglob("*.py"))
-            if "tests" not in path.relative_to(REPO_ROOT).parts
+            if "tests" not in path.relative_to(REPO_ROOT).parts and path != SEED_VALUES_FILE
         )
     return files
 

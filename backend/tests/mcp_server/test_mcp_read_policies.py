@@ -72,8 +72,7 @@ def _plant_tenant(database_url: str, *, slug: str) -> SeededUser:
     email = f"fake.{uuid.uuid4().hex[:10]}@fake.invalid"
     sql_execute(
         database_url,
-        "INSERT INTO tenants (id, slug, name, settings)"
-        " VALUES (:id, :slug, :name, '{}'::jsonb)",
+        "INSERT INTO tenants (id, slug, name, settings) VALUES (:id, :slug, :name, '{}'::jsonb)",
         {"id": tenant_id, "slug": slug, "name": f"Fake {slug}"},
     )
     sql_execute(

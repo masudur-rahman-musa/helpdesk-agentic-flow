@@ -19,10 +19,10 @@ from helpdesk.mcp_server.services.rag.pipeline import ingest_one_document
 from helpdesk.mcp_server.tools.base import MutatingToolInput
 from helpdesk.mcp_server.tools.context import ToolContext
 from helpdesk.mcp_server.tools.policy_search import UnknownTenantError
-from helpdesk.shared.crud.tenants import find_tenant_by_id
 from helpdesk.shared.core.errors import NotFoundError
 from helpdesk.shared.core.naming import SLUG_LENGTH, SLUG_PATTERN
 from helpdesk.shared.crud.rag import fetch_current_documents, fetch_document_chunks
+from helpdesk.shared.crud.tenants import find_tenant_by_id
 from helpdesk.shared.models import PolicyChunk
 
 
