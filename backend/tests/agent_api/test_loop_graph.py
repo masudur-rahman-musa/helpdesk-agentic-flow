@@ -55,7 +55,7 @@ from tests.agent_api.test_agent_loop import (
     TENANT_ID,
     TENANT_SLUG,
     USER_ID,
-    WRITTEN_UNNAMED_ROLE,
+    WRITTEN_FILING,
     Clock,
     FakeStore,
     FakeTools,
@@ -309,7 +309,7 @@ def test_a_change_never_reaches_the_tools_node_as_a_run() -> None:
     gateway = ScriptedGateway(
         lookup_step(),
         answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
-        question_body(WRITTEN_UNNAMED_ROLE),
+        question_body(WRITTEN_FILING),
     )
     tools = lookup_tools()
     store = FakeStore()

@@ -35,8 +35,8 @@ LISTED = (
 """The three requests waiting on the fake manager: id, number, role slug."""
 
 CHANGE_LINE = "Say yes to go ahead, or no to stop."
-RESET_SUMMARY = f"I'll reset your password. {CHANGE_LINE}"
-UNLOCK_SUMMARY = f"I'll unlock your account. {CHANGE_LINE}"
+RESET_SUMMARY = f"I'll reset own password. {CHANGE_LINE}"
+UNLOCK_SUMMARY = f"I'll unlock own account. {CHANGE_LINE}"
 
 
 def approval_results() -> tuple[ToolResult, ...]:
@@ -77,14 +77,14 @@ def test_summaries_are_the_exact_fixed_words() -> None:
     ticket = _call(TICKET, kind="general", title="Remove VPN access", body="Fake.")
     assert (
         change_summary([ticket], no_results, resolved)
-        == f"I'll open a ticket: Remove VPN access. {CHANGE_LINE}"
+        == f"I'll create ticket: kind general, title Remove VPN access, body Fake. {CHANGE_LINE}"
     )
 
 
 def test_the_approval_summary_counts_and_names_each_listed_request() -> None:
-    """Catches a count taken from the listing instead of the held calls: two
-    approvals are held out of three listed, so the summary must say 2 and name
-    only REQ-0006 and REQ-0019."""
+    """Catches lines taken from the listing instead of the held calls: two
+    approvals are held out of three listed, so the summary must hold 2 lines
+    and name only REQ-0006 and REQ-0019."""
     calls = [
         _call(APPROVE, request_id=str(REQ_6)),
         _call(APPROVE, request_id=str(REQ_19)),
@@ -92,7 +92,8 @@ def test_the_approval_summary_counts_and_names_each_listed_request() -> None:
 
     summary = change_summary(calls, approval_results(), ResolvedEntities())
 
-    assert summary.startswith("I'll approve these 2 requests: ")
+    assert summary.startswith("I'll approve request: request ")
+    assert summary.count("I'll approve request:") == 2
     assert "REQ-0006 Data Warehouse engineer" in summary
     assert "REQ-0019 Data Warehouse admin" in summary
     assert "REQ-0013" not in summary
@@ -146,20 +147,20 @@ def test_a_revoke_for_someone_else_names_them() -> None:
         NATALIE,
     )
 
-    assert summary == f"I'll remove {NATALIE}'s access to GitHub developer. {CHANGE_LINE}"
+    assert summary == f"I'll revoke access: grant GitHub developer, for {NATALIE}. {CHANGE_LINE}"
 
 
 def test_a_revoke_of_own_access_still_says_your() -> None:
     """Catches a change that puts a name (or "None's") into the line for the
     person's own grant: with no other person and the grant listed by
-    `list_my_access`, the old words stay exactly as they were."""
+    `list_my_access`, the line names only the grant."""
     summary = change_summary(
         [_call(REVOKE, grant_id=str(OTHER_GRANT_ID))],
         _access_result(LIST_MY_ACCESS),
         ResolvedEntities(),
     )
 
-    assert summary == f"I'll remove your access to CRM viewer. {CHANGE_LINE}"
+    assert summary == f"I'll revoke access: grant CRM viewer. {CHANGE_LINE}"
 
 
 def test_the_question_must_show_a_role_listed_by_the_person_lookup() -> None:

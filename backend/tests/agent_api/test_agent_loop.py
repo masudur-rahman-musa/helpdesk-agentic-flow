@@ -226,6 +226,8 @@ class FakeStore:
         """The results kept on the chat row from earlier turns."""
         self.kept_saves: list[list[ToolResult]] = []
         """Every `save_kept_results` call, in order."""
+        self.language: str | None = None
+        """The chat's language on the chat row; `None` until one is saved."""
 
     async def prepare(self, now: datetime) -> None:
         self.prepared.append(now)
@@ -258,6 +260,12 @@ class FakeStore:
     async def save_kept_results(self, results: Sequence[ToolResult]) -> None:
         self.kept = list(results)
         self.kept_saves.append(list(results))
+
+    async def chat_language(self) -> str | None:
+        return self.language
+
+    async def save_chat_language(self, language: str) -> None:
+        self.language = language
 
     async def add_message(self, role: MessageRole, content: str) -> None:
         self.messages.append((role, content))
@@ -902,11 +910,11 @@ def _create_arguments(**more: Any) -> dict[str, Any]:
     return arguments
 
 
-WRITTEN_UNNAMED_ROLE = (
-    "Soll ich das für 30 Tage beantragen? Grund: Obviously fake reason for a test. "
-    "Bitte antworte mit Ja."
+WRITTEN_FILING = (
+    "Soll ich Internal Wiki viewer für 30 Tage beantragen? "
+    "Grund: Obviously fake reason for a test. Bitte antworte mit Ja."
 )
-"""A written question carrying every fact of a filing whose role no lookup named."""
+"""A written question carrying every fact of the filing `lookup_tools` backs."""
 
 
 def lookup_step() -> dict[str, Any]:
@@ -921,11 +929,13 @@ def lookup_step() -> dict[str, Any]:
 
 def lookup_tools() -> FakeTools:
     """The tool server for `lookup_step`: `get_me` returns `USER_ID` and
-    `list_my_access` returns a row carrying `ROLE_ID`."""
+    `list_my_access` returns a row carrying `ROLE_ID` by its name."""
     return FakeTools(
         {
             "get_me": {"user_id": str(USER_ID), "display_name": "Fake Person"},
-            "list_my_access": {"grants": [{"role_id": str(ROLE_ID)}]},
+            "list_my_access": {
+                "grants": [{"role_id": str(ROLE_ID), "role_name": "Internal Wiki viewer"}]
+            },
         }
     )
 
@@ -944,7 +954,7 @@ def test_proposed_change_is_held_not_run() -> None:
     gateway = ScriptedGateway(
         lookup_step(),
         answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
-        question_body(WRITTEN_UNNAMED_ROLE),
+        question_body(WRITTEN_FILING),
     )
     tools = lookup_tools()
     store = FakeStore()
@@ -965,8 +975,8 @@ def test_proposed_change_is_held_not_run() -> None:
     assert checked.role_id == ROLE_ID
     assert checked.justification == "Obviously fake reason for a test."
     assert state.outcome is TurnOutcome.CONFIRM
-    assert state.reply == WRITTEN_UNNAMED_ROLE
-    assert held.asked == WRITTEN_UNNAMED_ROLE
+    assert state.reply == WRITTEN_FILING
+    assert held.asked == WRITTEN_FILING
     assert store.messages[-1] == (MessageRole.ASSISTANT, state.reply)
 
 
@@ -1769,7 +1779,7 @@ def test_a_turn_that_ends_in_a_held_change_keeps_its_results() -> None:
     gateway = ScriptedGateway(
         lookup_step(),
         answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
-        question_body(WRITTEN_UNNAMED_ROLE),
+        question_body(WRITTEN_FILING),
     )
     store = FakeStore()
 

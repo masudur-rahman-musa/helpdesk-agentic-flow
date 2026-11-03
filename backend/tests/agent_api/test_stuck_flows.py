@@ -149,6 +149,12 @@ def _onboard(email: str, manager: uuid.UUID = PERSON_ID) -> dict[str, Any]:
     }
 
 
+ONBOARD_LINE_START = "I'll onboard user: email "
+ONBOARD_LINE_END = (
+    ", display name Mara Quill, department Engineering, start date 2026-11-02, manager Dana Fake."
+)
+
+
 def _written_onboarding(message: str, history: Sequence[tuple[str, str]]) -> str:
     """The last scripted answer of `_onboarding`. When the change is held it is
     the written question: it names the joiner, the start date and each address
@@ -156,10 +162,7 @@ def _written_onboarding(message: str, history: Sequence[tuple[str, str]]) -> str
     typed = re.findall(
         r"[\w.+-]+@[\w-]+\.[\w.-]+", " ".join([*(t for r, t in history if r == "user"), message])
     )
-    lines = [
-        f"I'll set up starting access for Mara Quill ({email}), starting 2026-11-02."
-        for email in dict.fromkeys(typed)
-    ]
+    lines = [f"{ONBOARD_LINE_START}{email}{ONBOARD_LINE_END}" for email in dict.fromkeys(typed)]
     return " ".join(["Which address should I use?", *lines, "Mara Quill 2026-11-02"])
 
 
@@ -171,11 +174,13 @@ def _onboarding(
     manager: uuid.UUID = PERSON_ID,
     look_up_manager: bool = True,
 ) -> tuple[TurnState, FakeStore, ScriptedGateway]:
-    """One turn: the manager is looked up, then the model sends `onboard_user`
-    with `sent` as the email. A last answer is scripted for a sent-back call."""
-    steps = []
+    """One turn: the department (the HR user's own, from `get_me`) and the
+    manager are looked up, then the model sends `onboard_user` with `sent` as
+    the email. A last answer is scripted for a sent-back call."""
+    lookups = [wire_call("call_d", "get_me", {})]
     if look_up_manager:
-        steps.append(answer_body(None, wire_call("call_p", "find_person", {"words": "dana"})))
+        lookups.append(wire_call("call_p", "find_person", {"words": "dana"}))
+    steps = [answer_body(None, *lookups)]
     steps.append(answer_body(None, wire_call("call_c", "onboard_user", _onboard(sent, manager))))
     steps.append(question_body(_written_onboarding(message, history)))
     gateway = ScriptedGateway(*steps)
@@ -184,7 +189,8 @@ def _onboarding(
         history=history,
         people=[PersonRow(id=PERSON_ID, display_name="Dana Fake", department="Sales")],
     )
-    state = run(gateway, FakeTools(), store, message=message)
+    me = {"department_id": str(ENGINEERING_ID), "department_name": "Engineering"}
+    state = run(gateway, FakeTools({"get_me": me}), store, message=message)
     return state, store, gateway
 
 
@@ -357,9 +363,7 @@ def test_the_onboard_line_shows_the_email() -> None:
     state, _, _ = _onboarding("<EMAIL_1>", ONBOARD_MESSAGE)
 
     assert state.reply is not None
-    assert (
-        f"I'll set up starting access for Mara Quill ({TYPED}), starting 2026-11-02." in state.reply
-    )
+    assert f"{ONBOARD_LINE_START}{TYPED}{ONBOARD_LINE_END}" in state.reply
 
 
 # --- find_department ------------------------------------------------------------
@@ -453,7 +457,9 @@ def test_a_transfer_from_a_department_name_holds_the_found_id() -> None:
                 },
             ),
         ),
-        question_body("Soll ich Dana Fake zum 2026-11-02 versetzen? Bitte antworte mit Ja."),
+        question_body(
+            "Soll ich Dana Fake zum 2026-11-02 nach Procurement versetzen? Bitte antworte mit Ja."
+        ),
     )
     store = FakeStore(
         principals=["hr"],

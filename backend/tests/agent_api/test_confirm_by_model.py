@@ -1251,7 +1251,7 @@ def test_two_questions_with_the_old_value_fall_back_to_the_new_one() -> None:
     state, store = correct(gateway)
 
     assert state.reply is not None
-    assert state.reply.startswith("I'll file this:")
+    assert state.reply.startswith("I'll create access request:")
     assert "90 days" in state.reply
     assert "30" not in state.reply
     assert store.held[0].asked == state.reply

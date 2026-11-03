@@ -106,7 +106,7 @@ def test_the_question_names_role_and_system() -> None:
     reply must open with "I'll file this:" and the plain role name."""
     reply = summary_reply(_resolved(), (_classified("auto", days=10),), _held())
 
-    assert reply.startswith("I'll file this: Internal Wiki editor, ")
+    assert reply.startswith("I'll create access request: role Internal Wiki editor, ")
     assert "Do you mean" not in reply
 
 
@@ -133,8 +133,8 @@ def test_the_summary_names_role_days_and_reason() -> None:
     )
 
     assert reply.startswith(
-        "I'll file this: Internal Wiki editor, 10 days, "
-        'reason "Writing the onboarding guide". '
+        "I'll create access request: role Internal Wiki editor, for 10 days, target you, "
+        "justification Writing the onboarding guide. "
         "Say yes to file, or tell me what to change."
     )
 
@@ -158,7 +158,7 @@ def test_a_template_role_shows_its_default_length_and_reason() -> None:
     )
 
     assert "365 days" in reply
-    assert f'reason "{template_reason}"' in reply
+    assert f"justification {template_reason.rstrip('.')}" in reply
 
 
 def test_one_day_reads_as_a_day() -> None:
@@ -199,9 +199,11 @@ def test_no_classification_falls_back_to_the_asked_days_then_the_usual_length() 
     unasked = summary_reply(_resolved(), (), _held(days=None))
     failed = summary_reply(_resolved(), (_classified("auto", ok=False),), _held(days=None))
 
-    assert "I'll file this: Internal Wiki editor, 30 days, reason " in asked
+    assert "I'll create access request: role Internal Wiki editor, for 30 days, " in asked
     assert "99" not in asked
-    assert "I'll file this: Internal Wiki editor, its usual length, reason " in unasked
+    assert (
+        "I'll create access request: role Internal Wiki editor, for its usual length, " in unasked
+    )
     assert "99" not in unasked
     assert "its usual length" in failed
 

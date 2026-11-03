@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from helpdesk.agent_api.agent.confirmation import CHANGE_LINE, change_summary
+from helpdesk.agent_api.agent.confirmation import CHANGE_LINE, change_summary, unnamed_ids
 from helpdesk.agent_api.agent.loop_tools import ToolKind, offered_tools
 from helpdesk.agent_api.agent.state import ResolvedEntities, ToolResult, ValidatedCall
 from helpdesk.agent_api.agent.tool_args import TOOL_INPUTS
@@ -43,8 +43,10 @@ GRANT_WIKI = uuid.UUID("cccccccc-0000-5000-8000-000000000002")
 GRANT_UNLISTED = uuid.UUID("cccccccc-0000-5000-8000-000000000003")
 STORED_KEY = "stored-revoke-key-0001"
 
-HELD_LINE = "I'll remove your access to CRM viewer. Say yes to go ahead, or no to stop."
-UNNAMED_LINE = "I'll remove this access. Say yes to go ahead, or no to stop."
+HELD_LINE = (
+    "I'll revoke access: grant CRM viewer, reason No longer needed. "
+    "Say yes to go ahead, or no to stop."
+)
 
 
 def _grant_row(
@@ -93,7 +95,7 @@ def test_revoke_access_is_offered_as_a_change_to_every_role(principal: str) -> N
 
 
 def test_the_held_revoke_names_the_access_from_list_my_access() -> None:
-    """Catches a line that stays "I'll remove this access.", one that names the
+    """Catches a line that names no access, one that names the
     system only, one that shows the stored role name (`crm.viewer`) or the
     grant id, and one that names the other listed grant. Two grants are listed
     and one is held, so only the held `grant_id` may be named."""
@@ -105,13 +107,14 @@ def test_the_held_revoke_names_the_access_from_list_my_access() -> None:
     assert str(GRANT_CRM) not in summary
 
 
-def test_a_grant_not_in_this_turns_list_keeps_the_old_line() -> None:
+def test_a_grant_not_in_this_turns_list_is_not_held() -> None:
     """Unhappy path. Catches a line that names the first listed grant whatever
     the held id is, and one that raises on a missing row. The held grant is
-    absent from the listing and nothing is resolved, so the only honest line
-    names nothing."""
-    summary = change_summary([_revoke_call(GRANT_UNLISTED)], [_listing()], ResolvedEntities())
+    absent from the listing, so the revoke goes back to look the grant up, and
+    its line names no grant."""
+    call = _revoke_call(GRANT_UNLISTED)
+    summary = change_summary([call], [_listing()], ResolvedEntities())
 
-    assert summary == UNNAMED_LINE
+    assert unnamed_ids([call], [_listing()], uuid.UUID(int=1)) == ["grant_id"]
     assert "CRM" not in summary
     assert "Wiki" not in summary

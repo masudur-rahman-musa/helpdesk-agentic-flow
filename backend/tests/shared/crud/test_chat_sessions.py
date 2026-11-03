@@ -30,9 +30,15 @@ from helpdesk.shared.crud.sessions import (
     CHAT_LIST_LIMIT,
     CHAT_TITLE_CHARS,
     ChatSummary,
+    get_chat_language,
+    get_kept_results,
     get_or_create_session,
     get_owned_chat,
+    get_request_draft,
     list_user_chats,
+    set_chat_language,
+    set_kept_results,
+    set_request_draft,
 )
 from helpdesk.shared.models import MessageRole, User
 from tests.support.seed import seed_tenant
@@ -272,5 +278,48 @@ def test_get_owned_chat_is_none_for_missing_other_user_and_other_tenant(
             assert await get_owned_chat(db, chat_id=chat, user_id=other.user_id) is None
         async with tenant_session(session_factory, other.tenant_id) as db:
             assert await get_owned_chat(db, chat_id=chat, user_id=own.user_id) is None
+
+    asyncio.run(scenario())
+
+
+def test_the_chat_language_is_kept_beside_other_keys(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Catches a language setter that replaces the whole metadata of the chat
+    (the kept results and the draft would vanish), a setter that does not
+    store the value, and a draft or kept-results setter that wipes the language.
+
+    Kept results and a draft are stored first, then the language is set and
+    read back, replaced once, and the draft is set again: every key is there
+    on the same row each time, and a chat that was never given a language reads
+    as none.
+    """
+    kept = [{"tool": "find_department", "ok": True, "payload": {"departments": []}}]
+    draft = {"role": "fake-role"}
+
+    async def scenario() -> None:
+        seeded = await seed_tenant(session_factory, "chat-language")
+        async with tenant_session(session_factory, seeded.tenant_id) as db:
+            chat = await _chat(
+                db,
+                user_id=seeded.user_id,
+                seen=T0,
+                lines=[(MessageRole.USER, "fake question")],
+            )
+            assert await get_chat_language(db, session_id=chat) is None
+            await set_kept_results(db, session_id=chat, value=kept)
+            await set_request_draft(db, session_id=chat, value=draft)
+
+            await set_chat_language(db, session_id=chat, value="English")
+
+            assert await get_chat_language(db, session_id=chat) == "English"
+            assert await get_kept_results(db, session_id=chat) == kept
+            assert await get_request_draft(db, session_id=chat) == draft
+
+            await set_chat_language(db, session_id=chat, value="Deutsch")
+            await set_request_draft(db, session_id=chat, value=None)
+
+            assert await get_chat_language(db, session_id=chat) == "Deutsch"
+            assert await get_kept_results(db, session_id=chat) == kept
 
     asyncio.run(scenario())

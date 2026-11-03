@@ -20,6 +20,7 @@ from helpdesk.agent_api.agent.confirmation import (
     Fact,
     confirm_facts,
     missing_facts,
+    unnamed_ids,
 )
 from helpdesk.agent_api.agent.loop_tools import PersonRow
 from helpdesk.agent_api.agent.prompts import load_prompt
@@ -49,7 +50,10 @@ NO_DAYS = f'Soll ich "{ROLE}" für {PERSON} beantragen? Grund: {REASON} Bitte an
 NO_REASON = f'Soll ich "{ROLE}" für {PERSON} für 30 Tage beantragen? Bitte antworte mit Ja.'
 CLAIMS_GRANT = f"{GOOD} Der Zugang ist granted."
 
-SUMMARY_START = f'I\'ll file this: {ROLE} for {PERSON}, 30 days, reason "{REASON}".'
+SUMMARY_START = (
+    f"I'll create access request: target {PERSON}, role {ROLE}, for 30 days, "
+    f"justification {REASON.rstrip('.')}."
+)
 
 
 def lookups() -> list[dict[str, Any]]:
@@ -359,17 +363,15 @@ def test_a_decision_on_a_request_this_turn_did_not_list_has_no_number_to_check()
     )
 
 
-def test_a_revoke_not_listed_falls_back_to_the_system_name() -> None:
-    """Catches a revoke with no listed access that names nothing, so a question
-    could leave out which access goes.
+def test_a_revoke_not_listed_is_not_held() -> None:
+    """Catches a revoke with no listed access that is held anyway, so a
+    question could leave out which access goes. The grant is unnamed, so the
+    change goes back to look it up, and it has no fact to show.
     """
-    facts = confirm_facts(
-        [call("revoke_access", grant_id=str(uuid.UUID(int=9)))],
-        [],
-        ResolvedEntities(system_name="CRM"),
-    )
+    revoke = call("revoke_access", grant_id=str(uuid.UUID(int=9)))
 
-    assert texts(facts) == {"CRM"}
+    assert unnamed_ids([revoke], [], DANA) == ["grant_id"]
+    assert confirm_facts([revoke], [], ResolvedEntities(system_name="CRM")) == ()
 
 
 def test_the_classified_days_win_over_the_asked_days() -> None:

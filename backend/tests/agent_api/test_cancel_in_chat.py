@@ -68,7 +68,7 @@ REQ_107 = uuid.UUID("bbbbbbbb-0000-5000-8000-000000000107")
 REQ_108 = uuid.UUID("bbbbbbbb-0000-5000-8000-000000000108")
 STORED_KEY = "stored-cancel-key-0001"
 
-SUMMARY = "I'll cancel this request: REQ-0107 CRM viewer. Say yes to go ahead, or no to stop."
+SUMMARY = "I'll cancel request: request REQ-0107 CRM viewer. Say yes to go ahead, or no to stop."
 
 
 def _row(request_id: uuid.UUID, number: str, status: str) -> dict[str, Any]:

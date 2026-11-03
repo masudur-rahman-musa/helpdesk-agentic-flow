@@ -4,19 +4,20 @@ answer, and the words of the question.
 The model reads the answer to a held change into one of six kinds
 (`ReplyReading`); code only makes sure a yes runs the stored calls and nothing
 else. The open question is stored on the chat row as plain JSON and checked
-here on every read, with the text the person was shown (`asked`). The question
-is a summary of what a yes files: the role in plain words, the days and the
-reason. Every other change gets its own code-written line per tool, ending
-`CHANGE_LINE`.
+here on every read, with the text the person was shown (`asked`). Every
+change is shown in one shape, read off its own typed arguments: the tool's
+name in words, then each argument, every id by the name a lookup in this chat
+gave it. So a new change tool needs no sentence of its own.
 
-The model writes the question the person sees, in their language; code makes
-sure every fact of the change (`confirm_facts`) is in it, and shows the
+The model writes the question the person sees, in the chat's language; code
+makes sure every fact of the change (`confirm_facts`) is in it, and shows the
 code-written summary when one is not.
 """
 
 import json
 import re
-from collections.abc import Sequence
+import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import StrEnum
@@ -32,7 +33,7 @@ from pydantic import (
 )
 
 from helpdesk.agent_api.agent.matching import fold
-from helpdesk.agent_api.agent.role_words import plain_role_name
+from helpdesk.agent_api.agent.role_words import plain_role_name, with_plain_role_names
 from helpdesk.agent_api.agent.state import (
     Citation,
     IntentExtraction,
@@ -40,7 +41,7 @@ from helpdesk.agent_api.agent.state import (
     ToolResult,
     ValidatedCall,
 )
-from helpdesk.agent_api.agent.tool_args import needs_idempotency_key
+from helpdesk.agent_api.agent.tool_args import IDEMPOTENCY_KEY, needs_idempotency_key
 from helpdesk.shared.policy.types import ApproverSlot, Decision
 
 CLASSIFY_ACCESS_REQUEST = "classify_access_request"
@@ -335,173 +336,10 @@ def next_step(results: Sequence[ToolResult]) -> str:
     return wording.approval.format(who=who)
 
 
-def _held_create(calls: Sequence[ValidatedCall]) -> dict[str, object]:
-    """The arguments of the held create call, or none when there is none."""
-    for call in calls:
-        if call.tool == CREATE_ACCESS_REQUEST:
-            return call.arguments
-    return {}
-
-
 def _days(days: object) -> str | None:
     if not isinstance(days, int) or isinstance(days, bool) or days <= 0:
         return None
     return "1 day" if days == 1 else f"{days} days"
-
-
-def summary_reply(
-    resolved: ResolvedEntities | None,
-    results: Sequence[ToolResult],
-    held_calls: Sequence[ValidatedCall],
-    person: str | None = None,
-) -> str:
-    """ "I'll file this: <role>, <N> days, reason "<reason>"." then the file
-    line and what happens next. The days are this turn's classified length,
-    else the days the held create call asks for, else `USUAL_LENGTH`. A
-    request for someone else names them after the role ("for Dana")."""
-    create = _held_create(held_calls)
-    verdict = _verdict(results)
-    length = (
-        _days(verdict.effective_expiry_days if verdict else None)
-        or _days(create.get("requested_expiry_days"))
-        or USUAL_LENGTH
-    )
-    role = (resolved.role_name if resolved else None) or "this access"
-    if person:
-        role = f"{role} for {person}"
-    reason = str(create.get("justification") or "").strip()
-    return f'I\'ll file this: {role}, {length}, reason "{reason}". {FILE_LINE} {next_step(results)}'
-
-
-_FIXED_CHANGES: dict[str, str] = {
-    "reset_own_password": "I'll reset your password.",
-    "unlock_own_account": "I'll unlock your account.",
-}
-
-_DECISION_VERBS: dict[str, str] = {
-    "approve_request": "approve",
-    "reject_request": "reject",
-    "cancel_request": "cancel",
-}
-
-_LISTINGS: dict[str, str] = {"list_pending_approvals": "approvals", "list_my_requests": "requests"}
-"""Each listing a request is named from, and the key its rows sit under."""
-
-
-def _listed_names(results: Sequence[ToolResult]) -> dict[str, str]:
-    """ "REQ-0006 Data Warehouse engineer" per request id, from this turn's listings."""
-    names: dict[str, str] = {}
-    for result in results:
-        key = _LISTINGS.get(result.tool)
-        if key is None or not result.ok:
-            continue
-        rows: object = result.payload.get(key)
-        if not isinstance(rows, list):
-            continue
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            role = plain_role_name(str(row.get("system_name", "")), str(row.get("role_slug", "")))
-            names[str(row.get("request_id"))] = f"{row.get('request_number', '')} {role}".strip()
-    return names
-
-
-_GRANT_LISTINGS = frozenset({"list_my_access", "list_person_access"})
-
-
-def _listed_grants(results: Sequence[ToolResult]) -> dict[str, str]:
-    """ "CRM viewer" per grant id, from this turn's `list_my_access` and
-    `list_person_access` rows."""
-    names: dict[str, str] = {}
-    for result in results:
-        if result.tool not in _GRANT_LISTINGS or not result.ok:
-            continue
-        rows: object = result.payload.get("grants")
-        if not isinstance(rows, list):
-            continue
-        for row in rows:
-            if isinstance(row, dict):
-                names[str(row.get("grant_id"))] = plain_role_name(
-                    str(row.get("system_name", "")), str(row.get("role_slug", ""))
-                )
-    return names
-
-
-def _decision_line(verb: str, ids: Sequence[str], names: dict[str, str]) -> str:
-    """ "I'll approve these 2 requests: REQ-0006 ..., REQ-0019 ..."."""
-    named = ", ".join(names.get(request_id, "a request") for request_id in ids)
-    if len(ids) == 1:
-        return f"I'll {verb} this request: {named}."
-    return f"I'll {verb} these {len(ids)} requests: {named}."
-
-
-def _call_line(
-    call: ValidatedCall,
-    resolved: ResolvedEntities | None,
-    grants: dict[str, str],
-    person: str | None = None,
-) -> str:
-    """One held change other than a request or a decision, in fixed words. A
-    held revoke names the access from this turn's grant listings, and whose
-    it is when it is not the person's own."""
-    arguments = call.arguments
-    fixed = _FIXED_CHANGES.get(call.tool)
-    if fixed is not None:
-        return fixed
-    if call.tool == "create_ticket":
-        return f"I'll open a ticket: {str(arguments.get('title', '')).strip().rstrip('.')}."
-    if call.tool == "revoke_access":
-        whose = f"{person}'s" if person else "your"
-        listed = grants.get(str(arguments.get("grant_id")))
-        if listed:
-            return f"I'll remove {whose} access to {listed}."
-        system = resolved.system_name if resolved else None
-        return f"I'll remove {whose} access to {system}." if system else "I'll remove this access."
-    if call.tool == "onboard_user":
-        return (
-            f"I'll set up starting access for {arguments.get('display_name')} "
-            f"({arguments.get('email')}), "
-            f"starting {arguments.get('start_date')}."
-        )
-    if call.tool == "transfer_user":
-        return (
-            f"I'll move this person to their new department on {arguments.get('effective_date')}."
-        )
-    if call.tool == "offboard_user":
-        return f"I'll remove a leaver's access, last day {arguments.get('end_date')}."
-    if call.tool == "open_access_review":
-        return f"I'll open an access review for {arguments.get('period')}."
-    if call.tool == "decide_review_item":
-        return f"I'll mark this flagged access as {arguments.get('decision')}."
-    return "I'll make this change."
-
-
-def change_summary(
-    calls: Sequence[ValidatedCall],
-    results: Sequence[ToolResult],
-    resolved: ResolvedEntities | None,
-    person: str | None = None,
-) -> str:
-    """What a yes runs, in code-written words. A held access request keeps its
-    own summary (`summary_reply`); every other change gets one line per tool,
-    approvals and rejections one line each naming the listed requests, then
-    `CHANGE_LINE`."""
-    if any(call.tool == CREATE_ACCESS_REQUEST for call in calls):
-        return summary_reply(resolved, results, calls, person)
-    names = _listed_names(results)
-    lines: list[str] = []
-    for tool, verb in _DECISION_VERBS.items():
-        ids = [str(call.arguments.get("request_id")) for call in calls if call.tool == tool]
-        if ids:
-            lines.append(_decision_line(verb, ids, names))
-    grants = _listed_grants(results)
-    lines.extend(
-        _call_line(call, resolved, grants, person)
-        for call in calls
-        if call.tool not in _DECISION_VERBS and needs_idempotency_key(call.tool)
-    )
-    lines = list(dict.fromkeys(lines))
-    return f"{' '.join(lines)} {CHANGE_LINE}"
 
 
 @dataclass(frozen=True)
@@ -520,42 +358,233 @@ class Fact:
         return fold(self.text) in fold(question)
 
 
-def _day_count(results: Sequence[ToolResult], create: dict[str, object]) -> int | None:
-    """This turn's classified length, else the days the create call asks for."""
+_ASKED_DAYS = "requested_expiry_days"
+_ROLE_ID = "role_id"
+
+ID_SUFFIX = "_id"
+"""An argument or row field whose name ends so holds an id."""
+
+YOU = "you"
+"""How the asking person's own id is shown. It comes from the token, so no
+lookup has to name it."""
+
+
+@dataclass(frozen=True)
+class _Part:
+    """One argument as the line shows it, and what the question must copy of it."""
+
+    shown: str
+    facts: tuple[Fact, ...] = ()
+
+
+def _text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _row_role(row: Mapping[str, Any]) -> str:
+    """The row's role in plain words, or empty when it names no role."""
+    system, slug = _text(row.get("system_name")), _text(row.get("role_slug"))
+    if system and slug:
+        return plain_role_name(system, slug)
+    return _text(row.get("role_name"))
+
+
+def _name_row(row: Mapping[str, Any], names: dict[str, _Part]) -> None:
+    """Name every id the row holds: by its `<x>_name`, else by the row's
+    `name` when the row has one id of its own, else the row's first id by its
+    request number and role. An id with none of these stays unnamed
+    (`test_a_row_id_without_any_name_does_not_count`)."""
+    ids = [key for key, value in row.items() if key.endswith(ID_SUFFIX) and _text(value)]
+    for place, key in enumerate(ids):
+        own = _text(row.get(f"{key.removesuffix(ID_SUFFIX)}_name"))
+        if not own and len(ids) == 1:
+            own = _text(row.get("name"))
+        if own:
+            names.setdefault(_text(row[key]), _Part(own, (Fact(own),)))
+            continue
+        if place:
+            continue
+        number, role = _text(row.get("request_number")), _row_role(row)
+        listed = f"{number} {role}".strip()
+        if listed:
+            names.setdefault(_text(row[key]), _Part(listed, (Fact(number or role),)))
+
+
+def _name_rows(value: Any, names: dict[str, _Part]) -> None:
+    if isinstance(value, Mapping):
+        _name_row(value, names)
+        for child in value.values():
+            _name_rows(child, names)
+    elif isinstance(value, list):
+        for item in value:
+            _name_rows(item, names)
+
+
+def _found_names(results: Sequence[ToolResult]) -> dict[str, _Part]:
+    """Each id an ok result names, at any depth and under any key, with role
+    names in plain words; the first result to name an id wins. Found by
+    shape, so a new lookup needs no code here
+    (`test_names_are_found_by_shape_at_any_depth`)."""
+    names: dict[str, _Part] = {}
+    for result in results:
+        if result.ok:
+            _name_rows(with_plain_role_names(result.payload), names)
+    return names
+
+
+def unnamed_ids(
+    calls: Sequence[ValidatedCall], results: Sequence[ToolResult], own_user_id: uuid.UUID
+) -> list[str]:
+    """The id arguments of the calls that no result names and that are not
+    the asking person's own, so the question could not show them by name."""
+    names = _found_names(results)
+    missing = [
+        key
+        for call in calls
+        for key, value in call.arguments.items()
+        if key.endswith(ID_SUFFIX)
+        and value is not None
+        and str(value) != str(own_user_id)
+        and str(value) not in names
+    ]
+    return list(dict.fromkeys(missing))
+
+
+def _label(key: str) -> str:
+    """ "manager_user_id" reads as "manager", "start_date" as "start date"."""
+    return key.removesuffix(ID_SUFFIX).removesuffix("_user").replace("_", " ")
+
+
+def _part(
+    key: str, value: object, names: dict[str, _Part], own_user_id: uuid.UUID | None
+) -> _Part | None:
+    """How one argument is shown, or `None` when it is not: the key code
+    fills, an empty value, or an id nobody named. Without the own id, an
+    unnamed person id is the asking person's, the one id the check lets
+    through unnamed (`test_the_persons_own_id_is_shown_as_you`)."""
+    if key == IDEMPOTENCY_KEY or value is None or value == "" or value == []:
+        return None
+    if key.endswith(ID_SUFFIX):
+        text = str(value)
+        if own_user_id is not None and text == str(own_user_id):
+            return _Part(YOU)
+        if text in names:
+            return names[text]
+        return _Part(YOU) if own_user_id is None and key.endswith("user_id") else None
+    if isinstance(value, bool):
+        return _Part("yes" if value else "no")
+    if isinstance(value, int):
+        return _Part(str(value), (Fact(str(value), number=True),))
+    if isinstance(value, list):
+        titles = [
+            _text(item.get("title")) if isinstance(item, Mapping) else _text(item) for item in value
+        ]
+        titles = [title for title in titles if title]
+        return _Part(", ".join(titles), tuple(Fact(title) for title in titles)) if titles else None
+    text = _text(value) or str(value)
+    copied = text.rstrip(".").strip()
+    return _Part(text.rstrip("."), (Fact(copied),) if copied else ())
+
+
+def _call_parts(
+    call: ValidatedCall,
+    names: dict[str, _Part],
+    own_user_id: uuid.UUID | None,
+    person: str | None,
+) -> list[tuple[str, _Part]]:
+    parts = [
+        (_label(key), part)
+        for key, value in call.arguments.items()
+        if (part := _part(key, value, names, own_user_id)) is not None
+    ]
+    if person and all(part.shown != person for _, part in parts):
+        parts.append(("for", _Part(person, (Fact(person),))))
+    return parts
+
+
+def _call_line(parts: Sequence[tuple[str, _Part]], call: ValidatedCall) -> str:
+    """ "I'll <tool name in words>: <label> <value>, ..."."""
+    words = call.tool.replace("_", " ")
+    shown = ", ".join(f"{label} {part.shown}" for label, part in parts)
+    return f"I'll {words}: {shown}." if shown else f"I'll {words}."
+
+
+def _length_part(results: Sequence[ToolResult], held: ValidatedCall) -> _Part:
+    """The access's length: this turn's classified one, else what the call
+    asks for, else `USUAL_LENGTH`."""
     verdict = _verdict(results)
     for days in (
         verdict.effective_expiry_days if verdict else None,
-        create.get("requested_expiry_days"),
+        held.arguments.get(_ASKED_DAYS),
     ):
-        if isinstance(days, int) and not isinstance(days, bool) and days > 0:
-            return days
-    return None
+        said = _days(days)
+        if said is not None:
+            return _Part(said, (Fact(str(days), number=True),))
+    return _Part(USUAL_LENGTH)
 
 
-def _listed_numbers(results: Sequence[ToolResult]) -> dict[str, str]:
-    """ "REQ-0006" per request id, from this turn's listings."""
-    numbers: dict[str, str] = {}
-    for result in results:
-        key = _LISTINGS.get(result.tool)
-        if key is None or not result.ok:
+def _shown_calls(
+    calls: Sequence[ValidatedCall],
+    results: Sequence[ToolResult],
+    resolved: ResolvedEntities | None,
+    kept: Sequence[ToolResult],
+    own_user_id: uuid.UUID | None,
+    person: str | None,
+) -> list[tuple[ValidatedCall, list[tuple[str, _Part]]]]:
+    """Every held change with the parts it shows; a read call held beside it
+    (the classification) shows nothing. An access request shows its
+    length, just after the role, in place of the days it asks for, since the policy may shorten
+    them (`test_the_classified_days_win_over_the_asked_days`), and the
+    resolved role when no result named its role id."""
+    names = _found_names([*kept, *results])
+    shown = []
+    for call in calls:
+        if not needs_idempotency_key(call.tool):
             continue
-        rows: object = result.payload.get(key)
-        if not isinstance(rows, list):
-            continue
-        for row in rows:
-            if isinstance(row, dict) and row.get("request_number"):
-                numbers[str(row.get("request_id"))] = str(row["request_number"])
-    return numbers
+        parts = _call_parts(call, names, own_user_id, person)
+        if call.tool == CREATE_ACCESS_REQUEST:
+            parts = [(label, part) for label, part in parts if label != _label(_ASKED_DAYS)]
+            labels = [label for label, _ in parts]
+            role = resolved.role_name if resolved else None
+            if _label(_ROLE_ID) not in labels and role:
+                parts.insert(0, (_label(_ROLE_ID), _Part(role, (Fact(role),))))
+                labels.insert(0, _label(_ROLE_ID))
+            after = labels.index(_label(_ROLE_ID)) + 1 if _label(_ROLE_ID) in labels else 0
+            parts.insert(after, ("for", _length_part(results, call)))
+        shown.append((call, parts))
+    return shown
 
 
-_FACT_ARGUMENTS: dict[str, tuple[str, ...]] = {
-    "onboard_user": ("display_name", "email", "start_date"),
-    "transfer_user": ("effective_date",),
-    "offboard_user": ("end_date",),
-    "create_ticket": ("title",),
-    "open_access_review": ("period",),
-}
-"""The arguments each change shows word for word."""
+def change_summary(
+    calls: Sequence[ValidatedCall],
+    results: Sequence[ToolResult],
+    resolved: ResolvedEntities | None,
+    person: str | None = None,
+    *,
+    kept: Sequence[ToolResult] = (),
+    own_user_id: uuid.UUID | None = None,
+) -> str:
+    """What a yes runs, in code-written words: one line per change in the one
+    shape, every argument shown and every id by the name a result gave it,
+    `kept` results from earlier turns included. A held access request ends
+    with `FILE_LINE` and what happens next, read from this turn's
+    classification; every other change ends with `CHANGE_LINE`."""
+    shown = _shown_calls(calls, results, resolved, kept, own_user_id, person)
+    lines = list(dict.fromkeys(_call_line(parts, call) for call, parts in shown))
+    if any(call.tool == CREATE_ACCESS_REQUEST for call in calls):
+        return f"{' '.join(lines)} {FILE_LINE} {next_step(results)}"
+    return f"{' '.join(lines)} {CHANGE_LINE}"
+
+
+def summary_reply(
+    resolved: ResolvedEntities | None,
+    results: Sequence[ToolResult],
+    held_calls: Sequence[ValidatedCall],
+    person: str | None = None,
+) -> str:
+    """The summary of a held access request: `change_summary` in its order of
+    arguments."""
+    return change_summary(held_calls, results, resolved, person)
 
 
 def confirm_facts(
@@ -563,58 +592,53 @@ def confirm_facts(
     results: Sequence[ToolResult],
     resolved: ResolvedEntities | None,
     person: str | None = None,
+    *,
+    kept: Sequence[ToolResult] = (),
+    own_user_id: uuid.UUID | None = None,
 ) -> tuple[Fact, ...]:
-    """What the written question must show for the held calls: for an access
-    request the role, the days, the reason and who it is for; for a decision
-    each listed request number; for a revoke the access; for the rest the
-    names, dates, title or period they carry. Unknown values are not facts."""
-    facts: list[Fact] = []
-    numbers = _listed_numbers(results)
-    grants = _listed_grants(results)
-    for call in calls:
-        arguments = call.arguments
-        if call.tool == CREATE_ACCESS_REQUEST:
-            if resolved and resolved.role_name:
-                facts.append(Fact(resolved.role_name))
-            days = _day_count(results, arguments)
-            if days is not None:
-                facts.append(Fact(str(days), number=True))
-            reason = str(arguments.get("justification") or "").strip().rstrip(".").strip()
-            if reason:
-                facts.append(Fact(reason))
-            if person:
-                facts.append(Fact(person))
-        elif call.tool in _DECISION_VERBS:
-            number = numbers.get(str(arguments.get("request_id")))
-            if number:
-                facts.append(Fact(number))
-        elif call.tool == "revoke_access":
-            access = grants.get(str(arguments.get("grant_id"))) or (
-                resolved.system_name if resolved else None
-            )
-            if access:
-                facts.append(Fact(access))
-            if person:
-                facts.append(Fact(person))
-        else:
-            for name in _FACT_ARGUMENTS.get(call.tool, ()):
-                value = str(arguments.get(name) or "").strip()
-                if call.tool == "create_ticket":
-                    value = value.rstrip(".")
-                if value:
-                    facts.append(Fact(value))
+    """What the written question must show for the held calls: every value
+    the summary shows, word for word, numbers as digits. "you" and an
+    unknown length are not facts, so the question can say them in the
+    chat's language."""
+    facts = [
+        fact
+        for _, parts in _shown_calls(calls, results, resolved, kept, own_user_id, person)
+        for _, part in parts
+        for fact in part.facts
+    ]
     return tuple(dict.fromkeys(facts))
 
 
+LANGUAGE_MAX_LENGTH = 40
+
+_LANGUAGE = re.compile(r"(?:[^\W\d_]|[ -])+")
+
+
+def valid_language(value: object) -> str | None:
+    """The language name, stripped, when it is 1 to `LANGUAGE_MAX_LENGTH`
+    letters, spaces or hyphens; else `None`, so nothing else the writer says
+    is kept and later given to a model as a fact."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or len(text) > LANGUAGE_MAX_LENGTH or not _LANGUAGE.fullmatch(text):
+        return None
+    return text
+
+
 class ConfirmQuestion(BaseModel):
-    """The writer's answer: the one question the person sees, and nothing
-    else. Any other shape is bad structured output, retried once and then
-    replaced by the code-written summary
+    """The writer's answer: the one question the person sees, and the
+    language of the chat's first message when it was not given one. Any
+    other shape is bad structured output, retried once and then replaced by
+    the code-written summary
     (`test_two_bad_answers_fall_back_to_the_fixed_line`)."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=_all_required)
 
     question: str
+    language: str | None = None
+    """Read only while the chat has no stored language, and kept only when
+    `valid_language` passes it."""
 
 
 def missing_facts(question: str, facts: Sequence[Fact]) -> list[str]:

@@ -24,6 +24,7 @@ from helpdesk.agent_api.agent.confirmation import (
     OfferedChoices,
     OpenQuestion,
     parse_open_question,
+    valid_language,
 )
 from helpdesk.agent_api.agent.draft import parse_draft
 from helpdesk.agent_api.agent.events import (
@@ -68,10 +69,12 @@ from helpdesk.shared.core.observability.context import bind_context, current_con
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.messages import append_message, list_recent_messages
 from helpdesk.shared.crud.sessions import (
+    get_chat_language,
     get_kept_results,
     get_open_question,
     get_or_create_session,
     get_request_draft,
+    set_chat_language,
     set_kept_results,
     set_open_question,
     set_request_draft,
@@ -190,6 +193,13 @@ class DbLoopStore:
             session_id=self._session_id,
             value=[result.model_dump(mode="json") for result in results],
         )
+
+    async def chat_language(self) -> str | None:
+        """The stored language; one that fails `valid_language` reads as none."""
+        return valid_language(await get_chat_language(self._db, session_id=self._session_id))
+
+    async def save_chat_language(self, language: str) -> None:
+        await set_chat_language(self._db, session_id=self._session_id, value=language)
 
     async def add_message(self, role: MessageRole, content: str) -> None:
         await append_message(self._db, session_id=self._session_id, role=role, content=content)

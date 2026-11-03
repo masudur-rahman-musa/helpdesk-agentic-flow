@@ -244,6 +244,27 @@ async def set_kept_results(
     await session.flush()
 
 
+CHAT_LANGUAGE_KEY = "chat_language"
+"""The language the chat is held in, read once from its first message."""
+
+
+async def get_chat_language(session: AsyncSession, *, session_id: uuid.UUID) -> object | None:
+    """The stored language as raw JSON, unchecked; `None` when there is none."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return None
+    return (row.session_metadata or {}).get(CHAT_LANGUAGE_KEY)
+
+
+async def set_chat_language(session: AsyncSession, *, session_id: uuid.UUID, value: str) -> None:
+    """Store the language. The other keys on the row stay."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return
+    row.session_metadata = {**(row.session_metadata or {}), CHAT_LANGUAGE_KEY: value}
+    await session.flush()
+
+
 WAITING_MIN = timedelta(minutes=30)
 """A chat counts as waiting once its question is this old."""
 

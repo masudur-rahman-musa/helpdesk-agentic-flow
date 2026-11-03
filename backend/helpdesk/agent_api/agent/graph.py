@@ -80,6 +80,8 @@ from helpdesk.agent_api.agent.confirmation import (
     confirm_facts,
     missing_facts,
     offered_choices,
+    unnamed_ids,
+    valid_language,
     waiting_message,
 )
 from helpdesk.agent_api.agent.draft import draft_message, merge_draft
@@ -240,6 +242,16 @@ ID_FIELDS = ("role_id", "target_user_id", "user_id", "manager_user_id")
 """The person and role ids a change may carry only when a tool result of this
 turn returned them. Identity, tenant and session are filled by code."""
 
+UNNAMED_ID = "no lookup in this chat named it, so it cannot be shown by name; look it up first"
+"""Why a change holding an id nobody named goes back: the question must show
+every id by name."""
+
+CHAT_LANGUAGE_LINE = (
+    "The chat's language, a fact the help desk gives you: {language}. Write every reply in it."
+)
+"""Given to every model step once the chat's language is stored, beside the
+kept results, so the shared prompt stays the same."""
+
 REFUSED_AGAIN = "the person refused this exact change"
 """The reason a proposal equal to a just-denied call goes back with."""
 
@@ -287,6 +299,10 @@ class LoopStore(Directory, Protocol):
     async def kept_results(self) -> list[ToolResult]: ...
 
     async def save_kept_results(self, results: Sequence[ToolResult]) -> None: ...
+
+    async def chat_language(self) -> str | None: ...
+
+    async def save_chat_language(self, language: str) -> None: ...
 
 
 KEPT_RESULTS_LIMIT = 20
@@ -346,6 +362,8 @@ class LoopState(TypedDict, total=False):
     """The message answers choices the last reply offered."""
     kept: list[ToolResult]
     """The results earlier turns of this chat kept, refusals included (`KEPT_RESULTS_LIMIT`)."""
+    language: str | None
+    """The chat's language, once the first written question reported it."""
     final: TurnState | None
     """The turn's end state; once set, the graph stops."""
 
@@ -536,6 +554,7 @@ class _Turn:
         request; a new filing this turn carries them (`_checked_changes`)."""
         self.picking = state.get("picking", False)
         self.kept: list[ToolResult] = list(state.get("kept", []))
+        self.language: str | None = state.get("language")
         self.final: TurnState | None = None
 
     def saved(self) -> LoopState:
@@ -566,6 +585,7 @@ class _Turn:
             "corrections": self.corrections,
             "picking": self.picking,
             "kept": self.kept,
+            "language": self.language,
             "final": self.final,
         }
 
@@ -578,6 +598,7 @@ class _Turn:
         history = await self.store.history()
         draft = await self.store.request_draft()
         self.kept = await self.store.kept_results()
+        self.language = await self.store.chat_language()
         await self.store.add_message(MessageRole.USER, self.state.user_message)
         self.state = self.state.model_copy(
             update={
@@ -893,6 +914,8 @@ class _Turn:
             extra.append(draft_message(self.state.request_draft))
         if self.kept:
             extra.append(_kept_message(self.kept))
+        if self.language:
+            extra.append(CHAT_LANGUAGE_LINE.format(language=self.language))
         if extra:
             newest = max(
                 index for index, message in enumerate(messages) if message["role"] == "user"
@@ -1135,6 +1158,14 @@ class _Turn:
                     f"{unfound}: not returned by a lookup this turn; look it up first"
                 )
                 continue
+            unnamed = unnamed_ids(
+                [ValidatedCall(tool=call.name, arguments=dumped)],
+                [*self.kept, *self.results],
+                self.state.user_id,
+            )
+            if unnamed:
+                reasons[call.id] = f"{', '.join(unnamed)}: {UNNAMED_ID}"
+                continue
             if email_problem is not None:
                 reasons[call.id] = email_problem
                 continue
@@ -1193,10 +1224,14 @@ class _Turn:
             clarifying_question=None,
             second_request=None,
         )
-        summary = change_summary(calls, tuple(self.results), resolved, person)
-        reply = await self._written_question(
-            summary, confirm_facts(calls, self.results, resolved, person)
+        own = self.state.user_id
+        summary = change_summary(
+            calls, tuple(self.results), resolved, person, kept=self.kept, own_user_id=own
         )
+        facts = confirm_facts(
+            calls, self.results, resolved, person, kept=self.kept, own_user_id=own
+        )
+        reply = await self._written_question(summary, facts)
         await self.store.hold(
             OpenQuestion(
                 asked_at=self.deps.now(),
@@ -1225,7 +1260,11 @@ class _Turn:
                 "summary": summary,
                 "facts": [fact.text for fact in facts],
                 "message": self.state.user_message,
-                "first_message": self.person_said[0],
+                **(
+                    {"language": self.language}
+                    if self.language
+                    else {"first_message": self.person_said[0]}
+                ),
             },
             ensure_ascii=False,
         )
@@ -1252,6 +1291,10 @@ class _Turn:
                 return summary
             self.tokens += answer.usage.total_tokens
             question = answer.value.question.strip()
+            language = None if self.language else valid_language(answer.value.language)
+            if language is not None:
+                self.language = language
+                await self.store.save_chat_language(language)
             problems = [
                 *(f'"{fact}" (missing)' for fact in missing_facts(question, facts)),
                 *(await self._unbacked(question) if question else ["nothing"]),
