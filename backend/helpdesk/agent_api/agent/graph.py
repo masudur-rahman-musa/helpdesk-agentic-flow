@@ -1043,10 +1043,9 @@ class _Turn:
 
     def _refusal(self, error: ToolError) -> dict[str, Any]:
         """A refusal as the model reads it: the code and the error class's fixed
-        reason sentence, never the error's message, which may hold row data
-        (`test_a_refusal_never_carries_row_data`). A policy block also carries
-        the reasons of this turn's last classification, so the reply can say
-        why (`test_a_policy_refusal_reaches_the_writer_as_facts`)."""
+        reason sentence, never the error's message, which may hold row data.
+        A policy block also carries the reasons of this turn's last
+        classification, so the reply can say why."""
         code = error.code
         refusal: dict[str, Any] = {
             "error": code.value,

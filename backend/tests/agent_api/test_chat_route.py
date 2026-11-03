@@ -531,7 +531,7 @@ def _lookup_payloads(env: ChatEnv) -> tuple[dict[str, Any], dict[str, Any]]:
     """What `get_me` and `list_my_access` answer: the person's id and the role id."""
     return (
         {"user_id": str(env.tenant_a.user_id)},
-        {"grants": [{"role_id": str(env.tenant_a.role_id)}]},
+        {"grants": [{"role_id": str(env.tenant_a.role_id), "role_name": "Fake Viewer"}]},
     )
 
 
@@ -992,7 +992,8 @@ def test_a_filed_request_answers_its_decision_card(
             _proposed_request(chat_env),
             json.dumps(
                 {
-                    "question": "Soll ich das für 30 Tage beantragen? Grund: Obviously fake "
+                    "question": "Soll ich Fake Viewer für 30 Tage beantragen? "
+                    "Grund: Obviously fake "
                     "justification. Bitte antworte mit Ja."
                 }
             ),

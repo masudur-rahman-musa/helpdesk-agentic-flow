@@ -124,8 +124,7 @@ class Change(BaseModel):
     @property
     def differs(self) -> bool:
         """Whether the new value is not the shown one. Dates are compared as
-        days, so the same day written another way is no change
-        (`test_the_same_date_written_another_way_is_not_a_change`)."""
+        days, so the same day written another way is no change."""
         if self.field is ChangeField.DATE and self.shown is not None:
             try:
                 return date.fromisoformat(self.shown.strip()).isoformat() != self.new
@@ -139,8 +138,7 @@ class ReplyReading(BaseModel):
     `yes_with_change` the values the person corrected, so the held request is
     updated before it is asked again. A `yes_with_change` with no value that
     differs from the one shown is not a valid reading, so it goes through the
-    usual retry for bad structured output and then reads as unclear
-    (`test_a_change_equal_to_what_was_shown_is_not_valid`)."""
+    usual retry for bad structured output and then reads as unclear."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=_all_required)
 
@@ -392,8 +390,7 @@ def _row_role(row: Mapping[str, Any]) -> str:
 def _name_row(row: Mapping[str, Any], names: dict[str, _Part]) -> None:
     """Name every id the row holds: by its `<x>_name`, else by the row's
     `name` when the row has one id of its own, else the row's first id by its
-    request number and role. An id with none of these stays unnamed
-    (`test_a_row_id_without_any_name_does_not_count`)."""
+    request number and role. An id with none of these stays unnamed."""
     ids = [key for key, value in row.items() if key.endswith(ID_SUFFIX) and _text(value)]
     for place, key in enumerate(ids):
         own = _text(row.get(f"{key.removesuffix(ID_SUFFIX)}_name"))
@@ -423,8 +420,7 @@ def _name_rows(value: Any, names: dict[str, _Part]) -> None:
 def _found_names(results: Sequence[ToolResult]) -> dict[str, _Part]:
     """Each id an ok result names, at any depth and under any key, with role
     names in plain words; the first result to name an id wins. Found by
-    shape, so a new lookup needs no code here
-    (`test_names_are_found_by_shape_at_any_depth`)."""
+    shape, so a new lookup needs no code here."""
     names: dict[str, _Part] = {}
     for result in results:
         if result.ok:
@@ -461,7 +457,7 @@ def _part(
     """How one argument is shown, or `None` when it is not: the key code
     fills, an empty value, or an id nobody named. Without the own id, an
     unnamed person id is the asking person's, the one id the check lets
-    through unnamed (`test_the_persons_own_id_is_shown_as_you`)."""
+    through unnamed."""
     if key == IDEMPOTENCY_KEY or value is None or value == "" or value == []:
         return None
     if key.endswith(ID_SUFFIX):
@@ -534,7 +530,7 @@ def _shown_calls(
     """Every held change with the parts it shows; a read call held beside it
     (the classification) shows nothing. An access request shows its
     length, just after the role, in place of the days it asks for, since the policy may shorten
-    them (`test_the_classified_days_win_over_the_asked_days`), and the
+    them, and the
     resolved role when no result named its role id."""
     names = _found_names([*kept, *results])
     shown = []
@@ -630,8 +626,7 @@ class ConfirmQuestion(BaseModel):
     """The writer's answer: the one question the person sees, and the
     language of the chat's first message when it was not given one. Any
     other shape is bad structured output, retried once and then replaced by
-    the code-written summary
-    (`test_two_bad_answers_fall_back_to_the_fixed_line`)."""
+    the code-written summary."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=_all_required)
 

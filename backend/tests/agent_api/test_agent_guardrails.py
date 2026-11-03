@@ -38,7 +38,7 @@ from helpdesk.agent_api.agent.confirmation import OpenQuestion
 from helpdesk.agent_api.agent.draft import DRAFT_LIFE, draft_message, parse_draft
 from helpdesk.agent_api.agent.graph import CHECK_NOTE_MARK, today_line
 from helpdesk.agent_api.agent.loop import CHANGE_FAILED_REPLY, DbLoopStore
-from helpdesk.agent_api.agent.loop_tools import PersonRow
+from helpdesk.agent_api.agent.loop_tools import DepartmentRow, PersonRow
 from helpdesk.agent_api.agent.postcheck import unbacked_promises
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import (
@@ -102,11 +102,15 @@ WRITTEN_VIEWER_30 = (
     "Grund: Obviously fake reason for a test. Bitte antworte mit Ja."
 )
 WRITTEN_BY_TOOL = {
-    "transfer_user": "Soll ich die Versetzung zum 2026-11-01 vornehmen? Bitte antworte mit Ja.",
-    "offboard_user": "Soll ich den Zugang am letzten Tag 2026-11-30 entfernen? Antworte mit Ja.",
+    "transfer_user": (
+        "Soll ich Dana Fake zum 2026-11-01 nach Sales versetzen? Bitte antworte mit Ja."
+    ),
+    "offboard_user": (
+        "Soll ich den Zugang von Dana Fake am letzten Tag 2026-11-30 entfernen? Antworte mit Ja."
+    ),
     "onboard_user": (
-        "Soll ich Fake Joiner (joiner@example.test) zum 2026-11-02 einrichten? "
-        "Bitte antworte mit Ja."
+        "Soll ich Fake Joiner (joiner@example.test) zum 2026-11-02 in Sales "
+        "mit Dana Fake als Vorgesetzte einrichten? Bitte antworte mit Ja."
     ),
 }
 """A written question carrying every fact of each held change below."""
@@ -312,8 +316,9 @@ def test_ids_on_every_person_field_are_checked(
     that refuses every call of that tool whatever the id.
 
     Two runs per row. A made-up id is refused with the field named and nothing
-    held. Then the same call with the id `find_person` returned is held, so it is
-    the missing lookup, not the tool, that refused the first.
+    held. Then the same call with the ids `find_person` and `find_department`
+    returned is held, so it is the missing lookup, not the tool, that refused
+    the first.
     """
     said = {"onboard_user": "Onboard Fake Joiner, joiner@example.test"}
     refused_gateway = ScriptedGateway(
@@ -329,13 +334,18 @@ def test_ids_on_every_person_field_are_checked(
     assert _answer(refused_gateway.requests[1], "call_c") == _refusal(field)
 
     found_gateway = ScriptedGateway(
-        answer_body(None, wire_call("call_p", "find_person", {"words": "dana"})),
+        answer_body(
+            None,
+            wire_call("call_p", "find_person", {"words": "dana"}),
+            wire_call("call_d", "find_department", {"words": "sales"}),
+        ),
         answer_body(None, wire_call("call_c", tool, build(PERSON_ID))),
         question_body(WRITTEN_BY_TOOL[tool]),
     )
     found_store = FakeStore(
         principals=["hr"],
         people=[PersonRow(id=PERSON_ID, display_name="Dana Fake", department="Sales")],
+        departments=[DepartmentRow(id=DEPARTMENT_ID, name="Sales")],
     )
 
     found = run(found_gateway, FakeTools(), found_store, message=said.get(tool, MESSAGE))

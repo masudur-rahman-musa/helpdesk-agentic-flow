@@ -101,8 +101,7 @@ def permitted_words(state: TurnState) -> frozenset[str]:
 def _row_statuses(value: Any) -> Iterator[str]:
     """Every string `status` on a row of any list, at any depth, under any
     key. Found by shape, so a lookup that names its list differently
-    (`approvals`, `items`) is read the same as `requests`. Pinned by
-    `test_status_rows_are_found_at_any_depth`."""
+    (`approvals`, `items`) is read the same as `requests`."""
     if isinstance(value, Mapping):
         for child in value.values():
             yield from _row_statuses(child)

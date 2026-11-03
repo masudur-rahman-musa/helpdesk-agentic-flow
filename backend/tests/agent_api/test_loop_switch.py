@@ -315,7 +315,7 @@ def lookup_answers(env: Env) -> dict[str, dict[str, Any]]:
     """What `get_me` and `list_my_access` answer: the person's id and the role id."""
     return {
         "get_me": {"user_id": str(env.user_id)},
-        "list_my_access": {"grants": [{"role_id": str(env.viewer_id)}]},
+        "list_my_access": {"grants": [{"role_id": str(env.viewer_id), "role_name": "Fake Viewer"}]},
     }
 
 
@@ -370,7 +370,7 @@ def test_loop_is_the_only_engine(chat_settings_env: Env, monkeypatch: pytest.Mon
 
 
 ASKED_IN_WORDS = (
-    "Soll ich dir den Zugang für 14 Tage beantragen? "
+    "Soll ich dir den Zugang Fake Viewer für 14 Tage beantragen? "
     "Grund: Obviously fake reason: reading the runbooks. Bitte antworte mit Ja."
 )
 """The written question for the request `create_call_body` proposes."""
