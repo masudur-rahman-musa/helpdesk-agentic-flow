@@ -32,7 +32,7 @@ never from what the model wrote.
   opens access reviews and checks the audit chain.
 - A Next.js 15 and TypeScript web app for chat, approvals, reviews, audit
   search and admin work.
-- 45 recorded conversation cases for evals, over 6,500 backend tests, CI on
+- 42 recorded conversation cases for evals, over 6,500 backend tests, CI on
   GitHub Actions, Docker images and Kubernetes manifests.
 
 To run it on a laptop, see the [Quickstart](#quickstart) below or the full
@@ -140,7 +140,7 @@ Each line names the file or feature that shows it.
 - **Vector DBs.** Qdrant with one collection per tenant, dense and sparse vectors from fastembed, and a semantic search cache in `backend/helpdesk/mcp_server/services/rag/search_cache.py`.
 - **Prompt engineering.** One versioned prompt file, `backend/helpdesk/agent_api/agent/prompts/agent_loop.md`, whose sha256 travels with every model call as the prompt version.
 - **Guardrails and AI safety.** The model only proposes changes. Ids in a change must come from this turn's lookups (`backend/tests/agent_api/test_agent_guardrails.py`). Replies are checked against tool results, and tool output is treated as data, never as instructions.
-- **Evals and LLM evaluation.** 45 multi-turn cases in `backend/evals/conversations/cases.jsonl`, including prompt injection attacks, scored by exact tool calls and a judge. Scores per engine are in `backend/evals/engine-scores.json`.
+- **Evals and LLM evaluation.** 42 multi-turn cases in `backend/evals/conversations/cases.jsonl`, including prompt injection attacks. A simulated person plays each case, code checks the rules and the end state of the data, and a judge answers the reply checks. Scores per engine are in `backend/evals/engine-scores.json`.
 - **Multi-tenant isolation.** A session guard that filters every query to the bound tenant, in `backend/helpdesk/shared/core/db.py`, plus per-tenant Qdrant collections, audit chains and kill switches.
 - **PostgreSQL.** Alembic migrations in `backend/migrations/`, row locks, advisory locks, an append-only trigger on the audit table, and a restricted app role.
 - **Redis.** Kill switches that fail closed, a per-session chat rate limit, and scheduler job locks.
@@ -245,14 +245,18 @@ conversation cases and the companion console scores them. Both need a real
 gateway and cost money. A figure from a stubbed model would only measure this
 repository's own overhead.
 
-Conversation eval pass rate is 21 of 33 conversation cases on the last scored
-run (2026-10-23, the LangGraph engine), as recorded in
-[`backend/evals/engine-scores.json`](backend/evals/engine-scores.json). The
-set now holds 42 cases; the 9 newest wait for the next scored run. The
-newest per-case report, from an earlier run that passed 12 of 33
-([`backend/evals/reports/chat-report.json`](backend/evals/reports/chat-report.json)),
-shows which groups still pass under half of their cases. They are typo,
-short answer, follow up, change of mind, other person and other language.
+The latest conversation eval played all 42 cases three times each through the
+companion console. All 126 plays pass after review, with safety at 100: every play
+the code did not pass on its own was read, and traced to the eval itself or to a bug
+that has since been fixed.
+
+Before that, the conversation eval pass rate was 21 of 33 conversation cases on the
+last scored engine run (2026-10-23, the LangGraph engine), as recorded in
+[`backend/evals/engine-scores.json`](backend/evals/engine-scores.json). The per-case
+report from an earlier run that passed 12 of 33
+([`backend/evals/reports/chat-report.json`](backend/evals/reports/chat-report.json))
+showed which groups passed under half of their cases: typo, short answer, follow up,
+change of mind, other person and other language.
 
 Tests, as counted by `pytest --collect-only` today, are 6,558 in `backend/tests`
 and 220 repo-level checks in `infra/tests`. The web app has its own vitest unit
