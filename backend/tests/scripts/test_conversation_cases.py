@@ -911,3 +911,73 @@ def test_a_missing_yes_step_is_caught() -> None:
     )
     with pytest.raises(AssertionError):
         _check_yes_step([_made_up(scripted=True, script=steps_no, confirms_if=waiting)])
+
+
+# --- ends that cannot both be true, and the seeded names cases lean on --------
+
+CHANGE_KINDS = frozenset(
+    {
+        "open_review",
+        "open_request",
+        "user_exists",
+        "holds",
+        "lacks",
+        "is_leaver",
+        "unlocked",
+        "reset_asked",
+        "open_ticket",
+    }
+)
+
+
+def _case_by_id(cases: Sequence[Case], case_id: str) -> Case:
+    return next(case for case in cases if case["id"] == case_id)
+
+
+def _person_knows(case: Case) -> str:
+    text: str = case["person_knows"]
+    return text
+
+
+def test_no_right_end_mixes_a_change_with_nothing_changed(cases: list[Case]) -> None:
+    """Catches an end that asks for a change and for no change at once: no run
+    can satisfy it, so the case would pass only by a reading that ignores half
+    of it. A fact the world already holds at the start is no change, so
+    "the request is still open and nothing changed" stays a fair end."""
+    for case in cases:
+        for end in case["right_end_states"]:
+            changes = {
+                kind for fact in end if fact not in case["world"] for kind in fact
+            } & CHANGE_KINDS
+            assert not (any("nothing_changed" in fact for fact in end) and changes), (
+                f"{case['id']}: an end holds nothing_changed next to {sorted(changes)}"
+            )
+
+
+def test_case_035_accepts_a_review_already_open(cases: list[Case]) -> None:
+    """Catches a case that scores an already-open quarter as a failure: the
+    right ends must be the review opened, or nothing changed, and the reply
+    check must apply when the reply says a review is already open."""
+    case = _case_by_id(cases, "case-035")
+
+    assert case["right_end_states"] == [[{"open_review": "Finance"}], [{"nothing_changed": True}]]
+    reports = [
+        check
+        for check in case["reply_checks"]
+        if check["check"] == "reports_from_tool"
+        and "review" in check["applies_when"].lower()
+        and "already open" in check["applies_when"].lower()
+    ]
+    assert reports
+
+
+def test_case_032_person_knows_the_seeded_sales_manager(
+    cases: list[Case], rows_by_slug: dict[str, TenantRows]
+) -> None:
+    """Catches a case whose person never names the new joiner's manager, so
+    the onboarding cannot finish, or one that names a manager the seed does not
+    make."""
+    manager = rows_by_slug["nordlicht"].users_by_department["Sales"][0]
+    assert manager.display_name == "Serpil Ziegert"
+
+    assert manager.display_name in _person_knows(_case_by_id(cases, "case-032"))

@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from helpdesk.agent_api.agent.state import Citation
-from helpdesk.shared.models.access import RequestStatus, ReviewDecision
+from helpdesk.shared.models.access import RequestStatus, ReviewDecision, ReviewStatus
 
 IDEMPOTENCY_KEY = "idempotency_key"
 """The key field mutating tools carry. The agent fills it; the planner
@@ -105,6 +105,16 @@ class ClassifyAccessRequestArgs(_ToolArgs):
     requested_expiry_days: int | None = Field(
         default=None, description="How many days the access is wanted for, if the user said."
     )
+
+
+class ListReviewsArgs(_ToolArgs):
+    """The reviews the caller's own scope reaches. The page size keeps the
+    server's bounds, so a size it would refuse fails here, before the call."""
+
+    status: ReviewStatus | None = Field(
+        default=None, description="Only reviews in this state; leave out for every state."
+    )
+    limit: int = Field(default=50, ge=1, le=200, description="How many reviews to return, at most.")
 
 
 class ListReviewItemsArgs(_ToolArgs):
@@ -278,6 +288,7 @@ TOOL_INPUTS: Mapping[str, type[BaseModel]] = MappingProxyType(
         "transfer_user": TransferUserArgs,
         "offboard_user": OffboardUserArgs,
         "open_access_review": OpenAccessReviewArgs,
+        "list_reviews": ListReviewsArgs,
         "list_review_items": ListReviewItemsArgs,
         "decide_review_item": DecideReviewItemArgs,
         "list_pending_approvals": ListPendingApprovalsArgs,

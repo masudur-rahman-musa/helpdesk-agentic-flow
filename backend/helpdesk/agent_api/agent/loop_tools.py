@@ -95,6 +95,7 @@ _LOOKUPS: Mapping[str, str] = {
     "list_my_requests": "The person's access requests and where each stands.",
     "list_my_tickets": "The person's tickets and where each stands.",
     "list_pending_approvals": "The access requests waiting for this person to approve.",
+    "list_reviews": "The access reviews this person may open, with each one's period and status.",
     "search_policy": "Search the company's access rules for passages that answer a question.",
     "classify_access_request": (
         "Who approves a role and what the policy decides for it, before anything is filed."

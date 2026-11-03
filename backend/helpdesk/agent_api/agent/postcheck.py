@@ -9,7 +9,7 @@ is on whole lowercase words, so `approvals` never matches `approved`.
 
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any
 
 from helpdesk.agent_api.agent.gates import ALREADY_REQUESTED
@@ -91,13 +91,26 @@ def permitted_words(state: TurnState) -> frozenset[str]:
             permitted |= _STATUS_PERMITS.get(status, frozenset())
         if result.payload.get("grant_id") is not None:
             permitted |= {"granted"}
-        # A listing carries each status inside its rows.
-        for row in _rows(result.payload):
-            row_status = row.get("status")
-            if isinstance(row_status, str):
-                permitted |= _STATUS_PERMITS.get(row_status, frozenset())
+        # A listing carries each status inside its rows, under whatever key.
+        for row_status in _row_statuses(result.payload):
+            permitted |= _STATUS_PERMITS.get(row_status, frozenset())
 
     return frozenset(permitted)
+
+
+def _row_statuses(value: Any) -> Iterator[str]:
+    """Every string `status` on a row of any list, at any depth, under any
+    key. Found by shape, so a lookup that names its list differently
+    (`approvals`, `items`) is read the same as `requests`. Pinned by
+    `test_status_rows_are_found_at_any_depth`."""
+    if isinstance(value, Mapping):
+        for child in value.values():
+            yield from _row_statuses(child)
+    elif isinstance(value, list):
+        for row in value:
+            if isinstance(row, Mapping) and isinstance(row.get("status"), str):
+                yield row["status"]
+            yield from _row_statuses(row)
 
 
 def _rows(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:

@@ -23,6 +23,7 @@ import pytest
 
 import helpdesk.agent_api.agent as agent_package
 from helpdesk.agent_api.agent import prompts as prompts_module
+from helpdesk.agent_api.agent.graph import KEPT_HEADING
 from helpdesk.agent_api.agent.prompts import (
     PROMPTS_DIR,
     LoadedPrompt,
@@ -194,3 +195,16 @@ def test_loop_prompt_states_the_grounding_rule() -> None:
     assert "role name" in text
     assert "decision word" in text
     assert "this turn" in text
+
+
+def test_the_prompt_names_the_date_line_and_kept_results_as_given_facts() -> None:
+    """Catches a prompt that leaves the model to doubt the date line and the
+    results kept from earlier turns, refusals included: it would take back true
+    advice as "no tool showed that". The kept heading must say refusals are in."""
+    text = _loop_prompt_words()
+
+    assert "today is" in text
+    assert "facts the help desk gives" in text
+    assert "refusals" in text
+    assert "never take" in text or "do not take" in text
+    assert "refusals" in KEPT_HEADING.lower()

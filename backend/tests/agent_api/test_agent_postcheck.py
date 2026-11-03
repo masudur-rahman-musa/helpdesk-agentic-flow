@@ -557,3 +557,69 @@ def test_a_status_word_from_an_earlier_turn_is_not_backed() -> None:
     assert "REQ-0001" not in note["content"]
     assert state.reply == "Your request REQ-0001 is in your list."
     assert state.postcheck is PostCheckOutcome.REGENERATED
+
+
+# --- statuses found by the shape of the rows, under any key ---------------------
+
+
+def _listing(tool: str, payload: dict[str, Any], *, ok: bool = True) -> ToolResult:
+    """One lookup's answer, as `execute_tools` records it."""
+    return ToolResult(tool=tool, ok=ok, payload=payload)
+
+
+def test_a_status_in_any_list_of_rows_is_permitted() -> None:
+    """Catches a check that reads row statuses only under the `requests` key:
+    the waiting-approvals answer keeps its rows under `approvals`, so a true
+    "pending" reply would be sent back and end on the fixed fallback line."""
+    state = _state(
+        tool_results=(_listing("list_pending_approvals", {"approvals": [{"status": "pending"}]}),)
+    )
+
+    assert permitted_words(state) == frozenset({PENDING})
+    assert contradicts("REQ-0012 is pending your approval", state) is False
+
+
+def test_status_rows_are_found_at_any_depth() -> None:
+    """Catches a check that looks one level down only: rows nested under
+    `page` then `items` would permit nothing, so a true "approved" or
+    "granted" reply for an executed row would be sent back."""
+    state = _state(
+        tool_results=(_listing("list_my_requests", {"page": {"items": [{"status": "executed"}]}}),)
+    )
+
+    assert permitted_words(state) == frozenset({APPROVED, GRANTED})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({"things": ["pending", "approved"]}, id="list-of-strings"),
+        pytest.param({"things": [{"name": "a"}, {"id": 3}]}, id="rows-without-a-status"),
+        pytest.param({"things": [{"status": 5}, {"status": None}]}, id="status-not-a-string"),
+        pytest.param({"reviews": [{"status": "open"}]}, id="review-rows-open"),
+        pytest.param({"deep": {"reviews": [{"status": "open"}]}}, id="review-rows-open-deep"),
+    ],
+)
+def test_rows_without_a_status_permit_nothing(payload: dict[str, Any]) -> None:
+    """Catches a depth search that is too eager: one that reads strings in a
+    list as statuses, accepts a non-string `status`, or treats an unknown
+    status such as a review's `open` as permission, so "pending" would pass
+    with nothing behind it."""
+    state = _state(tool_results=(_listing("list_reviews", payload),))
+
+    assert permitted_words(state) == frozenset()
+    assert contradicts("REQ-0012 is pending your approval", state) is True
+
+
+def test_a_failed_result_with_status_rows_permits_nothing() -> None:
+    """Catches a depth search that forgets the `ok` check: a refused lookup
+    carrying the same rows would permit "pending" for a turn that found
+    nothing."""
+    state = _state(
+        tool_results=(
+            _listing("list_pending_approvals", {"approvals": [{"status": "pending"}]}, ok=False),
+        )
+    )
+
+    assert permitted_words(state) == frozenset()
+    assert contradicts("REQ-0012 is pending your approval", state) is True

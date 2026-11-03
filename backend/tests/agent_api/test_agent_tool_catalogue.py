@@ -127,6 +127,7 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
         "offboard_user",
         "open_access_review",
         "list_review_items",
+        "list_reviews",
         "decide_review_item",
         "list_pending_approvals",
         "approve_request",
@@ -138,10 +139,10 @@ CATALOGUED_TOOLS: frozenset[str] = frozenset(
         "cancel_request",
     }
 )
-"""Every tool the agent may reach, as a literal: twenty-three.
+"""Every tool the agent may reach, as a literal: twenty-four.
 
 Counted from the server's own `REGISTRY` — thirty specs — less the seven
-in `ADMIN_TOOLS`, `list_reviews`, and the two notification tools
+in `ADMIN_TOOLS` and the two notification tools
 deliberately left out: a tool the model may call is
 model-driven behaviour and owes golden cases before it merges, and the
 `/reviews` and `/notifications` pages ask the wire directly.
@@ -227,7 +228,7 @@ def test_tool_inputs_holds_exactly_the_twenty_three_tools_the_agent_may_reach() 
     mapping lets a node register a tool at runtime, and a tool registered at
     runtime is a tool the drift sweep below never compares."""
     assert set(TOOL_INPUTS) == CATALOGUED_TOOLS
-    assert len(TOOL_INPUTS) == 23
+    assert len(TOOL_INPUTS) == 24
     assert ADMIN_TOOLS.isdisjoint(TOOL_INPUTS)
     assert TOOL_INPUTS[SEARCH_POLICY] is SearchPolicyArgs
     assert isinstance(TOOL_INPUTS, MappingProxyType)
@@ -498,3 +499,42 @@ def test_list_person_access_is_offered_to_every_principal_as_a_lookup(principal:
     assert tool.description == "The access another person holds."
     assert set(tool.parameters["properties"]) == {"user_id"}
     assert tool.parameters["required"] == ["user_id"]
+
+
+# --- the lookup for the reviews a person may open ----------------------------------
+
+REVIEW_LISTERS: frozenset[str] = frozenset(
+    {"manager", "system_owner", "hr", "it_admin", "platform_admin"}
+)
+"""The principals whose permission row gives them `list_reviews`, as a literal."""
+
+
+@pytest.mark.parametrize("principal", [p.value for p in Principal])
+def test_list_reviews_is_offered_exactly_where_its_permission_row_reaches(
+    principal: str,
+) -> None:
+    """Catches a lookup offered to everyone (an employee or auditor would be
+    shown a tool the server refuses), and one left out for the roles whose row
+    gives them a cell (a manager told a review is open could not look it up)."""
+    offered = {tool.name: tool for tool in offered_tools((principal,))}
+
+    if principal in REVIEW_LISTERS:
+        assert offered["list_reviews"].kind is ToolKind.LOOKUP
+    else:
+        assert "list_reviews" not in offered
+
+
+def test_list_reviews_args_match_the_server_limits() -> None:
+    """Catches an args model that bounds `limit` differently from the server
+    (0 or 201 passing here and failing mid-turn, or 1 or 200 refused), or that
+    takes a status the server does not know such as `closed`."""
+    args = TOOL_INPUTS["list_reviews"]
+
+    for status in ("open", "completed"):
+        assert args.model_validate({"status": status}).status == status  # type: ignore[attr-defined]
+    assert args.model_validate({}).status is None  # type: ignore[attr-defined]
+    assert args.model_validate({"limit": 1}).limit == 1  # type: ignore[attr-defined]
+    assert args.model_validate({"limit": 200}).limit == 200  # type: ignore[attr-defined]
+    for bad in ({"limit": 0}, {"limit": 201}, {"status": "closed"}):
+        with pytest.raises(ValidationError):
+            args.model_validate(bad)
