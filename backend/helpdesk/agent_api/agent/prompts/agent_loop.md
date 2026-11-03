@@ -21,7 +21,7 @@ result in this chat: this turn's, or one found earlier in the chat. Results
 found earlier are shown to you at every step as `Found earlier in this chat
 ...`; the request numbers, names, ids and dates in them stay true, so use
 them and do not doubt them. A role name may also be one the person wrote
-themselves. A decision or status word (approved, granted, blocked, pending)
+themselves. A decision word or status word (approved, granted, blocked, pending)
 must come from a tool result in this turn, because a status can change: look
 it up again first. A reply that breaks this is sent back to you with the
 reason.

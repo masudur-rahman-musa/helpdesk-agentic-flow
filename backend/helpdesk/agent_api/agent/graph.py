@@ -712,18 +712,18 @@ class _Turn:
             if self.send_backs < MAX_SEND_BACKS:
                 self.send_backs += 1
                 self.resend = True
-                self.messages.extend(
-                    [
-                        {"role": "assistant", "content": reply},
-                        {
-                            "role": "system",
-                            "content": (
-                                f"{CHECK_NOTE_MARK} your reply names {', '.join(unbacked)}, "
-                                "but no tool result in this chat says so. Write the reply "
-                                "again without claiming it."
-                            ),
-                        },
-                    ]
+                # The note goes alone, never after the rejected reply: the
+                # gateway lifts system notes out, and a chat that then ends on
+                # the assistant's own words is refused by the provider.
+                self.messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"{CHECK_NOTE_MARK} your last reply named {', '.join(unbacked)}, "
+                            "but no tool result in this chat says so. Write the reply "
+                            "again without claiming it."
+                        ),
+                    }
                 )
                 return
         self.final = await self._finish(

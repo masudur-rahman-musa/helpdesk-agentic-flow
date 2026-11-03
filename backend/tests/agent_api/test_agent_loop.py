@@ -852,10 +852,9 @@ def test_decision_word_breach_is_sent_back_once() -> None:
     assert fixed.reply == "I could not check that. Tell me what you need."
     assert fixed.postcheck is PostCheckOutcome.REGENERATED
     assert second["messages"][: len(first["messages"])] == first["messages"]
-    assert second["messages"][len(first["messages"])] == {
-        "role": "assistant",
-        "content": "Good news, your access is granted.",
-    }
+    assert [m for m in second["messages"] if m["role"] == "assistant"] == [
+        m for m in first["messages"] if m["role"] == "assistant"
+    ]
     reason = second["messages"][-1]
     assert reason["role"] == "system"
     assert reason["content"].startswith(CHECK_NOTE_MARK)
@@ -878,7 +877,7 @@ def test_decision_word_breach_is_sent_back_once() -> None:
 
     assert len(stubborn_gateway.requests) == 3
     third_messages = stubborn_gateway.requests[2]["messages"]
-    assert third_messages[-2] == {"role": "assistant", "content": "It is granted now."}
+    assert third_messages[-2]["role"] != "assistant"
     assert third_messages[-1]["role"] == "system"
     assert third_messages[-1]["content"].startswith(CHECK_NOTE_MARK)
     assert stubborn_gateway.requests[2]["tools"]
@@ -1350,7 +1349,7 @@ def _listing_then(*texts: str) -> ScriptedGateway:
 def _sent_back(request_body: Mapping[str, Any], bad_reply: str) -> str:
     """The reason a request carried after `bad_reply`; fails if it carried none."""
     messages = request_body["messages"]
-    assert messages[-2] == {"role": "assistant", "content": bad_reply}
+    assert all(m.get("content") != bad_reply for m in messages if m["role"] == "assistant")
     assert messages[-1]["role"] == "system"
     reason = messages[-1]["content"]
     assert isinstance(reason, str)
@@ -1939,3 +1938,26 @@ def test_a_review_opener_is_offered_the_department_lookup(principal: str) -> Non
 
     assert "find_department" in [t.name for t in offered_tools([principal])]
     assert "find_department" not in [t.name for t in offered_tools(["employee"])]
+
+
+def test_a_sent_back_reply_never_leaves_the_chat_ending_on_the_assistant() -> None:
+    """Catches a send-back that puts the rejected reply back as an assistant
+    message before the check note. The gateway lifts system notes out of the
+    list, so the provider would get a chat ending on the assistant's own words
+    and refuse it, and the person would get the failure reply instead of an
+    answer.
+
+    The first reply claims a grant no tool returned and is sent back. In the
+    second request, once system notes are set aside, the last message is not
+    the assistant's.
+    """
+    gateway = ScriptedGateway(
+        answer_body("Good news, your access is granted."),
+        answer_body("I could not check that. Tell me what you need."),
+    )
+
+    run(gateway, FakeTools(), FakeStore())
+
+    second = gateway.requests[1]["messages"]
+    assert second[-1]["role"] == "system"
+    assert [m for m in second if m["role"] != "system"][-1]["role"] != "assistant"

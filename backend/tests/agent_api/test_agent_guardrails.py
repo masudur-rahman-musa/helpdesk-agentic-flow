@@ -840,7 +840,7 @@ def test_a_promise_with_no_backing_tool_is_sent_back(reply: str, promise: str) -
 
     assert len(gateway.requests) == 2
     sent = gateway.requests[1]["messages"]
-    assert sent[-2] == {"role": "assistant", "content": reply}
+    assert sent[-2]["role"] != "assistant"
     assert sent[-1]["role"] == "system"
     assert sent[-1]["content"].startswith(CHECK_NOTE_MARK)
     assert promise in _flat(sent[-1]["content"])
