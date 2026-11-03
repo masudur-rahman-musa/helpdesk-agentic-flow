@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -59,12 +60,27 @@ class Reading(StrEnum):
     UNCLEAR = "unclear"
 
 
-class ReplyReading(BaseModel):
-    """The model's reading of the answer to a held change: one fixed value."""
+def _all_required(schema: dict[str, Any]) -> None:
+    """Strict mode: every property required, none with a default."""
+    properties = schema.get("properties", {})
+    for field in properties.values():
+        field.pop("default", None)
+    schema["required"] = list(properties)
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+
+class ReplyReading(BaseModel):
+    """The model's reading of the answer to a held change: one fixed value,
+    and on `new_info` the days, reason or role the person corrected, so the
+    held request is updated before it is asked again. The schema sent to the
+    model lists every field as required with no default, as strict mode
+    wants; the model sends null for a value the person did not change."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=_all_required)
 
     answer: Reading
+    days: int | None = None
+    reason: str | None = None
+    role: str | None = None
 
 
 UNCLEAR_REPLY = "I didn't quite get that. Should I go ahead? Please reply yes or no."
@@ -448,6 +464,25 @@ def confirm_facts(
                 if value:
                     facts.append(Fact(value))
     return tuple(dict.fromkeys(facts))
+
+
+_SELF_CORRECTION = re.compile(
+    r"\b(?:hmm+|wait|oops|scratch that|i mean|let me rephrase|correction|sorry)\b",
+    re.IGNORECASE,
+)
+"""Words that show the writer correcting itself inside the question."""
+
+
+def question_problems(question: str) -> list[str]:
+    """Why a written confirm question is not just the question: a second
+    question, or a line where the writer corrects itself. Empty when it is
+    fine. The person must see one question they can answer with a yes."""
+    problems: list[str] = []
+    if question.count("?") > 1:
+        problems.append("more than one question")
+    if _SELF_CORRECTION.search(question):
+        problems.append("a line correcting yourself")
+    return problems
 
 
 def missing_facts(question: str, facts: Sequence[Fact]) -> list[str]:

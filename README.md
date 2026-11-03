@@ -248,7 +248,7 @@ repository's own overhead.
 Conversation eval pass rate is 21 of 33 conversation cases on the last scored
 run (2026-10-23, the LangGraph engine), as recorded in
 [`backend/evals/engine-scores.json`](backend/evals/engine-scores.json). The
-set now holds 45 cases, and the 12 newest wait for the next scored run. The
+set now holds 42 cases; the 9 newest wait for the next scored run. The
 newest per-case report, from an earlier run that passed 12 of 33
 ([`backend/evals/reports/chat-report.json`](backend/evals/reports/chat-report.json)),
 shows which groups still pass under half of their cases. They are typo,

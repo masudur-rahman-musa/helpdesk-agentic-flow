@@ -4,10 +4,10 @@ Project evals measure the PRODUCT'S behaviour (model-driven features), unlike
 coding evals which judge the coding agent's output. The discipline, distilled
 from the portfolio projects:
 
-1. **Conversation cases** (`conversations/cases.jsonl`): 45 chosen multi-turn
+1. **Conversation cases** (`conversations/cases.jsonl`): 42 chosen multi-turn
    cases, each graded by where the world ended up and by a few checks of the
    replies. A chat failure found later becomes one of them or replaces one;
-   the count stays 45.
+   the count stays 42.
 2. **Deterministic checks first** (the world after the conversation, read
    from the database); **LLM-as-judge only for the reply checks**, and only
    after calibration against human labels, which the companion console keeps.
@@ -87,8 +87,10 @@ Neither has been tuned yet: both are still the starting values, picked by hand.
 
 ## Conversation cases
 
-`conversations/cases.jsonl` holds 45 multi-turn cases, `case-001` to
-`case-045`, one JSON line each. The help desk scores nothing: the console plays
+`conversations/cases.jsonl` holds 42 multi-turn cases, ids rising from
+`case-001` to `case-045` with gaps where a case was dropped, one JSON line
+each. A case keeps its id for life, so old reports still compare case by
+case. The help desk scores nothing: the console plays
 a simulated person through `POST /v1/eval/conversation` and grades the result.
 
 Each case has these fields:
@@ -96,10 +98,10 @@ Each case has these fields:
 - `id`, `purpose` (one sentence), `owner` (`access`, `accounts`, `policy` or
   `safety`) and `tags`: one or more `job:<chat tool name>` and one or more
   kinds of variety (`everyday_words`, `typos`, `short_answers`, `follow_ups`,
-  `changes_of_mind`, `for_others`, `other_languages`, `off_topic`, `attacks`,
+  `changes_of_mind`, `for_others`, `off_topic`, `attacks`,
   `live_failures`, `tricky_phrasing`).
-- `scripted`: true only where the exact words matter (attacks, other
-  languages, tricky phrasing), so the simulated person sends them as written.
+- `scripted`: true only where the exact words matter (attacks and
+  tricky phrasing), so the simulated person sends them as written.
 - `script`: scripted cases only, at least one step. Each step is
   `{say, yes}`: the message sent as written (1 to 4000 characters) and
   whether it agrees to the change on offer. The yes is never guessed from

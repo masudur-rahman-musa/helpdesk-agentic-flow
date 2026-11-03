@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from helpdesk.agent_api.agent import confirmation
 from helpdesk.agent_api.agent.confirmation import (
     Fact,
     confirm_facts,
@@ -140,7 +141,7 @@ def test_the_writing_call_carries_the_facts_and_the_persons_words() -> None:
     last = request["messages"][-1]
     assert last["role"] == "user"
     sent = json.loads(last["content"])
-    assert set(sent) == {"summary", "facts", "message"}
+    assert set(sent) == {"summary", "facts", "message", "first_message"}
     assert sent["summary"].startswith(SUMMARY_START)
     assert sent["message"] == MESSAGE
     assert sorted(sent["facts"]) == sorted([ROLE, "30", REASON.rstrip("."), PERSON])
@@ -472,3 +473,204 @@ def test_the_writing_prompt_says_copy_facts_exactly() -> None:
 
     for word in ("language", "exactly", "name", "number", "date", "reason", "yes", "data"):
         assert word in text, word
+
+
+def test_the_writing_prompt_follows_the_first_message_language() -> None:
+    """Catches a writing prompt that still follows the latest message (one
+    German word later in an English chat would flip the language), that has no
+    word for a first message which shows no language, or that lets the model
+    switch on its own.
+
+    The rule is read around the phrase "first message": it must name English
+    and the greeting case there, and say never to switch.
+    """
+    text = load_prompt("write_confirm").text.lower()
+
+    start = text.index("first message")
+    around = text[start : start + 400]
+    assert "english" in around
+    assert "greeting" in around
+    assert "never switch" in text
+
+
+# --- the language the writer is told about -------------------------------------------
+
+
+def _writer_input(gateway: ScriptedGateway) -> dict[str, Any]:
+    """The JSON the writing call was given."""
+    parsed: dict[str, Any] = json.loads(gateway.requests[2]["messages"][-1]["content"])
+    return parsed
+
+
+def test_the_question_follows_the_first_message_language() -> None:
+    """Catches a writing call that sends only the latest message (one German
+    word after an English opening would turn the question German), or one that
+    sends the latest message under the first-message key.
+
+    An English opening, then a German latest message: the writer is given the
+    English opening as `first_message` next to the German `message`.
+    """
+    history = [("user", MESSAGE), ("assistant", "Which role do you mean?")]
+    later = "Bitte die Wiki-Viewer-Rolle."
+    gateway = written(GOOD)
+    store = FakeStore(
+        principals=["manager"],
+        people=[PersonRow(id=DANA, display_name=PERSON, department="Sales")],
+        history=history,
+    )
+
+    run(gateway, manager_tools(), store, message=later)
+
+    sent = _writer_input(gateway)
+    assert set(sent) == {"summary", "facts", "message", "first_message"}
+    assert sent["first_message"] == MESSAGE
+    assert sent["message"] == later
+
+
+def test_a_greeting_alone_means_english() -> None:
+    """Catches a writing call that sends the latest message as the language
+    sample when the chat opened with a greeting, and a prompt that leaves a
+    greeting-only opening to the model's guess.
+
+    "hi" opens the chat and a German message follows: the writer is given "hi"
+    as the first message, and the prompt says such an opening means English.
+    """
+    history = [("user", "hi"), ("assistant", "Hello! How can I help?")]
+    gateway = written(GOOD)
+    store = FakeStore(
+        principals=["manager"],
+        people=[PersonRow(id=DANA, display_name=PERSON, department="Sales")],
+        history=history,
+    )
+
+    run(gateway, manager_tools(), store, message="Ich brauche Wiki-Zugang für Dana.")
+
+    assert _writer_input(gateway)["first_message"] == "hi"
+    text = load_prompt("write_confirm").text.lower()
+    start = text.index("greeting")
+    assert "english" in text[start : start + 200]
+
+
+def test_the_first_message_is_the_message_when_the_chat_just_started() -> None:
+    """Catches a first-message key that is empty or missing on the first turn
+    of a chat, where no earlier message exists.
+
+    No history: the first message and the latest message are the same text.
+    """
+    gateway = written(GOOD)
+
+    run(gateway, manager_tools(), manager_store(), message=MESSAGE)
+
+    sent = _writer_input(gateway)
+    assert sent["first_message"] == MESSAGE
+    assert sent["message"] == MESSAGE
+
+
+# --- a question holds only the question ----------------------------------------------
+
+ONE_QUESTION = "Shall I file this for 30 days? Please answer yes."
+
+
+def test_a_clean_question_has_no_problems() -> None:
+    """Catches a guard that refuses an ordinary question (one question mark, no
+    self-correction), which would send every question back and then to the
+    fixed line.
+    """
+    assert confirmation.question_problems(ONE_QUESTION) == []
+    assert confirmation.question_problems(GOOD) == []
+    assert confirmation.question_problems("Shall I file this for 30 days, yes or no?") == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Shall I file this? Is that right?",
+        "Shall I file this?? Please answer yes.",
+        "Shall I file this? Really? Please answer yes.",
+    ],
+    ids=["two_questions", "doubled_mark", "three_marks"],
+)
+def test_more_than_one_question_mark_is_a_problem(question: str) -> None:
+    """Catches a guard that allows a second question in the confirm message,
+    where the person would not know which one to answer.
+
+    None of these holds a self-correction word, so only the count can refuse
+    them.
+    """
+    assert confirmation.question_problems(question)
+
+
+@pytest.mark.parametrize(
+    "marker",
+    ["hmm", "wait", "oops", "scratch that", "i mean", "let me rephrase", "correction", "sorry"],
+)
+def test_a_self_correction_marker_is_a_problem(marker: str) -> None:
+    """Catches a guard that misses one self-correction marker, or one that
+    matches only in lower case (a model writes "Oops" and "WAIT" too).
+
+    Each row has exactly one question mark and one marker, so only the marker
+    can refuse it: written lower, capitalised and upper case.
+    """
+    for shown in (marker, marker.capitalize(), marker.upper()):
+        question = f"Shall I file this for 30 days? {shown}, please answer yes."
+        assert confirmation.question_problems(question), shown
+
+
+def test_a_self_correction_marker_inside_a_sentence_is_a_problem() -> None:
+    """Catches a guard that matches only a marker at the start of the text.
+
+    The marker sits in the middle and the question mark count is one.
+    """
+    question = "Shall I file this for 30 days, oops, I mean for 90 days? Please answer yes."
+
+    assert confirmation.question_problems(question)
+
+
+BAD_SELF = f"{GOOD} Hmm, wait, scratch that."
+BAD_TWO = f"{GOOD} Ist das richtig? Wirklich?"
+ALL_FACTS = [Fact(ROLE), Fact("30", number=True), Fact(REASON.rstrip(".")), Fact(PERSON)]
+
+
+@pytest.mark.parametrize("bad", [BAD_SELF, BAD_TWO], ids=["self_correction", "two_questions"])
+def test_a_question_with_a_self_correction_is_written_again(bad: str) -> None:
+    """Catches a hold that shows a question talking to itself or asking twice
+    because every fact was in it (the fact check alone lets it through), or one
+    that retries more than once.
+
+    Both bad answers carry every fact, so only the question-only guard can
+    refuse them. The second fake answer is shown and stored.
+    """
+    assert missing_facts(bad, ALL_FACTS) == []
+    gateway = written(bad, GOOD)
+    store = manager_store()
+
+    state = run(gateway, manager_tools(), store, message=MESSAGE)
+
+    first, second = gateway.requests[2], gateway.requests[3]
+    assert second["messages"][: len(first["messages"])] == first["messages"]
+    assert second["messages"][-1]["role"] == "user"
+    assert "tools" not in second
+    assert len(gateway.requests) == 4
+    assert state.reply == GOOD
+    assert state.outcome is TurnOutcome.CONFIRM
+    assert store.held[0].asked == GOOD
+
+
+def test_two_bad_questions_fall_back_to_the_fixed_line() -> None:
+    """Unhappy path. Catches a hold that shows the second bad question, that
+    asks the model a third time, or that ends on another outcome.
+
+    Both answers carry every fact but are not only a question: the fixed
+    English line is shown and stored, after exactly two writing requests.
+    """
+    gateway = written(BAD_SELF, BAD_TWO)
+    store = manager_store()
+
+    state = run(gateway, manager_tools(), store, message=MESSAGE)
+
+    assert len(gateway.requests) == 4
+    assert state.reply is not None
+    assert state.reply.startswith(SUMMARY_START)
+    assert state.outcome is TurnOutcome.CONFIRM
+    assert len(store.held) == 1
+    assert store.held[0].asked == state.reply

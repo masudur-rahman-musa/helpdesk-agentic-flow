@@ -60,6 +60,7 @@ from pydantic import ValidationError
 
 from helpdesk.agent_api.agent import gates
 from helpdesk.agent_api.agent.confirmation import (
+    CREATE_ACCESS_REQUEST,
     UNCLEAR_REPLY,
     Fact,
     OpenQuestion,
@@ -68,6 +69,7 @@ from helpdesk.agent_api.agent.confirmation import (
     change_summary,
     confirm_facts,
     missing_facts,
+    question_problems,
 )
 from helpdesk.agent_api.agent.draft import draft_message, merge_draft
 from helpdesk.agent_api.agent.events import ProgressEvent, StepEvent
@@ -309,6 +311,7 @@ class LoopState(TypedDict, total=False):
     grant_holders: dict[str, str]
     """Whose grant each id is, from `list_person_access`, so a held revoke names them."""
     denied: list[dict[str, Any]]
+    corrections: dict[str, Any]
     """The held calls the person just turned down, keys left out."""
     bare_yes: bool
     """The person sent a short message with nothing held, likely answering a
@@ -462,6 +465,9 @@ class _Turn:
         self.people_found: dict[str, str] = dict(state.get("people_found", {}))
         self.grant_holders: dict[str, str] = dict(state.get("grant_holders", {}))
         self.denied: list[dict[str, Any]] = list(state.get("denied", []))
+        self.corrections: dict[str, Any] = dict(state.get("corrections", {}))
+        """The filing arguments the person corrected in their answer to a held
+        request; a new filing this turn carries them (`_checked_changes`)."""
         self.bare_yes = state.get("bare_yes", False)
         self.final: TurnState | None = None
 
@@ -490,6 +496,7 @@ class _Turn:
             "people_found": self.people_found,
             "grant_holders": self.grant_holders,
             "denied": self.denied,
+            "corrections": self.corrections,
             "bare_yes": self.bare_yes,
             "final": self.final,
         }
@@ -540,13 +547,16 @@ class _Turn:
         if question is None:
             self.bare_yes = len(self.state.user_message.split()) <= MAX_PICK_WORDS
             return
-        reading = await self._read_reply(question)
+        read = await self._read_reply(question)
+        reading = read.answer
         if reading is Reading.UNCLEAR:
             self.final = await self._finish(UNCLEAR_REPLY, outcome=TurnOutcome.CONFIRM)
             return
         await self.store.clear_open_question()
         if reading is not Reading.YES:
             self._deny(question)
+            if reading is Reading.NEW_INFO:
+                await self._correct(question, read)
             if reading is Reading.NO:
                 self.step += 1
                 self.pending = (await self._ask(answer_only=True)).text or ""
@@ -652,7 +662,7 @@ class _Turn:
         """End the turn on `BUSY_REPLY` as a finished reply, outcome `BUSY`."""
         self.final = await self._finish(BUSY_REPLY, outcome=TurnOutcome.BUSY)
 
-    async def _read_reply(self, question: OpenQuestion) -> Reading:
+    async def _read_reply(self, question: OpenQuestion) -> ReplyReading:
         """One strict schema call on the default alias: the shown question and
         the person's message go as data, and the answer is one fixed value. A
         reply that fails the shape twice reads as unclear, never as yes."""
@@ -673,7 +683,7 @@ class _Turn:
                     prompt_version=prompt.sha256,
                 )
         except ModelShapeError:
-            return Reading.UNCLEAR
+            return ReplyReading(answer=Reading.UNCLEAR)
         except ModelBudgetExceededError as exc:
             raise _BudgetSpent(exc.gateway_message) from exc
         except ModelBusyError as exc:
@@ -681,7 +691,46 @@ class _Turn:
         except ToolError as exc:
             raise _TurnFailed(exc.code) from exc
         self.tokens += answer.usage.total_tokens
-        return answer.value.answer
+        return answer.value
+
+    async def _correct(self, question: OpenQuestion, read: ReplyReading) -> None:
+        """A correction to a held filing goes into the request draft before
+        the model plans again: the held role, reason and days, with what the
+        person changed laid over them. The corrected days and reason are also
+        forced onto the next filing this turn, so the old value cannot be
+        asked back. A correction outside the draft's limits is dropped; the
+        model still reads the person's words. Pinned by
+        `test_a_new_length_updates_the_held_request`."""
+        create = next(
+            (call.arguments for call in question.calls if call.tool == CREATE_ACCESS_REQUEST),
+            None,
+        )
+        if create is None:
+            return
+        held = {
+            "role": question.resolved.role_name,
+            "reason": create.get("justification"),
+            "days": create.get("requested_expiry_days"),
+        }
+        changed = {
+            name: value
+            for name, value in (("role", read.role), ("reason", read.reason), ("days", read.days))
+            if value is not None
+        }
+        try:
+            draft = merge_draft(
+                self.state.request_draft,
+                {**{k: v for k, v in held.items() if v is not None}, **changed},
+                now=self.deps.now(),
+            )
+        except ValidationError:
+            return
+        await self.store.save_request_draft(draft)
+        self.state = self.state.model_copy(update={"request_draft": draft})
+        if read.days is not None:
+            self.corrections["requested_expiry_days"] = read.days
+        if read.reason is not None:
+            self.corrections["justification"] = read.reason
 
     def _deny(self, question: OpenQuestion) -> None:
         """Give the model the held calls answered as denied, with the person's
@@ -939,6 +988,8 @@ class _Turn:
             if call.name == ONBOARD_USER:
                 email, email_problem = self._typed_email()
                 call_arguments = {**call.arguments, "email": email or _EMAIL_STAND_IN}
+            elif call.name == CREATE_ACCESS_REQUEST:
+                call_arguments = {**call.arguments, **self.corrections}
             else:
                 call_arguments = dict(call.arguments)
             arguments = {
@@ -1052,6 +1103,7 @@ class _Turn:
                 "summary": summary,
                 "facts": [fact.text for fact in facts],
                 "message": self.state.user_message,
+                "first_message": self.person_said[0],
             },
             ensure_ascii=False,
         )
@@ -1080,6 +1132,7 @@ class _Turn:
             question = (answer.text or "").strip()
             problems = [
                 *(f'"{fact}" (missing)' for fact in missing_facts(question, facts)),
+                *question_problems(question),
                 *(await self._unbacked(question) if question else ["nothing"]),
             ]
             if question and not problems:
@@ -1092,8 +1145,8 @@ class _Turn:
                             "role": "user",
                             "content": (
                                 f"Check failed: {', '.join(problems)}. Write the question "
-                                "again, copying every fact exactly and claiming nothing "
-                                "is done."
+                                "again, copying every fact exactly, claiming nothing "
+                                "is done, and writing only the one question."
                             ),
                         },
                     ]

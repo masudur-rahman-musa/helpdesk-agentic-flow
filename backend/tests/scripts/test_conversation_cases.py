@@ -2,7 +2,7 @@
 
     backend/evals/conversations/cases.jsonl
 
-The help desk owns 45 conversation cases; the companion console plays and
+The help desk owns 42 conversation cases; the companion console plays and
 scores them. Every named value is checked against the code that owns it:
 tenant slugs, seats, roles, grants, planted requests and tickets from
 ``scripts.seed``, tool names from the chat loop and the tool registry.
@@ -38,7 +38,8 @@ def _repo_root() -> Path:
 
 CASES = _repo_root() / "backend" / "evals" / "conversations" / "cases.jsonl"
 
-CASE_COUNT = 45
+CASE_COUNT = 42
+REMOVED_NUMBERS = frozenset({39, 40, 41})
 CASE_FIELDS = {
     "id",
     "purpose",
@@ -102,14 +103,13 @@ VARIETIES = frozenset(
         "follow_ups",
         "changes_of_mind",
         "for_others",
-        "other_languages",
         "off_topic",
         "attacks",
         "live_failures",
         "tricky_phrasing",
     }
 )
-EXACT_WORDS_VARIETIES = frozenset({"attacks", "other_languages", "tricky_phrasing"})
+EXACT_WORDS_VARIETIES = frozenset({"attacks", "tricky_phrasing"})
 JOB_PREFIX = "job:"
 CHAT_TOOLS = frozenset(_LOOKUPS) | frozenset(_CHANGES)
 
@@ -440,19 +440,21 @@ def _check_siblings(cases: Sequence[Case]) -> None:
 # --- the file -----------------------------------------------------------------
 
 
-def test_the_file_holds_45_cases_case_001_to_case_045_in_order() -> None:
+def test_the_file_holds_42_cases_in_order() -> None:
     """Catches a file with a missing or extra case, a blank or unparsable line,
-    a case out of order, or ids that still carry the old prefix.
+    a case out of order or repeated, a removed case that is still there, or
+    ids renumbered to close the gap.
 
-    The ids are compared with the exact list, so 44 right cases plus a
-    duplicate, or a case moved, fails.
+    The ids are compared with the exact list: 001 to 045 without 039, 040 and
+    041, so the other ids keep their numbers.
     """
     lines = _lines()
     assert all(line.strip() for line in lines), "a blank line sits in the file"
     parsed = [json.loads(line) for line in lines]
 
     assert len(parsed) == CASE_COUNT
-    assert [case["id"] for case in parsed] == [f"case-{n:03d}" for n in range(1, CASE_COUNT + 1)]
+    kept = [n for n in range(1, 46) if n not in REMOVED_NUMBERS]
+    assert [case["id"] for case in parsed] == [f"case-{n:03d}" for n in kept]
 
 
 def test_every_case_has_every_field_and_no_other(cases: list[Case]) -> None:
@@ -747,15 +749,15 @@ def test_an_unknown_check_type_is_caught() -> None:
 
 
 def test_scripted_only_where_exact_words_matter(cases: list[Case]) -> None:
-    """Catches a case marked scripted with none of attacks, other_languages or
-    tricky_phrasing in its tags, and one with such a tag left unscripted."""
+    """Catches a case marked scripted with neither attacks nor tricky_phrasing
+    in its tags, and one with such a tag left unscripted."""
     _check_scripted(cases)
 
 
 @pytest.mark.parametrize("variety", sorted(VARIETIES))
 def test_scripted_follows_the_tags_for_every_variety(variety: str) -> None:
     """Catches a scripted rule that is wrong for one variety: true for a tag of
-    the three exact-words ones and false for each of the other eight, in both
+    the two exact-words ones and false for each of the other eight, in both
     directions.
     """
     exact = variety in EXACT_WORDS_VARIETIES
@@ -766,23 +768,23 @@ def test_scripted_follows_the_tags_for_every_variety(variety: str) -> None:
 
 
 def test_every_job_and_variety_has_a_case(cases: list[Case]) -> None:
-    """Catches a set that leaves a chat tool or one of the 11 varieties without
+    """Catches a set that leaves a chat tool or one of the 10 varieties without
     a case, a job tag that names no tool of the registry, a case with a job
     and no variety (or the reverse), and an unknown tag.
     """
     _check_tags(cases)
     assert set(REGISTRY) >= CHAT_TOOLS
-    assert len(VARIETIES) == 11
+    assert len(VARIETIES) == 10
     assert len(CHAT_TOOLS) == len(_LOOKUPS) + len(_CHANGES)
 
 
 def test_a_bad_tag_set_is_caught() -> None:
     """Catches a tag check that accepts a job that is no tool, a job that is a
-    tool but not one the chat offers, a tag outside the 11 varieties, a case
+    tool but not one the chat offers, a tag outside the 10 varieties, a case
     with no job, or one with no variety.
 
     A full good set is checked first so a checker that refuses everything
-    fails. The 11 varieties are spread over cases that between them name all
+    fails. The 10 varieties are spread over cases that between them name all
     the chat tools.
     """
     tools = sorted(CHAT_TOOLS)

@@ -17,6 +17,7 @@ import uuid
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from helpdesk.agent_api.agent import confirmation, graph
 from helpdesk.agent_api.agent.confirmation import (
@@ -28,11 +29,16 @@ from helpdesk.agent_api.agent.confirmation import (
 )
 from helpdesk.agent_api.agent.graph import FAILURE_REPLY, PICK_AGAIN_REPLY
 from helpdesk.agent_api.agent.prompts import load_prompt
-from helpdesk.agent_api.agent.state import TurnOutcome
-from helpdesk.agent_api.agent.tool_args import CreateAccessRequestArgs, RejectRequestArgs
+from helpdesk.agent_api.agent.state import ResolvedEntities, TurnOutcome, TurnState, ValidatedCall
+from helpdesk.agent_api.agent.tool_args import (
+    TOOL_INPUTS,
+    CreateAccessRequestArgs,
+    RejectRequestArgs,
+)
 from tests.agent_api.test_agent_loop import (
     FILED_PAYLOAD,
     FILED_REPLY,
+    REQUEST_ID,
     START,
     STORED_KEY,
     USER_ID,
@@ -186,7 +192,7 @@ def test_a_model_no_drops_the_change_and_says_so() -> None:
     assert sent[-2]["role"] == "tool"
     assert sent[-2]["tool_call_id"] == "held_0"
     assert json.loads(sent[-2]["content"])["denied_by_person"] is True
-    assert sent[-1] == {"role": "user", "content": "nicht doch"}
+    assert sent[-1] == {"role": "user", "content": f"{graph.today_line(START)}\nnicht doch"}
     assert state.reply == "Okay, I dropped it."
 
 
@@ -425,3 +431,331 @@ def test_the_reading_prompt_names_the_four_answers() -> None:
     assert "data" in text
     assert [member.value for member in Reading] == ["yes", "no", "new_info", "unclear"]
     assert ReplyReading.model_fields["answer"].annotation is Reading
+
+
+# --- a yes that only repeats the cancel -----------------------------------------------
+
+CANCEL_ASKED = "Shall I cancel your request REQ-0001?"
+CANCEL_REPLY = "All set, that request is closed."
+
+
+def held_cancel() -> OpenQuestion:
+    """A held cancel from an earlier message, under a stored key."""
+    arguments = TOOL_INPUTS["cancel_request"].model_validate(
+        {"request_id": str(REQUEST_ID), "idempotency_key": STORED_KEY}
+    )
+    call = ValidatedCall(tool="cancel_request", arguments=arguments.model_dump(mode="json"))
+    return held_question().model_copy(update={"calls": (call,), "asked": CANCEL_ASKED})
+
+
+def test_yes_to_a_cancel_question_cancels() -> None:
+    """Catches a held cancel that answers a "yes, please cancel REQ-0001" by
+    asking the same question again, or that clears the question and runs
+    nothing.
+
+    The reading says yes: the cancel runs once under its stored key, the
+    question is gone, nothing new is held, and the reply is not a question.
+    """
+    gateway = ScriptedGateway(reading("yes"), answer_body(CANCEL_REPLY))
+    tools = FakeTools({"cancel_request": {"request_id": str(REQUEST_ID)}})
+    store = FakeStore(question=held_cancel())
+
+    state = run(gateway, tools, store, message="Yes, please cancel REQ-0001")
+
+    assert tools.names == ["cancel_request"]
+    assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
+    assert len(gateway.requests) == 2
+    assert store.question is None
+    assert store.held == []
+    assert state.outcome is not TurnOutcome.CONFIRM
+    assert state.reply == CANCEL_REPLY
+
+
+def test_the_reading_prompt_counts_a_repeated_change_as_yes() -> None:
+    """Catches a reading prompt that sends "yes, please cancel REQ-0001" to
+    new_info because the message names the change, which asks the person the
+    same question again.
+
+    The prompt names that very wording and, around it, says a message that
+    only repeats the proposed change is a yes.
+    """
+    text = load_prompt("read_reply").text.lower()
+
+    start = text.index("please cancel req-0001")
+    around = text[max(0, start - 300) : start + 300]
+    assert "repeat" in around or "restat" in around
+    assert "`yes`" in around
+
+
+# --- a correction to a held request ----------------------------------------------------
+
+OLD_REASON = "Obviously fake reason for a test."
+NEW_REASON = "Obviously fake audit preparation."
+VIEWER = "Internal Wiki viewer"
+EDITOR = "Internal Wiki editor"
+
+
+def reading_with(**fields: Any) -> dict[str, Any]:
+    """One scripted gateway answer: new_info with the corrected values."""
+    return answer_body(json.dumps({"answer": "new_info", **fields}))
+
+
+def held_request() -> OpenQuestion:
+    """The held filing: 30 days, the old reason, the viewer role by name."""
+    return held_question().model_copy(
+        update={"asked": ASKED, "resolved": ResolvedEntities(role_name=VIEWER)}
+    )
+
+
+def proposal(*, days: int = 30, reason: str = OLD_REASON) -> dict[str, Any]:
+    """A model step that proposes the filing with the given days and reason."""
+    return answer_body(
+        None,
+        wire_call(
+            "call_new",
+            "create_access_request",
+            {
+                "target_user_id": str(USER_ID),
+                "role_id": str(WIKI_VIEWER_ID),
+                "justification": reason,
+                "requested_expiry_days": days,
+            },
+        ),
+    )
+
+
+def lookups_step() -> dict[str, Any]:
+    """The model step that finds the person and the role again."""
+    return answer_body(
+        None,
+        wire_call("call_me", "get_me", {}),
+        wire_call("call_r", "find_role", {"words": "wiki viewer"}),
+    )
+
+
+def question_with(days: int, reason: str) -> str:
+    """A written question that shows every fact of the filing."""
+    return (
+        f'Soll ich "{VIEWER}" für {days} Tage beantragen? Grund: {reason.rstrip(".")}. '
+        "Bitte antworte mit Ja."
+    )
+
+
+def correct(
+    gateway: ScriptedGateway, store: FakeStore | None = None, message: str = "90 days, not 30"
+) -> tuple[TurnState, FakeStore]:
+    """One correction turn over a held 30-day request."""
+    kept = store or FakeStore(question=held_request())
+    tools = FakeTools({"get_me": ME_PAYLOAD, "list_requestable_roles": ROLES_PAYLOAD})
+    return run(gateway, tools, kept, message=message), kept
+
+
+def writer_facts(gateway: ScriptedGateway) -> list[str]:
+    """The facts the last writing call was given."""
+    facts: list[str] = json.loads(gateway.requests[-1]["messages"][-1]["content"])["facts"]
+    return facts
+
+
+def test_a_new_length_updates_the_held_request() -> None:
+    """Catches a correction that asks the old 30 again because the model
+    proposed the old length, or one that files 30 after the person said 90.
+
+    The reading gives 90 days; the model still proposes 30. The writer is
+    given 90 and not 30, the question the person sees says 90, and the stored
+    call says 90.
+    """
+    gateway = ScriptedGateway(
+        reading_with(days=90),
+        lookups_step(),
+        proposal(days=30),
+        answer_body(question_with(90, OLD_REASON)),
+    )
+
+    state, store = correct(gateway)
+
+    assert state.outcome is TurnOutcome.CONFIRM
+    assert state.reply == question_with(90, OLD_REASON)
+    facts = writer_facts(gateway)
+    assert "90" in facts
+    assert "30" not in facts
+    assert store.held[0].calls[0].arguments["requested_expiry_days"] == 90
+    assert store.held[0].asked == state.reply
+
+
+def test_a_new_reason_updates_the_held_request() -> None:
+    """Catches a correction that keeps the old reason because the model
+    proposed it again.
+
+    The reading gives a new reason; the model still proposes the old one. The
+    writer is given the new reason only, and the stored call carries it.
+    """
+    gateway = ScriptedGateway(
+        reading_with(reason=NEW_REASON),
+        lookups_step(),
+        proposal(reason=OLD_REASON),
+        answer_body(question_with(30, NEW_REASON)),
+    )
+
+    state, store = correct(gateway, message="the reason is audit preparation")
+
+    assert state.outcome is TurnOutcome.CONFIRM
+    facts = writer_facts(gateway)
+    assert NEW_REASON.rstrip(".") in facts
+    assert OLD_REASON.rstrip(".") not in facts
+    assert store.held[0].calls[0].arguments["justification"] == NEW_REASON
+
+
+def test_a_corrected_reason_leaves_the_days_the_model_proposed() -> None:
+    """Catches a correction that forces every field of the held request, so a
+    new reason would also put the old 30 days back over the 10 the model
+    proposed.
+
+    Only the reason is corrected; the model proposes 10 days; 10 is stored.
+    """
+    gateway = ScriptedGateway(
+        reading_with(reason=NEW_REASON),
+        lookups_step(),
+        proposal(days=10, reason=OLD_REASON),
+        answer_body(question_with(10, NEW_REASON)),
+    )
+
+    _state, store = correct(gateway, message="the reason is audit preparation")
+
+    assert store.held[0].calls[0].arguments["requested_expiry_days"] == 10
+    assert store.held[0].calls[0].arguments["justification"] == NEW_REASON
+
+
+def test_the_old_value_is_never_asked_back() -> None:
+    """Unhappy path. Catches a hold that shows a question with the old 30 after
+    the person said 90, because the facts check ran on the old call.
+
+    The first written question says 30: it is sent back naming 90, and the
+    second question (90) is shown and stored.
+    """
+    gateway = ScriptedGateway(
+        reading_with(days=90),
+        lookups_step(),
+        proposal(days=30),
+        answer_body(question_with(30, OLD_REASON)),
+        answer_body(question_with(90, OLD_REASON)),
+    )
+
+    state, store = correct(gateway)
+
+    assert len(gateway.requests) == 5
+    assert "90" in gateway.requests[4]["messages"][-1]["content"]
+    assert state.reply == question_with(90, OLD_REASON)
+    assert store.held[0].asked == state.reply
+    assert store.held[0].calls[0].arguments["requested_expiry_days"] == 90
+
+
+def test_two_questions_with_the_old_value_fall_back_to_the_new_one() -> None:
+    """Unhappy path. Catches a fallback built from the old call, which would
+    show 30 days after the person said 90.
+
+    Both written questions say 30: the code-written line is shown, and it says
+    90 days and never 30.
+    """
+    gateway = ScriptedGateway(
+        reading_with(days=90),
+        lookups_step(),
+        proposal(days=30),
+        answer_body(question_with(30, OLD_REASON)),
+        answer_body(question_with(30, OLD_REASON)),
+    )
+
+    state, store = correct(gateway)
+
+    assert state.reply is not None
+    assert state.reply.startswith("I'll file this:")
+    assert "90 days" in state.reply
+    assert "30" not in state.reply
+    assert store.held[0].asked == state.reply
+    assert store.held[0].calls[0].arguments["requested_expiry_days"] == 90
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"days": 90}, (90, OLD_REASON, VIEWER)),
+        ({"reason": NEW_REASON}, (30, NEW_REASON, VIEWER)),
+        ({"role": EDITOR}, (30, OLD_REASON, EDITOR)),
+        ({"days": 90, "reason": NEW_REASON, "role": EDITOR}, (90, NEW_REASON, EDITOR)),
+    ],
+    ids=["days", "reason", "role", "all_three"],
+)
+def test_the_draft_saved_after_a_correction_holds_the_held_values_and_the_new_ones(
+    fields: dict[str, Any], expected: tuple[int, str, str]
+) -> None:
+    """Catches a draft saved from the correction alone (the held request's other
+    values lost), one never seeded from the held call, or one that drops a
+    corrected value.
+
+    The model only answers in words after the reading, so the draft is what
+    the turn saved: the held days, reason and role, with the corrected ones
+    laid over them.
+    """
+    gateway = ScriptedGateway(reading_with(**fields), answer_body("Okay, noted."))
+
+    _state, store = correct(gateway)
+
+    assert store.draft is not None
+    assert (store.draft.days, store.draft.reason, store.draft.role) == expected
+
+
+def test_a_correction_to_a_held_cancel_saves_no_draft() -> None:
+    """Catches a draft seeded from a held call that is not a filing, which
+    would invent a request the person never started.
+
+    A held cancel gets a new_info reading with days: no draft is saved.
+    """
+    gateway = ScriptedGateway(reading_with(days=90), answer_body("Okay, noted."))
+    store = FakeStore(question=held_cancel())
+
+    correct(gateway, store)
+
+    assert store.draft is None
+
+
+def test_values_in_a_reading_that_is_not_new_info_save_no_draft() -> None:
+    """Catches a draft saved from a no (or a yes) that happens to carry days.
+
+    The reading says no with days 90: the change is dropped and no draft
+    exists afterwards.
+    """
+    gateway = ScriptedGateway(
+        answer_body(json.dumps({"answer": "no", "days": 90})), answer_body("Okay, dropped.")
+    )
+
+    _state, store = correct(gateway)
+
+    assert store.draft is None
+
+
+def test_the_reading_may_carry_corrected_values() -> None:
+    """Catches a reading model that cannot carry days, reason or role (the
+    correction would be dropped before the graph sees it), one that requires
+    them, or one that lets another field through.
+
+    Each defaults to none, a full reading validates, an unknown field is
+    refused, and the schema sent to the gateway lists all three.
+    """
+    plain = ReplyReading.model_validate({"answer": "yes"})
+    assert (plain.days, plain.reason, plain.role) == (None, None, None)
+    full = ReplyReading.model_validate(
+        {"answer": "new_info", "days": 90, "reason": NEW_REASON, "role": EDITOR}
+    )
+    assert (full.days, full.reason, full.role) == (90, NEW_REASON, EDITOR)
+    with pytest.raises(ValidationError):
+        ReplyReading.model_validate({"answer": "yes", "who": "Dana"})
+    assert ReplyReading.model_config["frozen"] is True
+
+    gateway = ScriptedGateway(reading("yes"), answer_body(FILED_REPLY))
+    run(
+        gateway,
+        FakeTools({"create_access_request": FILED_PAYLOAD}),
+        FakeStore(question=held()),
+        message="go ahead",
+    )
+    schema = gateway.requests[0]["response_format"]["json_schema"]["schema"]
+    assert {"answer", "days", "reason", "role"} <= set(schema["properties"])

@@ -1456,3 +1456,37 @@ def test_grounded_reply_passes_first_time() -> None:
     assert len(gateway.requests) == 2
     assert state.reply == reply
     assert state.postcheck is PostCheckOutcome.PASSED
+
+
+def test_the_prompt_offers_a_ticket_for_work_problems() -> None:
+    """Catches a loop prompt that lets the model refuse a jammed printer or a
+    broken door flatly, or one that offers a ticket for something that is not
+    work at all.
+
+    Around the hardware example the prompt offers a general ticket and says
+    never to refuse it; elsewhere it gives a polite no for non-work requests.
+    """
+    text = load_prompt("agent_loop").text.lower()
+
+    start = text.index("hardware")
+    around = text[max(0, start - 300) : start + 400]
+    assert "general ticket" in around
+    assert "never refuse" in around
+    assert "polite" in text
+
+
+def test_the_prompt_answers_in_the_first_message_language() -> None:
+    """Catches a loop prompt that follows the latest message (one foreign word
+    flips the chat), has no word for an opening that shows no language, or
+    lets the model switch on its own.
+
+    Around "first message" the prompt names English and the greeting case, and
+    it says never to switch.
+    """
+    text = load_prompt("agent_loop").text.lower()
+
+    start = text.index("first message")
+    around = text[start : start + 400]
+    assert "english" in around
+    assert "greeting" in around
+    assert "never switch" in text
