@@ -1728,13 +1728,14 @@ def test_kept_results_are_saved_and_shown_as_data() -> None:
     assert [m for m in messages if "REQ-0001" in m["content"]] == [kept_message]
 
 
-def test_failed_results_are_never_kept() -> None:
-    """Unhappy path. Catches a loop that keeps a refused call's result as a
-    fact (a refusal would be shown next turn as something found), or one that
+def test_a_refused_result_is_kept_only_as_a_refusal() -> None:
+    """Unhappy path. Catches a loop that keeps a refused call as if it found
+    something (ok true, or the error's own message as its answer), or one that
     saves nothing because one call of the step was refused.
 
-    One lookup answers and one is refused in the same step: the one saved list
-    holds the answer only.
+    One lookup answers and one is refused in the same step: the saved list
+    holds the answer, then the refusal with ok false, its code and only the
+    fixed reason.
     """
     gateway = ScriptedGateway(
         answer_body(
@@ -1750,7 +1751,13 @@ def test_failed_results_are_never_kept() -> None:
 
     run(gateway, tools, store)
 
-    assert store.kept_saves == [[ToolResult(tool="get_me", ok=True, payload=me)]]
+    assert len(store.kept_saves) == 1
+    found, refused = store.kept_saves[0]
+    assert found == ToolResult(tool="get_me", ok=True, payload=me)
+    assert refused.ok is False
+    assert refused.error_code is ErrorCode.NOT_FOUND
+    assert refused.payload == {"error": "NOT_FOUND", "reason": NotFoundError.reason}
+    assert "gone" not in json.dumps(refused.model_dump(mode="json"))
 
 
 def test_a_turn_that_ends_in_a_held_change_keeps_its_results() -> None:
@@ -1961,3 +1968,55 @@ def test_a_sent_back_reply_never_leaves_the_chat_ending_on_the_assistant() -> No
     second = gateway.requests[1]["messages"]
     assert second[-1]["role"] == "system"
     assert [m for m in second if m["role"] != "system"][-1]["role"] != "assistant"
+
+
+def test_a_refusal_is_kept_for_the_next_turn_with_only_its_reason() -> None:
+    """Catches a loop that keeps only ok results: the next turn sees no record
+    of the refusal it reported, so it takes back a true report ("I did not get
+    a result that confirms that"). Also catches a kept refusal that carries the
+    error's own message (row data), or one the reply check counts as backing a
+    status word.
+
+    A review-already-open refusal is saved with its code and fixed reason only.
+    The next turn shows it to the model as data, and a reply saying "blocked"
+    with no fresh result is still sent back.
+    """
+    marker = "ROW-77a2-secret"
+    store = FakeStore()
+    gateway = ScriptedGateway(
+        answer_body(None, wire_call("call_x", "list_my_requests", {})),
+        answer_body("A review for this quarter is already open."),
+    )
+    run(
+        gateway,
+        FakeTools(failures={"list_my_requests": ReviewAlreadyOpenError(f"row {marker}")}),
+        store,
+    )
+
+    saved = store.kept_saves[-1]
+    assert [(r.ok, r.error_code) for r in saved] == [(False, ErrorCode.POLICY_BLOCKED)]
+    assert saved[0].payload["reason"] == ReviewAlreadyOpenError.reason
+    assert marker not in json.dumps([r.model_dump(mode="json") for r in saved])
+
+    next_gateway = ScriptedGateway(
+        answer_body("It was blocked."), answer_body("A review is already open.")
+    )
+    run(next_gateway, FakeTools(), FakeStore(kept=saved))
+
+    first = next_gateway.requests[0]["messages"]
+    assert any(
+        m["role"] == "system" and ReviewAlreadyOpenError.reason in m["content"] for m in first
+    )
+    assert len(next_gateway.requests) == 2
+    assert next_gateway.requests[1]["messages"][-1]["content"].startswith(CHECK_NOTE_MARK)
+
+
+def test_the_loop_prompt_leaves_the_yes_question_to_the_help_desk() -> None:
+    """Catches a loop prompt that lets the model ask for a yes in its own words
+    for a change it already has every detail of: the help desk then asks its
+    own final question, and the person is asked twice for one change.
+    """
+    text = " ".join(load_prompt("agent_loop").text.lower().split())
+
+    assert "never ask for that yes in your own words" in text
+    assert "offering something the person has not asked" in text
