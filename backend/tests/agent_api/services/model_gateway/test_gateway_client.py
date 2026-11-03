@@ -671,6 +671,22 @@ def test_the_user_header_is_absent_when_no_user_is_given() -> None:
     assert all("X-User" not in r.headers for r in recorder.requests)
 
 
+def test_every_chat_call_asks_for_put_back() -> None:
+    """Catches a client that sets the rehydrate header on only some of the
+    three call paths, or with another value than `request`, so the answers
+    keep the gateway's masks (`<EMAIL_1>`) and the stored chat holds them.
+
+    The three paths each send the header once, with exactly the value
+    `request`.
+    """
+    recorder = _Recorder(_ok_response(_ok_body(text=json.dumps(VALID_DECISION))))
+
+    _all_three_calls(_client(recorder))
+
+    assert len(recorder.requests) == 3
+    assert [r.headers.get("X-Gateway-Rehydrate") for r in recorder.requests] == ["request"] * 3
+
+
 @pytest.mark.parametrize(
     "value",
     [

@@ -48,6 +48,7 @@ class InvalidPeriodError(ToolError):
     """A period that cannot be stored, or that no two runs would agree on."""
 
     code = ErrorCode.VALIDATION
+    reason = "The review period is not one the help desk can use; give it like 2026-Q4."
 
 
 class UnassignableReviewError(ToolError):
@@ -60,6 +61,7 @@ class ReviewAlreadyOpenError(ToolError):
     """A review of this scope for this period is already open."""
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "A review of this scope and period is already open, so a second one is not opened."
 
 
 class ItemAlreadyDecidedError(ToolError):
@@ -72,6 +74,7 @@ class ItemAlreadyDecidedError(ToolError):
     """
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "This review item already has a decision."
 
 
 @dataclass(frozen=True)

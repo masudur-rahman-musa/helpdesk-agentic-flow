@@ -163,8 +163,10 @@ _ACTS_FOR_OTHERS = frozenset(
 )
 """A role holding any of these acts for someone else, so it may look people up."""
 
-_NEEDS_A_DEPARTMENT = frozenset({rbac.Tool.ONBOARD_USER, rbac.Tool.TRANSFER_USER})
-"""A role holding either names a department, so it may look departments up."""
+_NEEDS_A_DEPARTMENT = frozenset(
+    {rbac.Tool.ONBOARD_USER, rbac.Tool.TRANSFER_USER, rbac.Tool.OPEN_ACCESS_REVIEW}
+)
+"""A role holding any of these names a department, so it may look departments up."""
 
 _FILES = frozenset(
     {rbac.Tool.CREATE_ACCESS_REQUEST_SELF, rbac.Tool.CREATE_ACCESS_REQUEST_ON_BEHALF}

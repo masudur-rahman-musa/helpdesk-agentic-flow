@@ -22,6 +22,7 @@ class NotYourRequestError(ToolError):
     """
 
     code = ErrorCode.FORBIDDEN
+    reason = "Only the person who filed a request, or the person it is for, may cancel it."
 
 
 class CancelNotPendingError(ToolError):
@@ -32,6 +33,7 @@ class CancelNotPendingError(ToolError):
     """
 
     code = ErrorCode.REQUEST_NOT_PENDING
+    reason = "The request is already decided, so it can no longer be cancelled."
 
 
 async def cancel_own_request(

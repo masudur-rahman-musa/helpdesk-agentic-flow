@@ -710,17 +710,22 @@ def list_tools(headers: Mapping[str, str] | None = None) -> mcp_types.ListToolsR
 
 
 def error_code(result: mcp_types.CallToolResult) -> str:
-    """The single content block of an errored result, as an exact string.
+    """The code of an errored result's single content block, as an exact string.
 
-    Reads the whole text, never a substring: the error contract is that the result
-    carries a code and nothing else, so a code with an explanation appended
-    must fail here rather than pass a `in` check.
+    The text is the code alone or `CODE: reason`, where the reason is the
+    error class's one fixed sentence. Anything else fails here: a code with
+    free text glued on, a reason over more than one line, or an empty reason
+    after the colon.
     """
     assert result.is_error is True, f"expected an errored result, got {result!r}"
     assert len(result.content) == 1, f"expected exactly one content block, got {result.content!r}"
     block = result.content[0]
     assert isinstance(block, mcp_types.TextContent), f"expected text content, got {block!r}"
-    return block.text
+    code, colon, reason = block.text.partition(": ")
+    if colon:
+        assert reason.strip() == reason != "", f"a blank or padded reason: {block.text!r}"
+        assert "\n" not in reason, f"a reason over more than one line: {block.text!r}"
+    return code
 
 
 def http_get(path: str) -> httpx2.Response:

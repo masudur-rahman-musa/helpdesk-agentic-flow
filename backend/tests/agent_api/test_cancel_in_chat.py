@@ -38,7 +38,7 @@ from helpdesk.agent_api.agent.state import ResolvedEntities, ToolResult, Validat
 from helpdesk.agent_api.agent.tool_args import TOOL_INPUTS, planner_schema
 from helpdesk.agent_api.core import deps
 from helpdesk.agent_api.services import mcp_client
-from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import CODE_REASONS, ErrorCode, ToolError
 from tests.agent_api.test_agent_loop import (
     YES_MESSAGE,
     FakeStore,
@@ -192,7 +192,10 @@ def test_a_cancel_refused_as_not_pending_runs_list_my_requests_once() -> None:
     assert gateway.requests[1]["tool_choice"] == "none"
     turns = tool_turns(gateway.requests[1])
     assert len(turns) == 2
-    assert json.loads(turns[0]["content"]) == {"error": "REQUEST_NOT_PENDING"}
+    assert json.loads(turns[0]["content"]) == {
+        "error": "REQUEST_NOT_PENDING",
+        "reason": CODE_REASONS[ErrorCode.REQUEST_NOT_PENDING],
+    }
     listed = json.loads(turns[1]["content"])
     assert [row["request_number"] for row in listed["requests"]] == ["REQ-0107", "REQ-0108"]
     assert listed["requests"][0]["status"] == "approved"

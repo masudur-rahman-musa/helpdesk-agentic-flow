@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpdesk.agent_api.agent.checkpointer import thread_config, turn_thread_id
@@ -49,7 +50,7 @@ from helpdesk.agent_api.agent.graph import (
 from helpdesk.agent_api.agent.loop_tools import DepartmentRow, PersonRow
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.sources import shown_citations
-from helpdesk.agent_api.agent.state import RequestDraft, TurnOutcome, TurnState
+from helpdesk.agent_api.agent.state import RequestDraft, ToolResult, TurnOutcome, TurnState
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
 from helpdesk.agent_api.agent.turn_metrics import (
     record_turn_code,
@@ -67,9 +68,11 @@ from helpdesk.shared.core.observability.context import bind_context, current_con
 from helpdesk.shared.crud import Repository
 from helpdesk.shared.crud.messages import append_message, list_recent_messages
 from helpdesk.shared.crud.sessions import (
+    get_kept_results,
     get_open_question,
     get_or_create_session,
     get_request_draft,
+    set_kept_results,
     set_open_question,
     set_request_draft,
 )
@@ -120,6 +123,9 @@ def reply_data(state: TurnState) -> dict[str, Any]:
     }
 
 
+_KEPT = TypeAdapter(list[ToolResult])
+
+
 class DbLoopStore:
     """`LoopStore` on the tenant-bound session, through the crud helpers only."""
 
@@ -168,6 +174,21 @@ class DbLoopStore:
             self._db,
             session_id=self._session_id,
             value=None if draft is None else draft.model_dump(mode="json"),
+        )
+
+    async def kept_results(self) -> list[ToolResult]:
+        """The stored results; a badly shaped list reads as none kept."""
+        raw = await get_kept_results(self._db, session_id=self._session_id)
+        try:
+            return _KEPT.validate_python(raw or [])
+        except ValidationError:
+            return []
+
+    async def save_kept_results(self, results: Sequence[ToolResult]) -> None:
+        await set_kept_results(
+            self._db,
+            session_id=self._session_id,
+            value=[result.model_dump(mode="json") for result in results],
         )
 
     async def add_message(self, role: MessageRole, content: str) -> None:

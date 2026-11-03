@@ -221,6 +221,29 @@ async def set_request_draft(
     await session.flush()
 
 
+KEPT_RESULTS_KEY = "kept_results"
+"""The ok tool results earlier turns found, so later turns can trust them."""
+
+
+async def get_kept_results(session: AsyncSession, *, session_id: uuid.UUID) -> object | None:
+    """The kept results as raw JSON, unchecked; `None` when there are none."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return None
+    return (row.session_metadata or {}).get(KEPT_RESULTS_KEY)
+
+
+async def set_kept_results(
+    session: AsyncSession, *, session_id: uuid.UUID, value: list[dict[str, Any]]
+) -> None:
+    """Store the kept results, replacing the old ones. The other keys on the row stay."""
+    row = await Repository(session, Session).get(session_id)
+    if row is None:
+        return
+    row.session_metadata = {**(row.session_metadata or {}), KEPT_RESULTS_KEY: value}
+    await session.flush()
+
+
 WAITING_MIN = timedelta(minutes=30)
 """A chat counts as waiting once its question is this old."""
 

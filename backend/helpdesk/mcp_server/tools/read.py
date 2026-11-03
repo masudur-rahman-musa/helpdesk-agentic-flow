@@ -34,6 +34,7 @@ from helpdesk.shared.models import (
     AccessRequest,
     AccessReview,
     AuditEvent,
+    Department,
     Grant,
     ReviewItem,
     Role,
@@ -57,6 +58,8 @@ class GetMeOutput(BaseModel):
     email: str
     display_name: str
     department_id: uuid.UUID | None
+    department_name: str | None
+    """The department's name, so the chat can say "Finance", not an id."""
     principals: list[str]
     status: str
     show_tool_steps: bool
@@ -90,12 +93,18 @@ async def get_me(ctx: ToolContext, args: GetMeInput) -> GetMeOutput:
     if user is None:
         raise NotFoundError("no such user in this tenant")
     tenant = await find_tenant_by_id(ctx.session, ctx.identity.tenant_id)
+    department = (
+        None
+        if user.department_id is None
+        else await Repository(ctx.session, Department).get(user.department_id)
+    )
     return GetMeOutput(
         user_id=user.id,
         tenant_id=user.tenant_id,
         email=user.email,
         display_name=user.display_name,
         department_id=user.department_id,
+        department_name=None if department is None else department.name,
         principals=list(user.principals),
         status=user.status,
         show_tool_steps=tenant is not None and tool_steps_visible(tenant),

@@ -29,7 +29,13 @@ TRANSPORT_FAILURE_MESSAGE = "the policy service could not be reached"
 
 
 class RemoteToolError(ToolError):
-    """Base for this client's errors, one per code; only the code crosses the wire."""
+    """Base for this client's errors, one per code. The code and the server's
+    fixed reason sentence cross the wire, nothing else; `reason` is "" when
+    the server sent none."""
+
+    def __init__(self, message: str, reason: str = "") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class RemoteForbiddenError(RemoteToolError):
@@ -103,12 +109,14 @@ REMOTE_ERRORS: Mapping[ErrorCode, type[RemoteToolError]] = MappingProxyType(
 
 
 def error_for(text: str) -> RemoteToolError:
-    """The typed error an errored result's text names, or the opaque `INTERNAL`."""
+    """The typed error an errored result's text names, or the opaque `INTERNAL`.
+    The text is `CODE` or `CODE: reason`, split at the first `: `."""
+    head, _, reason = text.strip().partition(": ")
     try:
-        code = ErrorCode(text.strip())
+        code = ErrorCode(head)
     except ValueError:
         return RemoteInternalError(TRANSPORT_FAILURE_MESSAGE)
-    return REMOTE_ERRORS[code](text.strip())
+    return REMOTE_ERRORS[code](code.value, reason.strip())
 
 
 @runtime_checkable

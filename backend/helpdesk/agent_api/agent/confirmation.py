@@ -18,11 +18,18 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from helpdesk.agent_api.agent.matching import fold
 from helpdesk.agent_api.agent.role_words import plain_role_name
@@ -100,9 +107,29 @@ class Change(BaseModel):
     shown: str | None
     """The value in the question, or null when the question showed none."""
     new: str
+    """For a `date`, an ISO date (YYYY-MM-DD), so "next week" never passes as
+    one; it is kept in that form."""
+
+    @field_validator("new")
+    @classmethod
+    def _a_date_is_a_date(cls, new: str, info: ValidationInfo) -> str:
+        if info.data.get("field") is not ChangeField.DATE:
+            return new
+        try:
+            return date.fromisoformat(new.strip()).isoformat()
+        except ValueError as exc:
+            raise ValueError("a date change needs an ISO date, YYYY-MM-DD") from exc
 
     @property
     def differs(self) -> bool:
+        """Whether the new value is not the shown one. Dates are compared as
+        days, so the same day written another way is no change
+        (`test_the_same_date_written_another_way_is_not_a_change`)."""
+        if self.field is ChangeField.DATE and self.shown is not None:
+            try:
+                return date.fromisoformat(self.shown.strip()).isoformat() != self.new
+            except ValueError:
+                return True
         return not _same(self.shown, self.new)
 
 

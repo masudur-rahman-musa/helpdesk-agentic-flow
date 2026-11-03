@@ -34,8 +34,11 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+import pytest
+
 from helpdesk.shared.core.db import create_engine, create_session_factory, tenant_session
 from helpdesk.shared.crud.grants import list_active_grants_for_user
+from helpdesk.shared.crud.users import fetch_all_departments
 from tests.support.mcp import (
     SeededMcp,
     bearer,
@@ -78,6 +81,43 @@ def test_get_me_returns_the_token_users_own_record(
     assert payload["department_id"] == str(user.department_id)
     assert sorted(payload["principals"]) == sorted(user.principals)
     assert payload["status"] == user.status
+
+
+def _department_names(database_url: str, tenant_id: uuid.UUID) -> dict[uuid.UUID, str]:
+    """The tenant's departments by id, read through the crud helper."""
+
+    async def scenario() -> dict[uuid.UUID, str]:
+        engine = create_engine(database_url)
+        try:
+            factory = create_session_factory(engine)
+            async with tenant_session(factory, tenant_id) as session:
+                return {d.id: d.name for d in await fetch_all_departments(session)}
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(scenario())
+
+
+@pytest.mark.db
+def test_get_me_gives_the_department_name(
+    mcp_env: SeededMcp,
+) -> None:
+    """Catches a `get_me` that gives only the department id, so the bot cannot
+    tell that the id is Finance, or one that gives another department's name
+    (another tenant's, or the first in the list).
+
+    The name equals the name stored for the token user's own department, read
+    straight from the tenant's departments by id.
+    """
+    user = mcp_env.tenant_a
+    names = _department_names(mcp_env.database_url, user.tenant_id)
+    expected = names[user.department_id]
+    assert expected.strip() != ""
+
+    payload = _structured(call_tool(bearer(token_for(user)), "get_me", {}))
+
+    assert payload["department_name"] == expected
+    assert payload["department_id"] == str(user.department_id)
 
 
 def test_get_me_ignores_user_id_and_tenant_id_in_its_arguments(

@@ -408,16 +408,17 @@ def _offered_names(principals: Sequence[str]) -> list[str]:
 
 @pytest.mark.parametrize(
     ("principal", "offered"),
-    [("hr", True), ("it_admin", True), ("employee", False), ("manager", False)],
+    [("hr", True), ("it_admin", True), ("employee", False), ("manager", True)],
 )
-def test_find_department_is_offered_only_to_roles_that_onboard_or_transfer(
+def test_find_department_is_offered_only_to_roles_that_name_a_department(
     principal: str, offered: bool
 ) -> None:
     """Catches a finder offered to everyone (a name list for an employee who
     cannot act on it), or to nobody (hr could never propose a transfer).
 
-    Each principal alone is offered the tools; the finder is there for `hr` and
-    `it_admin` and absent for `employee` and `manager`.
+    Each principal alone is offered the tools; the finder is there for `hr`,
+    `it_admin` and `manager` (who opens a department's review) and absent for
+    `employee`.
     """
     assert FIND_DEPARTMENT == "find_department"
     assert (FIND_DEPARTMENT in _offered_names([principal])) is offered

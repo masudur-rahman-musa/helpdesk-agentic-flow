@@ -34,6 +34,10 @@ exactly one kind:
 With `yes_with_change`, list each value they changed in `changes`: the
 `field` (`days`, `reason`, `role`, `person` or `date`), `shown`, the value
 the question showed for it (null if it showed none), and `new`, the value
-they want, in their words (days as a whole number). Compare the two first. A
-value equal to the one shown is not a change: then the message is `yes`. For
+they want, in their words (days as a whole number). A `date` is always an
+ISO date, YYYY-MM-DD, worked out from the date shown and today's date: "a
+week later" after 2026-11-09 is 2026-11-16. Compare the two first. A value
+equal to the one shown is not a change, the same day in other words
+included ("starting next week" when next week starts on the day shown): then
+the message is `yes`. For
 every other kind, `changes` is empty.

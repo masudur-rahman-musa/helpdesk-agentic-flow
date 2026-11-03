@@ -36,6 +36,7 @@ from helpdesk.agent_api.agent.graph import (
     READING_HANDLING,
     Handling,
 )
+from helpdesk.agent_api.agent.loop_tools import PersonRow
 from helpdesk.agent_api.agent.prompts import load_prompt
 from helpdesk.agent_api.agent.state import (
     ResolvedEntities,
@@ -70,6 +71,13 @@ from tests.agent_api.test_agent_loop import (
     wire_call,
 )
 from tests.agent_api.test_budget_refusal import RefusingGateway
+from tests.agent_api.test_confirm_question import (
+    DANA,
+    GOOD,
+    NO_DAYS,
+    manager_tools,
+    written,
+)
 
 ASKED = "Shall I file Internal Wiki viewer access for 30 days?"
 OLD_REASON = "Obviously fake reason for a test."
@@ -1349,3 +1357,201 @@ def test_the_reading_may_carry_typed_changes() -> None:
     )
     schema = gateway.requests[0]["response_format"]["json_schema"]["schema"]
     assert set(schema["properties"]) == {"answer", "changes"}
+
+
+# --- a date is compared as a date -------------------------------------------------------------
+
+SHOWN_DATE = "2026-11-09"
+MOVE = {
+    "user_id": str(USER_ID),
+    "new_department_id": str(uuid.UUID(int=22)),
+    "effective_date": SHOWN_DATE,
+}
+
+
+@pytest.mark.parametrize(
+    "new",
+    [
+        pytest.param("next week", id="words"),
+        pytest.param("9 November 2026", id="date_in_words"),
+        pytest.param("2026-13-40", id="iso_shape_but_no_such_day"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_a_date_change_must_carry_an_iso_date(new: str) -> None:
+    """Unhappy path. Catches a reading that lets a date change through in the
+    person's own words ("starting next week" against a shown 2026-11-09 then
+    reads as a changed date and the person is asked again), or one that checks
+    only the shape of the text, not that the day exists.
+
+    A yes with a date change whose new value is not an ISO date is refused by
+    the reading's own validation.
+    """
+    with pytest.raises(ValidationError):
+        ReplyReading.model_validate(
+            {
+                "answer": "yes_with_change",
+                "changes": [{"field": "date", "shown": SHOWN_DATE, "new": new}],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "new",
+    [
+        pytest.param("20261109", id="compact_form"),
+        pytest.param("2026-W46-1", id="week_form"),
+    ],
+)
+def test_the_same_date_written_another_way_is_not_a_change(new: str) -> None:
+    """Catches a comparison of the two texts instead of the two dates, which
+    counts the same day written another way as a change.
+
+    Each form is the shown day itself (a Monday), so a yes with that one
+    "change" is refused as having no change in it, whichever way the schema
+    refuses it. Only this comparison can decide it, because the text of each
+    form differs from the shown one.
+    """
+    with pytest.raises(ValidationError):
+        ReplyReading.model_validate(
+            {
+                "answer": "yes_with_change",
+                "changes": [{"field": "date", "shown": SHOWN_DATE, "new": new}],
+            }
+        )
+
+
+def test_the_same_date_in_other_words_is_not_a_change() -> None:
+    """Catches a graph that asks the person the same question again, or drops
+    the held move, because the model read "starting next week" as a change to
+    the shown 2026-11-09.
+
+    The first reading says the same day in the compact form; it is refused and
+    asked again, and the second reading is a plain yes. The held move runs once
+    under its stored key, the question is gone and nothing new is held.
+    """
+    gateway = ScriptedGateway(
+        changed("yes_with_change", ("date", SHOWN_DATE, "20261109")),
+        reading("yes"),
+        answer_body("Done."),
+    )
+    tools = FakeTools({"transfer_user": {"ok": True}})
+    store = FakeStore(question=held_with("transfer_user", **MOVE))
+
+    state = run(gateway, tools, store, message="yes, starting next week")
+
+    assert tools.names == ["transfer_user"]
+    assert tools.calls[0][1]["idempotency_key"] == STORED_KEY
+    assert len(gateway.requests) == 3
+    assert store.question is None
+    assert store.held == []
+    assert state.outcome is not TurnOutcome.CONFIRM
+
+
+@pytest.mark.parametrize(
+    ("shown", "new"),
+    [
+        pytest.param(SHOWN_DATE, "2026-11-16", id="a_week_later"),
+        pytest.param(SHOWN_DATE, "2026-11-10", id="the_next_day"),
+        pytest.param(None, "2026-11-16", id="nothing_shown"),
+    ],
+)
+def test_a_different_date_is_a_change(shown: str | None, new: str) -> None:
+    """Unhappy path. Catches a comparison so loose that any date passes as
+    the shown one (a real change of day would then run the old day), and a
+    reading that refuses a real ISO date.
+
+    A different day is a valid change; the reading hands it back as the new
+    value, and nothing runs while the person is asked again.
+    """
+    parsed = ReplyReading.model_validate(
+        {
+            "answer": "yes_with_change",
+            "changes": [{"field": "date", "shown": shown, "new": new}],
+        }
+    )
+    assert parsed.changed(ChangeField.DATE) == new
+
+    gateway = ScriptedGateway(
+        changed("yes_with_change", ("date", shown, new)),
+        answer_body("Shall I move her on that day instead?"),
+    )
+    tools = FakeTools()
+    store = FakeStore(question=held_with("transfer_user", **MOVE))
+
+    state = run(gateway, tools, store, message="no, the week after")
+
+    assert tools.calls == []
+    assert store.question is None
+    assert state.reply == "Shall I move her on that day instead?"
+
+
+def test_the_reading_prompt_asks_for_dates_as_iso() -> None:
+    """Catches a reading prompt that still asks for every value "in their
+    words", so a date comes back as "next week" and is read as a change.
+
+    Around the word "date" the prompt asks for an ISO date and shows the form.
+    """
+    text = load_prompt("read_reply").text.lower()
+
+    spots = [m for m in range(len(text)) if text.startswith("date", m)]
+    assert any(
+        "iso" in text[max(0, i - 200) : i + 300] and "yyyy-mm-dd" in text[max(0, i - 200) : i + 300]
+        for i in spots
+    )
+
+
+# --- a re-ask keeps the first language ---------------------------------------------------------
+
+FIRST_WORDS = "Ich brauche Zugang zum Wiki fuer Dana."
+
+
+def _first_messages(gateway: ScriptedGateway, *indexes: int) -> list[str]:
+    """The `first_message` each chosen writing request was given."""
+    return [
+        json.loads(gateway.requests[i]["messages"][1]["content"])["first_message"] for i in indexes
+    ]
+
+
+def test_a_re_ask_keeps_the_first_language() -> None:
+    """Catches a writer whose second attempt, after a failed check, is given the
+    current message (English) as the chat's first message, so the question
+    switches language in mid-chat.
+
+    The stored chat starts in German and the current message is English. The
+    first question lacks the days, so the writer is asked twice; both asks carry
+    the stored first message, and the current message only as `message`. The
+    same on the correction path, where the model re-plans a held request.
+    """
+    gateway = written(NO_DAYS, GOOD)
+    store = FakeStore(
+        principals=["manager"],
+        history=[("user", FIRST_WORDS), ("assistant", "Welche Rolle?")],
+        people=[PersonRow(id=DANA, display_name="Dana Fake", department="Sales")],
+    )
+
+    run(gateway, manager_tools(), store, message="File wiki viewer access for Dana.")
+
+    assert len(gateway.requests) == 4
+    assert _first_messages(gateway, 2, 3) == [FIRST_WORDS, FIRST_WORDS]
+    assert json.loads(gateway.requests[3]["messages"][1]["content"])["message"] == (
+        "File wiki viewer access for Dana."
+    )
+
+    bad = f'Soll ich "{VIEWER}" beantragen? Grund: {OLD_REASON.rstrip(".")}. Bitte antworte mit Ja.'
+    correcting = ScriptedGateway(
+        reading_with(days=90),
+        lookups_step(),
+        proposal(days=30),
+        question_body(bad),
+        question_body(question_with(90, OLD_REASON)),
+    )
+    kept = FakeStore(
+        question=held_request(),
+        history=[("user", FIRST_WORDS), ("assistant", ASKED)],
+    )
+
+    correct(correcting, kept, message="90 days, not 30")
+
+    assert len(correcting.requests) == 5
+    assert _first_messages(correcting, 3, 4) == [FIRST_WORDS, FIRST_WORDS]

@@ -62,6 +62,7 @@ class GrantNotActiveError(ToolError):
     """
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "There is no live grant of this role for this person."
 
 
 async def revoke_role_access(

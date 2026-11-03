@@ -45,7 +45,7 @@ from helpdesk.shared.core.db import (
     shared_engine,
     tenant_session,
 )
-from helpdesk.shared.core.errors import ErrorCode, ToolError
+from helpdesk.shared.core.errors import CODE_REASONS, ErrorCode, ToolError
 from helpdesk.shared.core.observability import metrics
 from helpdesk.shared.core.observability.context import bind_context
 from helpdesk.shared.core.redis import close_loop_clients, get_redis
@@ -70,10 +70,13 @@ class _Stage(enum.Enum):
     BODY = "body"
 
 
-def error_result(code: ErrorCode) -> types.CallToolResult:
-    """An errored tool result carrying the code and nothing else."""
+def error_result(code: ErrorCode, reason: str = "") -> types.CallToolResult:
+    """An errored tool result: the code, then the error class's fixed reason
+    sentence when there is one, as `CODE: reason`. Never the error's message,
+    which may hold row data."""
+    text = f"{code.value}: {reason}" if reason else code.value
     return types.CallToolResult(
-        content=[types.TextContent(type="text", text=code.value)],
+        content=[types.TextContent(type="text", text=text)],
         is_error=True,
     )
 
@@ -276,11 +279,15 @@ async def _refuse(
     exc: BaseException,
     now: datetime,
 ) -> types.CallToolResult:
-    """Record the failure, then answer with the code alone."""
+    """Record the failure, then answer with the code and its class's fixed
+    reason. A failure that is not a typed error, or whose code was changed on
+    the way, gets the code's own sentence."""
     await _record_failure(
         settings, identity, spec, _event_type_for(stage, code), code, scope, exc, now
     )
-    return error_result(code)
+    typed = isinstance(exc, ToolError) and exc.code is code
+    reason = exc.reason if isinstance(exc, ToolError) and typed else CODE_REASONS[code]
+    return error_result(code, reason)
 
 
 def _event_type_for(stage: _Stage, code: ErrorCode) -> str:

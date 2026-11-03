@@ -33,6 +33,7 @@ from typing import Any
 
 import pytest
 
+from helpdesk.agent_api.agent.graph import CHECK_NOTE_MARK
 from helpdesk.agent_api.agent.postcheck import (
     DECISION_WORDS,
     POSTCHECK_FALLBACK_REPLY,
@@ -46,6 +47,14 @@ from helpdesk.agent_api.agent.state import PostCheckOutcome, ToolResult, TurnOut
 from helpdesk.shared.models.access import RequestStatus
 from helpdesk.shared.models.conversation import MAX_MESSAGE_CHARS
 from helpdesk.shared.policy.types import Decision
+from tests.agent_api.test_agent_loop import (
+    PENDING_LISTING,
+    FakeStore,
+    FakeTools,
+    ScriptedGateway,
+    answer_body,
+    run,
+)
 
 TENANT_ID = uuid.UUID("22222222-2222-5222-8222-222222222222")
 USER_ID = uuid.UUID("33333333-3333-5333-8333-333333333333")
@@ -474,3 +483,77 @@ def test_the_last_reply_ignores_failed_results() -> None:
 
     assert reply == POSTCHECK_FALLBACK_REPLY
     assert "approval" not in reply.lower()
+
+
+# --- facts found in an earlier turn -----------------------------------------------------------
+
+EARLIER = [ToolResult(tool="list_my_requests", ok=True, payload=PENDING_LISTING)]
+"""One result kept from an earlier turn: REQ-0001, pending, Internal Wiki viewer."""
+
+
+def test_a_request_number_found_in_an_earlier_turn_is_backed() -> None:
+    """Catches a reply check that counts only this turn's results, so a request
+    number found one message ago is sent back as unproven and the bot takes
+    back a true fact; also one that lets any number through once something is
+    kept, or that lets a role the person never typed through for the same
+    reason.
+
+    No tool runs this turn. Three runs, each with one scripted answer, so any
+    send-back fails the run: the earlier number passes at once, with the check
+    passed; the earlier role name passes too. A number found in no turn is
+    still sent back, naming it.
+    """
+    number = ScriptedGateway(answer_body("You have one request, REQ-0001."))
+
+    first = run(number, FakeTools(), FakeStore(kept=EARLIER))
+
+    assert len(number.requests) == 1
+    assert first.reply == "You have one request, REQ-0001."
+    assert first.postcheck is PostCheckOutcome.PASSED
+
+    role = ScriptedGateway(answer_body("That is the Internal Wiki viewer role."))
+
+    second = run(role, FakeTools(), FakeStore(kept=EARLIER))
+
+    assert len(role.requests) == 1
+    assert second.postcheck is PostCheckOutcome.PASSED
+
+    invented = ScriptedGateway(
+        answer_body("You have REQ-0099."), answer_body("You have one request, REQ-0001.")
+    )
+
+    third = run(invented, FakeTools(), FakeStore(kept=EARLIER))
+
+    assert len(invented.requests) == 2
+    note = invented.requests[1]["messages"][-1]
+    assert note["content"].startswith(CHECK_NOTE_MARK)
+    assert "REQ-0099" in note["content"]
+    assert third.postcheck is PostCheckOutcome.REGENERATED
+
+
+def test_a_status_word_from_an_earlier_turn_is_not_backed() -> None:
+    """Unhappy path. Catches a reply check that lets "pending" through because
+    an earlier turn's listing said it (a status can have changed since, so
+    the bot would report an old status as the current one), or one that sends
+    the earlier request number back as well because it ignores kept results
+    altogether.
+
+    The kept listing holds REQ-0001 as pending and no tool runs this turn. The
+    reply "REQ-0001 is pending." is sent back, and the note names the word and
+    not the number, so the number is backed and the word is the only breach. The
+    second reply, which names the number alone, passes.
+    """
+    gateway = ScriptedGateway(
+        answer_body("Your request REQ-0001 is pending."),
+        answer_body("Your request REQ-0001 is in your list."),
+    )
+
+    state = run(gateway, FakeTools(), FakeStore(kept=EARLIER))
+
+    assert len(gateway.requests) == 2
+    note = gateway.requests[1]["messages"][-1]
+    assert note["content"].startswith(CHECK_NOTE_MARK)
+    assert "pending" in note["content"]
+    assert "REQ-0001" not in note["content"]
+    assert state.reply == "Your request REQ-0001 is in your list."
+    assert state.postcheck is PostCheckOutcome.REGENERATED

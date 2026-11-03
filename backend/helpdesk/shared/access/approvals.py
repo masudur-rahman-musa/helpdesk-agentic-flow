@@ -61,6 +61,7 @@ class RequestNotPendingError(ToolError):
     """
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "The request is no longer waiting for a decision."
 
 
 class NotAnApproverError(ToolError):
@@ -71,6 +72,7 @@ class NotAnApproverError(ToolError):
     """
 
     code = ErrorCode.FORBIDDEN
+    reason = "This person is not one of the approvers this request still waits on."
 
 
 class SlotState(BaseModel):

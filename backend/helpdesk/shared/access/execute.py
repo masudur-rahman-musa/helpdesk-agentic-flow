@@ -41,6 +41,10 @@ class SodConflictAtExecutionError(ToolError):
     """A separation-of-duties conflict exists now, after the user was told the request was clean."""
 
     code = ErrorCode.SOD_CONFLICT
+    reason = (
+        "Segregation of duties forbids it now: the person holds a role that may not "
+        "be joined with this one."
+    )
 
 
 class PolicyBlockedAtExecutionError(ToolError):
@@ -51,6 +55,7 @@ class PolicyBlockedAtExecutionError(ToolError):
     """
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "A fresh policy check blocks the grant now, for example because the person has left."
 
 
 async def execute_grant(

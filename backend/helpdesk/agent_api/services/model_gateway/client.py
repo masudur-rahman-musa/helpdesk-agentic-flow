@@ -33,6 +33,11 @@ SCHEMA_NAME_PATTERN = re.compile(r"[a-zA-Z0-9_-]{1,128}")
 DATA_CLASS = "confidential"
 """Chat carries company data, so its class is fixed and never a parameter."""
 
+REHYDRATE = "request"
+"""Sent as `X-Gateway-Rehydrate`: the gateway puts back, in its answer, the
+values its own masks hid in this request. Without it the stored chat would
+hold `<EMAIL_1>`, and the next turn would mask the same address as a new one."""
+
 CONNECT_TIMEOUT_SECONDS = 5.0
 """Enough for a slow TLS handshake; a dead gateway errors instead of hanging."""
 
@@ -297,6 +302,7 @@ class ModelClient:
             "Authorization": f"Bearer {key}",
             "X-Tenant": slug,
             "X-Data-Class": DATA_CLASS,
+            "X-Gateway-Rehydrate": REHYDRATE,
             "traceparent": trace,
         }
         if checked_session is not None:

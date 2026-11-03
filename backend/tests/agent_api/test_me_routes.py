@@ -644,6 +644,7 @@ def _me_payload(principals: list[str]) -> Mapping[str, Any]:
         "email": "fake.person@example.invalid",
         "display_name": "Fake Person One",
         "department_id": str(DEPARTMENT_ID),
+        "department_name": "Fake Department",
         "principals": principals,
         "status": "active",
         "show_tool_steps": False,
@@ -698,6 +699,7 @@ def test_the_me_route_answers_name_principals_and_the_tabs_of_the_token(
     assert response.status_code == 200
     body = response.json()
     assert body["display_name"] == "Fake Person One"
+    assert body["department_name"] == "Fake Department"
     assert body["principals"] == principals
     assert body["show_tool_steps"] is False
     assert set(body["tabs"]) == expected_tabs

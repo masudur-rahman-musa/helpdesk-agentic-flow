@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.agent_api.agent.confirmation import OpenQuestion
 from helpdesk.agent_api.agent.draft import DRAFT_LIFE, draft_message, parse_draft
-from helpdesk.agent_api.agent.graph import today_line
+from helpdesk.agent_api.agent.graph import CHECK_NOTE_MARK, today_line
 from helpdesk.agent_api.agent.loop import CHANGE_FAILED_REPLY, DbLoopStore
 from helpdesk.agent_api.agent.loop_tools import PersonRow
 from helpdesk.agent_api.agent.postcheck import unbacked_promises
@@ -831,7 +831,7 @@ def test_a_promise_with_no_backing_tool_is_sent_back(reply: str, promise: str) -
     that misses the curly apostrophe or one of the listed verbs.
 
     No tool runs. The first reply promises; the second request must carry that
-    reply, then a "Check failed:" message that names the promise, answer-only.
+    reply, then a check note (a system message) that names the promise, answer-only.
     """
     good = "Tell me which system and role you need."
     gateway = ScriptedGateway(answer_body(reply), answer_body(good))
@@ -841,8 +841,8 @@ def test_a_promise_with_no_backing_tool_is_sent_back(reply: str, promise: str) -
     assert len(gateway.requests) == 2
     sent = gateway.requests[1]["messages"]
     assert sent[-2] == {"role": "assistant", "content": reply}
-    assert sent[-1]["role"] == "user"
-    assert sent[-1]["content"].startswith("Check failed:")
+    assert sent[-1]["role"] == "system"
+    assert sent[-1]["content"].startswith(CHECK_NOTE_MARK)
     assert promise in _flat(sent[-1]["content"])
     assert gateway.requests[1]["tools"]
     assert gateway.requests[1]["tool_choice"] == "none"

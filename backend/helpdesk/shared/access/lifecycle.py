@@ -63,6 +63,7 @@ class SameDepartmentError(ToolError):
     """
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "The person is already in that department."
 
 
 class LeaverTransferError(ToolError):
@@ -74,6 +75,7 @@ class LeaverTransferError(ToolError):
     """
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "The person has left the company, so there is no move to make."
 
 
 class AlreadyLeaverError(ToolError):
@@ -84,6 +86,7 @@ class AlreadyLeaverError(ToolError):
     """
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "The person has already left the company."
 
 
 _ACTOR_KIND = "user"
@@ -101,6 +104,7 @@ class DuplicateEmailError(ToolError):
     """
 
     code = ErrorCode.POLICY_BLOCKED
+    reason = "Someone in this company already has that email address."
 
 
 @dataclass(frozen=True)

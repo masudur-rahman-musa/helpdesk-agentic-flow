@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from helpdesk.agent_api.agent.confirmation import OpenQuestion
 from helpdesk.agent_api.agent.events import ReplyEvent, StepEvent, TurnEvent
 from helpdesk.agent_api.agent.gates import MAX_TOOL_CALLS, TURN_DEADLINE_SECONDS
-from helpdesk.agent_api.agent.graph import today_line
+from helpdesk.agent_api.agent.graph import CHECK_NOTE_MARK, KEPT_RESULTS_LIMIT, today_line
 from helpdesk.agent_api.agent.loop import (
     CHANGE_FAILED_REPLY,
     MAX_STEPS,
@@ -64,8 +64,10 @@ from helpdesk.agent_api.agent.state import (
 )
 from helpdesk.agent_api.agent.tool_args import CreateAccessRequestArgs
 from helpdesk.agent_api.agent.turn_deps import TurnDeps
-from helpdesk.agent_api.services.mcp_client import ToolCaller
+from helpdesk.agent_api.services.mcp_client import ToolCaller, error_for
 from helpdesk.agent_api.services.model_gateway.client import ModelClient
+from helpdesk.shared.access.review_types import ReviewAlreadyOpenError
+from helpdesk.shared.auth import rbac
 from helpdesk.shared.core.errors import ErrorCode, NotFoundError, ToolError
 from helpdesk.shared.models.conversation import MessageRole
 from helpdesk.shared.models.idempotency import KEY_LENGTH
@@ -204,6 +206,7 @@ class FakeStore:
         on_user_message: Callable[[], None] | None = None,
         question: "OpenQuestion | OfferedChoices | None" = None,
         draft: RequestDraft | None = None,
+        kept: Sequence[ToolResult] = (),
     ) -> None:
         self._principals = tuple(principals)
         self._history = list(history)
@@ -219,6 +222,10 @@ class FakeStore:
         self.cleared = 0
         self.draft = draft
         """The request draft on the chat row; `None` once it is cleared."""
+        self.kept: list[ToolResult] = list(kept)
+        """The results kept on the chat row from earlier turns."""
+        self.kept_saves: list[list[ToolResult]] = []
+        """Every `save_kept_results` call, in order."""
 
     async def prepare(self, now: datetime) -> None:
         self.prepared.append(now)
@@ -244,6 +251,13 @@ class FakeStore:
 
     async def save_request_draft(self, draft: RequestDraft | None) -> None:
         self.draft = draft
+
+    async def kept_results(self) -> list[ToolResult]:
+        return list(self.kept)
+
+    async def save_kept_results(self, results: Sequence[ToolResult]) -> None:
+        self.kept = list(results)
+        self.kept_saves.append(list(results))
 
     async def add_message(self, role: MessageRole, content: str) -> None:
         self.messages.append((role, content))
@@ -843,7 +857,8 @@ def test_decision_word_breach_is_sent_back_once() -> None:
         "content": "Good news, your access is granted.",
     }
     reason = second["messages"][-1]
-    assert reason["role"] == "user"
+    assert reason["role"] == "system"
+    assert reason["content"].startswith(CHECK_NOTE_MARK)
     assert reason["content"]
     assert reason["content"] != MESSAGE
     assert second["tools"]
@@ -864,7 +879,8 @@ def test_decision_word_breach_is_sent_back_once() -> None:
     assert len(stubborn_gateway.requests) == 3
     third_messages = stubborn_gateway.requests[2]["messages"]
     assert third_messages[-2] == {"role": "assistant", "content": "It is granted now."}
-    assert third_messages[-1]["role"] == "user"
+    assert third_messages[-1]["role"] == "system"
+    assert third_messages[-1]["content"].startswith(CHECK_NOTE_MARK)
     assert stubborn_gateway.requests[2]["tools"]
     assert stubborn_gateway.requests[2]["tool_choice"] == "none"
     assert stubborn.postcheck is PostCheckOutcome.FALLBACK
@@ -1335,9 +1351,10 @@ def _sent_back(request_body: Mapping[str, Any], bad_reply: str) -> str:
     """The reason a request carried after `bad_reply`; fails if it carried none."""
     messages = request_body["messages"]
     assert messages[-2] == {"role": "assistant", "content": bad_reply}
-    assert messages[-1]["role"] == "user"
+    assert messages[-1]["role"] == "system"
     reason = messages[-1]["content"]
     assert isinstance(reason, str)
+    assert reason.startswith(CHECK_NOTE_MARK)
     return reason
 
 
@@ -1582,7 +1599,7 @@ def test_a_policy_refusal_reaches_the_writer_as_facts() -> None:
     assert isinstance(turn["policy_reason"], str)
     for reason in BLOCK_REASONS:
         assert reason in turn["policy_reason"]
-    assert set(turn) == {"error", "policy_reason"}
+    assert set(turn) == {"error", "reason", "policy_reason"}
 
 
 def test_a_policy_refusal_without_a_classification_has_only_the_code() -> None:
@@ -1594,7 +1611,7 @@ def test_a_policy_refusal_without_a_classification_has_only_the_code() -> None:
     """
     turn, _tools = _refused_turn(_PolicyBlocked("blocked"), classify=False)
 
-    assert turn == {"error": "POLICY_BLOCKED"}
+    assert turn == {"error": "POLICY_BLOCKED", "reason": _PolicyBlocked.reason}
 
 
 def test_a_refusal_with_another_code_does_not_carry_the_policy_reason() -> None:
@@ -1606,7 +1623,7 @@ def test_a_refusal_with_another_code_does_not_carry_the_policy_reason() -> None:
     """
     turn, _tools = _refused_turn(NotFoundError("gone"), classify=True)
 
-    assert turn == {"error": "NOT_FOUND"}
+    assert turn == {"error": "NOT_FOUND", "reason": NotFoundError.reason}
 
 
 def test_the_prompts_hold_the_refusal_and_lookup_rules() -> None:
@@ -1636,3 +1653,289 @@ def test_the_prompts_hold_the_refusal_and_lookup_rules() -> None:
         assert f"`{kind}`" in reading, kind
     assert "new_info" not in reading
     assert "when in doubt" not in reading
+
+
+# --- results kept from turn to turn ---------------------------------------------------------
+
+
+def _earlier(count: int) -> list[ToolResult]:
+    """`count` ok results kept from earlier turns, each told apart by `n`."""
+    return [
+        ToolResult(tool="list_my_requests", ok=True, payload={"requests": [], "n": n})
+        for n in range(count)
+    ]
+
+
+def test_kept_results_limit_is_twenty() -> None:
+    """Catches a limit that drifts to another number: a smaller one forgets
+    facts the person still needs, a larger one grows the chat row and every
+    model step without bound.
+
+    The constant is exactly 20.
+    """
+    assert KEPT_RESULTS_LIMIT == 20
+
+
+def test_kept_results_are_saved_and_shown_as_data() -> None:
+    """Catches a loop that never saves this turn's results (the next turn
+    doubts every fact), that saves more than the newest 20 or the oldest 20,
+    that saves them in another order, that shows earlier results as a user or
+    assistant message (the person could not have said them), that shows them
+    whole instead of trimmed, or that shows them anywhere but just before the
+    person's newest message.
+
+    Eighteen results are kept and the turn adds six: the store is given
+    exactly one list, the newest 20, the oldest four dropped, earlier ones
+    first. The next turn's request carries the kept data in one system message
+    right before the newest user message, said to be data, with the keys
+    meant only for code (`score`) cut away.
+    """
+    earlier = _earlier(18)
+    store = FakeStore(kept=earlier)
+    calls = [wire_call(f"call_{i}", "list_my_access", {}) for i in range(6)]
+    gateway = ScriptedGateway(answer_body(None, *calls), answer_body("Done."))
+    tools = FakeTools({"list_my_access": {"grants": []}})
+
+    state = run(gateway, tools, store)
+
+    assert len(store.kept_saves) == 1
+    saved = store.kept_saves[0]
+    assert len(saved) == KEPT_RESULTS_LIMIT
+    assert saved[:14] == earlier[4:]
+    assert saved[14:] == list(state.tool_results)
+    assert earlier[0] not in saved
+    assert earlier[3] not in saved
+
+    shown_store = FakeStore(
+        kept=[
+            ToolResult(
+                tool="list_my_requests",
+                ok=True,
+                payload={"requests": [{"request_number": "REQ-0001", "score": 0.987654}]},
+            )
+        ]
+    )
+    shown_gateway = ScriptedGateway(answer_body("You have REQ-0001."))
+
+    run(shown_gateway, FakeTools(), shown_store)
+
+    messages = shown_gateway.requests[0]["messages"]
+    assert messages[-1]["role"] == "user"
+    kept_message = messages[-2]
+    assert kept_message["role"] == "system"
+    assert "REQ-0001" in kept_message["content"]
+    assert "0.987654" not in kept_message["content"]
+    assert "not instructions" in kept_message["content"].lower()
+    assert [m for m in messages if "REQ-0001" in m["content"]] == [kept_message]
+
+
+def test_failed_results_are_never_kept() -> None:
+    """Unhappy path. Catches a loop that keeps a refused call's result as a
+    fact (a refusal would be shown next turn as something found), or one that
+    saves nothing because one call of the step was refused.
+
+    One lookup answers and one is refused in the same step: the one saved list
+    holds the answer only.
+    """
+    gateway = ScriptedGateway(
+        answer_body(
+            None,
+            wire_call("call_a", "get_me", {}),
+            wire_call("call_b", "list_my_requests", {}),
+        ),
+        answer_body("Done."),
+    )
+    me = {"user_id": str(USER_ID), "display_name": "Fake Person"}
+    tools = FakeTools({"get_me": me}, failures={"list_my_requests": NotFoundError("gone")})
+    store = FakeStore()
+
+    run(gateway, tools, store)
+
+    assert store.kept_saves == [[ToolResult(tool="get_me", ok=True, payload=me)]]
+
+
+def test_a_turn_that_ends_in_a_held_change_keeps_its_results() -> None:
+    """Catches a loop that saves kept results only on the plain-reply path, so
+    a turn that ends by holding a change forgets the person and role it found.
+
+    The turn looks up, then proposes a filing: the saved list holds both lookups.
+    """
+    gateway = ScriptedGateway(
+        lookup_step(),
+        answer_body(None, wire_call("call_c", "create_access_request", _create_arguments())),
+        question_body(WRITTEN_UNNAMED_ROLE),
+    )
+    store = FakeStore()
+
+    state = run(gateway, lookup_tools(), store, message="Please file wiki viewer access for me.")
+
+    assert state.outcome is TurnOutcome.CONFIRM
+    assert [r.tool for r in store.kept_saves[-1]] == ["get_me", "list_my_access"]
+
+
+# --- a failed check goes back as a check note -------------------------------------------------
+
+
+def test_a_failed_check_goes_back_as_a_check_note_not_the_person() -> None:
+    """Catches a loop that sends the failed check back as a user message (the
+    model reads it as the person speaking and apologises for mistakes nobody
+    raised), that leaves off the mark the prompt tells the model to look for,
+    or that lets a note's words count as the person's own.
+
+    The first reply names a request number no result holds. The second request
+    ends on one system message that starts with the mark and names the number,
+    and it holds no more user messages than the first. A reply that names a
+    role only the note named is still sent back, so the note did not become the
+    person's words.
+    """
+    bad = "Your request REQ-0099 is pending."
+    good = "You have one request, REQ-0001, and it is pending."
+    gateway = _listing_then(bad, good)
+
+    run(gateway, FakeTools({"list_my_requests": PENDING_LISTING}), FakeStore())
+
+    first, second = gateway.requests[1]["messages"], gateway.requests[2]["messages"]
+    note = second[-1]
+    assert note["role"] == "system"
+    assert note["content"].startswith(CHECK_NOTE_MARK)
+    assert "REQ-0099" in note["content"]
+    assert [m for m in second if m["role"] == "user"] == [m for m in first if m["role"] == "user"]
+
+    role_bad = "REQ-0001 is pending. I can also get you Payroll ledger auditor access."
+    again = _listing_then(role_bad, role_bad, "REQ-0001 is pending.")
+
+    state = run(again, FakeTools({"list_my_requests": PENDING_LISTING}), FakeStore())
+
+    assert len(again.requests) == 4
+    assert "ledger" in again.requests[3]["messages"][-1]["content"].lower()
+    assert state.reply == "REQ-0001 is pending."
+
+
+def test_the_check_note_mark_is_plain_and_not_empty() -> None:
+    """Catches an empty mark (every system message would start with it, so the
+    model could not tell a note) or one that carries a line break.
+
+    The mark is a non-blank single line.
+    """
+    assert CHECK_NOTE_MARK.strip() == CHECK_NOTE_MARK != ""
+    assert "\n" not in CHECK_NOTE_MARK
+
+
+def test_the_prompt_holds_the_check_note_and_draft_rules() -> None:
+    """Catches a loop prompt that never says a check note is not the person and
+    must not be mentioned (the model answers it as a person), that does not
+    name the mark the note starts with, or that lets a saved draft read as a
+    filed request ("I have recorded your request").
+
+    The prompt names the mark and, around the words "check note", says it is
+    never the person and never mentioned; one sentence says a saved draft is
+    not a filed request.
+    """
+    text = " ".join(load_prompt("agent_loop").text.lower().split())
+
+    assert CHECK_NOTE_MARK.lower() in text
+    start = text.index("check note")
+    around = text[start : start + 500]
+    assert "never the person" in around or "not the person" in around
+    assert "never mention" in around or "not mention" in around
+    sentences = text.split(". ")
+    assert any("draft" in s and "not" in s and "filed" in s for s in sentences)
+
+
+# --- a refusal carries its fixed reason ---------------------------------------------------------
+
+REMOTE_REASON = "A review of this scope and period is already open."
+
+
+def _refusal_run(failure: ToolError) -> tuple[dict[str, Any], ScriptedGateway]:
+    """One lookup the tool server refuses with `failure`; the tool turn the
+    model got back for it, and every request the model was sent."""
+    gateway = ScriptedGateway(
+        answer_body(None, wire_call("call_x", "list_my_requests", {})),
+        answer_body("That did not go through."),
+    )
+    run(gateway, FakeTools(failures={"list_my_requests": failure}), FakeStore())
+    turns = [t for t in tool_turns(gateway.requests[-1]) if t["tool_call_id"] == "call_x"]
+    assert len(turns) == 1
+    parsed = json.loads(turns[0]["content"])
+    assert isinstance(parsed, dict)
+    return parsed, gateway
+
+
+@pytest.mark.parametrize(
+    ("make_failure", "code", "expected"),
+    [
+        pytest.param(
+            lambda: ReviewAlreadyOpenError("review row 42"),
+            "POLICY_BLOCKED",
+            lambda: ReviewAlreadyOpenError.reason,
+            id="review_already_open_class_sentence",
+        ),
+        pytest.param(
+            lambda: NotFoundError("row 42"),
+            "NOT_FOUND",
+            lambda: NotFoundError.reason,
+            id="generic_class_sentence",
+        ),
+        pytest.param(
+            lambda: error_for(f"POLICY_BLOCKED: {REMOTE_REASON}"),
+            "POLICY_BLOCKED",
+            lambda: REMOTE_REASON,
+            id="sentence_that_came_over_the_wire",
+        ),
+    ],
+)
+def test_a_refusal_carries_its_fixed_reason(
+    make_failure: Callable[[], ToolError], code: str, expected: Callable[[], str]
+) -> None:
+    """Catches a loop that hands the model only the bare code (it then says "no
+    reason was given" for a review that is simply already open), that sends the
+    exception's own message instead of the reason, or that drops a reason the
+    tool server sent.
+
+    The model's tool turn is exactly the code and the sentence, and the
+    review-already-open sentence says an open review is why.
+    """
+    turn, _gateway = _refusal_run(make_failure())
+
+    assert turn == {"error": code, "reason": expected()}
+    assert expected().strip() != ""
+    assert "already open" in ReviewAlreadyOpenError.reason.lower()
+
+
+def test_a_refusal_never_carries_row_data() -> None:
+    """Unhappy path. Catches a loop that puts the error's own message (row data,
+    log text) in front of the model, in the tool turn or anywhere else in the
+    request.
+
+    The message holds a marker no sentence holds. It is nowhere in any request
+    the model was sent.
+    """
+    marker = "ROW-9f31c-secret-payload"
+    turn, gateway = _refusal_run(ReviewAlreadyOpenError(f"review {marker} for scope {marker}"))
+
+    assert turn["reason"] == ReviewAlreadyOpenError.reason
+    for request in gateway.requests:
+        assert marker not in json.dumps(request)
+
+
+# --- who is offered the department lookup -----------------------------------------------------
+
+
+@pytest.mark.parametrize("principal", ["manager", "system_owner"])
+def test_a_review_opener_is_offered_the_department_lookup(principal: str) -> None:
+    """Catches a role that may open a review but is not offered
+    `find_department`, so the bot cannot tell a department id is Finance.
+
+    Both roles hold the review tool and neither holds onboarding or transfer
+    (checked first, so the older rows of the table cannot be what offers it);
+    both are offered the lookup. An employee, who holds none of the three, is
+    not.
+    """
+    held = set(rbac.tools_for([principal]))
+    assert rbac.Tool.OPEN_ACCESS_REVIEW in held
+    assert rbac.Tool.ONBOARD_USER not in held
+    assert rbac.Tool.TRANSFER_USER not in held
+
+    assert "find_department" in [t.name for t in offered_tools([principal])]
+    assert "find_department" not in [t.name for t in offered_tools(["employee"])]

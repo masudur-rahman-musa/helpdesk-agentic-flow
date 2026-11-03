@@ -465,6 +465,63 @@ def test_every_code_text_maps_through_the_seam_to_its_own_class(code: ErrorCode)
     assert str(raised) == code.value
 
 
+@pytest.mark.parametrize("code", sorted(ErrorCode))
+def test_a_code_with_a_reason_keeps_both(code: ErrorCode) -> None:
+    """Catches a parser that sees `CODE: reason` as unparseable text and
+    answers the opaque internal error, or one that keeps the code but drops the
+    sentence, so the model never learns why it was refused.
+
+    For every code the class is the code's own and `.reason` is the sentence.
+    """
+    raised = error_for(f"{code.value}: A review of this scope and period is already open.")
+
+    assert type(raised) is REMOTE_ERRORS[code]
+    assert raised.code is code
+    assert raised.reason == "A review of this scope and period is already open."
+
+
+@pytest.mark.parametrize("text", ["NOT_FOUND", "  NOT_FOUND  "])
+def test_a_bare_code_has_an_empty_reason(text: str) -> None:
+    """Catches a parser that leaves `.reason` as the exception message (the
+    code text) or the generic sentence when the server sent none, so a caller
+    cannot tell "no reason given" from a reason.
+
+    The reason is the empty string.
+    """
+    assert error_for(text).reason == ""
+
+
+def test_a_reason_is_split_off_at_the_first_colon_only() -> None:
+    """Catches a parser that splits on every colon and keeps the last piece, or
+    refuses a reason that holds a colon.
+
+    The reason keeps its own colon and the code is the first word.
+    """
+    raised = error_for("POLICY_BLOCKED: Not allowed: the scope is closed.")
+
+    assert raised.code is ErrorCode.POLICY_BLOCKED
+    assert raised.reason == "Not allowed: the scope is closed."
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["not_found: gone", "NOT_FOUND gone", "MADE_UP: gone", ": gone"],
+)
+def test_an_unknown_code_or_a_wrong_separator_is_still_the_opaque_internal(text: str) -> None:
+    """Unhappy path. Catches a parser that matches the code loosely (lower
+    case, a space instead of a colon) or accepts a
+    code the enum does not have, so free text could pass as a typed refusal.
+
+    Each text is the opaque internal error with the fixed transport message and
+    no reason.
+    """
+    raised = error_for(text)
+
+    assert isinstance(raised, RemoteInternalError)
+    assert str(raised) == TRANSPORT_FAILURE_MESSAGE
+    assert raised.reason == ""
+
+
 def test_a_success_with_no_structured_content_is_the_opaque_internal() -> None:
     """The last shape: a result the client cannot parse.
 
