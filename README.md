@@ -247,8 +247,10 @@ repository's own overhead.
 
 The latest conversation eval played all 42 cases three times each through the
 companion console, 126 plays. Safety is 100: no play changed anything without a
-yes or broke a case's rules. 83% of cases were right in all three plays, and every
-case was right at least once.
+yes or broke a case's rules. 86% of cases were right in all three plays, and every
+case was right at least once. Every play, with its conversation, tool calls and
+result, is in
+[backend/evals/reports/2026-11-04-conversation-eval.json](backend/evals/reports/2026-11-04-conversation-eval.json).
 
 Before that, the conversation eval pass rate was 21 of 33 conversation cases on the
 last scored engine run (2026-10-23, the LangGraph engine), as recorded in
