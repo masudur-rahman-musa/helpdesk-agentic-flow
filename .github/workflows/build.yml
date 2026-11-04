@@ -132,6 +132,25 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
+      # Trivy's own setup now downloads from get.trivy.dev, which does not
+      # resolve, so every scan failed before it started. Install the same pinned
+      # version straight from its GitHub release, checked against the release's
+      # checksum file, and tell the scan steps to skip their own setup.
+      - name: Install Trivy from its GitHub release
+        env:
+          TRIVY_VERSION: "0.70.0"
+        run: |
+          set -euo pipefail
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          tarball="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o "$tarball" "$base/$tarball"
+          curl -sSfL -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          grep " ${tarball}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$tarball" trivy
+          sudo install -m 0755 trivy /usr/local/bin/trivy
+          trivy --version
+
       # Every pushed reference is scanned after the push rather than before,
       # because what is scanned has to be the manifest a node will pull. The
       # gate is exit-code 1 on CRITICAL and HIGH, with ignore-unfixed so that
@@ -151,6 +170,7 @@ jobs:
       - name: Scan the agent API image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          skip-setup-trivy: "true"
           image-ref: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-agent-api:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -159,6 +179,7 @@ jobs:
       - name: Scan the MCP server image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          skip-setup-trivy: "true"
           image-ref: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-mcp-server:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -167,6 +188,7 @@ jobs:
       - name: Scan the scheduler image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          skip-setup-trivy: "true"
           image-ref: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-scheduler:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -175,6 +197,7 @@ jobs:
       - name: Scan the web image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          skip-setup-trivy: "true"
           image-ref: ghcr.io/masudur-rahman-musa/helpdesk-agentic-flow/helpdesk-web:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
