@@ -41,7 +41,7 @@ REPO_ROOT = _repo_root()
 """Every path below is resolved from here."""
 
 README = REPO_ROOT / "README.md"
-CUSTOMIZING = REPO_ROOT / "docs" / "customizing.md"
+CUSTOMIZING = REPO_ROOT / "docs" / "use-it-for-your-company.md"
 DOCS = REPO_ROOT / "docs"
 DIAGRAM_DIR = DOCS / "diagrams"
 

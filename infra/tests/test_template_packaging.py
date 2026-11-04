@@ -1,12 +1,12 @@
 """The repository works as a template.
 
-What is pinned here: the shape of `docs/customizing.md`, the shape of
-`docs/directory-adapter.md`, the two README entry points, the `.env.example`
+What is pinned here: the shape of `docs/use-it-for-your-company.md`, the shape of
+its `Directory adapter` section, the two README entry points, the `.env.example`
 line for `POLICY_DIR`, the `make ingest` target, and the
 absence of any invented seed name from Python application source.
 
 Why the check is static rather than runtime: nothing in this list is read by
-the application at all. `docs/customizing.md` and `docs/directory-adapter.md` are
+the application at all. `docs/use-it-for-your-company.md` and its `Directory adapter` section are
 read by a human adopting the template, and a document nobody checks drifts
 from the code it describes within a few changes. A green suite proves the code
 works; only parsing the document proves the document still describes it.
@@ -41,8 +41,9 @@ def _repo_root() -> Path:
 REPO_ROOT = _repo_root()
 """Every path below is resolved from here."""
 
-CUSTOMIZING = REPO_ROOT / "docs" / "customizing.md"
-ADAPTER_GUIDE = REPO_ROOT / "docs" / "directory-adapter.md"
+CUSTOMIZING = REPO_ROOT / "docs" / "use-it-for-your-company.md"
+ADAPTER_GUIDE = CUSTOMIZING
+"""The adapter walkthrough sits under the guide's `Directory adapter` section."""
 README = REPO_ROOT / "README.md"
 ENV_EXAMPLE = REPO_ROOT / "backend" / ".env.example"
 MAKEFILE = REPO_ROOT / "Makefile"
@@ -139,15 +140,16 @@ def _section_body(markdown: str, heading: str) -> str:
     return "\n".join(body)
 
 
-# --- docs/customizing.md -----------------------------------------------------------
+# --- docs/use-it-for-your-company.md -----------------------------------------------------------
 
 
 def test_customizing_lists_exactly_the_five_things_an_adopter_changes_first() -> None:
-    """Catches a `docs/customizing.md` that is missing, that is a wall of prose with
+    """Catches a `docs/use-it-for-your-company.md` that is missing, that is a wall of prose with
     no headings, or that grew a sixth section.
 
-    The file's whole value is that it is scannable in a minute, which is also
-    why the adapter walkthrough lives in its own file. An adopter
+    The file's whole value is that its five headings scan in a minute, which
+    is also why the adapter walkthrough sits under `###` headings inside
+    `Directory adapter` rather than as sections of its own. An adopter
     who cannot see the five things in one screen reads the source instead, and
     the template stops being a template. Asserted as an ordered list rather
     than a set, so a file that names all five in a different order (burying
@@ -174,7 +176,7 @@ def test_the_customizing_policies_section_names_the_variable_and_the_command() -
     assert "make ingest" in body
 
 
-# --- docs/directory-adapter.md ------------------------------------------------
+# --- its directory adapter section ------------------------------------------------
 
 
 def test_the_adapter_guide_names_every_directory_provider_method() -> None:
@@ -219,23 +221,22 @@ def test_the_adapter_guide_names_the_simulated_implementation() -> None:
 
 
 def test_the_readme_links_the_customizing_and_adapter_guides() -> None:
-    """Catches two documents that exist but that nothing reaches.
+    """Catches the adopter guide existing while nothing reaches it.
 
-    Every case above opens its file by path, so both stay green when the README
-    mentions neither. A reader arrives at the README and nowhere else; an
+    Every case above opens the file by path, so they stay green when the README
+    never mentions it. A reader arrives at the README and nowhere else; an
     unlinked customizing guide is a file only the author knows about. The link
     target is asserted with the closing bracket and parenthesis
-    (`](docs/customizing.md)`) so a bare mention of the filename in prose does
+    (`](docs/use-it-for-your-company.md)`) so a bare mention of the filename in prose does
     not pass for a link.
     """
     readme = _read(README)
 
-    assert "](docs/customizing.md)" in readme
-    assert "](docs/directory-adapter.md)" in readme
+    assert "](docs/use-it-for-your-company.md)" in readme
 
 
 def test_the_readme_shows_the_bring_your_own_policies_command() -> None:
-    """Catches a README that links `docs/customizing.md` and says nothing itself.
+    """Catches a README that links `docs/use-it-for-your-company.md` and says nothing itself.
 
     The link case above is green on exactly that README. Section 1 asks for the
     command in the README too, because the "can I use this with my policies?"
@@ -278,7 +279,7 @@ def test_the_env_example_declares_policy_dir_with_the_default_value() -> None:
 def test_the_makefile_declares_a_phony_ingest_target() -> None:
     """Catches the ingest target being documented but not implemented.
 
-    Both README cases and the `docs/customizing.md` body case assert the string
+    Both README cases and the `docs/use-it-for-your-company.md` body case assert the string
     `make ingest` in prose; none of them proves the target exists, so a
     documented command that errors with "No rule to make target" passes every
     one of them. The `.PHONY` half matters on its own: without it a file or

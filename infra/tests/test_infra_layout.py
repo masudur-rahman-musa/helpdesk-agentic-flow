@@ -8,7 +8,7 @@ What is pinned: `k8s/` lives in `infra/k8s/`; `docker/postgres/` in
 `build_images.py` in `infra/scripts/`, `test_shard.py` and its timings in
 `.github/scripts/`, and the e2e scripts and stub in `backend/scripts/`;
 `docs/architecture.md` is root `ARCHITECTURE.md`; `CUSTOMIZING.md` is
-`docs/customizing.md`; a root `SECURITY.md` exists. The root allowlist (now
+`docs/use-it-for-your-company.md`; a root `SECURITY.md` exists. The root allowlist (now
 `.github/root-allowlist`) names no old roots and the root check (now
 `.github/scripts/check_root.py`) is wired into `.pre-commit-config.yaml` and
 `.github/workflows/ci.yml`.
@@ -53,7 +53,7 @@ def test_dev_scripts_moved() -> None:
 def test_docs_relocated() -> None:
     """Kills a move that leaves the customizing guide or architecture at its old path."""
     present = [
-        REPO_ROOT / "docs" / "customizing.md",
+        REPO_ROOT / "docs" / "use-it-for-your-company.md",
         REPO_ROOT / "ARCHITECTURE.md",
     ]
     for path in present:
