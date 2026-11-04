@@ -32,8 +32,9 @@ from pydantic import (
     model_validator,
 )
 
+from helpdesk.agent_api.agent.found import ID_SUFFIX, Found, Part, stripped
+from helpdesk.agent_api.agent.found import Fact as Fact
 from helpdesk.agent_api.agent.matching import fold
-from helpdesk.agent_api.agent.role_words import plain_role_name, with_plain_role_names
 from helpdesk.agent_api.agent.state import (
     Citation,
     IntentExtraction,
@@ -340,92 +341,12 @@ def _days(days: object) -> str | None:
     return "1 day" if days == 1 else f"{days} days"
 
 
-@dataclass(frozen=True)
-class Fact:
-    """One thing the written question must show, as code knows it."""
-
-    text: str
-    number: bool = False
-    """Found as the digits standing alone, so "30 Tage" and "30 jours" both
-    show 30 and "130" does not."""
-
-    def found_in(self, question: str) -> bool:
-        """Whether the question shows this fact, ignoring case and accents."""
-        if self.number:
-            return re.search(rf"(?<!\d){re.escape(self.text)}(?!\d)", question) is not None
-        return fold(self.text) in fold(question)
-
-
 _ASKED_DAYS = "requested_expiry_days"
 _ROLE_ID = "role_id"
-
-ID_SUFFIX = "_id"
-"""An argument or row field whose name ends so holds an id."""
 
 YOU = "you"
 """How the asking person's own id is shown. It comes from the token, so no
 lookup has to name it."""
-
-
-@dataclass(frozen=True)
-class _Part:
-    """One argument as the line shows it, and what the question must copy of it."""
-
-    shown: str
-    facts: tuple[Fact, ...] = ()
-
-
-def _text(value: object) -> str:
-    return value.strip() if isinstance(value, str) else ""
-
-
-def _row_role(row: Mapping[str, Any]) -> str:
-    """The row's role in plain words, or empty when it names no role."""
-    system, slug = _text(row.get("system_name")), _text(row.get("role_slug"))
-    if system and slug:
-        return plain_role_name(system, slug)
-    return _text(row.get("role_name"))
-
-
-def _name_row(row: Mapping[str, Any], names: dict[str, _Part]) -> None:
-    """Name every id the row holds: by its `<x>_name`, else by the row's
-    `name` when the row has one id of its own, else the row's first id by its
-    request number and role. An id with none of these stays unnamed."""
-    ids = [key for key, value in row.items() if key.endswith(ID_SUFFIX) and _text(value)]
-    for place, key in enumerate(ids):
-        own = _text(row.get(f"{key.removesuffix(ID_SUFFIX)}_name"))
-        if not own and len(ids) == 1:
-            own = _text(row.get("name"))
-        if own:
-            names.setdefault(_text(row[key]), _Part(own, (Fact(own),)))
-            continue
-        if place:
-            continue
-        number, role = _text(row.get("request_number")), _row_role(row)
-        listed = f"{number} {role}".strip()
-        if listed:
-            names.setdefault(_text(row[key]), _Part(listed, (Fact(number or role),)))
-
-
-def _name_rows(value: Any, names: dict[str, _Part]) -> None:
-    if isinstance(value, Mapping):
-        _name_row(value, names)
-        for child in value.values():
-            _name_rows(child, names)
-    elif isinstance(value, list):
-        for item in value:
-            _name_rows(item, names)
-
-
-def _found_names(results: Sequence[ToolResult]) -> dict[str, _Part]:
-    """Each id an ok result names, at any depth and under any key, with role
-    names in plain words; the first result to name an id wins. Found by
-    shape, so a new lookup needs no code here."""
-    names: dict[str, _Part] = {}
-    for result in results:
-        if result.ok:
-            _name_rows(with_plain_role_names(result.payload), names)
-    return names
 
 
 def unnamed_ids(
@@ -433,7 +354,7 @@ def unnamed_ids(
 ) -> list[str]:
     """The id arguments of the calls that no result names and that are not
     the asking person's own, so the question could not show them by name."""
-    names = _found_names(results)
+    names = Found.of((), results).names
     missing = [
         key
         for call in calls
@@ -452,8 +373,8 @@ def _label(key: str) -> str:
 
 
 def _part(
-    key: str, value: object, names: dict[str, _Part], own_user_id: uuid.UUID | None
-) -> _Part | None:
+    key: str, value: object, names: dict[str, Part], own_user_id: uuid.UUID | None
+) -> Part | None:
     """How one argument is shown, or `None` when it is not: the key code
     fills, an empty value, or an id nobody named. Without the own id, an
     unnamed person id is the asking person's, the one id the check lets
@@ -463,49 +384,79 @@ def _part(
     if key.endswith(ID_SUFFIX):
         text = str(value)
         if own_user_id is not None and text == str(own_user_id):
-            return _Part(YOU)
+            return Part(YOU)
         if text in names:
             return names[text]
-        return _Part(YOU) if own_user_id is None and key.endswith("user_id") else None
+        return Part(YOU) if own_user_id is None and key.endswith("user_id") else None
     if isinstance(value, bool):
-        return _Part("yes" if value else "no")
+        return Part("yes" if value else "no")
     if isinstance(value, int):
-        return _Part(str(value), (Fact(str(value), number=True),))
+        return Part(str(value), (Fact(str(value), number=True),))
     if isinstance(value, list):
         titles = [
-            _text(item.get("title")) if isinstance(item, Mapping) else _text(item) for item in value
+            stripped(item.get("title")) if isinstance(item, Mapping) else stripped(item)
+            for item in value
         ]
         titles = [title for title in titles if title]
-        return _Part(", ".join(titles), tuple(Fact(title) for title in titles)) if titles else None
-    text = _text(value) or str(value)
+        return Part(", ".join(titles), tuple(Fact(title) for title in titles)) if titles else None
+    text = stripped(value) or str(value)
     copied = text.rstrip(".").strip()
-    return _Part(text.rstrip("."), (Fact(copied),) if copied else ())
+    return Part(text.rstrip("."), (Fact(copied),) if copied else ())
+
+
+def _now(part: Part, first: str, call: ValidatedCall, found: Found) -> Part:
+    """The first id's part with the current value of each field of its
+    found row that another argument of the change sets, read by shape: the
+    argument's label ends with the field's label (`new department` sets
+    `department`). The row's `name` is how the id is shown already."""
+    row = found.rows.get(str(call.arguments.get(first)))
+    if row is None:
+        return part
+    labels = [_label(key) for key in call.arguments if key not in (first, IDEMPOTENCY_KEY)]
+    details = [
+        (field.replace("_", " "), value)
+        for field, raw in row.items()
+        if field != "name"
+        and not field.endswith(ID_SUFFIX)
+        and (value := stripped(raw))
+        and any(
+            label == field.replace("_", " ") or label.endswith(f" {field.replace('_', ' ')}")
+            for label in labels
+        )
+    ]
+    if not details:
+        return part
+    said = "; ".join(f"{field} now {value}" for field, value in details)
+    return Part(f"{part.shown} ({said})", (*part.facts, *(Fact(value) for _, value in details)))
 
 
 def _call_parts(
     call: ValidatedCall,
-    names: dict[str, _Part],
+    found: Found,
     own_user_id: uuid.UUID | None,
     person: str | None,
-) -> list[tuple[str, _Part]]:
+) -> list[tuple[str, Part]]:
+    """Each argument's label and part; the first id's part also shows the
+    current details its record holds (`_now`)."""
+    first = next((key for key in call.arguments if key.endswith(ID_SUFFIX)), None)
     parts = [
-        (_label(key), part)
+        (_label(key), _now(part, key, call, found) if key == first else part)
         for key, value in call.arguments.items()
-        if (part := _part(key, value, names, own_user_id)) is not None
+        if (part := _part(key, value, found.names, own_user_id)) is not None
     ]
     if person and all(part.shown != person for _, part in parts):
-        parts.append(("for", _Part(person, (Fact(person),))))
+        parts.append(("for", Part(person, (Fact(person),))))
     return parts
 
 
-def _call_line(parts: Sequence[tuple[str, _Part]], call: ValidatedCall) -> str:
+def _call_line(parts: Sequence[tuple[str, Part]], call: ValidatedCall) -> str:
     """ "I'll <tool name in words>: <label> <value>, ..."."""
     words = call.tool.replace("_", " ")
     shown = ", ".join(f"{label} {part.shown}" for label, part in parts)
     return f"I'll {words}: {shown}." if shown else f"I'll {words}."
 
 
-def _length_part(results: Sequence[ToolResult], held: ValidatedCall) -> _Part:
+def _length_part(results: Sequence[ToolResult], held: ValidatedCall) -> Part:
     """The access's length: this turn's classified one, else what the call
     asks for, else `USUAL_LENGTH`."""
     verdict = _verdict(results)
@@ -515,8 +466,8 @@ def _length_part(results: Sequence[ToolResult], held: ValidatedCall) -> _Part:
     ):
         said = _days(days)
         if said is not None:
-            return _Part(said, (Fact(str(days), number=True),))
-    return _Part(USUAL_LENGTH)
+            return Part(said, (Fact(str(days), number=True),))
+    return Part(USUAL_LENGTH)
 
 
 def _shown_calls(
@@ -526,24 +477,24 @@ def _shown_calls(
     kept: Sequence[ToolResult],
     own_user_id: uuid.UUID | None,
     person: str | None,
-) -> list[tuple[ValidatedCall, list[tuple[str, _Part]]]]:
+) -> list[tuple[ValidatedCall, list[tuple[str, Part]]]]:
     """Every held change with the parts it shows; a read call held beside it
     (the classification) shows nothing. An access request shows its
     length, just after the role, in place of the days it asks for, since the policy may shorten
     them, and the
     resolved role when no result named its role id."""
-    names = _found_names([*kept, *results])
+    found = Found.of(kept, results)
     shown = []
     for call in calls:
         if not needs_idempotency_key(call.tool):
             continue
-        parts = _call_parts(call, names, own_user_id, person)
+        parts = _call_parts(call, found, own_user_id, person)
         if call.tool == CREATE_ACCESS_REQUEST:
             parts = [(label, part) for label, part in parts if label != _label(_ASKED_DAYS)]
             labels = [label for label, _ in parts]
             role = resolved.role_name if resolved else None
             if _label(_ROLE_ID) not in labels and role:
-                parts.insert(0, (_label(_ROLE_ID), _Part(role, (Fact(role),))))
+                parts.insert(0, (_label(_ROLE_ID), Part(role, (Fact(role),))))
                 labels.insert(0, _label(_ROLE_ID))
             after = labels.index(_label(_ROLE_ID)) + 1 if _label(_ROLE_ID) in labels else 0
             parts.insert(after, ("for", _length_part(results, call)))

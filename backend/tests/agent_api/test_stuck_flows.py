@@ -458,7 +458,8 @@ def test_a_transfer_from_a_department_name_holds_the_found_id() -> None:
             ),
         ),
         question_body(
-            "Soll ich Dana Fake zum 2026-11-02 nach Procurement versetzen? Bitte antworte mit Ja."
+            "Soll ich Dana Fake zum 2026-11-02 von Sales nach Procurement versetzen? "
+            "Bitte antworte mit Ja."
         ),
     )
     store = FakeStore(

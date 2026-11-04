@@ -70,7 +70,6 @@ from helpdesk.agent_api.agent.confirmation import (
     UNCLEAR_REPLY,
     ChangeField,
     ConfirmQuestion,
-    Fact,
     OfferedChoices,
     OpenQuestion,
     Reading,
@@ -86,6 +85,7 @@ from helpdesk.agent_api.agent.confirmation import (
 )
 from helpdesk.agent_api.agent.draft import draft_message, merge_draft
 from helpdesk.agent_api.agent.events import ProgressEvent, StepEvent
+from helpdesk.agent_api.agent.found import Fact, Found
 from helpdesk.agent_api.agent.keys import derive_idempotency_key
 from helpdesk.agent_api.agent.loop_tools import (
     FIND_DEPARTMENT,
@@ -238,10 +238,6 @@ _CHANGE_INTENTS: Mapping[str, Intent] = {
 
 _DECISIONS = frozenset({gates.APPROVE_REQUEST, gates.REJECT_REQUEST})
 
-ID_FIELDS = ("role_id", "target_user_id", "user_id", "manager_user_id")
-"""The person and role ids a change may carry only when a tool result of this
-turn returned them. Identity, tenant and session are filled by code."""
-
 UNNAMED_ID = "no lookup in this chat named it, so it cannot be shown by name; look it up first"
 """Why a change holding an id nobody named goes back: the question must show
 every id by name."""
@@ -351,8 +347,6 @@ class LoopState(TypedDict, total=False):
     """Set by a send-back: the next `agent` step only rewrites the reply."""
     change_sent_back: bool
     person_said: list[str]
-    roles_found: dict[str, dict[str, Any]]
-    people_found: dict[str, str]
     grant_holders: dict[str, str]
     """Whose grant each id is, from `list_person_access`, so a held revoke names them."""
     denied: list[dict[str, Any]]
@@ -499,16 +493,6 @@ def _without_key(arguments: Mapping[str, Any]) -> dict[str, Any]:
     return {name: value for name, value in arguments.items() if name != IDEMPOTENCY_KEY}
 
 
-def _unfound_id(arguments: Mapping[str, Any], found: str) -> str | None:
-    """The first id field whose value no ok result of this turn holds, or
-    `None`."""
-    for name in ID_FIELDS:
-        value = arguments.get(name)
-        if value is not None and str(value) not in found:
-            return name
-    return None
-
-
 def _problems(exc: ValidationError) -> str:
     """A validation error as "field: what is wrong" lines the model can act on."""
     return "; ".join(
@@ -545,8 +529,6 @@ class _Turn:
         self.change_sent_back = state.get("change_sent_back", False)
         self.person_said: list[str] = list(state.get("person_said", []))
         """The person's own messages, this turn's last; never the check's notes."""
-        self.roles_found: dict[str, dict[str, Any]] = dict(state.get("roles_found", {}))
-        self.people_found: dict[str, str] = dict(state.get("people_found", {}))
         self.grant_holders: dict[str, str] = dict(state.get("grant_holders", {}))
         self.denied: list[dict[str, Any]] = list(state.get("denied", []))
         self.corrections: dict[str, Any] = dict(state.get("corrections", {}))
@@ -578,8 +560,6 @@ class _Turn:
             "resend": self.resend,
             "change_sent_back": self.change_sent_back,
             "person_said": self.person_said,
-            "roles_found": self.roles_found,
-            "people_found": self.people_found,
             "grant_holders": self.grant_holders,
             "denied": self.denied,
             "corrections": self.corrections,
@@ -1087,15 +1067,9 @@ class _Turn:
     def _remember(
         self, name: str, payload: Mapping[str, Any], arguments: Mapping[str, Any]
     ) -> None:
-        """Keep found roles, people and whose grants were listed for the
-        summary, and passages for Sources."""
-        if name == FIND_ROLE:
-            for row in payload.get("roles") or []:
-                self.roles_found[str(row["role_id"])] = row
-        elif name == FIND_PERSON:
-            for row in payload.get("people") or []:
-                self.people_found[str(row["user_id"])] = str(row["name"])
-        elif name == LIST_PERSON_ACCESS:
+        """Keep whose grants were listed for the summary, and passages for
+        Sources. Found roles and people are read from `Found`."""
+        if name == LIST_PERSON_ACCESS:
             for row in payload.get("grants") or []:
                 self.grant_holders[str(row["grant_id"])] = str(arguments.get("user_id"))
         elif name == SEARCH_POLICY:
@@ -1109,13 +1083,11 @@ class _Turn:
     ) -> tuple[list[ValidatedCall], dict[str, str]]:
         """The step's changes with their keys, all or none, and the reason per
         call when any is wrong. Code adds the key; a model that names one is
-        wrong. After the schema, every id must come from this turn's ok results
-        (`_unfound_id`), an onboarding's email is the one the person typed
-        (`_typed_email`), and a just-denied call is refused again."""
+        wrong. After the schema, every id must be named by what this chat found
+        (`unnamed_ids` over `Found`; the person's own id needs no lookup), an
+        onboarding's email is the one the person typed (`_typed_email`), and a
+        just-denied call is refused again."""
         listed = gates.listed_request_ids(tuple(self.results))
-        found = " ".join(
-            json.dumps(result.payload, default=str) for result in self.results if result.ok
-        )
         validated: list[ValidatedCall] = []
         reasons: dict[str, str] = {}
         for index, call in enumerate(calls):
@@ -1151,12 +1123,6 @@ class _Turn:
                 reasons[call.id] = _problems(exc)
                 continue
             dumped = checked.model_dump(mode="json")
-            unfound = _unfound_id(dumped, found)
-            if unfound is not None:
-                reasons[call.id] = (
-                    f"{unfound}: not returned by a lookup this turn; look it up first"
-                )
-                continue
             unnamed = unnamed_ids(
                 [ValidatedCall(tool=call.name, arguments=dumped)],
                 [*self.kept, *self.results],
@@ -1200,10 +1166,11 @@ class _Turn:
         target = str(first.arguments.get("target_user_id") or "")
         if first.tool == "revoke_access":
             target = self.grant_holders.get(str(first.arguments.get("grant_id")), "")
+        found = Found.of(self.kept, self.results)
         person = None
         if target and target != str(self.state.user_id):
-            person = self.people_found.get(target, "someone else")
-        role = self.roles_found.get(str(first.arguments.get("role_id")))
+            person = found.people.get(target, "someone else")
+        role = found.roles.get(str(first.arguments.get("role_id")))
         resolved = ResolvedEntities(
             role_id=uuid.UUID(role["role_id"]) if role else None,
             role_name=role["name"] if role else None,
@@ -1320,11 +1287,13 @@ class _Turn:
 
     async def _unbacked(self, reply: str) -> list[str]:
         """Every decision word, request number, tenant role name and promise
-        of future work in `reply` that this turn's results do not back. Role
-        names may also be the person's own words, this turn or earlier."""
+        of future work in `reply` that nothing backs. Request numbers and role
+        names may come from anything the chat found (`Found`), and role names
+        also from the person's own words; decision words and promises need this
+        turn's results, since a status can change."""
         checked = self._state()
         roles = list(await self.store.role_ids())
-        known = [*self.kept, *checked.tool_results]
+        known = Found.of(self.kept, checked.tool_results).results
         return [
             *sorted(words_in(reply) - permitted_words(checked)),
             *unbacked_numbers(reply, known),

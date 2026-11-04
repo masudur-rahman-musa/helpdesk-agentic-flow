@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from helpdesk.agent_api.agent.confirmation import OpenQuestion
 from helpdesk.agent_api.agent.draft import DRAFT_LIFE, draft_message, parse_draft
-from helpdesk.agent_api.agent.graph import CHECK_NOTE_MARK, today_line
+from helpdesk.agent_api.agent.graph import CHECK_NOTE_MARK, UNNAMED_ID, today_line
 from helpdesk.agent_api.agent.loop import CHANGE_FAILED_REPLY, DbLoopStore
 from helpdesk.agent_api.agent.loop_tools import DepartmentRow, PersonRow
 from helpdesk.agent_api.agent.postcheck import unbacked_promises
@@ -124,7 +124,7 @@ def _create(**more: Any) -> dict[str, Any]:
 def _refusal(field: str) -> dict[str, str]:
     return {
         "error": "bad_arguments",
-        "reason": f"{field}: not returned by a lookup this turn; look it up first",
+        "reason": f"{field}: {UNNAMED_ID}",
     }
 
 
@@ -301,10 +301,15 @@ def _onboard(person: uuid.UUID) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("tool", "field", "build"),
     [
-        pytest.param("transfer_user", "user_id", _transfer, id="transfer_user.user_id"),
+        pytest.param(
+            "transfer_user", "user_id, new_department_id", _transfer, id="transfer_user.user_id"
+        ),
         pytest.param("offboard_user", "user_id", _offboard, id="offboard_user.user_id"),
         pytest.param(
-            "onboard_user", "manager_user_id", _onboard, id="onboard_user.manager_user_id"
+            "onboard_user",
+            "department_id, manager_user_id",
+            _onboard,
+            id="onboard_user.manager_user_id",
         ),
     ],
 )
