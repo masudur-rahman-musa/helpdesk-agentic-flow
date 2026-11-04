@@ -39,6 +39,28 @@ it, and the date it ends.
 
 ## Demo
 
+Taken on the local stack. Every person and company is made up by the seed data.
+
+**An employee asks for access.** The bot shows what it will file and asks yes or no. Only after the yes is the request filed.
+
+![Access request in the chat](docs/media/helpdesk-chat-request.png)
+
+**The manager decides.** The request waits on the Approvals page with its risk and reason.
+
+![Approvals page](docs/media/helpdesk-approvals.png)
+
+**A refusal.** Sharing a login is against the policy, so the bot says no and offers the proper way.
+
+![The bot refusing to share a login](docs/media/helpdesk-refusal.png)
+
+**The access rules.** The policy the bot answers from, open to every employee.
+
+![Access rules page](docs/media/helpdesk-access-rules.png)
+
+**An access review.** A manager's quarterly review, with grants outside the standard set flagged.
+
+![Access review page](docs/media/helpdesk-review.png)
+
 Video not yet recorded.
 
 Until it exists, [docs/demo-accounts.md](docs/demo-accounts.md) has a short
