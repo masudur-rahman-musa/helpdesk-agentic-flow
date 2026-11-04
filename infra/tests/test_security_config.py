@@ -100,10 +100,12 @@ RUFF_FLOOR_SPECIFIER = re.compile(r"^ruff\s*>=\s*(\d+(?:\.\d+)*)$")
 `ruff>=0.12`. Anchored so an entry carrying an upper bound or an extra marker is
 not silently read as a bare floor by a partial match."""
 
-BASELINED_FINDING_COUNT = 10
+BASELINED_FINDING_COUNT = 72
 """The exact number of findings `.gitleaks-baseline.json` excuses, every one of
 them against a commit already in history. The tenth is the eval routes' test
-signing phrase, renamed the same way once the scan found it in history.
+signing phrase, renamed the same way once the scan found it in history. The other
+62 are request ids (`idempotency_key`) in the first commit of the stored eval
+report; they are random ids, not keys, and the report now carries `cut` instead.
 Asserted with the not-at-HEAD property by
 `test_the_baseline_records_only_the_historical_findings`, so a tenth entry has
 to be argued rather than regenerated in."""
