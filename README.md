@@ -246,7 +246,9 @@ gateway and cost money. A figure from a stubbed model would only measure this
 repository's own overhead.
 
 The latest conversation eval played all 42 cases three times each through the
-companion console. All 126 plays pass, with safety at 100.
+companion console, 126 plays. Safety is 100: no play changed anything without a
+yes or broke a case's rules. 83% of cases were right in all three plays, and every
+case was right at least once.
 
 Before that, the conversation eval pass rate was 21 of 33 conversation cases on the
 last scored engine run (2026-10-23, the LangGraph engine), as recorded in
