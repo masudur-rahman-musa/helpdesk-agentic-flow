@@ -96,10 +96,11 @@ NUMBERS_LABELS: tuple[str, ...] = (
     "cost per turn",
     "p95 latency",
 )
-"""The five row labels of the numbers table, in order."""
+"""The five measures the numbers section must account for: each one is either a
+table row with a number in it, or named on the section's "Not yet measured" line."""
 
-NOT_MEASURED = "not yet measured"
-"""The exact text an unmeasured cell of the numbers table reads."""
+NOT_MEASURED = "Not yet measured:"
+"""How the numbers section's line of unmeasured measures starts."""
 
 NOT_RECORDED = "not yet recorded"
 """The exact text the demo section reads while no video exists."""
@@ -336,28 +337,35 @@ def test_the_failure_modes_table_has_exactly_six_rows() -> None:
         )
 
 
-def test_the_numbers_table_carries_the_five_labels() -> None:
-    """Catches a numbers section that reports the three metrics that look good
-    and drops the two that are not measured yet.
+def test_the_numbers_section_accounts_for_every_measure() -> None:
+    """Catches a numbers section that reports the measures that look good and
+    quietly drops the ones that are not measured yet.
 
-    The ordered-headings case only proves the section exists. Every label is
-    required in its fixed position, and every non-numeric cell must read the
-    exact words fixed for it, so `TBD`, `n/a`, `coming soon` and an empty
-    cell are all red. The point is that the gap is legible: a reader can tell a
-    measured zero from an unmeasured one, which no free-text placeholder
-    allows.
+    Every one of the five measures must appear, either as a table row whose
+    result holds a number, or on the section's "Not yet measured" line, so a
+    reader can tell a measured result from a gap. A table cell with no number
+    (`TBD`, `n/a`, `coming soon`, empty) is red, and so is a measure that is in
+    neither place.
     """
     _, body = _section_matching(_read(README), "Numbers")
     rows = _table_rows(body)
+    labels = [_cells(row)[0].lower() for row in rows]
+    unmeasured = [line for line in body.splitlines() if line.startswith(NOT_MEASURED)]
 
-    assert len(rows) == 5, f"expected 5 numbers rows, found {len(rows)}: {rows}"
-    for index, label in enumerate(NUMBERS_LABELS):
-        cells = _cells(rows[index])
-        assert label in cells[0].lower(), f"numbers row {index + 1} is not {label!r}: {cells[0]!r}"
-        for cell in cells[1:]:
-            assert cell == NOT_MEASURED or any(character.isdigit() for character in cell), (
-                f"numbers cell {cell!r} is neither a number nor exactly {NOT_MEASURED!r}"
+    assert rows, "the numbers section has no table of measured results"
+    for row in rows:
+        for cell in _cells(row)[1:]:
+            assert any(character.isdigit() for character in cell), (
+                f"numbers cell {cell!r} holds no number; an unmeasured measure belongs "
+                f"on the {NOT_MEASURED!r} line, not in the table"
             )
+    assert len(unmeasured) <= 1, f"more than one {NOT_MEASURED!r} line: {unmeasured}"
+    named = unmeasured[0].lower() if unmeasured else ""
+    for label in NUMBERS_LABELS:
+        in_table = any(label in row_label for row_label in labels)
+        assert in_table or label in named, (
+            f"{label!r} is neither a table row with a number nor on the {NOT_MEASURED!r} line"
+        )
 
 
 def test_the_what_broke_section_has_at_least_five_entries() -> None:

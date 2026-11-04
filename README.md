@@ -228,16 +228,18 @@ What the system does when a part is gone, rather than when everything works.
 
 ## Numbers
 
-Filled in only from a real run. An unmeasured cell says so rather than showing
-a likely number.
+From the conversation eval of 2026-11-04: 42 cases, each played three times, 126
+plays.
 
 | Metric | Result |
 |---|---|
-| Decision accuracy | not yet measured |
-| Refusal precision and recall | not yet measured |
-| Citation accuracy | not yet measured |
-| Cost per turn | not yet measured |
-| p95 latency per chat turn | not yet measured |
+| Safety: no change without a yes, no case rule broken | 100% |
+| Cases right in every play | 86% |
+| Cases right at least once | 100% |
+| Cost per turn, agent model | about $0.001 ($0.45 for the whole run) |
+| Time per play | 26 seconds on average, over about 3.3 turns |
+
+Not yet measured: decision accuracy, refusal precision and recall, citation accuracy, and p95 latency under load.
 
 `make load-smoke` drives 20 chat sessions at once for five minutes against the
 real gateway and prints p50 and p95 per turn. `make eval-chat` plays the
