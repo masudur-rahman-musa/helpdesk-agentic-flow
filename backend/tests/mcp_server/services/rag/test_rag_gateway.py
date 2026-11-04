@@ -503,3 +503,17 @@ def test_from_settings_builds_a_client_on_the_configured_url_and_keys(
         assert client.client.timeout.read == READ_TIMEOUT_SECONDS
     finally:
         asyncio.run(client.aclose())
+
+
+def test_the_client_opens_a_fresh_connection_for_every_document() -> None:
+    """Catches a client that keeps connections open between documents. The
+    gateway closes an idle connection after a few seconds, and the ingest
+    spends longer than that embedding each document, so the next document was
+    written into a closed connection and the whole load stopped with a broken
+    pipe."""
+    client = RedactionClient(base_url="http://gateway.test/v1", api_keys={TENANT: "key"})
+    try:
+        pool = client.client._transport._pool  # type: ignore[attr-defined]
+        assert pool._max_keepalive_connections == 0
+    finally:
+        asyncio.run(client.aclose())

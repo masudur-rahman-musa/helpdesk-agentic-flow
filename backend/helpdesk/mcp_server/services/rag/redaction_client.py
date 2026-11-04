@@ -75,6 +75,10 @@ class RedactionClient:
                 write=READ_TIMEOUT_SECONDS,
                 pool=CONNECT_TIMEOUT_SECONDS,
             ),
+            # A fresh connection per document. The gateway closes an idle
+            # connection after a few seconds, and embedding one document can
+            # take longer, so a kept connection was often dead on reuse.
+            limits=httpx.Limits(max_keepalive_connections=0),
             transport=transport,
         )
 
