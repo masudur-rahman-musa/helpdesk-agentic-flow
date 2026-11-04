@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -130,6 +130,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Unmount first, so no late scroll lands after the stub is gone.
+  cleanup();
   vi.unstubAllGlobals();
   // @ts-expect-error jsdom has no such method; remove the stub so tests share nothing.
   delete Element.prototype.scrollIntoView;
